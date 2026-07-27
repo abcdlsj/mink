@@ -518,7 +518,26 @@ pub async fn wait_for_computer_status(
     space_id: Uuid,
     expected: &str,
 ) -> Result<ComputerResponse> {
-    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+    wait_for_computer_status_for(
+        client,
+        server,
+        cookie,
+        space_id,
+        expected,
+        std::time::Duration::from_secs(20),
+    )
+    .await
+}
+
+pub async fn wait_for_computer_status_for(
+    client: &Client,
+    server: &Url,
+    cookie: &str,
+    space_id: Uuid,
+    expected: &str,
+    timeout: std::time::Duration,
+) -> Result<ComputerResponse> {
+    tokio::time::timeout(timeout, async {
         loop {
             let response = client
                 .get(server.join(&format!("/api/v1/spaces/{space_id}/computers"))?)

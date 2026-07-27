@@ -18,7 +18,8 @@ use sqlx::postgres::PgPoolOptions;
 use support::{
     SpaceResponse, SumiProcess, TestDatabase, confirm_pairing, create_space,
     pairing_url_from_daemon, register_human, reserve_local_port, spawn_computer, spawn_server,
-    wait_for_computer_status, wait_for_health, write_builtin_computer_config, write_server_config,
+    wait_for_computer_status, wait_for_computer_status_for, wait_for_health,
+    write_builtin_computer_config, write_server_config,
 };
 use tokio::{
     net::TcpListener,
@@ -68,6 +69,7 @@ struct AgentProcessHarness {
     cookie: String,
     space: SpaceResponse,
     computer_id: Uuid,
+    computer_config: PathBuf,
     computer_state: PathBuf,
     agent_id: Uuid,
     pool: sqlx::PgPool,
@@ -152,6 +154,7 @@ impl AgentProcessHarness {
             cookie,
             space,
             computer_id: paired.id,
+            computer_config,
             computer_state,
             agent_id,
             pool,
@@ -724,6 +727,193 @@ fn finish_channel_create(
         kind,
     });
     text_stream("Channel create completed through the real Sumi CLI.")
+}
+
+#[derive(Clone, Debug)]
+enum AgentApprovalEvent {
+    Requested {
+        inbox_item_id: Uuid,
+        approval_id: Uuid,
+        name: &'static str,
+    },
+    Failed(String),
+}
+
+struct AgentApprovalProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<AgentApprovalEvent>,
+    state: Arc<AgentApprovalProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct AgentApprovalProviderState {
+    step: Mutex<usize>,
+    computer_id: Mutex<Option<Uuid>>,
+    events: mpsc::UnboundedSender<AgentApprovalEvent>,
+}
+
+impl AgentApprovalProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(AgentApprovalProviderState {
+            step: Mutex::new(0),
+            computer_id: Mutex::new(None),
+            events: events_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(agent_approval_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            state,
+            task,
+        })
+    }
+
+    async fn set_computer_id(&self, computer_id: Uuid) {
+        *self.state.computer_id.lock().await = Some(computer_id);
+    }
+
+    async fn wait_for_event(&mut self) -> Result<AgentApprovalEvent> {
+        match tokio::time::timeout(Duration::from_secs(30), self.events.recv()).await {
+            Ok(event) => event.context("Agent Approval provider stopped before the CLI action"),
+            Err(_) => anyhow::bail!(
+                "timed out waiting for Agent Approval action at provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for AgentApprovalProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn agent_approval_chat_stream(
+    State(state): State<Arc<AgentApprovalProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    let Some(computer_id) = *state.computer_id.lock().await else {
+        return bad_provider_request();
+    };
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 | 4 => tool_call_stream(
+            &format!("agent-approval-inbox-{step}"),
+            "sumi agent inbox current --json",
+        ),
+        1 => tool_call_stream(
+            "agent-approval-create-approved",
+            &format!(
+                "sumi agent create --name 'Approved Child' --role-file ../memory/MEMORY.md --computer {computer_id} --driver builtin --json"
+            ),
+        ),
+        2 => agent_approval_then_ack(
+            &state,
+            &request,
+            "Approved Child",
+            "agent-approval-approved-ack",
+        ),
+        3 => finish_agent_approval(&state, &request, "Approved Child"),
+        5 => tool_call_stream(
+            "agent-approval-create-rejected",
+            &format!(
+                "sumi agent create --name 'Rejected Child' --role-file ../memory/MEMORY.md --computer {computer_id} --driver builtin --json"
+            ),
+        ),
+        6 => agent_approval_then_ack(
+            &state,
+            &request,
+            "Rejected Child",
+            "agent-approval-rejected-ack",
+        ),
+        7 => finish_agent_approval(&state, &request, "Rejected Child"),
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
+fn agent_approval_then_ack(
+    state: &AgentApprovalProviderState,
+    request: &serde_json::Value,
+    name: &'static str,
+    call_id: &str,
+) -> Response {
+    let Some((inbox_item_id, _, _)) = claimed_channel_mention(request) else {
+        return bad_provider_request();
+    };
+    let Some(result) = latest_tool_result(request) else {
+        return bad_provider_request();
+    };
+    if result["ok"] != true
+        || result["data"]["status"] != "pending"
+        || result["data"]["approval_id"].as_str().is_none()
+    {
+        let _ = state.events.send(AgentApprovalEvent::Failed(format!(
+            "invalid pending Approval response for {name}: {result}"
+        )));
+        return bad_provider_request();
+    }
+    tool_call_stream(
+        call_id,
+        &format!(
+            "sumi agent inbox ack {inbox_item_id} --reason 'requested Human approval for {name}' --json"
+        ),
+    )
+}
+
+fn finish_agent_approval(
+    state: &AgentApprovalProviderState,
+    request: &serde_json::Value,
+    name: &'static str,
+) -> Response {
+    let Some((inbox_item_id, _, _)) = claimed_channel_mention(request) else {
+        return bad_provider_request();
+    };
+    if !valid_ack_result(request, inbox_item_id) {
+        return bad_provider_request();
+    }
+    let approval_id = request["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(tool_result)
+        .find_map(|result| {
+            (result["ok"] == true && result["data"]["status"] == "pending")
+                .then(|| {
+                    result["data"]["approval_id"]
+                        .as_str()
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                })
+                .flatten()
+        });
+    let Some(approval_id) = approval_id else {
+        return bad_provider_request();
+    };
+    let _ = state.events.send(AgentApprovalEvent::Requested {
+        inbox_item_id,
+        approval_id,
+        name,
+    });
+    text_stream("Agent creation request was submitted for Human approval.")
 }
 
 fn valid_ack_result(request: &serde_json::Value, inbox_item_id: Uuid) -> bool {
@@ -1708,6 +1898,284 @@ fn valid_channel_ambient_read(
                     })
                     && messages[4]["id"] == latest_message_id.to_string()
             })
+}
+
+#[tokio::test]
+async fn builtin_agent_create_requires_human_approval_and_provisions_through_real_daemon()
+-> Result<()> {
+    let mut provider = AgentApprovalProvider::start().await?;
+    let mut harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_approval_test",
+        "Request new Agents only through the Sumi Agent CLI and Human Approval.",
+    )
+    .await?;
+    provider.set_computer_id(harness.computer_id).await;
+    disable_agent_ambient(&harness).await?;
+
+    let promote = harness
+        .client
+        .patch(harness.server_url.join(&format!(
+            "/api/v1/spaces/{}/members/{}",
+            harness.space.id, harness.agent_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "access_level": "admin" }))
+        .send()
+        .await?;
+    ensure!(promote.status() == StatusCode::OK);
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin request the approved child Agent through the CLI.",
+    )
+    .await?;
+    let (approved_item_id, approved_id) = match provider.wait_for_event().await? {
+        AgentApprovalEvent::Requested {
+            inbox_item_id,
+            approval_id,
+            name: "Approved Child",
+        } => (inbox_item_id, approval_id),
+        AgentApprovalEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected approved child request, got {event:?}"),
+    };
+    wait_for_mention_run(&harness.pool, approved_item_id, "handled", 1).await?;
+
+    let pending_state: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+            (SELECT count(*) FROM approvals WHERE id = $1 AND status = 'pending' \
+                AND requested_by_member_id = $2), \
+            (SELECT count(*) FROM members WHERE space_id = $3 \
+                AND display_name = 'Approved Child'), \
+            (SELECT count(*) FROM computer_commands \
+                WHERE payload_json->>'name' = 'Approved Child'), \
+            (SELECT count(*) FROM inbox_items WHERE approval_id = $1 \
+                AND kind = 'approval' AND status = 'pending'), \
+            (SELECT count(*) FROM audit_events WHERE subject_id = $1 \
+                AND action = 'approval.created'), \
+            (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1 \
+                AND topic = 'approval.created'), \
+            (SELECT count(*) FROM idempotency_records WHERE scope = $4 \
+                AND response_status = 201)",
+    )
+    .bind(approved_id)
+    .bind(harness.agent_id)
+    .bind(harness.space.id)
+    .bind(format!("member:{}:agent:create:approval", harness.agent_id))
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(pending_state == (1, 0, 0, 1, 1, 1, 1));
+    ensure!(
+        std::fs::read_dir(harness.computer_state.join("agents"))?.count() == 1,
+        "pending Approval created an Agent Home"
+    );
+
+    let secrets: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(harness.computer_state.join("secrets.json"))?)?;
+    let computer_token = secrets["token"]
+        .as_str()
+        .context("Computer Token missing from local secrets")?;
+    let computer_cannot_approve = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/approvals/{approved_id}/approve"))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .bearer_auth(computer_token)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    ensure!(computer_cannot_approve.status() == StatusCode::UNAUTHORIZED);
+
+    harness.daemon.interrupt().await?;
+    wait_for_computer_status_for(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.id,
+        "offline",
+        Duration::from_secs(40),
+    )
+    .await?;
+    let offline_approve = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/approvals/{approved_id}/approve"))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    ensure!(offline_approve.status() == StatusCode::CONFLICT);
+    let offline_state: (String, i64, i64) = sqlx::query_as(
+        "SELECT status, \
+            (SELECT count(*) FROM members WHERE space_id = $2 \
+                AND display_name = 'Approved Child'), \
+            (SELECT count(*) FROM computer_commands \
+                WHERE payload_json->>'name' = 'Approved Child') \
+         FROM approvals WHERE id = $1",
+    )
+    .bind(approved_id)
+    .bind(harness.space.id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(offline_state == ("pending".to_owned(), 0, 0));
+
+    harness.daemon = spawn_computer(&harness.computer_config)?;
+    wait_for_computer_status(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.id,
+        "online",
+    )
+    .await?;
+    let approve = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/approvals/{approved_id}/approve"))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    ensure!(approve.status() == StatusCode::OK);
+    let approved: serde_json::Value = approve.json().await?;
+    ensure!(approved["status"] == "approved");
+    let child_id: Uuid = sqlx::query_scalar(
+        "SELECT members.id FROM members JOIN agents ON agents.member_id = members.id \
+         WHERE members.space_id = $1 AND members.display_name = 'Approved Child'",
+    )
+    .bind(harness.space.id)
+    .fetch_one(&harness.pool)
+    .await?;
+    wait_for_agent_active(&harness.pool, child_id).await?;
+    ensure!(
+        harness
+            .computer_state
+            .join("agents")
+            .join(child_id.to_string())
+            .join("profile.json")
+            .is_file(),
+        "approved Agent was not provisioned into a real Agent Home"
+    );
+
+    let owner_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM members WHERE space_id = $1 AND access_level = 'owner'")
+            .bind(harness.space.id)
+            .fetch_one(&harness.pool)
+            .await?;
+    let approved_state: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+            (SELECT count(*) FROM approvals WHERE id = $1 AND status = 'approved' \
+                AND resolved_by_member_id = $2), \
+            (SELECT count(*) FROM inbox_items WHERE approval_id = $1 \
+                AND status = 'handled'), \
+            (SELECT count(*) FROM agents WHERE member_id = $3 AND status = 'active'), \
+            (SELECT count(*) FROM computer_commands WHERE computer_id = $4 \
+                AND kind = 'agent.provision' AND payload_json->>'agent_id' = $3::text \
+                AND status = 'completed'), \
+            (SELECT count(*) FROM audit_events WHERE subject_id = $1 \
+                AND action = 'approval.resolved'), \
+            (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1 \
+                AND topic = 'approval.resolved')",
+    )
+    .bind(approved_id)
+    .bind(owner_id)
+    .bind(child_id)
+    .bind(harness.computer_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(approved_state == (1, 1, 1, 1, 1, 1));
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin request the rejected child Agent through the CLI.",
+    )
+    .await?;
+    let (rejected_item_id, rejected_id) = match provider.wait_for_event().await? {
+        AgentApprovalEvent::Requested {
+            inbox_item_id,
+            approval_id,
+            name: "Rejected Child",
+        } => (inbox_item_id, approval_id),
+        AgentApprovalEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected rejected child request, got {event:?}"),
+    };
+    wait_for_mention_run(&harness.pool, rejected_item_id, "handled", 2).await?;
+    let reject = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/approvals/{rejected_id}/reject"))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    ensure!(reject.status() == StatusCode::OK);
+    let rejected_state: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+            (SELECT count(*) FROM approvals WHERE id = $1 AND status = 'rejected' \
+                AND resolved_by_member_id = $2), \
+            (SELECT count(*) FROM members WHERE space_id = $3 \
+                AND display_name = 'Rejected Child'), \
+            (SELECT count(*) FROM computer_commands \
+                WHERE payload_json->>'name' = 'Rejected Child'), \
+            (SELECT count(*) FROM inbox_items WHERE approval_id = $1 \
+                AND status = 'handled'), \
+            (SELECT count(*) FROM audit_events WHERE subject_id = $1 \
+                AND action = 'approval.resolved'), \
+            (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1 \
+                AND topic = 'approval.resolved')",
+    )
+    .bind(rejected_id)
+    .bind(owner_id)
+    .bind(harness.space.id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(rejected_state == (1, 0, 0, 1, 1, 1));
+    ensure!(
+        std::fs::read_dir(harness.computer_state.join("agents"))?.count() == 2,
+        "rejected Approval created an Agent Home"
+    );
+
+    harness.daemon.ensure_running()?;
+    for text in [
+        "request the approved child Agent",
+        "request the rejected child Agent",
+        PROVIDER_AUTH,
+    ] {
+        ensure!(
+            !harness.server.logs_contain(text),
+            "Server logs leaked run input"
+        );
+        ensure!(
+            !harness.daemon.logs_contain(text),
+            "daemon logs leaked run input"
+        );
+    }
+
+    harness.shutdown().await
 }
 
 #[tokio::test]

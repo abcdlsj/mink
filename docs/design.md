@@ -446,6 +446,10 @@ Agent 或普通 Human 使用 agent:create 发起时，Server 创建 Approval：
 - status：pending
 
 只有 Human Owner 或 Human Admin 可以 approve/reject。发起者不能审批自己的申请。审批成功后 Server 才向目标 Computer 下发创建命令。Approval 必须出现在 Human Inbox 和 WebUI 的审批列表。
+创建 pending Approval 只要求目标 Computer 属于同一 Space，不要求当时 online。approve 时目标 Computer
+必须 online；若 offline，Server 返回 `computer_offline`，Approval 保持 pending，且不得创建 Agent Member、
+Agent、Computer command 或本地 Agent Home。Computer 恢复 online 后，Human 使用同一 approve 端点和新的
+幂等 key 重试；成功决议与 Agent provisioning command 必须在同一事务提交。
 
 ### 8.4 Human 邀请
 
