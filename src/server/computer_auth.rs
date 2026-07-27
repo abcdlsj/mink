@@ -64,7 +64,7 @@ pub(super) async fn require_active_run(
          JOIN members ON members.id = agents.member_id \
          WHERE agent_runs.id = $1 AND agent_runs.agent_member_id = $2 \
            AND agent_runs.computer_id = $3 AND agent_runs.status = 'running' \
-           AND agents.status = 'active' AND members.retired_at IS NULL",
+           AND agents.status IN ('active', 'suspended') AND members.retired_at IS NULL",
     )
     .bind(run_id)
     .bind(agent_id)
