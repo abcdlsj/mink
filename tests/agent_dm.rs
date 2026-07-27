@@ -34,6 +34,11 @@ const MODEL_FINAL_TEXT: &str = "Controlled model final text must not become a Me
 const PROVIDER_AUTH: &str = "test-only-provider-key";
 const RECOVERY_HUMAN_MESSAGE: &str = "Recovery boundary Human Message.";
 const RECOVERY_CLI_REPLY: &str = "Recovery boundary CLI reply.";
+const CHANNEL_REPLY_MENTION: &str = "@lin please reply through the CLI.";
+const CHANNEL_ACK_MENTION: &str = "@lin acknowledge this without replying.";
+const CHANNEL_DEFER_MENTION: &str = "@lin defer this mention for later.";
+const CHANNEL_CLI_REPLY: &str = "Channel mention replied through the real Sumi CLI.";
+const CHANNEL_DEFER_UNTIL: &str = "2099-01-01T00:00:00Z";
 
 struct FakeProvider {
     url: Url,
@@ -51,7 +56,7 @@ struct FakeProviderState {
     completed: mpsc::Sender<()>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ObservedAgentReply {
     id: Uuid,
     channel_id: Uuid,
@@ -336,6 +341,601 @@ fn bad_provider_request() -> Response {
         .status(StatusCode::BAD_REQUEST)
         .body(Body::empty())
         .expect("static fake response")
+}
+
+#[derive(Clone, Debug)]
+enum ChannelMentionEvent {
+    Replied {
+        inbox_item_id: Uuid,
+        reply: ObservedAgentReply,
+    },
+    Acked(Uuid),
+    Deferred(Uuid),
+    Failed(String),
+}
+
+#[derive(sqlx::FromRow)]
+struct ChannelMentionInboxState {
+    kind: String,
+    priority: String,
+    retry_count: i32,
+    lease_id: Option<Uuid>,
+    handled_by_run_id: Option<Uuid>,
+    available_at: Option<time::OffsetDateTime>,
+    run_link_count: i64,
+    outbox_count: i64,
+}
+
+struct ChannelMentionProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<ChannelMentionEvent>,
+    state: Arc<ChannelMentionProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct ChannelMentionProviderState {
+    step: Mutex<usize>,
+    agent_id: Mutex<Option<Uuid>>,
+    events: mpsc::UnboundedSender<ChannelMentionEvent>,
+}
+
+impl ChannelMentionProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(ChannelMentionProviderState {
+            step: Mutex::new(0),
+            agent_id: Mutex::new(None),
+            events: events_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(channel_mention_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            state,
+            task,
+        })
+    }
+
+    async fn set_agent_id(&self, agent_id: Uuid) {
+        *self.state.agent_id.lock().await = Some(agent_id);
+    }
+
+    async fn wait_for_event(&mut self) -> Result<ChannelMentionEvent> {
+        match tokio::time::timeout(Duration::from_secs(30), self.events.recv()).await {
+            Ok(event) => {
+                event.context("Channel mention provider stopped before the Agent action completed")
+            }
+            Err(_) => anyhow::bail!(
+                "timed out waiting for Channel mention Agent action at provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for ChannelMentionProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn channel_mention_chat_stream(
+    State(state): State<Arc<ChannelMentionProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    let Some(agent_id) = *state.agent_id.lock().await else {
+        return bad_provider_request();
+    };
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 | 4 | 8 => {
+            if !prompt_has_channel_mention_summary(&request) {
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                &format!("channel-mention-inbox-{step}"),
+                "sumi agent inbox current --json",
+            )
+        }
+        1 | 5 | 9 => {
+            let Some((_, address, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                &format!("channel-mention-read-{step}"),
+                &format!("sumi agent channel read '{address}' --json"),
+            )
+        }
+        2 | 6 | 10 => {
+            let Some((inbox_item_id, address, message_id)) = claimed_channel_mention(&request)
+            else {
+                return bad_provider_request();
+            };
+            let expected_snapshot = match *step {
+                2 => 1,
+                6 => 3,
+                _ => 4,
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                let _ = state.events.send(ChannelMentionEvent::Failed(
+                    "channel read did not return JSON".to_owned(),
+                ));
+                return bad_provider_request();
+            };
+            if !valid_channel_mention_read(
+                &result,
+                &address,
+                expected_snapshot,
+                agent_id,
+                message_id,
+            ) {
+                let source = result["data"]["messages"].as_array().and_then(|messages| {
+                    messages
+                        .iter()
+                        .find(|message| message["id"] == message_id.to_string())
+                });
+                let _ = state.events.send(ChannelMentionEvent::Failed(format!(
+                    "invalid channel read: ok={}, address_match={}, snapshot={:?}, message_count={:?}, source_found={}, mentions_match={}",
+                    result["ok"] == true,
+                    result["data"]["address"] == address,
+                    result["data"]["snapshot_channel_seq"].as_i64(),
+                    result["data"]["messages"].as_array().map(Vec::len),
+                    source.is_some(),
+                    source.is_some_and(|message| message["mentions"] == serde_json::json!([agent_id])),
+                )));
+                return bad_provider_request();
+            }
+            match *step {
+                2 => tool_call_stream(
+                    "channel-mention-reply",
+                    &format!(
+                        "sumi agent message send '{address}' --body '{CHANNEL_CLI_REPLY}' --based-on {expected_snapshot} --handle {inbox_item_id} --json"
+                    ),
+                ),
+                6 => tool_call_stream(
+                    "channel-mention-ack",
+                    &format!(
+                        "sumi agent inbox ack {inbox_item_id} --reason 'explicitly acknowledged in process test' --json"
+                    ),
+                ),
+                _ => tool_call_stream(
+                    "channel-mention-defer",
+                    &format!(
+                        "sumi agent inbox defer {inbox_item_id} --until '{CHANNEL_DEFER_UNTIL}' --json"
+                    ),
+                ),
+            }
+        }
+        3 => {
+            let Some((inbox_item_id, address, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(reply) = latest_tool_result(&request)
+                .and_then(|result| valid_message_send(&result, &address))
+            else {
+                return bad_provider_request();
+            };
+            let _ = state.events.send(ChannelMentionEvent::Replied {
+                inbox_item_id,
+                reply,
+            });
+            text_stream("Channel mention reply action completed.")
+        }
+        7 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            if result["data"]["handled_inbox_item_ids"]
+                .as_array()
+                .is_none_or(|ids| ids != &[serde_json::json!(inbox_item_id)])
+            {
+                return bad_provider_request();
+            }
+            let _ = state.events.send(ChannelMentionEvent::Acked(inbox_item_id));
+            text_stream("Channel mention ack action completed.")
+        }
+        11 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            if result["data"]["deferred_inbox_item_ids"]
+                .as_array()
+                .is_none_or(|ids| ids != &[serde_json::json!(inbox_item_id)])
+                || result["data"]["available_at"] != CHANNEL_DEFER_UNTIL
+            {
+                let _ = state.events.send(ChannelMentionEvent::Failed(format!(
+                    "invalid defer result: ids_match={}, available_at={}",
+                    result["data"]["deferred_inbox_item_ids"]
+                        .as_array()
+                        .is_some_and(|ids| ids == &[serde_json::json!(inbox_item_id)]),
+                    result["data"]["available_at"],
+                )));
+                return bad_provider_request();
+            }
+            let _ = state
+                .events
+                .send(ChannelMentionEvent::Deferred(inbox_item_id));
+            text_stream("Channel mention defer action completed.")
+        }
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
+fn prompt_has_channel_mention_summary(request: &serde_json::Value) -> bool {
+    request["messages"].as_array().is_some_and(|messages| {
+        messages.iter().any(|message| {
+            message["content"].as_str().is_some_and(|content| {
+                content.contains("\"kind\": \"mention\"")
+                    && content.contains("\"priority\": \"hard\"")
+                    && content.contains("\"address\": \"#general\"")
+            })
+        })
+    })
+}
+
+fn claimed_channel_mention(request: &serde_json::Value) -> Option<(Uuid, String, Uuid)> {
+    request["messages"]
+        .as_array()?
+        .iter()
+        .filter_map(tool_result)
+        .find_map(|result| {
+            let item = result["data"]["items"].as_array()?.first()?;
+            (item["kind"] == "mention"
+                && item["priority"] == "hard"
+                && item["status"] == "leased"
+                && item["address"] == "#general")
+                .then(|| {
+                    Some((
+                        Uuid::parse_str(item["id"].as_str()?).ok()?,
+                        item["address"].as_str()?.to_owned(),
+                        Uuid::parse_str(item["message_id"].as_str()?).ok()?,
+                    ))
+                })
+                .flatten()
+        })
+}
+
+fn valid_channel_mention_read(
+    result: &serde_json::Value,
+    expected_address: &str,
+    expected_snapshot: i64,
+    agent_id: Uuid,
+    source_message_id: Uuid,
+) -> bool {
+    result["ok"] == true
+        && result["data"]["address"] == expected_address
+        && result["data"]["snapshot_channel_seq"].as_i64() == Some(expected_snapshot)
+        && result["data"]["messages"]
+            .as_array()
+            .is_some_and(|messages| {
+                messages.iter().any(|message| {
+                    message["id"] == source_message_id.to_string()
+                        && message["mentions"] == serde_json::json!([agent_id])
+                })
+            })
+}
+
+#[tokio::test]
+async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let database = TestDatabase::create("sumi_agent_channel_mention_test").await?;
+    let server_port = reserve_local_port()?;
+    let server_address = SocketAddr::from(([127, 0, 0, 1], server_port));
+    let server_url = Url::parse(&format!("http://{server_address}"))?;
+    let server_config = root.path().join("server.toml");
+    write_server_config(
+        &server_config,
+        server_address,
+        &database.url,
+        &root.path().join("attachments"),
+        &root.path().join("web-dist"),
+    )?;
+    let mut server = spawn_server(&server_config)?;
+    wait_for_health(&server_url).await?;
+
+    let mut provider = ChannelMentionProvider::start().await?;
+    let computer_state = root.path().join("computer");
+    let computer_config = root.path().join("computer.toml");
+    write_builtin_computer_config(
+        &computer_config,
+        &server_url,
+        &computer_state,
+        &provider.url,
+    )?;
+    let client = Client::new();
+    let cookie = register_human(&client, &server_url).await?;
+    let space = create_space(&client, &server_url, &cookie).await?;
+    let mut daemon = spawn_computer(&computer_config)?;
+    let pairing_url = pairing_url_from_daemon(&mut daemon).await?;
+    let paired = confirm_pairing(&client, &server_url, &cookie, space.id, &pairing_url).await?;
+    wait_for_computer_status(&client, &server_url, &cookie, space.id, "online").await?;
+
+    let agent_response = client
+        .post(server_url.join(&format!("/api/v1/spaces/{}/agents", space.id))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({
+            "computer_id": paired.id,
+            "name": "Lin",
+            "handle": "lin",
+            "role_text": "Handle each Channel mention through the Sumi Agent CLI.",
+            "access_level": "member",
+            "driver_kind": "builtin"
+        }))
+        .send()
+        .await?;
+    ensure!(agent_response.status() == StatusCode::CREATED);
+    let agent: serde_json::Value = agent_response.json().await?;
+    let agent_id = Uuid::parse_str(agent["member_id"].as_str().context("Agent id missing")?)?;
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&database.url)
+        .await?;
+    wait_for_agent_active(&pool, agent_id).await?;
+    provider.set_agent_id(agent_id).await;
+
+    let add_agent = client
+        .post(server_url.join(&format!(
+            "/api/v1/channels/{}/members",
+            space.general_channel_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({ "agent_member_ids": [agent_id] }))
+        .send()
+        .await?;
+    ensure!(add_agent.status() == StatusCode::OK);
+
+    let reply_source = send_channel_mention(
+        &client,
+        &server_url,
+        &cookie,
+        space.general_channel_id,
+        agent_id,
+        CHANNEL_REPLY_MENTION,
+    )
+    .await?;
+    let (reply_item_id, reply) = match provider.wait_for_event().await? {
+        ChannelMentionEvent::Replied {
+            inbox_item_id,
+            reply,
+        } => (inbox_item_id, reply),
+        ChannelMentionEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected Channel mention reply, got {event:?}"),
+    };
+    ensure!(
+        reply.channel_id == space.general_channel_id
+            && reply.author_id == agent_id
+            && reply.address == "#general"
+            && reply.seq == 2
+    );
+    wait_for_mention_run(&pool, reply_item_id, "handled", 1).await?;
+
+    let ack_source = send_channel_mention(
+        &client,
+        &server_url,
+        &cookie,
+        space.general_channel_id,
+        agent_id,
+        CHANNEL_ACK_MENTION,
+    )
+    .await?;
+    let ack_item_id = match provider.wait_for_event().await? {
+        ChannelMentionEvent::Acked(item_id) => item_id,
+        event => anyhow::bail!("expected Channel mention ack, got {event:?}"),
+    };
+    wait_for_mention_run(&pool, ack_item_id, "handled", 2).await?;
+
+    let defer_source = send_channel_mention(
+        &client,
+        &server_url,
+        &cookie,
+        space.general_channel_id,
+        agent_id,
+        CHANNEL_DEFER_MENTION,
+    )
+    .await?;
+    let defer_item_id = match provider.wait_for_event().await? {
+        ChannelMentionEvent::Deferred(item_id) => item_id,
+        event => anyhow::bail!("expected Channel mention defer, got {event:?}"),
+    };
+    wait_for_mention_run(&pool, defer_item_id, "deferred", 3).await?;
+
+    assert_channel_mention_state(
+        &pool,
+        space.general_channel_id,
+        agent_id,
+        [reply_source, ack_source, defer_source],
+        [reply_item_id, ack_item_id, defer_item_id],
+        reply.id,
+    )
+    .await?;
+    daemon.ensure_running()?;
+    for text in [
+        CHANNEL_REPLY_MENTION,
+        CHANNEL_ACK_MENTION,
+        CHANNEL_DEFER_MENTION,
+        CHANNEL_CLI_REPLY,
+        PROVIDER_AUTH,
+    ] {
+        ensure!(
+            !server.logs_contain(text),
+            "Server logs leaked Channel mention data"
+        );
+        ensure!(
+            !daemon.logs_contain(text),
+            "daemon logs leaked Channel mention data"
+        );
+    }
+
+    daemon.interrupt().await?;
+    server.interrupt().await?;
+    pool.close().await;
+    database.drop().await?;
+    Ok(())
+}
+
+async fn send_channel_mention(
+    client: &Client,
+    server_url: &Url,
+    cookie: &str,
+    channel_id: Uuid,
+    agent_id: Uuid,
+    body: &str,
+) -> Result<Uuid> {
+    let response = client
+        .post(server_url.join(&format!("/api/v1/channels/{channel_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, cookie)
+        .json(&serde_json::json!({
+            "body_markdown": body,
+            "mentions": [agent_id],
+            "attachment_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(response.status() == StatusCode::CREATED);
+    let message: serde_json::Value = response.json().await?;
+    Ok(Uuid::parse_str(
+        message["id"]
+            .as_str()
+            .context("mention Message id missing")?,
+    )?)
+}
+
+async fn wait_for_mention_run(
+    pool: &sqlx::PgPool,
+    item_id: Uuid,
+    expected_item_status: &str,
+    expected_run_count: i64,
+) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let state: (String, String, i64) = sqlx::query_as(
+                "SELECT items.status, runs.status, \
+                    (SELECT count(*) FROM agent_runs WHERE agent_member_id = items.member_id) \
+                 FROM inbox_items items \
+                 JOIN agent_run_inbox_items links ON links.inbox_item_id = items.id \
+                 JOIN agent_runs runs ON runs.id = links.run_id WHERE items.id = $1",
+            )
+            .bind(item_id)
+            .fetch_one(pool)
+            .await?;
+            if state
+                == (
+                    expected_item_status.to_owned(),
+                    "completed".to_owned(),
+                    expected_run_count,
+                )
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .with_context(|| format!("Channel mention Item {item_id} did not finish as expected"))?
+}
+
+async fn assert_channel_mention_state(
+    pool: &sqlx::PgPool,
+    channel_id: Uuid,
+    agent_id: Uuid,
+    source_message_ids: [Uuid; 3],
+    item_ids: [Uuid; 3],
+    reply_id: Uuid,
+) -> Result<()> {
+    let channel_state: (i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT channels.next_seq, \
+            (SELECT count(*) FROM messages WHERE channel_id = $1), \
+            (SELECT count(*) FROM message_mentions mentions JOIN messages \
+                ON messages.id = mentions.message_id WHERE messages.channel_id = $1 \
+                AND mentions.member_id = $2), \
+            (SELECT count(*) FROM agent_runs WHERE agent_member_id = $2 AND status = 'completed'), \
+            (SELECT count(*) FROM outbox_events WHERE topic = 'message.created' \
+                AND payload_json->>'channel_id' = $1::text) \
+         FROM channels WHERE channels.id = $1",
+    )
+    .bind(channel_id)
+    .bind(agent_id)
+    .fetch_one(pool)
+    .await?;
+    ensure!(channel_state == (5, 4, 3, 3, 4));
+
+    let message_rows: Vec<(Uuid, i64, Uuid, Vec<Uuid>)> = sqlx::query_as(
+        "SELECT messages.id, messages.channel_seq, messages.author_member_id, \
+            COALESCE(array_agg(message_mentions.member_id ORDER BY message_mentions.member_id) \
+                FILTER (WHERE message_mentions.member_id IS NOT NULL), ARRAY[]::uuid[]) \
+         FROM messages LEFT JOIN message_mentions ON message_mentions.message_id = messages.id \
+         WHERE messages.channel_id = $1 GROUP BY messages.id ORDER BY messages.channel_seq",
+    )
+    .bind(channel_id)
+    .fetch_all(pool)
+    .await?;
+    ensure!(
+        message_rows.len() == 4
+            && message_rows[0] == (source_message_ids[0], 1, message_rows[0].2, vec![agent_id])
+            && message_rows[1] == (reply_id, 2, agent_id, Vec::new())
+            && message_rows[2] == (source_message_ids[1], 3, message_rows[2].2, vec![agent_id])
+            && message_rows[3] == (source_message_ids[2], 4, message_rows[3].2, vec![agent_id])
+            && message_rows[0].2 == message_rows[2].2
+            && message_rows[2].2 == message_rows[3].2
+            && message_rows[0].2 != agent_id
+    );
+
+    for (index, item_id) in item_ids.into_iter().enumerate() {
+        let state: ChannelMentionInboxState = sqlx::query_as(
+            "SELECT items.kind, items.priority, items.retry_count, items.lease_id, \
+                items.handled_by_run_id, items.available_at, \
+                (SELECT count(*) FROM agent_run_inbox_items \
+                    WHERE inbox_item_id = items.id) AS run_link_count, \
+                (SELECT count(*) FROM outbox_events WHERE topic = 'inbox.changed' \
+                    AND aggregate_id = items.id) AS outbox_count \
+             FROM inbox_items items WHERE items.id = $1",
+        )
+        .bind(item_id)
+        .fetch_one(pool)
+        .await?;
+        ensure!(state.kind == "mention" && state.priority == "hard" && state.retry_count == 0);
+        ensure!(state.lease_id.is_none() && state.run_link_count == 1 && state.outbox_count == 1);
+        if index < 2 {
+            ensure!(state.handled_by_run_id.is_some());
+        } else {
+            ensure!(state.handled_by_run_id.is_none());
+            ensure!(
+                state.available_at
+                    == Some(time::OffsetDateTime::parse(
+                        CHANNEL_DEFER_UNTIL,
+                        &time::format_description::well_known::Rfc3339,
+                    )?)
+            );
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]

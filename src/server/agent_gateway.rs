@@ -1111,13 +1111,13 @@ async fn agent_inbox_defer(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    let rows: Vec<Uuid> = sqlx::query_scalar(
+    let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "UPDATE inbox_items SET status = 'deferred', available_at = $4, \
          lease_id = NULL, lease_expires_at = NULL \
          WHERE id = ANY($1) AND member_id = $2 AND status = 'leased' \
            AND EXISTS(SELECT 1 FROM agent_run_inbox_items links WHERE links.run_id = $3 \
              AND links.inbox_item_id = inbox_items.id AND links.lease_id = inbox_items.lease_id) \
-         RETURNING id",
+         RETURNING id, space_id",
     )
     .bind(item_ids)
     .bind(agent_id)
@@ -1132,7 +1132,17 @@ async fn agent_inbox_defer(
             "One or more Inbox Items are not leased by this run",
         ));
     }
-    let response = serde_json::json!({ "deferred_inbox_item_ids": rows, "available_at": until });
+    let now = OffsetDateTime::now_utc();
+    for (item_id, space_id) in &rows {
+        publish_inbox_update(&mut transaction, *space_id, agent_id, *item_id, now).await?;
+    }
+    let available_at = until
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| ApiError::Internal)?;
+    let response = serde_json::json!({
+        "deferred_inbox_item_ids": rows.into_iter().map(|row| row.0).collect::<Vec<_>>(),
+        "available_at": available_at,
+    });
     idempotency::finish(
         &mut transaction,
         &scope,
@@ -1176,7 +1186,8 @@ async fn agent_message_json(
             'id', messages.id, 'channel_id', messages.channel_id, 'seq', messages.channel_seq, \
             'address', $2::text, 'author', jsonb_build_object('id', members.id, \
                 'kind', members.kind, 'display_name', members.display_name, 'handle', members.handle), \
-            'body_markdown', messages.body_markdown, 'created_at', messages.created_at, \
+            'body_markdown', messages.body_markdown, 'mentions', '[]'::jsonb, \
+            'created_at', messages.created_at, \
             'edited_at', messages.edited_at) \
          FROM messages JOIN members ON members.id = messages.author_member_id \
          WHERE messages.id = $1",
@@ -1231,9 +1242,20 @@ async fn enrich_agent_messages(
             .and_then(|value| Uuid::parse_str(value).ok())
             .ok_or(ApiError::Internal)?;
         let attachments = attachment::attachments_for_message_pool(database, message_id).await?;
+        let mentions: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT member_id FROM message_mentions WHERE message_id = $1 ORDER BY member_id",
+        )
+        .bind(message_id)
+        .fetch_all(database)
+        .await
+        .map_err(ApiError::database)?;
         message.as_object_mut().ok_or(ApiError::Internal)?.insert(
             "attachments".to_owned(),
             serde_json::to_value(attachments).map_err(|_| ApiError::Internal)?,
+        );
+        message.as_object_mut().ok_or(ApiError::Internal)?.insert(
+            "mentions".to_owned(),
+            serde_json::to_value(mentions).map_err(|_| ApiError::Internal)?,
         );
     }
     Ok(())

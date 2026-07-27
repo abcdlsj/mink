@@ -26,6 +26,7 @@ use uuid::Uuid;
 #[derive(Deserialize)]
 pub struct SpaceResponse {
     pub id: Uuid,
+    pub general_channel_id: Uuid,
 }
 
 #[derive(Deserialize)]
