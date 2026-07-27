@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type KeyboardEvent, useRef, useState } from "react";
+import { Archive, ArrowLeft, Bell, BellOff, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
@@ -96,6 +96,17 @@ export function MessageWorkspace({
   const [threadId, setThreadId] = useState<number>();
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const threadTrigger = useRef<HTMLButtonElement | null>(null);
+
+  function openThread(nextThreadId: number, trigger: HTMLButtonElement) {
+    threadTrigger.current = trigger;
+    setThreadId(nextThreadId);
+  }
+
+  function closeThread() {
+    setThreadId(undefined);
+    window.requestAnimationFrame(() => threadTrigger.current?.focus());
+  }
   const messages = useQuery({
     queryKey: ["messages", channel.id],
     queryFn: () => listMessages(channel.id),
@@ -275,8 +286,9 @@ export function MessageWorkspace({
                       className="thread-action"
                       type="button"
                       disabled={threadCreation.isPending}
-                      onClick={() => {
-                        if (message.thread_id) setThreadId(message.thread_id);
+                      onClick={(event) => {
+                        threadTrigger.current = event.currentTarget;
+                        if (message.thread_id) openThread(message.thread_id, event.currentTarget);
                         else threadCreation.mutate(message.id);
                       }}
                     >
@@ -289,7 +301,7 @@ export function MessageWorkspace({
                       channelId={channel.id}
                       threadId={message.thread_id}
                       replyCount={message.reply_count}
-                      open={() => setThreadId(message.thread_id!)}
+                      open={(trigger) => openThread(message.thread_id!, trigger)}
                     />
                   ) : null}
                 </div>
@@ -334,7 +346,7 @@ export function MessageWorkspace({
           title="Send message"
           disabled={send.isPending || upload.isPending || !body.trim()}
         >
-          {send.isPending ? <LoaderCircle className="spin" /> : <Send />}
+          {send.isPending ? <LoaderCircle className="spin" /> : <><Send /><span>Send</span></>}
         </button>
         <span className="composer-shortcut">⌘ ENTER TO SEND</span>
         {attachments.length ? (
@@ -369,7 +381,7 @@ export function MessageWorkspace({
           threadId={threadId}
           channelSlug={channel.slug}
           members={channelMembers.data?.members ?? []}
-          close={() => setThreadId(undefined)}
+          close={closeThread}
         />
       ) : null}
       {agentPickerOpen ? (
@@ -465,8 +477,10 @@ function ThreadPane({
             {thread.data.is_following ? <BellOff /> : <Bell />}
           </button>
         ) : null}
-        <button className="icon-button" type="button" aria-label="Close Thread" title="Close Thread" onClick={close}>
-          <X />
+        <button className="thread-close icon-button" type="button" aria-label="Close Thread" title="Close Thread" onClick={close}>
+          <ArrowLeft className="thread-close-back" aria-hidden="true" />
+          <X className="thread-close-x" aria-hidden="true" />
+          <span>Channel</span>
         </button>
       </header>
       <div className="thread-messages">
@@ -516,7 +530,7 @@ function ThreadPane({
           </div>
         ) : null}
         <button className="send-button" type="submit" aria-label="Send Thread reply" disabled={reply.isPending || upload.isPending || !body.trim()}>
-          {reply.isPending ? <LoaderCircle className="spin" /> : <Send />}
+          {reply.isPending ? <LoaderCircle className="spin" /> : <><Send /><span>Send</span></>}
         </button>
         {reply.error || upload.error ? <p className="composer-error" role="alert">{reply.error?.message ?? upload.error?.message}</p> : null}
       </form>
@@ -533,6 +547,14 @@ function MentionInput({ ariaLabel, className, placeholder, rows, value, members,
     const query = match.query.toLowerCase();
     return member.handle.toLowerCase().includes(query) || member.display_name.toLowerCase().includes(query);
   }).slice(0, 6) : [];
+
+  useEffect(() => {
+    const input = textarea.current;
+    if (!input) return;
+    const minimumHeight = rows > 1 ? 54 : 42;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 240)}px`;
+  }, [rows, value]);
 
   function choose(member: Member) {
     if (!match) return;
@@ -644,7 +666,7 @@ function CompactMessage({ message }: { message: Message }) {
   );
 }
 
-function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channelId: string; threadId: number; replyCount: number; open: () => void }) {
+function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channelId: string; threadId: number; replyCount: number; open: (trigger: HTMLButtonElement) => void }) {
   const thread = useQuery({
     queryKey: ["thread", channelId, threadId],
     queryFn: () => readThread(channelId, threadId),
@@ -653,14 +675,14 @@ function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channe
   const replies = thread.data?.replies.slice(-3) ?? [];
   return (
     <section className="inline-thread-preview" aria-label={`${replyCount} Thread ${replyCount === 1 ? "reply" : "replies"}`}>
-      <button className="inline-thread-heading" type="button" aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} onClick={open}>
+      <button className="inline-thread-heading" type="button" aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} onClick={(event) => open(event.currentTarget)}>
         <span>{replyCount} {replyCount === 1 ? "REPLY" : "REPLIES"}</span>
         <strong>Open Thread <MessageSquareReply aria-hidden="true" /></strong>
       </button>
       {thread.isPending ? <span className="inline-thread-status">Loading replies…</span> : null}
       {thread.error ? <span className="inline-thread-status">Replies unavailable</span> : null}
       {replies.map((reply) => (
-        <button className="inline-reply" type="button" key={reply.id} onClick={open}>
+        <button className="inline-reply" type="button" key={reply.id} onClick={(event) => open(event.currentTarget)}>
           <PixelIdentity name={reply.author.display_name} kind={reply.author.kind} seed={reply.author.id} />
           <span>
             <span className="inline-reply-meta">
@@ -672,7 +694,7 @@ function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channe
           </span>
         </button>
       ))}
-      {replyCount > 3 ? <button className="inline-thread-more" type="button" onClick={open}>+{replyCount - 3} more replies</button> : null}
+      {replyCount > 3 ? <button className="inline-thread-more" type="button" onClick={(event) => open(event.currentTarget)}>+{replyCount - 3} more replies</button> : null}
     </section>
   );
 }

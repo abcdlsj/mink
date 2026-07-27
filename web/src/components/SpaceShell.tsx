@@ -560,12 +560,18 @@ export function PresenceIdentity({ name, kind = "human", seed, activityStatus }:
 export function PixelIdentity({ name, kind = "human", seed }: { name: string; kind?: "human" | "agent"; seed?: string }) {
   const variant = pixelVariant(seed ?? name);
   const palettes = [
-    { background: "#C9E7E7", foreground: "#24304A", accent: "#5065D8" },
-    { background: "#DFE3FF", foreground: "#57352A", accent: "#83B77B" },
-    { background: "#F5E2A8", foreground: "#171717", accent: "#D95C55" },
-    { background: "#F2D3BD", foreground: "#315B55", accent: "#5065D8" },
+    { background: "#C9E7E7", foreground: "#173F46", accent: "#5065D8" },
+    { background: "#DFE3FF", foreground: "#2E377A", accent: "#D95C55" },
+    { background: "#F5E2A8", foreground: "#5A4312", accent: "#5065D8" },
+    { background: "#F2D3BD", foreground: "#63392D", accent: "#315B55" },
   ] as const;
   const palette = palettes[variant % palettes.length];
+  const marks = [
+    "M3 0h2v1h2v2h1v2H7v2H5v1H3V7H1V5H0V3h1V1h2zm0 2H2v1H1v2h1v1h1v1h2V6h1V5h1V3H6V2H5V1H3z",
+    "M0 1h3v2H2v2h1v2H0zm5 0h3v6H5V5h1V3H5z",
+    "M3 0h2v2h2v1H5v2h2v2H5v1H3V6H1V5h2V3H1V1h2z",
+    "M1 0h2v2h2V0h2v3H6v2h1v3H5V6H3v2H1V5h1V3H1z",
+  ] as const;
   const initial = [...name.trim()][0]?.toLocaleUpperCase() ?? "?";
   return (
     <span
@@ -576,10 +582,10 @@ export function PixelIdentity({ name, kind = "human", seed }: { name: string; ki
       style={{ background: palette.background, color: palette.foreground }}
     >
       {kind === "human" ? <span aria-hidden="true">{initial}</span> : (
-        <svg viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
-          <rect width="16" height="16" fill={palette.background} />
-          <path d={variant % 2 === 0 ? "M1 1h5v3h4V1h5v5h-3v4h3v5h-5v-3H6v3H1v-5h3V6H1z" : "M1 3h3V1h3v4h2V1h3v2h3v4h-4v2h4v4h-3v2H9v-4H7v4H4v-2H1V9h4V7H1z"} fill={palette.foreground} />
-          <rect x={variant % 3 === 0 ? 6 : 7} y={variant % 3 === 0 ? 6 : 7} width="3" height="3" fill={palette.accent} />
+        <svg viewBox="0 0 8 8" aria-hidden="true" shapeRendering="crispEdges">
+          <rect width="8" height="8" fill={palette.background} />
+          <path d={marks[variant % marks.length]} fill={palette.foreground} />
+          <rect x="3" y="3" width="2" height="2" fill={palette.accent} />
         </svg>
       )}
       <span className="visually-hidden">{initials(name)}</span>

@@ -660,7 +660,7 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 
 - 头像源画布为 16x16 或 24x24 bitmap，显示时使用 image-rendering: pixelated。
 - Human 未上传头像时显示 display name 的首个 Unicode 字符；以 member_id 为 seed 选择受控背景色，因此相同首字母的 Humans 仍可区分。
-- Agent 使用不含脸、人物或机器人轮廓的粗粒度抽象像素纹样；以 member_id 为 seed 确定颜色和纹样。
+- Agent 使用不含脸、人物或机器人轮廓的 8x8 对称像素印章；以 member_id 为 seed 从少量受控骨架与双色 palette 中稳定选择，不生成散乱噪点。
 - Agent 名字旁显示小型 AGENT 标签，Human 不显示 HUMAN 标签。
 - 上传头像必须裁剪为方形；Server 保存原图和生成后的 1x/2x/4x PNG。
 

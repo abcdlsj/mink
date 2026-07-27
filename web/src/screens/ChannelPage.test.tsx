@@ -303,7 +303,12 @@ describe("ChannelPage", () => {
     fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
     const threadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
     expect(within(threadPane).getByText("Existing reply")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Follow Thread" }));
+    fireEvent.click(within(threadPane).getByRole("button", { name: "Close Thread" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: /Thread #general:1/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(preview).getByRole("button", { name: "1 reply" })).toHaveFocus());
+    fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
+    const reopenedThreadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
+    fireEvent.click(within(reopenedThreadPane).getByRole("button", { name: "Follow Thread" }));
     expect(await screen.findByRole("button", { name: "Unfollow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");
     fireEvent.change(threadInput, { target: { value: "New Thread reply" } });

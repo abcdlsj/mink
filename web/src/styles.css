@@ -727,7 +727,7 @@ h1 {
 }
 
 .channel-workspace--thread-open {
-  grid-template-columns: minmax(480px, 1fr) 380px;
+  grid-template-columns: minmax(480px, 1fr) clamp(360px, 30vw, 480px);
 }
 
 .channel-workspace--thread-open > .channel-header,
@@ -2848,7 +2848,6 @@ h1 {
 .channel-dialog form > footer { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 8px; margin: 4px -18px -18px; padding: 12px 18px; border-top: 2px solid var(--ink); }
 .channel-member-dialog > form { grid-template-columns: 1fr; }
 
-.member-strip .pixel-identity + .pixel-identity { margin-left: -14px; }
 .mention-input { position: relative; min-width: 0; }
 .mention-suggestions { position: absolute; z-index: 8; display: grid; right: 0; bottom: calc(100% + 10px); left: 0; max-height: 260px; overflow: auto; border: 2px solid var(--ink); background: var(--paper); box-shadow: 4px 4px 0 var(--ink); }
 .mention-suggestions button { display: grid; min-height: 48px; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 6px 9px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--ink) 20%, transparent); background: var(--paper); color: var(--ink); cursor: pointer; text-align: left; }
@@ -3067,9 +3066,16 @@ h1 {
   flex-basis: 28px;
 }
 
-.member-strip .presence-identity + .presence-identity,
-.member-strip .pixel-identity + .presence-identity,
-.member-strip .presence-identity + .pixel-identity { margin-left: -14px; }
+.member-strip .presence-identity,
+.member-strip > .pixel-identity {
+  margin: 0;
+}
+
+.member-strip .presence-dot {
+  right: -2px;
+  bottom: -2px;
+  z-index: 1;
+}
 
 .member-identity > .presence-identity { width: 40px; height: 40px; flex-basis: 40px; }
 .agent-workspace .entity-detail-header > .presence-identity { width: 40px; height: 40px; flex-basis: 40px; }
@@ -3090,14 +3096,15 @@ h1 {
 
 /* Thread roots expose three real replies and reuse the full Thread query cache. */
 .message-row--has-thread {
-  margin: 6px 16px 12px;
-  padding: 12px 10px 10px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
+  margin: 0;
+  padding-top: 8px;
+  padding-bottom: 12px;
+  border: 0;
+  background: transparent;
 }
 
 .message-row--has-thread:hover {
-  background: var(--paper);
+  background: color-mix(in srgb, var(--panel) 38%, transparent);
 }
 
 .message-row--has-thread .message-content {
@@ -3106,9 +3113,11 @@ h1 {
 
 .inline-thread-preview {
   display: grid;
-  margin-top: 12px;
-  border-top: 2px solid var(--ink);
-  background: color-mix(in srgb, var(--panel) 62%, var(--paper));
+  max-width: 760px;
+  margin-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  background: color-mix(in srgb, var(--panel) 52%, var(--paper));
 }
 
 .inline-thread-heading,
@@ -3343,8 +3352,8 @@ h1 {
 
 @media (max-width: 700px) {
   .message-row--has-thread {
-    margin-right: 8px;
-    margin-left: 8px;
+    margin-right: 0;
+    margin-left: 0;
   }
 
   .inline-thread-heading {
@@ -3376,5 +3385,403 @@ h1 {
     position: absolute;
     inset: -4px;
     content: "";
+  }
+}
+
+/* Quiet collaboration shell: tablet and phone prioritize the conversation. */
+.send-button span {
+  display: inline;
+}
+
+.thread-close span,
+.thread-close-back {
+  display: none;
+}
+
+.composer .send-button,
+.thread-composer .send-button {
+  display: inline-flex;
+  width: auto;
+  min-width: 78px;
+  flex-basis: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mention-input textarea {
+  max-height: 240px;
+  overflow-y: auto;
+  resize: none;
+}
+
+@media (max-width: 1099px) {
+  .space-shell {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .space-rail {
+    border-right-width: 1px;
+  }
+
+  .space-navigation {
+    display: none;
+  }
+
+  .space-navigation--open {
+    position: fixed;
+    z-index: 20;
+    top: 0;
+    bottom: 0;
+    left: 52px;
+    display: block;
+    width: min(300px, calc(100vw - 72px));
+    border-right: 2px solid var(--ink);
+    box-shadow: 4px 0 0 var(--ink);
+  }
+
+  .navigation-scrim {
+    position: fixed;
+    z-index: 19;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgb(23 23 23 / 38%);
+  }
+
+  .navigation-close,
+  .mobile-menu {
+    display: grid;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .channel-workspace {
+    grid-template-rows: 56px minmax(0, 1fr) auto;
+  }
+
+  .channel-header {
+    gap: 10px;
+    padding: 0 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--ink) 34%, transparent);
+  }
+
+  .channel-header-glyph {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    border-width: 1px;
+    background: var(--accent-soft);
+    color: var(--ink);
+    box-shadow: none;
+  }
+
+  .channel-title h1 {
+    font-size: 17px;
+  }
+
+  .channel-title p {
+    margin-top: 1px;
+  }
+
+  .member-strip .pixel-identity {
+    width: 26px;
+    height: 26px;
+    flex-basis: 26px;
+    border-width: 1px;
+  }
+
+  .channel-header > .icon-button {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  }
+
+  .message-timeline {
+    padding: 4px 0 10px;
+  }
+
+  .day-divider {
+    padding: 16px 18px 8px;
+  }
+
+  .message-row {
+    gap: 10px;
+    padding: 7px 18px;
+  }
+
+  .message-row > .pixel-identity {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-width: 1px;
+  }
+
+  .message-content {
+    padding-right: 0;
+  }
+
+  .message-content p {
+    line-height: 1.45;
+  }
+
+  .message-seq {
+    display: none;
+  }
+
+  .thread-action {
+    position: static;
+    min-height: 32px;
+    margin-top: 6px;
+    border-color: color-mix(in srgb, var(--ink) 42%, transparent);
+    background: transparent;
+    box-shadow: none;
+    opacity: 1;
+  }
+
+  .composer {
+    min-height: 0;
+    grid-template-rows: minmax(44px, auto) auto;
+    gap: 6px 8px;
+    margin: 0;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-color: color-mix(in srgb, var(--ink) 38%, transparent);
+    background: color-mix(in srgb, var(--paper) 94%, var(--panel));
+    box-shadow: none;
+  }
+
+  .composer-label {
+    display: none;
+  }
+
+  .composer > .icon-button {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  }
+
+  .composer textarea {
+    min-height: 44px;
+    padding: 10px 11px;
+    border: 1px solid color-mix(in srgb, var(--ink) 48%, transparent);
+    background: var(--paper);
+  }
+
+  .composer .send-button,
+  .thread-composer .send-button {
+    display: inline-flex;
+    width: auto;
+    min-width: 72px;
+    height: 40px;
+    flex-basis: auto;
+    gap: 7px;
+    padding: 0 12px;
+    border: 1px solid var(--ink);
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .send-button span {
+    display: inline;
+  }
+
+  .composer-shortcut {
+    display: none;
+  }
+
+  .composer-attachments,
+  .composer-error {
+    grid-column: 1 / -1;
+  }
+
+  .channel-workspace--thread-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .thread-pane {
+    position: fixed;
+    z-index: 18;
+    inset: 0 0 0 52px;
+    grid-column: auto;
+    grid-row: auto;
+    grid-template-rows: 56px minmax(0, 1fr) auto;
+    border-left: 1px solid color-mix(in srgb, var(--ink) 34%, transparent);
+  }
+
+  .thread-header {
+    padding: 0 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--ink) 34%, transparent);
+  }
+
+  .thread-header .thread-close {
+    display: inline-flex;
+    width: auto;
+    min-width: 88px;
+    height: 38px;
+    gap: 7px;
+    padding: 0 10px;
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .thread-close span,
+  .thread-close-back {
+    display: inline;
+  }
+
+  .thread-close-x {
+    display: none;
+  }
+
+  .thread-section-label,
+  .thread-message {
+    border-bottom-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  }
+
+  .thread-composer {
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid color-mix(in srgb, var(--ink) 38%, transparent);
+    background: color-mix(in srgb, var(--paper) 94%, var(--panel));
+  }
+
+  .thread-composer textarea {
+    min-height: 44px;
+    padding: 9px 10px;
+    border-width: 1px;
+    resize: none;
+  }
+}
+
+@media (max-width: 699px) {
+  .space-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .space-rail {
+    display: none;
+  }
+
+  .space-navigation--open {
+    left: 0;
+    width: min(320px, 88vw);
+  }
+
+  .channel-header {
+    min-height: 58px;
+    padding: 0 10px;
+  }
+
+  .channel-header-glyph {
+    display: none;
+  }
+
+  .mobile-menu,
+  .channel-header > .icon-button {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  .member-strip .pixel-identity:nth-child(n + 3),
+  .member-strip .presence-identity:nth-child(n + 3),
+  .member-strip > span:last-child {
+    display: none;
+  }
+
+  .message-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 9px;
+    padding: 8px 12px;
+  }
+
+  .message-row > .pixel-identity {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .message-row--grouped {
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+
+  .message-content header {
+    gap: 6px;
+  }
+
+  .message-content header strong {
+    font-size: 14px;
+  }
+
+  .message-content time {
+    font-size: 11px;
+  }
+
+  .message-content p {
+    font-size: 15px;
+  }
+
+  .composer {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .composer .send-button,
+  .thread-composer .send-button {
+    min-width: 44px;
+    width: 44px;
+    padding: 0;
+  }
+
+  .send-button span {
+    display: none;
+  }
+
+  .thread-pane {
+    left: 0;
+  }
+
+  .thread-header {
+    min-height: 58px;
+  }
+
+  .thread-header > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .thread-header strong {
+    display: block;
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .thread-header .thread-close {
+    min-width: 44px;
+    width: 44px;
+    padding: 0;
+  }
+
+  .thread-close span {
+    display: none;
+  }
+
+  .thread-message {
+    padding: 12px;
   }
 }

@@ -96,7 +96,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 - 图标按钮通常为 36x36px；窄 rail 中为 40x40px；命中区不得小于 40x40px。
 - 所有图标按钮必须有 accessible name；hover/focus 显示 tooltip。
 - Human avatar 使用 display name 首个 Unicode 字符，member ID 决定受控背景色；同首字母的 Humans 通过颜色区分。
-- Agent avatar 使用 16x16 抽象像素纹样，不出现脸、人物或机器人轮廓；member ID 决定纹样和颜色。
+- Agent avatar 使用 8x8 对称像素印章，不出现脸、人物或机器人轮廓；member ID 从少量受控骨架与双色 palette 中稳定选择，不生成散乱噪点。
 - Agent 与 Human 使用相同尺寸和硬边外框；Agent 名字旁仍增加紧凑 `AGENT` 标签。
 - Agent 头像右下角允许叠加 10px activity 点：busy yellow、idle green、offline gray、error red；点具有 2px ink 外框，必须同时提供可见文字或 accessible name。busy 只做低幅阶梯脉冲，`prefers-reduced-motion` 下完全静止。
 - Computer 使用显示器像素图标，不与 Member avatar 混用。
@@ -223,6 +223,7 @@ Member 权限使用 36px 高的矩形 toggle：未选中为 paper，选中为 ac
 
 - 左侧：`#channel-slug`、topic。
 - 中部或标题下沿：Member strip，显示当前在线 Members 的像素头像和简短状态；溢出显示 `+N`。
+- Member strip 中头像不得相互遮挡；Agent activity 点必须完整外露，不能被相邻头像覆盖。
 - 右侧：真实可用的 Channel members、设置等操作。
 - 有管理权限时右侧提供紧凑的 `+`，打开单层 popup，把尚未加入的 active Agents 添加到当前 Channel；popup 中显示 avatar、name、handle 和状态，不跳转到独立管理页。
 - v1 没有可用搜索时不显示搜索按钮；不要摆一个看起来能点的假入口。
@@ -371,16 +372,16 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 
 ## 10. 响应式
 
-### 10.1 900px 及以上
+### 10.1 1100px 及以上
 
 - 完整 Space rail、contextual nav 和主内容。
 - Thread 打开时并列显示；空间不足时先收窄/折叠 contextual nav，再保证主内容至少 480px。
 
-### 10.2 700–899px
+### 10.2 700–1099px
 
 - Space rail 保留；contextual nav 变为由 header 按钮打开的抽屉。
 - 抽屉宽度不超过 viewport 的 80%，打开时 focus trap，关闭后焦点回到触发按钮。
-- Thread 优先全屏或覆盖主内容，不允许把 Channel 挤成窄条。
+- Thread 覆盖主内容并保留 Space rail，使用明确的返回 Channel 动作；不允许把 Channel 挤成窄条。
 
 ### 10.3 低于 700px
 
