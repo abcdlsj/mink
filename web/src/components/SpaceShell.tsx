@@ -407,7 +407,47 @@ function RouteFailure({ error, retry }: { error: unknown; retry: () => void }) {
 }
 
 function MembersNavigation({ members, activityByMemberId, spaceSlug, locationPath }: { members: Member[]; activityByMemberId: Map<string, Agent["activity_status"]>; spaceSlug: string; locationPath: string }) {
-  return <><p className="nav-label">MEMBERS · {members.length}</p>{members.map((member) => member.kind === "agent" ? <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}><PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · {activityLabel(activityByMemberId.get(member.id))}</small></span></Link> : <div className="context-entity-row context-entity-row--static" key={member.id}><PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Human</small></span></div>)}</>;
+  const agents = members.filter((member) => member.kind === "agent");
+  const humans = members.filter((member) => member.kind === "human");
+  return (
+    <div className="members-navigation">
+      <MemberNavigationGroup
+        label="Agents"
+        members={agents}
+        activityByMemberId={activityByMemberId}
+        spaceSlug={spaceSlug}
+        locationPath={locationPath}
+      />
+      <MemberNavigationGroup
+        label="Humans"
+        members={humans}
+        activityByMemberId={activityByMemberId}
+        spaceSlug={spaceSlug}
+        locationPath={locationPath}
+      />
+    </div>
+  );
+}
+
+function MemberNavigationGroup({ label, members, activityByMemberId, spaceSlug, locationPath }: { label: string; members: Member[]; activityByMemberId: Map<string, Agent["activity_status"]>; spaceSlug: string; locationPath: string }) {
+  return (
+    <section className="member-navigation-group" aria-labelledby={`member-navigation-${label.toLowerCase()}`}>
+      <h3 className="nav-label" id={`member-navigation-${label.toLowerCase()}`}>
+        {label}<span>{members.length}</span>
+      </h3>
+      {members.length ? members.map((member) => member.kind === "agent" ? (
+        <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}>
+          <PresenceIdentity name={member.display_name} kind="agent" seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
+          <span><strong title={member.display_name}>{member.display_name}</strong><small title={member.display_name}>@{member.handle} · {activityLabel(activityByMemberId.get(member.id))}</small></span>
+        </Link>
+      ) : (
+        <div className="context-entity-row context-entity-row--static" key={member.id}>
+          <PixelIdentity name={member.display_name} kind="human" seed={member.id} />
+          <span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle}</small></span>
+        </div>
+      )) : <p className="nav-empty">No {label.toLowerCase()}</p>}
+    </section>
+  );
 }
 
 function ComputersNavigation({ computers, spaceSlug, activeHash }: { computers: Computer[]; spaceSlug: string; activeHash: string }) {

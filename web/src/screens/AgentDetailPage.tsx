@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
-import { Brain, Eye, Inbox, Menu, Pause, Play, RotateCcw, Save, Trash2, X } from "lucide-react";
+import { Link, useParams } from "@tanstack/react-router";
+import { Brain, Eye, Inbox, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { getAgent, readAgentMemory, updateAgent } from "../api/client";
@@ -10,6 +10,13 @@ import { formatBytes } from "../format";
 
 type AgentTab = "overview" | "memory" | "inbox" | "settings";
 
+const agentTabs: { id: AgentTab; label: string; icon: LucideIcon }[] = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "memory", label: "Memory", icon: Brain },
+  { id: "inbox", label: "Inbox", icon: Inbox },
+  { id: "settings", label: "Settings", icon: Settings2 },
+];
+
 export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
   return (
@@ -17,6 +24,7 @@ export function AgentDetailPage() {
       {({ currentMember, openNavigation }) => (
         <AgentWorkspace
           agentId={agentId}
+          spaceSlug={spaceSlug}
           canManage={currentMember.access_level === "owner" || currentMember.access_level === "admin"}
           openNavigation={openNavigation}
         />
@@ -25,7 +33,7 @@ export function AgentDetailPage() {
   );
 }
 
-function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: string; canManage: boolean; openNavigation: () => void }) {
+function AgentWorkspace({ agentId, spaceSlug, canManage, openNavigation }: { agentId: string; spaceSlug: string; canManage: boolean; openNavigation: () => void }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<AgentTab>("overview");
   const [cancelNow, setCancelNow] = useState(false);
@@ -71,11 +79,12 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
           <p>@{value.handle} · {value.role_text}</p>
         </div>
         <span className={`agent-state agent-state--${value.activity_status}`} role="status"><i />{activityLabel(value.activity_status)}</span>
+        <Link className="agent-message-action icon-button" to="/s/$spaceSlug/dm/$memberId" params={{ spaceSlug, memberId: value.member_id }} aria-label={`Message ${value.name}`} title={`Message ${value.name}`}><MessageCircle /></Link>
       </header>
       <nav className="detail-tabs" aria-label="Agent detail">
-        {(["overview", "memory", "inbox", "settings"] as const).map((item) => (
-          <button key={item} type="button" aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>
-            {item.charAt(0).toUpperCase() + item.slice(1)}
+        {agentTabs.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+            <Icon aria-hidden="true" />{label}
           </button>
         ))}
       </nav>

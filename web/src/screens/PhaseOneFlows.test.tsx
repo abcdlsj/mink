@@ -50,6 +50,12 @@ describe("Phase one Human flows", () => {
       }
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/computers") && !init?.method) return json([]);
+      if (path.endsWith("/agents") && !init?.method) {
+        return json([{
+          member_id: "019c0000-0000-7000-8000-000000000030",
+          activity_status: "idle",
+        }]);
+      }
       if (path.endsWith("/members") && !init?.method) {
         return json([
           {
@@ -67,6 +73,14 @@ describe("Phase one Human flows", () => {
             handle: "grace-hopper",
             access_level: "member",
             permissions: ["channel:create"],
+          },
+          {
+            id: "019c0000-0000-7000-8000-000000000030",
+            kind: "agent",
+            display_name: "Lin",
+            handle: "lin",
+            access_level: "member",
+            permissions: [],
           },
         ]);
       }
@@ -107,6 +121,8 @@ describe("Phase one Human flows", () => {
     expect((await screen.findAllByText("Grace Hopper"))[0]).toBeVisible();
     expect(within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("heading", { name: /Agents/ })).toHaveTextContent("1");
+    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: /Lin avatar.*Lin is Idle.*Lin.*@lin/i })).toHaveAttribute("href", "/s/sumi-lab/agents/019c0000-0000-7000-8000-000000000030");
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
@@ -123,7 +139,9 @@ describe("Phase one Human flows", () => {
       );
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /message/i }));
+    const graceRow = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"));
+    expect(graceRow).toBeDefined();
+    fireEvent.click(within(graceRow!).getByRole("button", { name: /message/i }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(`/spaces/${space.id}/dms`),

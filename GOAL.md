@@ -19,7 +19,8 @@
 ### 1. Reference-directed WebUI 收口
 
 - [x] 将 `references/reference_style.md` 提炼为唯一设计语言，并完成全局 tokens、Space shell、Channel timeline 与 composer 的首个真实纵向改造；保留 Sumi 的领域结构，不引入参考产品的品牌或范围外入口。
-- [ ] 按同一语言逐步收口 Inbox、Members、Agent、Computer、Thread、Dialog 与 onboarding，补齐多视口视觉和交互证据。
+- [x] 按同一语言收口 Members 与 Agent detail：成员导航按 Agent/Human 分组，统一目录治理控件、Agent 状态、详情页签与 Overview/Memory/Inbox/Settings，并完成真实 seed 多视口验证。
+- [ ] 按同一语言继续收口 Inbox、Computer、Thread、Dialog 与 onboarding，补齐对应多视口视觉和交互证据。
 
 ### 2. Agent Admin 规范与治理闭环
 
@@ -39,6 +40,8 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：Members/Agent detail 定向覆盖在内的 6 个 test files、14 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
+- `mise run dev-seed` + Chromium：使用真实 `sumi-dev` Space、Dev Computer 与 PM/Coder/Reviewer，在 1440x900、1024x768、390x844 验证 Members 与 Agent Overview/Memory/Inbox/Settings；所有视口无横向溢出、无 Browser page/console error，手机治理控件完整可达。截图位于 `/tmp/sumi-shots-members-agent/`。
 - `pnpm --dir web test`：6 个 test files、14 个 Web tests 通过。
 - `pnpm --dir web lint` 与 `pnpm --dir web build` 通过；Space Mono 随 production bundle 本地发布。
 - `node web/e2e/shot.mjs`：真实注册、Space、Message、Thread 流程通过，并人工复核 1440x900、1024x768、390x844 的 Channel 与 Members 截图；shell、timeline、composer 和响应式布局无溢出或空白栏。

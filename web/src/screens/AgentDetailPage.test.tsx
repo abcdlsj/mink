@@ -51,6 +51,7 @@ describe("Agent detail", () => {
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("Busy");
+    expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();
