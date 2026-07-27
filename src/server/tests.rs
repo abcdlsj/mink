@@ -39,6 +39,7 @@ use crate::{config::ServerConfig, database};
 
 mod collaboration_flow;
 mod computer_flow;
+mod postgres_invariants;
 
 #[tokio::test]
 async fn collaboration_flow_is_idempotent() -> Result<()> {
@@ -52,6 +53,14 @@ async fn collaboration_flow_is_idempotent() -> Result<()> {
 async fn computer_flow_enforces_security_boundaries() -> Result<()> {
     let test_database = TestDatabase::create().await?;
     let result = computer_flow::run(&test_database.url).await;
+    test_database.drop().await?;
+    result
+}
+
+#[tokio::test]
+async fn postgres_concurrency_and_transaction_invariants_hold() -> Result<()> {
+    let test_database = TestDatabase::create().await?;
+    let result = postgres_invariants::run(&test_database.url).await;
     test_database.drop().await?;
     result
 }

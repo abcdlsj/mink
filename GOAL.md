@@ -12,7 +12,7 @@
 - Builtin 从显式 Computer-local Pi-compatible settings/models/auth 加载 provider；只接受声明的 OpenAI-compatible completions，认证不进入 Agent Home、工具环境或日志。
 - 同一真实进程 harness 已覆盖 DM、Channel mention/ambient、Thread、context freshness、权限边界、崩溃恢复、Channel create 和 Agent create Approval。
 - 注册/Space、Attachment、Agent lifecycle、Memory 另有真实 Server/daemon/PostgreSQL 闭环。
-- 当前最早缺口是 Agent Admin 产品承诺与 Agent CLI 治理能力不一致；必须先修规范，不能用 Human Browser Session 或手写 Computer frame 冒充 Agent 能力。
+- Agent Admin 治理与并发、幂等、PostgreSQL 不变量均已有真实协议和数据库证据；当前定义的 v1 交付目标已闭环。
 
 ## 剩余工作
 
@@ -25,8 +25,10 @@
 
 ### 2. 并发、幂等与 PostgreSQL 不变量
 
-- [ ] 补齐同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突的并发证据。
-- [ ] 用真实 PostgreSQL integration tests 系统验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
+- [x] 补齐同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突的并发证据。
+- [x] 用真实 PostgreSQL integration tests 系统验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
+
+验证：`cargo test postgres_concurrency_and_transaction_invariants_hold -- --nocapture`；`cargo test concurrency_limit_queues_other_agents_and_rejects_same_agent_overlap -- --nocapture`；`cargo test duplicate_commands_reuse_sqlite_state_and_conflicting_payloads_fail -- --nocapture`；`cargo test --test postgres_migrations -- --nocapture`；`cargo test --test attachment_flow -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`。
 
 ## 最新验证基线
 
@@ -34,7 +36,8 @@
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test --all-features`：60 个常规 tests、11 个 Agent 真实闭环、1 lifecycle、1 Memory、1 Attachment、3 CLI、2 Computer lifecycle、1 migration、1 registration/Space 通过；1 个手工 live provider smoke ignored。
+- `cargo test --all-features`：61 个常规 tests、11 个 Agent 真实闭环、1 lifecycle、1 Memory、1 Attachment、3 CLI、2 Computer lifecycle、1 migration、1 registration/Space 通过；1 个手工 live provider smoke ignored。
+- `cargo test postgres_concurrency_and_transaction_invariants_hold -- --nocapture`：真实 PostgreSQL 并发 claim、active run、Message/Thread sequence、重复 Message/Attachment、幂等 payload 冲突、复合外键、事务回滚与 outbox 验收通过。
 - `cargo test --test agent_dm -- --nocapture`：11 个真实 Agent 对话与治理场景通过。
 - `cargo test --test agent_lifecycle -- --nocapture`
 - `cargo test --test agent_memory -- --nocapture`
