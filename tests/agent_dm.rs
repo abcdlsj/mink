@@ -15,9 +15,9 @@ use futures_util::StreamExt;
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
 use support::{
-    TestDatabase, confirm_pairing, create_space, pairing_url_from_daemon, register_human,
-    reserve_local_port, spawn_computer, spawn_server, wait_for_computer_status, wait_for_health,
-    write_builtin_computer_config, write_server_config,
+    SpaceResponse, SumiProcess, TestDatabase, confirm_pairing, create_space,
+    pairing_url_from_daemon, register_human, reserve_local_port, spawn_computer, spawn_server,
+    wait_for_computer_status, wait_for_health, write_builtin_computer_config, write_server_config,
 };
 use tokio::{
     net::TcpListener,
@@ -39,6 +39,117 @@ const CHANNEL_ACK_MENTION: &str = "@lin acknowledge this without replying.";
 const CHANNEL_DEFER_MENTION: &str = "@lin defer this mention for later.";
 const CHANNEL_CLI_REPLY: &str = "Channel mention replied through the real Sumi CLI.";
 const CHANNEL_DEFER_UNTIL: &str = "2099-01-01T00:00:00Z";
+const CHANNEL_AMBIENT_MESSAGES: [&str; 5] = [
+    "Ambient note one.",
+    "Ambient note two.",
+    "Ambient note three.",
+    "Ambient note four.",
+    "Ambient note five.",
+];
+
+struct AgentProcessHarness {
+    _root: tempfile::TempDir,
+    database: TestDatabase,
+    server_url: Url,
+    server: SumiProcess,
+    daemon: SumiProcess,
+    client: Client,
+    cookie: String,
+    space: SpaceResponse,
+    agent_id: Uuid,
+    pool: sqlx::PgPool,
+}
+
+impl AgentProcessHarness {
+    async fn start(provider_url: &Url, database_prefix: &str, role_text: &str) -> Result<Self> {
+        let root = tempfile::tempdir()?;
+        let database = TestDatabase::create(database_prefix).await?;
+        let server_port = reserve_local_port()?;
+        let server_address = SocketAddr::from(([127, 0, 0, 1], server_port));
+        let server_url = Url::parse(&format!("http://{server_address}"))?;
+        let server_config = root.path().join("server.toml");
+        write_server_config(
+            &server_config,
+            server_address,
+            &database.url,
+            &root.path().join("attachments"),
+            &root.path().join("web-dist"),
+        )?;
+        let server = spawn_server(&server_config)?;
+        wait_for_health(&server_url).await?;
+
+        let computer_state = root.path().join("computer");
+        let computer_config = root.path().join("computer.toml");
+        write_builtin_computer_config(
+            &computer_config,
+            &server_url,
+            &computer_state,
+            provider_url,
+        )?;
+        let client = Client::new();
+        let cookie = register_human(&client, &server_url).await?;
+        let space = create_space(&client, &server_url, &cookie).await?;
+        let mut daemon = spawn_computer(&computer_config)?;
+        let pairing_url = pairing_url_from_daemon(&mut daemon).await?;
+        let paired = confirm_pairing(&client, &server_url, &cookie, space.id, &pairing_url).await?;
+        wait_for_computer_status(&client, &server_url, &cookie, space.id, "online").await?;
+
+        let agent_response = client
+            .post(server_url.join(&format!("/api/v1/spaces/{}/agents", space.id))?)
+            .header("idempotency-key", Uuid::now_v7().to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({
+                "computer_id": paired.id,
+                "name": "Lin",
+                "handle": "lin",
+                "role_text": role_text,
+                "access_level": "member",
+                "driver_kind": "builtin"
+            }))
+            .send()
+            .await?;
+        ensure!(agent_response.status() == StatusCode::CREATED);
+        let agent: serde_json::Value = agent_response.json().await?;
+        let agent_id = Uuid::parse_str(agent["member_id"].as_str().context("Agent id missing")?)?;
+        let pool = PgPoolOptions::new()
+            .max_connections(3)
+            .connect(&database.url)
+            .await?;
+        wait_for_agent_active(&pool, agent_id).await?;
+
+        let add_agent = client
+            .post(server_url.join(&format!(
+                "/api/v1/channels/{}/members",
+                space.general_channel_id
+            ))?)
+            .header("idempotency-key", Uuid::now_v7().to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({ "agent_member_ids": [agent_id] }))
+            .send()
+            .await?;
+        ensure!(add_agent.status() == StatusCode::OK);
+
+        Ok(Self {
+            _root: root,
+            database,
+            server_url,
+            server,
+            daemon,
+            client,
+            cookie,
+            space,
+            agent_id,
+            pool,
+        })
+    }
+
+    async fn shutdown(mut self) -> Result<()> {
+        self.daemon.interrupt().await?;
+        self.server.interrupt().await?;
+        self.pool.close().await;
+        self.database.drop().await
+    }
+}
 
 struct FakeProvider {
     url: Url,
@@ -639,83 +750,220 @@ fn valid_channel_mention_read(
             })
 }
 
+#[derive(Debug)]
+enum ChannelAmbientEvent {
+    Acked(Uuid),
+    Failed(String),
+}
+
+struct ChannelAmbientProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<ChannelAmbientEvent>,
+    state: Arc<ChannelAmbientProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct ChannelAmbientProviderState {
+    step: Mutex<usize>,
+    events: mpsc::UnboundedSender<ChannelAmbientEvent>,
+}
+
+impl ChannelAmbientProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(ChannelAmbientProviderState {
+            step: Mutex::new(0),
+            events: events_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(channel_ambient_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            state,
+            task,
+        })
+    }
+
+    async fn wait_for_event(&mut self) -> Result<ChannelAmbientEvent> {
+        match tokio::time::timeout(Duration::from_secs(30), self.events.recv()).await {
+            Ok(event) => event.context("Channel ambient provider stopped before ack completed"),
+            Err(_) => anyhow::bail!(
+                "timed out waiting for Channel ambient ack at provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for ChannelAmbientProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn channel_ambient_chat_stream(
+    State(state): State<Arc<ChannelAmbientProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 => {
+            if !prompt_has_channel_ambient_summary(&request) {
+                return bad_provider_request();
+            }
+            tool_call_stream("channel-ambient-inbox", "sumi agent inbox current --json")
+        }
+        1 => {
+            let Some((_, address, _)) = claimed_channel_ambient(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "channel-ambient-read",
+                &format!("sumi agent channel read '{address}' --json"),
+            )
+        }
+        2 => {
+            let Some((inbox_item_id, address, latest_message_id)) =
+                claimed_channel_ambient(&request)
+            else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                let _ = state.events.send(ChannelAmbientEvent::Failed(
+                    "channel read did not return JSON".to_owned(),
+                ));
+                return bad_provider_request();
+            };
+            if !valid_channel_ambient_read(&result, &address, latest_message_id) {
+                let _ = state.events.send(ChannelAmbientEvent::Failed(format!(
+                    "invalid ambient channel read: ok={}, address={}, snapshot={:?}, count={:?}",
+                    result["ok"] == true,
+                    result["data"]["address"],
+                    result["data"]["snapshot_channel_seq"].as_i64(),
+                    result["data"]["messages"].as_array().map(Vec::len),
+                )));
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "channel-ambient-ack",
+                &format!(
+                    "sumi agent inbox ack {inbox_item_id} --reason 'ordinary Channel activity needs no reply' --json"
+                ),
+            )
+        }
+        3 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_ambient(&request) else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            if result["data"]["handled_inbox_item_ids"]
+                .as_array()
+                .is_none_or(|ids| ids != &[serde_json::json!(inbox_item_id)])
+            {
+                return bad_provider_request();
+            }
+            let _ = state.events.send(ChannelAmbientEvent::Acked(inbox_item_id));
+            text_stream("Channel ambient activity acknowledged without a reply.")
+        }
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
+fn prompt_has_channel_ambient_summary(request: &serde_json::Value) -> bool {
+    request["messages"].as_array().is_some_and(|messages| {
+        messages.iter().any(|message| {
+            message["content"].as_str().is_some_and(|content| {
+                content.contains("\"kind\": \"channel_activity\"")
+                    && content.contains("\"priority\": \"ambient\"")
+                    && content.contains("\"address\": \"#general\"")
+            })
+        })
+    })
+}
+
+fn claimed_channel_ambient(request: &serde_json::Value) -> Option<(Uuid, String, Uuid)> {
+    request["messages"]
+        .as_array()?
+        .iter()
+        .filter_map(tool_result)
+        .find_map(|result| {
+            let items = result["data"]["items"].as_array()?;
+            if items.len() != 1 {
+                return None;
+            }
+            let item = &items[0];
+            (item["kind"] == "channel_activity"
+                && item["priority"] == "ambient"
+                && item["status"] == "leased"
+                && item["address"] == "#general")
+                .then(|| {
+                    Some((
+                        Uuid::parse_str(item["id"].as_str()?).ok()?,
+                        item["address"].as_str()?.to_owned(),
+                        Uuid::parse_str(item["message_id"].as_str()?).ok()?,
+                    ))
+                })
+                .flatten()
+        })
+}
+
+fn valid_channel_ambient_read(
+    result: &serde_json::Value,
+    expected_address: &str,
+    latest_message_id: Uuid,
+) -> bool {
+    result["ok"] == true
+        && result["data"]["address"] == expected_address
+        && result["data"]["snapshot_channel_seq"].as_i64() == Some(5)
+        && result["data"]["messages"]
+            .as_array()
+            .is_some_and(|messages| {
+                messages.len() == 5
+                    && messages.iter().enumerate().all(|(index, message)| {
+                        message["seq"].as_i64() == Some(index as i64 + 1)
+                            && message["mentions"] == serde_json::json!([])
+                    })
+                    && messages[4]["id"] == latest_message_id.to_string()
+            })
+}
+
 #[tokio::test]
 async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let database = TestDatabase::create("sumi_agent_channel_mention_test").await?;
-    let server_port = reserve_local_port()?;
-    let server_address = SocketAddr::from(([127, 0, 0, 1], server_port));
-    let server_url = Url::parse(&format!("http://{server_address}"))?;
-    let server_config = root.path().join("server.toml");
-    write_server_config(
-        &server_config,
-        server_address,
-        &database.url,
-        &root.path().join("attachments"),
-        &root.path().join("web-dist"),
-    )?;
-    let mut server = spawn_server(&server_config)?;
-    wait_for_health(&server_url).await?;
-
     let mut provider = ChannelMentionProvider::start().await?;
-    let computer_state = root.path().join("computer");
-    let computer_config = root.path().join("computer.toml");
-    write_builtin_computer_config(
-        &computer_config,
-        &server_url,
-        &computer_state,
+    let mut harness = AgentProcessHarness::start(
         &provider.url,
-    )?;
-    let client = Client::new();
-    let cookie = register_human(&client, &server_url).await?;
-    let space = create_space(&client, &server_url, &cookie).await?;
-    let mut daemon = spawn_computer(&computer_config)?;
-    let pairing_url = pairing_url_from_daemon(&mut daemon).await?;
-    let paired = confirm_pairing(&client, &server_url, &cookie, space.id, &pairing_url).await?;
-    wait_for_computer_status(&client, &server_url, &cookie, space.id, "online").await?;
-
-    let agent_response = client
-        .post(server_url.join(&format!("/api/v1/spaces/{}/agents", space.id))?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .header(header::COOKIE, &cookie)
-        .json(&serde_json::json!({
-            "computer_id": paired.id,
-            "name": "Lin",
-            "handle": "lin",
-            "role_text": "Handle each Channel mention through the Sumi Agent CLI.",
-            "access_level": "member",
-            "driver_kind": "builtin"
-        }))
-        .send()
-        .await?;
-    ensure!(agent_response.status() == StatusCode::CREATED);
-    let agent: serde_json::Value = agent_response.json().await?;
-    let agent_id = Uuid::parse_str(agent["member_id"].as_str().context("Agent id missing")?)?;
-    let pool = PgPoolOptions::new()
-        .max_connections(3)
-        .connect(&database.url)
-        .await?;
-    wait_for_agent_active(&pool, agent_id).await?;
-    provider.set_agent_id(agent_id).await;
-
-    let add_agent = client
-        .post(server_url.join(&format!(
-            "/api/v1/channels/{}/members",
-            space.general_channel_id
-        ))?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .header(header::COOKIE, &cookie)
-        .json(&serde_json::json!({ "agent_member_ids": [agent_id] }))
-        .send()
-        .await?;
-    ensure!(add_agent.status() == StatusCode::OK);
+        "sumi_agent_channel_mention_test",
+        "Handle each Channel mention through the Sumi Agent CLI.",
+    )
+    .await?;
+    provider.set_agent_id(harness.agent_id).await;
 
     let reply_source = send_channel_mention(
-        &client,
-        &server_url,
-        &cookie,
-        space.general_channel_id,
-        agent_id,
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
         CHANNEL_REPLY_MENTION,
     )
     .await?;
@@ -728,19 +976,19 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
         event => anyhow::bail!("expected Channel mention reply, got {event:?}"),
     };
     ensure!(
-        reply.channel_id == space.general_channel_id
-            && reply.author_id == agent_id
+        reply.channel_id == harness.space.general_channel_id
+            && reply.author_id == harness.agent_id
             && reply.address == "#general"
             && reply.seq == 2
     );
-    wait_for_mention_run(&pool, reply_item_id, "handled", 1).await?;
+    wait_for_mention_run(&harness.pool, reply_item_id, "handled", 1).await?;
 
     let ack_source = send_channel_mention(
-        &client,
-        &server_url,
-        &cookie,
-        space.general_channel_id,
-        agent_id,
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
         CHANNEL_ACK_MENTION,
     )
     .await?;
@@ -748,14 +996,14 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
         ChannelMentionEvent::Acked(item_id) => item_id,
         event => anyhow::bail!("expected Channel mention ack, got {event:?}"),
     };
-    wait_for_mention_run(&pool, ack_item_id, "handled", 2).await?;
+    wait_for_mention_run(&harness.pool, ack_item_id, "handled", 2).await?;
 
     let defer_source = send_channel_mention(
-        &client,
-        &server_url,
-        &cookie,
-        space.general_channel_id,
-        agent_id,
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
         CHANNEL_DEFER_MENTION,
     )
     .await?;
@@ -763,18 +1011,18 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
         ChannelMentionEvent::Deferred(item_id) => item_id,
         event => anyhow::bail!("expected Channel mention defer, got {event:?}"),
     };
-    wait_for_mention_run(&pool, defer_item_id, "deferred", 3).await?;
+    wait_for_mention_run(&harness.pool, defer_item_id, "deferred", 3).await?;
 
     assert_channel_mention_state(
-        &pool,
-        space.general_channel_id,
-        agent_id,
+        &harness.pool,
+        harness.space.general_channel_id,
+        harness.agent_id,
         [reply_source, ack_source, defer_source],
         [reply_item_id, ack_item_id, defer_item_id],
         reply.id,
     )
     .await?;
-    daemon.ensure_running()?;
+    harness.daemon.ensure_running()?;
     for text in [
         CHANNEL_REPLY_MENTION,
         CHANNEL_ACK_MENTION,
@@ -783,20 +1031,152 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
         PROVIDER_AUTH,
     ] {
         ensure!(
-            !server.logs_contain(text),
+            !harness.server.logs_contain(text),
             "Server logs leaked Channel mention data"
         );
         ensure!(
-            !daemon.logs_contain(text),
+            !harness.daemon.logs_contain(text),
             "daemon logs leaked Channel mention data"
         );
     }
 
-    daemon.interrupt().await?;
-    server.interrupt().await?;
-    pool.close().await;
-    database.drop().await?;
-    Ok(())
+    harness.shutdown().await
+}
+
+#[derive(sqlx::FromRow)]
+struct ChannelAmbientInboxState {
+    id: Uuid,
+    first_seq: i64,
+    last_seq: i64,
+    message_count: i32,
+    status: String,
+    message_id: Option<Uuid>,
+    available_at: time::OffsetDateTime,
+    created_at: time::OffsetDateTime,
+}
+
+#[tokio::test]
+async fn builtin_agent_acks_aggregated_channel_ambient_once_through_real_cli() -> Result<()> {
+    let mut provider = ChannelAmbientProvider::start().await?;
+    let mut harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_channel_ambient_test",
+        "Review ordinary Channel activity and stay silent when no response is useful.",
+    )
+    .await?;
+
+    let mut message_ids = Vec::new();
+    for body in CHANNEL_AMBIENT_MESSAGES {
+        let response = harness
+            .client
+            .post(harness.server_url.join(&format!(
+                "/api/v1/channels/{}/messages",
+                harness.space.general_channel_id
+            ))?)
+            .header("idempotency-key", Uuid::now_v7().to_string())
+            .header(header::COOKIE, &harness.cookie)
+            .json(&serde_json::json!({
+                "body_markdown": body,
+                "mentions": [],
+                "attachment_ids": []
+            }))
+            .send()
+            .await?;
+        ensure!(response.status() == StatusCode::CREATED);
+        let message: serde_json::Value = response.json().await?;
+        message_ids.push(Uuid::parse_str(
+            message["id"]
+                .as_str()
+                .context("ambient Message id missing")?,
+        )?);
+    }
+
+    let pending: ChannelAmbientInboxState = sqlx::query_as(
+        "SELECT id, first_seq, last_seq, message_count, status, message_id, available_at, \
+             created_at FROM inbox_items WHERE member_id = $1 AND channel_id = $2 \
+             AND kind = 'channel_activity' AND priority = 'ambient'",
+    )
+    .bind(harness.agent_id)
+    .bind(harness.space.general_channel_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(
+        pending.first_seq == 1
+            && pending.last_seq == 5
+            && pending.message_count == 5
+            && pending.status == "pending"
+            && pending.message_id == message_ids.last().copied()
+            && pending.available_at == pending.created_at + time::Duration::seconds(5)
+    );
+
+    let acked_item_id = match provider.wait_for_event().await? {
+        ChannelAmbientEvent::Acked(item_id) => item_id,
+        ChannelAmbientEvent::Failed(reason) => anyhow::bail!(reason),
+    };
+    ensure!(acked_item_id == pending.id);
+    wait_for_ambient_run(&harness.pool, harness.agent_id, pending.id).await?;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let state: (i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT channels.next_seq, \
+            (SELECT count(*) FROM messages WHERE channel_id = $1), \
+            (SELECT count(*) FROM messages WHERE channel_id = $1 AND author_member_id = $2), \
+            (SELECT count(*) FROM agent_runs WHERE agent_member_id = $2), \
+            (SELECT count(*) FROM agent_run_inbox_items links \
+                JOIN inbox_items items ON items.id = links.inbox_item_id \
+                WHERE items.member_id = $2 AND items.channel_id = $1) \
+         FROM channels WHERE channels.id = $1",
+    )
+    .bind(harness.space.general_channel_id)
+    .bind(harness.agent_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(state == (6, 5, 0, 1, 1));
+    harness.daemon.ensure_running()?;
+    for text in CHANNEL_AMBIENT_MESSAGES
+        .into_iter()
+        .chain(std::iter::once(PROVIDER_AUTH))
+    {
+        ensure!(
+            !harness.server.logs_contain(text),
+            "Server logs leaked Channel ambient data"
+        );
+        ensure!(
+            !harness.daemon.logs_contain(text),
+            "daemon logs leaked Channel ambient data"
+        );
+    }
+
+    harness.shutdown().await
+}
+
+async fn wait_for_ambient_run(pool: &sqlx::PgPool, agent_id: Uuid, item_id: Uuid) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let state: (String, Option<Uuid>, i32, String, i64) = sqlx::query_as(
+                "SELECT items.status, items.handled_by_run_id, items.retry_count, runs.status, \
+                    (SELECT count(*) FROM agent_runs WHERE agent_member_id = $2) \
+                 FROM inbox_items items \
+                 JOIN agent_run_inbox_items links ON links.inbox_item_id = items.id \
+                 JOIN agent_runs runs ON runs.id = links.run_id WHERE items.id = $1",
+            )
+            .bind(item_id)
+            .bind(agent_id)
+            .fetch_one(pool)
+            .await?;
+            if state.0 == "handled"
+                && state.1.is_some()
+                && state.2 == 0
+                && state.3 == "completed"
+                && state.4 == 1
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .context("Channel ambient Item did not finish once through the real Agent CLI")?
 }
 
 async fn send_channel_mention(
