@@ -4,8 +4,9 @@ use uuid::Uuid;
 
 use crate::{
     cli::{
-        AgentArgs, AgentAttachmentCommand, AgentChannelCommand, AgentCommand, AgentInboxCommand,
-        AgentMemberCommand, AgentMessageCommand, AgentThreadCommand,
+        AgentArgs, AgentAttachmentCommand, AgentAuditCommand, AgentChannelCommand,
+        AgentChannelMemberCommand, AgentCommand, AgentInboxCommand, AgentLifecycleCommand,
+        AgentMemberCommand, AgentMessageCommand, AgentSpaceCommand, AgentThreadCommand,
     },
     local_protocol::{AgentAction, LocalRequest, LocalResponse},
 };
@@ -172,6 +173,31 @@ async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
                 }),
                 args.output.json,
             ),
+            AgentChannelCommand::Member(args) => match args.command {
+                AgentChannelMemberCommand::Add(args) => (
+                    Some(AgentAction::ChannelMemberAdd {
+                        address: args.address,
+                        member_id: args.member_id,
+                        idempotency_key: Uuid::now_v7(),
+                    }),
+                    args.output.json,
+                ),
+                AgentChannelMemberCommand::Remove(args) => (
+                    Some(AgentAction::ChannelMemberRemove {
+                        address: args.address,
+                        member_id: args.member_id,
+                        idempotency_key: Uuid::now_v7(),
+                    }),
+                    args.output.json,
+                ),
+            },
+            AgentChannelCommand::Archive(args) => (
+                Some(AgentAction::ChannelArchive {
+                    address: args.address,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
         },
         AgentCommand::Thread(args) => match args.command {
             AgentThreadCommand::Read(args) => {
@@ -281,6 +307,51 @@ async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
                 args.output.json,
             )
         }
+        AgentCommand::Space(args) => match args.command {
+            AgentSpaceCommand::Update(args) => {
+                ensure!(
+                    args.name.is_some() || args.accent.is_some(),
+                    "space update requires --name or --accent"
+                );
+                (
+                    Some(AgentAction::SpaceUpdate {
+                        name: args.name,
+                        accent: args.accent,
+                        idempotency_key: Uuid::now_v7(),
+                    }),
+                    args.output.json,
+                )
+            }
+        },
+        AgentCommand::Lifecycle(args) => match args.command {
+            AgentLifecycleCommand::Suspend(args) => (
+                Some(AgentAction::AgentSuspend {
+                    agent_member_id: args.agent_member_id,
+                    cancel_now: args.cancel_now,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+            AgentLifecycleCommand::Resume(args) => (
+                Some(AgentAction::AgentResume {
+                    agent_member_id: args.agent_member_id,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+        },
+        AgentCommand::Audit(args) => match args.command {
+            AgentAuditCommand::List(args) => {
+                ensure!((1..=100).contains(&args.limit), "--limit must be 1 to 100");
+                (
+                    Some(AgentAction::AuditList {
+                        before: args.before,
+                        limit: args.limit,
+                    }),
+                    args.output.json,
+                )
+            }
+        },
     };
     let run_token = std::env::var("SUMI_RUN_TOKEN").map_err(|_| {
         classified(
@@ -313,6 +384,12 @@ fn uses_json_output(args: &AgentArgs) -> bool {
             AgentChannelCommand::List(output) => output.json,
             AgentChannelCommand::Read(args) => args.output.json,
             AgentChannelCommand::Create(args) => args.output.json,
+            AgentChannelCommand::Member(args) => match &args.command {
+                AgentChannelMemberCommand::Add(args) | AgentChannelMemberCommand::Remove(args) => {
+                    args.output.json
+                }
+            },
+            AgentChannelCommand::Archive(args) => args.output.json,
         },
         AgentCommand::Thread(args) => match &args.command {
             AgentThreadCommand::Read(args) => args.output.json,
@@ -326,6 +403,16 @@ fn uses_json_output(args: &AgentArgs) -> bool {
             AgentAttachmentCommand::Info(args) => args.output.json,
         },
         AgentCommand::Create(args) => args.output.json,
+        AgentCommand::Space(args) => match &args.command {
+            AgentSpaceCommand::Update(args) => args.output.json,
+        },
+        AgentCommand::Lifecycle(args) => match &args.command {
+            AgentLifecycleCommand::Suspend(args) => args.output.json,
+            AgentLifecycleCommand::Resume(args) => args.output.json,
+        },
+        AgentCommand::Audit(args) => match &args.command {
+            AgentAuditCommand::List(args) => args.output.json,
+        },
     }
 }
 

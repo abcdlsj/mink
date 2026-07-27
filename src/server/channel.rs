@@ -750,6 +750,240 @@ pub async fn archive(
     Ok(Json(response))
 }
 
+pub(super) async fn change_member_for_agent_admin(
+    database: &sqlx::PgPool,
+    agent_id: Uuid,
+    address: &str,
+    member_id: Uuid,
+    add: bool,
+    key: Uuid,
+) -> Result<serde_json::Value, ApiError> {
+    let slug = agent_channel_slug(address)?;
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let channel: Option<(Uuid, Uuid, String, Uuid, Option<OffsetDateTime>, String)> =
+        sqlx::query_as(
+            "SELECT channels.id, channels.space_id, channels.kind, \
+                    channels.created_by_member_id, channels.archived_at, members.access_level \
+             FROM channels JOIN channel_members own ON own.channel_id = channels.id \
+             JOIN members ON members.id = own.member_id \
+             JOIN agents ON agents.member_id = members.id \
+             WHERE channels.slug = $1 AND own.member_id = $2 \
+               AND members.retired_at IS NULL AND agents.status = 'active' FOR UPDATE OF channels",
+        )
+        .bind(slug)
+        .bind(agent_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    let (channel_id, space_id, kind, creator_id, archived_at, access_level) =
+        channel.ok_or_else(|| {
+            ApiError::forbidden(
+                "permission_denied",
+                "Agent must be an explicit Member of this Channel",
+            )
+        })?;
+    if access_level != "admin" && agent_id != creator_id {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Agent Admin access or Channel creator ownership is required",
+        ));
+    }
+    if kind == "direct" {
+        return Err(ApiError::validation(
+            "direct_membership_fixed",
+            "Direct Channel membership cannot be changed",
+        ));
+    }
+    if archived_at.is_some() {
+        return Err(ApiError::conflict(
+            "channel_archived",
+            "Archived Channel membership cannot be changed",
+        ));
+    }
+    let target_active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM members WHERE id = $1 AND space_id = $2 \
+         AND retired_at IS NULL)",
+    )
+    .bind(member_id)
+    .bind(space_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    if !target_active {
+        return Err(ApiError::not_found(
+            "member_not_found",
+            "Active Member was not found in this Space",
+        ));
+    }
+    if !add && member_id == agent_id {
+        return Err(ApiError::validation(
+            "self_membership_required",
+            "Agent cannot remove itself from a Channel through this action",
+        ));
+    }
+    if !add && member_id == creator_id {
+        return Err(ApiError::validation(
+            "channel_creator_required",
+            "Channel creator cannot be removed from the Channel",
+        ));
+    }
+    let request = serde_json::json!({
+        "address": address,
+        "member_id": member_id,
+        "operation": if add { "add" } else { "remove" },
+    });
+    let request_hash = idempotency::request_hash(&request)?;
+    let scope = format!(
+        "channel:{channel_id}:member:{member_id}:{}",
+        if add { "add" } else { "remove" }
+    );
+    let key = idempotency::IdempotencyKey(key);
+    if let Some((_status, response)) =
+        idempotency::begin::<serde_json::Value>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
+    }
+    let changed = if add {
+        sqlx::query(
+            "INSERT INTO channel_members (channel_id, member_id, space_id, joined_at) \
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(channel_id)
+        .bind(member_id)
+        .bind(space_id)
+        .bind(OffsetDateTime::now_utc())
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?
+        .rows_affected()
+            == 1
+    } else {
+        sqlx::query("DELETE FROM channel_members WHERE channel_id = $1 AND member_id = $2")
+            .bind(channel_id)
+            .bind(member_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ApiError::database)?
+            .rows_affected()
+            == 1
+    };
+    let now = OffsetDateTime::now_utc();
+    if changed {
+        record_channel_event(
+            &mut transaction,
+            space_id,
+            agent_id,
+            channel_id,
+            "channel.updated",
+            now,
+        )
+        .await?;
+    }
+    let response = serde_json::json!({
+        "channel_id": channel_id,
+        "address": format!("#{slug}"),
+        "member_id": member_id,
+        "membership": if add { "present" } else { "absent" },
+        "changed": changed,
+    });
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
+}
+
+pub(super) async fn archive_for_agent_admin(
+    database: &sqlx::PgPool,
+    agent_id: Uuid,
+    address: &str,
+    key: Uuid,
+) -> Result<serde_json::Value, ApiError> {
+    let slug = agent_channel_slug(address)?;
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let channel: Option<(Uuid, Uuid, String, Uuid, Option<OffsetDateTime>, String)> =
+        sqlx::query_as(
+            "SELECT channels.id, channels.space_id, channels.kind, channels.created_by_member_id, \
+                channels.archived_at, members.access_level FROM channels \
+         JOIN channel_members own ON own.channel_id = channels.id \
+         JOIN members ON members.id = own.member_id \
+         JOIN agents ON agents.member_id = members.id \
+         WHERE channels.slug = $1 AND own.member_id = $2 \
+           AND members.retired_at IS NULL AND agents.status = 'active' FOR UPDATE OF channels",
+        )
+        .bind(slug)
+        .bind(agent_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    let (channel_id, space_id, kind, creator_id, archived_at, access_level) =
+        channel.ok_or_else(|| {
+            ApiError::forbidden(
+                "permission_denied",
+                "Agent must be an explicit Member of this Channel",
+            )
+        })?;
+    if access_level != "admin" && agent_id != creator_id {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Agent Admin access or Channel creator ownership is required",
+        ));
+    }
+    if kind == "direct" || slug == "general" {
+        return Err(ApiError::validation(
+            "channel_not_archivable",
+            "general and direct Channels cannot be archived here",
+        ));
+    }
+    let request_hash = idempotency::request_hash(&address)?;
+    let scope = format!("channel:{channel_id}:archive");
+    let key = idempotency::IdempotencyKey(key);
+    if let Some((_status, response)) =
+        idempotency::begin::<serde_json::Value>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
+    }
+    let now = OffsetDateTime::now_utc();
+    if archived_at.is_none() {
+        sqlx::query("UPDATE channels SET archived_at = $2 WHERE id = $1")
+            .bind(channel_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ApiError::database)?;
+        record_channel_event(
+            &mut transaction,
+            space_id,
+            agent_id,
+            channel_id,
+            "channel.updated",
+            now,
+        )
+        .await?;
+    }
+    let response = serde_json::json!({
+        "channel_id": channel_id,
+        "address": format!("#{slug}"),
+        "archived": true,
+    });
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
+}
+
+fn agent_channel_slug(address: &str) -> Result<&str, ApiError> {
+    let slug = address.strip_prefix('#').unwrap_or(address);
+    if !validation::is_slug(slug, 1, 32) {
+        return Err(ApiError::validation(
+            "invalid_address",
+            "Channel address must use #channel",
+        ));
+    }
+    Ok(slug)
+}
+
 fn validate_create(mut request: CreateChannelRequest) -> Result<CreateChannelRequest, ApiError> {
     request.name = request.name.trim().to_owned();
     request.slug = request.slug.trim().to_owned();

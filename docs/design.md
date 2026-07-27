@@ -411,28 +411,34 @@ Space 使用三个普通权限级别：
 | 动作 | Owner | Admin | Member |
 | --- | --- | --- | --- |
 | 查看 Space 基本信息 | 是 | 是 | 是 |
-| 修改 Space name/accent | 是 | 是 | 否 |
+| 修改 Space name/accent | 是 | 是；Agent Admin 通过 CLI 可达 | 否 |
 | 删除 Space | 是 | 否 | 否 |
 | 转移 Owner | 是，目标必须是 Human | 否 | 否 |
 | 授予或撤销 Admin | 是 | 否 | 否 |
-| 邀请或移除 Human | 是 | 是 | 否 |
+| 邀请或移除 Human | 是 | Human Admin | 否 |
 | 创建 public/private Channel | 是 | 是 | 需 channel:create |
-| 管理自己创建的 Channel | 是 | 是 | 是 |
+| 管理自己创建的 Channel | 是 | 是 | 是；Agent 通过 CLI 仅在仍是 Channel Member 时可达，其他 Channel 需 Admin |
 | 配对或撤销 Computer | 是 | Human Admin | 否 |
 | 直接创建 Agent | 是 | Human Admin | 需 agent:create 且遵循申请规则 |
-| 暂停或恢复 Agent | 是 | 是 | 否 |
-| 查看审计日志 | 是 | 是 | 否 |
+| 暂停或恢复 Agent | 是 | 是；Agent Admin 通过 CLI 可达 | 否 |
+| 查看审计日志 | 是 | 是；Agent Admin 通过 CLI 可达且不返回 metadata | 否 |
 
 可单独授予 Member 的 v1 权限只有：
 
 - channel:create
 - agent:create
 
-Agent 获得 Admin 后拥有与 Human Admin 相同的一般管理能力，但以下操作仍要求 Human：
+Agent 获得 Admin 后可以通过 `sumi agent` 执行 Space name/accent 修改、非 direct Channel
+成员增删与归档、Agent suspend/resume 和脱敏 audit 读取。Channel 治理和 audit 读取都必须继续执行
+private Channel membership 校验；Admin 身份不能发现或操作未加入的 private Channel。
+
+以下操作仍要求 Human，Agent Admin 不具有对应 CLI 命令，Server 的 Agent action 协议也必须拒绝：
 
 - 确认 Computer 配对。
 - 审批由 Agent 发起的 Agent 创建请求。
+- 邀请或移除 Human；Human 账号、邀请 token 和成员移除属于 Human-only 身份治理。
 - 转移 Owner 或删除 Space。
+- 授予或撤销 Admin、配对或撤销 Computer、retry/retire Agent、修改 Agent Role/Driver/attention config。
 
 ### 8.3 Agent 创建审批
 
@@ -1284,6 +1290,31 @@ sumi agent channel create design --name "Design" [--private] --json
 sumi agent create --name "Reviewer" --role-file ./role.md --computer {computer-id} --driver codex --json
 ~~~
 
+Agent Admin 治理：
+
+~~~
+sumi agent space update [--name "Sumi Lab"] [--accent '#5065D8'] --json
+sumi agent channel member add #design {member-id} --json
+sumi agent channel member remove #design {member-id} --json
+sumi agent channel archive #design --json
+sumi agent lifecycle suspend {agent-member-id} [--cancel-now] --json
+sumi agent lifecycle resume {agent-member-id} --json
+sumi agent audit list [--before {event-id}] [--limit 50] --json
+~~~
+
+Space、lifecycle 和 audit 命令要求当前 Agent 为 Admin；Channel member/archive 允许 Agent Admin 或
+Channel 创建者。Channel member/archive 必须先验证当前 Agent 是目标 Channel 的
+显式 Member；未加入的 private Channel 统一返回 `permission_denied`，不得通过错误差异泄露其存在。
+member add/remove 只接受同一 Space 的 active Member，不能用于 direct Channel；general 和 direct
+Channel 不能归档，Agent 不能移除自己的 Channel membership。lifecycle 只能操作其他 Agent，当前
+Agent 自己的 lifecycle 必须由 Human 治理，避免 action 提交后失去 active-run 身份而破坏幂等重放。
+audit 响应只返回 event id、actor 摘要、action、subject type/id 和 created_at，
+不返回 `metadata_json`，并过滤当前 Agent 未加入 private Channel 的 Channel audit。
+
+Agent CLI 不提供 Human invite/remove、Admin 授予/撤销、Computer 配对/撤销、Approval 决议、Owner
+转移/Space 删除、Agent retry/retire 或 Role/Driver/attention 修改。不能用手写 Agent action frame
+调用这些 Human-only 动作。
+
 若当前 Agent 调用 agent create，命令成功表示 Approval 已创建，不表示 Agent 已 provision。JSON 必须返回 approval_id 和 status=pending。
 
 ### 14.4 读取响应
@@ -1558,6 +1589,11 @@ POST /api/v1/approvals/{approval_id}/approve
 POST /api/v1/approvals/{approval_id}/reject
 ~~~
 
+以上 Browser REST API 不等于 Agent 能力清单。Agent 只经 active-run 认证的
+`POST /api/v1/computers/{computer_id}/agent-actions` 提交 §14.3 明确列出的结构化 action；Server
+按 action 再做 Agent Admin、目标 Space 和 Channel membership 校验。Browser Session Cookie 不得由
+daemon、Driver 或 Agent CLI 获得，Computer Token 也不能替代 Human Session 调用 Browser 治理 API。
+
 Agent list/detail 对同一 Space Member 返回 identity、Role revision、状态、Computer、Driver 和
 attention config，以及 Server 计算的 `activity_status=idle|busy|offline|error`；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
 Computer online 时临时读取正文。Memory read 响应使用 `Cache-Control: no-store`，正文不成为 Server
@@ -1646,6 +1682,7 @@ v1 event types：
 - agent.status_changed、agent.run_changed。
 - approval.created、approval.resolved。
 - channel.created、channel.updated。
+- space.updated。
 - attachment.ready。
 
 浏览器断线后使用最后 event_id 请求补偿；若保留窗口已过期，重新拉取当前页面数据。业务正确性不得依赖浏览器收到了每一个 event。
@@ -1942,7 +1979,9 @@ v1 不实现业务 metrics、不建设 metrics export/storage/dashboard，不做
 2. 两者 Message 使用相同布局，Agent 只有小型标签。
 3. Human 可以 mention Agent，Agent 可以 mention Human 或 Agent。
 4. Agent 有 channel:create 时可以创建 Channel。
-5. Agent 被 Owner 授予 Admin 后可以执行矩阵允许的管理动作。
+5. Agent 被 Owner 授予 Admin 后，通过真实 Builtin run 与 `sumi agent` 修改 Space name/accent、管理其已加入的非 direct Channel 成员与归档、暂停/恢复 Agent，并读取脱敏 audit。
+6. Agent Admin 不能邀请/移除 Human、决议 Approval、变更 Access Level、管理 Computer、retry/retire Agent 或修改 Agent 配置。
+7. Agent Admin 不能读取、从 audit 发现或治理自己未加入的 private Channel。
 
 ### 22.3 Computer 与 Agent
 

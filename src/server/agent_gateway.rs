@@ -7,7 +7,10 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, attachment, channel, idempotency, message};
+use super::{
+    AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency,
+    message, space,
+};
 use crate::local_protocol::AgentAction;
 
 #[derive(Deserialize)]
@@ -89,6 +92,48 @@ pub async fn agent_action(
             .await?,
         )
         .map_err(|_| ApiError::Internal)?,
+        AgentAction::ChannelMemberAdd {
+            address,
+            member_id,
+            idempotency_key,
+        } => {
+            channel::change_member_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                &address,
+                member_id,
+                true,
+                idempotency_key,
+            )
+            .await?
+        }
+        AgentAction::ChannelMemberRemove {
+            address,
+            member_id,
+            idempotency_key,
+        } => {
+            channel::change_member_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                &address,
+                member_id,
+                false,
+                idempotency_key,
+            )
+            .await?
+        }
+        AgentAction::ChannelArchive {
+            address,
+            idempotency_key,
+        } => {
+            channel::archive_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                &address,
+                idempotency_key,
+            )
+            .await?
+        }
         AgentAction::ThreadRead {
             address,
             after,
@@ -181,6 +226,56 @@ pub async fn agent_action(
             .await?,
         )
         .map_err(|_| ApiError::Internal)?,
+        AgentAction::SpaceUpdate {
+            name,
+            accent,
+            idempotency_key,
+        } => {
+            space::update_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                space::UpdateSpaceRequest { name, accent },
+                idempotency_key,
+            )
+            .await?
+        }
+        AgentAction::AgentSuspend {
+            agent_member_id,
+            cancel_now,
+            idempotency_key,
+        } => serde_json::to_value(
+            agent_registry::update_lifecycle_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                agent_member_id,
+                Some(if cancel_now {
+                    agent_registry::SuspendMode::CancelNow
+                } else {
+                    agent_registry::SuspendMode::StopAfterCurrent
+                }),
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::AgentResume {
+            agent_member_id,
+            idempotency_key,
+        } => serde_json::to_value(
+            agent_registry::update_lifecycle_for_agent_admin(
+                &state.database,
+                request.agent_member_id,
+                agent_member_id,
+                None,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::AuditList { before, limit } => {
+            audit::list_for_agent_admin(&state.database, request.agent_member_id, before, limit)
+                .await?
+        }
         AgentAction::AttachmentUpload { .. }
         | AgentAction::AttachmentDownload { .. }
         | AgentAction::AttachmentInfo { .. } => {

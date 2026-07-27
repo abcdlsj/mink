@@ -62,6 +62,86 @@ pub enum AgentCommand {
     Attachment(AgentAttachmentArgs),
     /// Request Human approval to create another Agent.
     Create(AgentCreateArgs),
+    /// Administer the current Space.
+    Space(AgentSpaceArgs),
+    /// Suspend or resume an Agent as an Agent Admin.
+    Lifecycle(AgentLifecycleArgs),
+    /// Read the redacted Space audit log as an Agent Admin.
+    Audit(AgentAuditArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentSpaceArgs {
+    #[command(subcommand)]
+    pub command: AgentSpaceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentSpaceCommand {
+    /// Update the Space display name or accent.
+    Update(AgentSpaceUpdateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentSpaceUpdateArgs {
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub accent: Option<String>,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentLifecycleArgs {
+    #[command(subcommand)]
+    pub command: AgentLifecycleCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentLifecycleCommand {
+    /// Suspend an active Agent.
+    Suspend(AgentSuspendArgs),
+    /// Resume a suspended Agent.
+    Resume(AgentResumeArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentSuspendArgs {
+    pub agent_member_id: uuid::Uuid,
+    #[arg(long)]
+    pub cancel_now: bool,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentResumeArgs {
+    pub agent_member_id: uuid::Uuid,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentAuditArgs {
+    #[command(subcommand)]
+    pub command: AgentAuditCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentAuditCommand {
+    /// List redacted audit events visible to the current Agent.
+    List(AgentAuditListArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentAuditListArgs {
+    #[arg(long)]
+    pub before: Option<uuid::Uuid>,
+    #[arg(long, default_value_t = 50)]
+    pub limit: i64,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
 }
 
 #[derive(Debug, Args)]
@@ -164,6 +244,39 @@ pub enum AgentChannelCommand {
     Read(AgentChannelReadArgs),
     /// Create a public or private Channel.
     Create(AgentChannelCreateArgs),
+    /// Manage Channel membership.
+    Member(AgentChannelMemberArgs),
+    /// Archive a Channel.
+    Archive(AgentChannelArchiveArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentChannelMemberArgs {
+    #[command(subcommand)]
+    pub command: AgentChannelMemberCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentChannelMemberCommand {
+    /// Add an active Space Member to a Channel.
+    Add(AgentChannelMemberChangeArgs),
+    /// Remove a Member from a Channel.
+    Remove(AgentChannelMemberChangeArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentChannelMemberChangeArgs {
+    pub address: String,
+    pub member_id: uuid::Uuid,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentChannelArchiveArgs {
+    pub address: String,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
 }
 
 #[derive(Debug, Args)]

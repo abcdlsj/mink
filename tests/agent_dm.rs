@@ -729,6 +729,199 @@ fn finish_channel_create(
     text_stream("Channel create completed through the real Sumi CLI.")
 }
 
+struct GovernanceProvider {
+    url: Url,
+    completed: mpsc::Receiver<Uuid>,
+    state: Arc<GovernanceProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct GovernanceProviderState {
+    step: Mutex<usize>,
+    target_agent_id: Mutex<Option<Uuid>>,
+    hidden_channel_id: Mutex<Option<Uuid>>,
+    completed: mpsc::Sender<Uuid>,
+}
+
+impl GovernanceProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (completed_tx, completed) = mpsc::channel(1);
+        let state = Arc::new(GovernanceProviderState {
+            step: Mutex::new(0),
+            target_agent_id: Mutex::new(None),
+            hidden_channel_id: Mutex::new(None),
+            completed: completed_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(governance_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            completed,
+            state,
+            task,
+        })
+    }
+
+    async fn configure(&self, target_agent_id: Uuid, hidden_channel_id: Uuid) {
+        *self.state.target_agent_id.lock().await = Some(target_agent_id);
+        *self.state.hidden_channel_id.lock().await = Some(hidden_channel_id);
+    }
+
+    async fn wait_for_completion(&mut self) -> Result<Uuid> {
+        match tokio::time::timeout(Duration::from_secs(45), self.completed.recv()).await {
+            Ok(Some(item_id)) => Ok(item_id),
+            Ok(None) => anyhow::bail!("governance provider stopped before completion"),
+            Err(_) => anyhow::bail!(
+                "governance Agent stopped after provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for GovernanceProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn governance_chat_stream(
+    State(state): State<Arc<GovernanceProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    let Some(target_agent_id) = *state.target_agent_id.lock().await else {
+        return bad_provider_request();
+    };
+    let Some(hidden_channel_id) = *state.hidden_channel_id.lock().await else {
+        return bad_provider_request();
+    };
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 => tool_call_stream("governance-inbox", "sumi agent inbox current --json"),
+        1 => tool_call_stream(
+            "governance-space",
+            "sumi agent space update --name 'Governed Space' --accent '#6B8F71' --json",
+        ),
+        2 if latest_tool_result(&request).is_some_and(|result| {
+            result["data"]["name"] == "Governed Space" && result["data"]["accent"] == "#6B8F71"
+        }) =>
+        {
+            tool_call_stream(
+                "governance-member-add",
+                &format!("sumi agent channel member add '#governance' {target_agent_id} --json"),
+            )
+        }
+        3 if latest_tool_result(&request)
+            .is_some_and(|result| result["data"]["membership"] == "present") =>
+        {
+            tool_call_stream(
+                "governance-member-remove",
+                &format!("sumi agent channel member remove '#governance' {target_agent_id} --json"),
+            )
+        }
+        4 if latest_tool_result(&request)
+            .is_some_and(|result| result["data"]["membership"] == "absent") =>
+        {
+            tool_call_stream(
+                "governance-suspend",
+                &format!("sumi agent lifecycle suspend {target_agent_id} --json"),
+            )
+        }
+        5 if latest_tool_result(&request)
+            .is_some_and(|result| result["data"]["status"] == "suspended") =>
+        {
+            tool_call_stream(
+                "governance-resume",
+                &format!("sumi agent lifecycle resume {target_agent_id} --json"),
+            )
+        }
+        6 if latest_tool_result(&request)
+            .is_some_and(|result| result["data"]["status"] == "active") =>
+        {
+            tool_call_stream(
+                "governance-audit",
+                "sumi agent audit list --limit 100 --json",
+            )
+        }
+        7 => {
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            let visible = result["data"]["events"].as_array().is_some_and(|events| {
+                !events.is_empty()
+                    && events.iter().all(|event| {
+                        event.get("metadata_json").is_none()
+                            && event["subject_id"] != hidden_channel_id.to_string()
+                    })
+            });
+            if !visible {
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "governance-hidden-private",
+                "sumi agent channel archive '#owners-private' --json",
+            )
+        }
+        8 if latest_tool_error_result(&request)
+            .is_some_and(|result| result["error"]["code"] == "permission_denied") =>
+        {
+            tool_call_stream(
+                "governance-human-only",
+                "sumi agent human invite someone@example.com --json",
+            )
+        }
+        9 if latest_tool_content(&request).is_some_and(|content| {
+            content.contains("unrecognized subcommand") && content.contains("human")
+        }) =>
+        {
+            tool_call_stream(
+                "governance-archive",
+                "sumi agent channel archive '#governance' --json",
+            )
+        }
+        10 if latest_tool_result(&request)
+            .is_some_and(|result| result["data"]["archived"] == true) =>
+        {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "governance-ack",
+                &format!(
+                    "sumi agent inbox ack {inbox_item_id} --reason 'governance verified' --json"
+                ),
+            )
+        }
+        11 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            if !valid_ack_result(&request, inbox_item_id) {
+                return bad_provider_request();
+            }
+            let _ = state.completed.send(inbox_item_id).await;
+            text_stream("Agent Admin governance completed through the real Sumi CLI.")
+        }
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
 #[derive(Clone, Debug)]
 enum AgentApprovalEvent {
     Requested {
@@ -2361,6 +2554,175 @@ async fn builtin_agent_creates_channels_with_permission_and_admin_through_real_c
         );
     }
 
+    harness.shutdown().await
+}
+
+#[tokio::test]
+async fn builtin_agent_admin_executes_governance_and_respects_human_private_boundaries()
+-> Result<()> {
+    let mut provider = GovernanceProvider::start().await?;
+    let harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_admin_governance_test",
+        "Exercise only the Agent Admin governance exposed by the Sumi Agent CLI.",
+    )
+    .await?;
+    disable_agent_ambient(&harness).await?;
+
+    let promote = harness
+        .client
+        .patch(harness.server_url.join(&format!(
+            "/api/v1/spaces/{}/members/{}",
+            harness.space.id, harness.agent_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "access_level": "admin" }))
+        .send()
+        .await?;
+    ensure!(promote.status() == StatusCode::OK);
+
+    let target = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/spaces/{}/agents", harness.space.id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "computer_id": harness.computer_id,
+            "name": "Governed Agent",
+            "handle": "governed-agent",
+            "role_text": "Remain idle while another Agent Admin manages lifecycle.",
+            "access_level": "member",
+            "driver_kind": "builtin"
+        }))
+        .send()
+        .await?;
+    ensure!(target.status() == StatusCode::CREATED);
+    let target: serde_json::Value = target.json().await?;
+    let target_agent_id = Uuid::parse_str(
+        target["member_id"]
+            .as_str()
+            .context("target Agent id missing")?,
+    )?;
+    wait_for_agent_active(&harness.pool, target_agent_id).await?;
+    sqlx::query(
+        "UPDATE agents SET attention_config_json = jsonb_set( \
+         attention_config_json, '{ambient_enabled}', 'false') WHERE member_id = $1",
+    )
+    .bind(target_agent_id)
+    .execute(&harness.pool)
+    .await?;
+
+    let governance = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/spaces/{}/channels", harness.space.id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "slug": "governance",
+            "name": "Governance",
+            "kind": "private",
+            "topic": null,
+            "agent_member_ids": [harness.agent_id]
+        }))
+        .send()
+        .await?;
+    ensure!(governance.status() == StatusCode::CREATED);
+    let governance: serde_json::Value = governance.json().await?;
+    let governance_channel_id = Uuid::parse_str(
+        governance["id"]
+            .as_str()
+            .context("governance Channel id missing")?,
+    )?;
+
+    let hidden = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/spaces/{}/channels", harness.space.id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "slug": "owners-private",
+            "name": "Owners Private",
+            "kind": "private",
+            "topic": null,
+            "agent_member_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(hidden.status() == StatusCode::CREATED);
+    let hidden: serde_json::Value = hidden.json().await?;
+    let hidden_channel_id =
+        Uuid::parse_str(hidden["id"].as_str().context("hidden Channel id missing")?)?;
+    provider.configure(target_agent_id, hidden_channel_id).await;
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin execute the permitted Agent Admin governance through the CLI.",
+    )
+    .await?;
+    let inbox_item_id = provider.wait_for_completion().await?;
+    wait_for_mention_run(&harness.pool, inbox_item_id, "handled", 1).await?;
+
+    let state: (String, String, String, i64, bool, bool, i64, i64, i64) = sqlx::query_as(
+        "SELECT spaces.name, spaces.accent, agents.status, \
+            (SELECT count(*) FROM channel_members WHERE channel_id = $3 AND member_id = $4), \
+            (SELECT archived_at IS NOT NULL FROM channels WHERE id = $3), \
+            (SELECT archived_at IS NULL FROM channels WHERE id = $5), \
+            (SELECT count(*) FROM audit_events WHERE actor_member_id = $2 \
+                AND action IN ('space.updated', 'channel.updated', 'agent.suspended', 'agent.resumed')), \
+            (SELECT count(*) FROM outbox_events WHERE topic IN \
+                ('space.updated', 'channel.updated', 'agent.status_changed')), \
+            (SELECT count(*) FROM human_invitations WHERE invited_by_member_id = $2) \
+         FROM spaces JOIN agents ON agents.member_id = $4 WHERE spaces.id = $1",
+    )
+    .bind(harness.space.id)
+    .bind(harness.agent_id)
+    .bind(governance_channel_id)
+    .bind(target_agent_id)
+    .bind(hidden_channel_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(state.0 == "Governed Space" && state.1 == "#6B8F71" && state.2 == "active");
+    ensure!(state.3 == 0 && state.4 && state.5);
+    ensure!(state.6 >= 6 && state.7 >= 6 && state.8 == 0);
+
+    let mut lifecycle_commands_completed = false;
+    for _ in 0..100 {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM computer_commands WHERE computer_id = $1 \
+             AND kind IN ('agent.suspend', 'agent.resume') \
+             AND payload_json->>'agent_id' = $2::text AND status = 'completed'",
+        )
+        .bind(harness.computer_id)
+        .bind(target_agent_id)
+        .fetch_one(&harness.pool)
+        .await?;
+        if count == 2 {
+            lifecycle_commands_completed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    ensure!(
+        lifecycle_commands_completed,
+        "daemon did not complete Agent Admin lifecycle commands"
+    );
     harness.shutdown().await
 }
 

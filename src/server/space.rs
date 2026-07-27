@@ -35,6 +35,12 @@ pub struct CreateSpaceRequest {
     pub accent: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UpdateSpaceRequest {
+    pub name: Option<String>,
+    pub accent: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SpaceResponse {
     pub id: Uuid,
@@ -232,6 +238,107 @@ pub async fn list(
     .map(Into::into)
     .collect();
     Ok(Json(spaces))
+}
+
+pub(super) async fn update_for_agent_admin(
+    database: &sqlx::PgPool,
+    agent_id: Uuid,
+    mut request: UpdateSpaceRequest,
+    key: Uuid,
+) -> Result<serde_json::Value, ApiError> {
+    if let Some(name) = &mut request.name {
+        *name = name.trim().to_owned();
+        if !(1..=60).contains(&name.chars().count()) {
+            return Err(ApiError::validation(
+                "invalid_space_name",
+                "Space name must contain 1 to 60 characters",
+            ));
+        }
+    }
+    if request
+        .accent
+        .as_deref()
+        .is_some_and(|accent| !ACCENTS.contains(&accent))
+    {
+        return Err(ApiError::validation(
+            "invalid_space_accent",
+            "Space accent is not one of the supported presets",
+        ));
+    }
+    if request.name.is_none() && request.accent.is_none() {
+        return Err(ApiError::validation(
+            "empty_space_update",
+            "Space update must include name or accent",
+        ));
+    }
+    let request_hash = idempotency::request_hash(&request)?;
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let actor: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT members.space_id, members.access_level FROM members \
+         JOIN agents ON agents.member_id = members.id WHERE members.id = $1 \
+           AND members.kind = 'agent' AND members.retired_at IS NULL \
+           AND agents.status = 'active' FOR UPDATE OF members",
+    )
+    .bind(agent_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let (space_id, access_level) = actor.ok_or_else(|| {
+        ApiError::forbidden("permission_denied", "Current Agent identity is not active")
+    })?;
+    if access_level != "admin" {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Agent Admin access is required",
+        ));
+    }
+    let scope = format!("space:{space_id}:update");
+    let key = idempotency::IdempotencyKey(key);
+    if let Some((_status, response)) =
+        idempotency::begin::<serde_json::Value>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
+    }
+    let now = OffsetDateTime::now_utc();
+    let response: serde_json::Value = sqlx::query_scalar(
+        "UPDATE spaces SET name = COALESCE($2, name), accent = COALESCE($3, accent), \
+         updated_at = $4 WHERE id = $1 AND deleted_at IS NULL \
+         RETURNING jsonb_build_object('id', id, 'name', name, 'slug', slug::text, \
+             'accent', accent, 'updated_at', updated_at)",
+    )
+    .bind(space_id)
+    .bind(&request.name)
+    .bind(&request.accent)
+    .bind(now)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    super::audit::record(
+        &mut transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(agent_id),
+            action: "space.updated",
+            subject_type: "space",
+            subject_id: space_id,
+            metadata: None,
+            occurred_at: now,
+        },
+    )
+    .await?;
+    super::outbox::publish(
+        &mut transaction,
+        "space.updated",
+        space_id,
+        serde_json::json!({ "space_id": space_id }),
+        now,
+    )
+    .await?;
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
 }
 
 #[derive(sqlx::FromRow)]

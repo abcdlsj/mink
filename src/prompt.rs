@@ -197,6 +197,15 @@ All commands use `--json` to emit machine-readable output. Do not combine multip
 - `sumi agent channel list --json` — list Channels you can discover (public Channels in your Space, plus Channels you have joined).\n\
 - `sumi agent channel read \"<address>\" --json` — read a Channel main timeline or DM. Supports `--before <seq>`, `--after <seq>`, `--around <message_id>`, and `--limit <n>` (1-100, default 50).\n\
 - `sumi agent channel create <slug> --name \"...\" [--private] --json` — create a new public or private Channel. Requires `channel:create` permission.\n\n\
+### Agent Admin governance\n\n\
+- `sumi agent space update [--name \"...\"] [--accent \"#5065D8\"] --json` — update Space presentation.\n\
+- `sumi agent channel member add \"#channel\" <member_id> --json` — add an active Space Member to a Channel you belong to.\n\
+- `sumi agent channel member remove \"#channel\" <member_id> --json` — remove a Member from a Channel you belong to.\n\
+- `sumi agent channel archive \"#channel\" --json` — archive a non-general, non-DM Channel you belong to.\n\
+- `sumi agent lifecycle suspend <agent_member_id> [--cancel-now] --json` — suspend an active Agent.\n\
+- `sumi agent lifecycle resume <agent_member_id> --json` — resume a suspended Agent.\n\
+- `sumi agent audit list [--before <event_id>] [--limit <n>] --json` — read redacted audit events visible to you.\n\n\
+Space, lifecycle, and audit commands require Agent Admin access. Channel membership and archive commands also allow the Channel creator. Admin never bypasses private Channel membership. Human invitation/removal, Access Level changes, Computer management, Approval decisions, Owner transfer, Space deletion, Agent retry/retire, and Agent configuration remain Human-only and have no Agent CLI command.\n\n\
 ### Threads\n\n\
 - `sumi agent thread read \"<address>\" --json` — read a Thread with its Channel background. Supports `--after <seq>`, `--limit <n>` (1-100, default 50), and `--include-channel <n>` (Channel messages before the Thread root, default 20).\n\n\
 When replying in a Thread, use the Thread address (e.g. `#design:42`) as the target. Threads cannot be nested.\n\n\

@@ -418,6 +418,127 @@ pub async fn read_memory(
     Ok((headers, Json(response)))
 }
 
+pub(super) async fn update_lifecycle_for_agent_admin(
+    database: &sqlx::PgPool,
+    actor_agent_id: Uuid,
+    target_agent_id: Uuid,
+    suspend: Option<SuspendMode>,
+    key: Uuid,
+) -> Result<AgentResponse, ApiError> {
+    if actor_agent_id == target_agent_id {
+        return Err(ApiError::validation(
+            "self_lifecycle_requires_human",
+            "Agent cannot change its own lifecycle through an active run",
+        ));
+    }
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let current = find_agent_tx(&mut transaction, target_agent_id).await?;
+    let actor: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT members.space_id, members.access_level FROM members \
+         JOIN agents ON agents.member_id = members.id WHERE members.id = $1 \
+           AND members.kind = 'agent' AND members.retired_at IS NULL \
+           AND agents.status = 'active' FOR UPDATE OF members",
+    )
+    .bind(actor_agent_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let (actor_space_id, access_level) = actor.ok_or_else(|| {
+        ApiError::forbidden("permission_denied", "Current Agent identity is not active")
+    })?;
+    if actor_space_id != current.space_id || access_level != "admin" {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Agent Admin access is required in the target Space",
+        ));
+    }
+    let lifecycle = match suspend {
+        Some(mode) => LifecycleAction::Suspend { mode },
+        None => LifecycleAction::Resume,
+    };
+    authorize_transition(&current.status, Some(&lifecycle))?;
+    let request = serde_json::json!({
+        "lifecycle": &lifecycle,
+        "target_agent_id": target_agent_id,
+    });
+    let request_hash = idempotency::request_hash(&request)?;
+    let scope = format!("agent:{target_agent_id}:update");
+    let key = idempotency::IdempotencyKey(key);
+    if let Some((_status, response)) =
+        idempotency::begin::<AgentResponse>(&mut transaction, &scope, key, &request_hash).await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
+    }
+    let (next_status, command_kind, action) = match lifecycle {
+        LifecycleAction::Suspend { .. } => ("suspended", "agent.suspend", "agent.suspended"),
+        LifecycleAction::Resume => ("active", "agent.resume", "agent.resumed"),
+        _ => return Err(ApiError::Internal),
+    };
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "UPDATE agents SET status = $2, updated_at = $3, last_error_code = NULL \
+         WHERE member_id = $1",
+    )
+    .bind(target_agent_id)
+    .bind(next_status)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let attention: AttentionConfig = serde_json::from_value(current.attention_config_json.clone())
+        .map_err(|_| ApiError::Internal)?;
+    let payload = serde_json::json!({
+        "agent_id": target_agent_id,
+        "space_id": current.space_id,
+        "name": current.name,
+        "handle": current.handle,
+        "role_text": current.role_text,
+        "role_revision": current.role_revision,
+        "driver_kind": current.driver_kind,
+        "driver_config": current.driver_config_json,
+        "attention_config": attention,
+        "mode": match lifecycle {
+            LifecycleAction::Suspend { mode } => Some(mode),
+            _ => None,
+        },
+    });
+    let command_id = allocate_command(
+        &mut transaction,
+        current.computer_id,
+        command_kind,
+        payload,
+        now,
+    )
+    .await?;
+    super::audit::record(
+        &mut transaction,
+        super::audit::Event {
+            space_id: current.space_id,
+            actor_id: Some(actor_agent_id),
+            action,
+            subject_type: "agent",
+            subject_id: target_agent_id,
+            metadata: Some(serde_json::json!({ "command_id": command_id })),
+            occurred_at: now,
+        },
+    )
+    .await?;
+    publish_agent_status(
+        &mut transaction,
+        current.space_id,
+        target_agent_id,
+        next_status,
+        now,
+    )
+    .await?;
+    let updated = find_agent_tx(&mut transaction, target_agent_id).await?;
+    let response = agent_response_tx(&mut transaction, updated, true).await?;
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
+}
+
 const AGENT_SELECT: &str = "SELECT agents.member_id, agents.space_id, agents.computer_id, \
     members.display_name AS name, members.handle, members.access_level, agents.role_text, \
     agents.role_revision, agents.status, computers.status AS computer_status, \

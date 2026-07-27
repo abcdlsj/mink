@@ -39,6 +39,20 @@ pub enum AgentAction {
         private: bool,
         idempotency_key: Uuid,
     },
+    ChannelMemberAdd {
+        address: String,
+        member_id: Uuid,
+        idempotency_key: Uuid,
+    },
+    ChannelMemberRemove {
+        address: String,
+        member_id: Uuid,
+        idempotency_key: Uuid,
+    },
+    ChannelArchive {
+        address: String,
+        idempotency_key: Uuid,
+    },
     ThreadRead {
         address: String,
         after: Option<i64>,
@@ -83,6 +97,24 @@ pub enum AgentAction {
         driver_kind: String,
         idempotency_key: Uuid,
     },
+    SpaceUpdate {
+        name: Option<String>,
+        accent: Option<String>,
+        idempotency_key: Uuid,
+    },
+    AgentSuspend {
+        agent_member_id: Uuid,
+        cancel_now: bool,
+        idempotency_key: Uuid,
+    },
+    AgentResume {
+        agent_member_id: Uuid,
+        idempotency_key: Uuid,
+    },
+    AuditList {
+        before: Option<Uuid>,
+        limit: i64,
+    },
 }
 
 impl AgentAction {
@@ -94,6 +126,9 @@ impl AgentAction {
             Self::InboxShow { .. } => "inbox.show",
             Self::ChannelRead { .. } => "channel.read",
             Self::ChannelCreate { .. } => "channel.create",
+            Self::ChannelMemberAdd { .. } => "channel.member.add",
+            Self::ChannelMemberRemove { .. } => "channel.member.remove",
+            Self::ChannelArchive { .. } => "channel.archive",
             Self::ThreadRead { .. } => "thread.read",
             Self::MessageSend { .. } => "message.send",
             Self::InboxAck { .. } => "inbox.ack",
@@ -102,6 +137,10 @@ impl AgentAction {
             Self::AttachmentDownload { .. } => "attachment.download",
             Self::AttachmentInfo { .. } => "attachment.info",
             Self::AgentCreate { .. } => "agent.create",
+            Self::SpaceUpdate { .. } => "space.update",
+            Self::AgentSuspend { .. } => "agent.suspend",
+            Self::AgentResume { .. } => "agent.resume",
+            Self::AuditList { .. } => "audit.list",
         }
     }
 }
