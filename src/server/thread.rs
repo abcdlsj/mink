@@ -699,8 +699,9 @@ const MESSAGE_SELECT: &str = "SELECT messages.id, messages.channel_id, messages.
             messages.body_markdown, \
             COALESCE((SELECT array_agg(member_id ORDER BY member_id) FROM message_mentions \
                       WHERE message_mentions.message_id = messages.id), ARRAY[]::uuid[]) AS mentions, \
-            messages.created_at, messages.edited_at, messages.deleted_at \
-            , threads_for_root.thread_id, COALESCE((SELECT count(*) FROM messages replies \
+            messages.created_at, messages.edited_at, messages.deleted_at, \
+            COALESCE(messages.thread_id, threads_for_root.thread_id) AS thread_id, \
+            COALESCE((SELECT count(*) FROM messages replies \
                 WHERE replies.channel_id = messages.channel_id \
                   AND replies.thread_id = threads_for_root.thread_id), 0) AS reply_count \
      FROM messages JOIN members ON members.id = messages.author_member_id \

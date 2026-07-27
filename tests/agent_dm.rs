@@ -46,6 +46,11 @@ const CHANNEL_AMBIENT_MESSAGES: [&str; 5] = [
     "Ambient note four.",
     "Ambient note five.",
 ];
+const THREAD_BACKGROUND: &str = "Channel background before the Thread root.";
+const THREAD_ROOT: &str = "Thread root on the Channel timeline.";
+const THREAD_FIRST_REPLY: &str = "First Human reply in the Thread.";
+const THREAD_MENTION: &str = "@lin inspect this Thread and reply through the CLI.";
+const THREAD_CLI_REPLY: &str = "Thread reply published through the real Sumi CLI.";
 
 struct AgentProcessHarness {
     _root: tempfile::TempDir,
@@ -751,6 +756,252 @@ fn valid_channel_mention_read(
 }
 
 #[derive(Debug)]
+enum ThreadEvent {
+    Replied {
+        inbox_item_id: Uuid,
+        reply: ObservedAgentReply,
+    },
+    Failed(String),
+}
+
+struct ThreadProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<ThreadEvent>,
+    state: Arc<ThreadProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct ThreadProviderState {
+    step: Mutex<usize>,
+    agent_id: Mutex<Option<Uuid>>,
+    events: mpsc::UnboundedSender<ThreadEvent>,
+}
+
+impl ThreadProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(ThreadProviderState {
+            step: Mutex::new(0),
+            agent_id: Mutex::new(None),
+            events: events_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(thread_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            state,
+            task,
+        })
+    }
+
+    async fn set_agent_id(&self, agent_id: Uuid) {
+        *self.state.agent_id.lock().await = Some(agent_id);
+    }
+
+    async fn wait_for_event(&mut self) -> Result<ThreadEvent> {
+        match tokio::time::timeout(Duration::from_secs(30), self.events.recv()).await {
+            Ok(event) => event.context("Thread provider stopped before the Agent reply completed"),
+            Err(_) => anyhow::bail!(
+                "timed out waiting for Thread Agent reply at provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for ThreadProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn thread_chat_stream(
+    State(state): State<Arc<ThreadProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    let Some(agent_id) = *state.agent_id.lock().await else {
+        return bad_provider_request();
+    };
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 => {
+            if !prompt_has_thread_summary(&request) {
+                return bad_provider_request();
+            }
+            tool_call_stream("thread-inbox", "sumi agent inbox current --json")
+        }
+        1 => {
+            let Some((_, address, _)) = claimed_thread_mention(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "thread-read",
+                &format!("sumi agent thread read '{address}' --include-channel 20 --json"),
+            )
+        }
+        2 => {
+            let Some((inbox_item_id, address, source_message_id)) =
+                claimed_thread_mention(&request)
+            else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                let _ = state.events.send(ThreadEvent::Failed(
+                    "thread read did not return JSON".to_owned(),
+                ));
+                return bad_provider_request();
+            };
+            if !valid_thread_read(&result, &address, agent_id, source_message_id) {
+                let _ = state.events.send(ThreadEvent::Failed(format!(
+                    "invalid thread read: ok={}, address={}, thread_id={:?}, snapshot={:?}, replies={:?}, background={:?}",
+                    result["ok"] == true,
+                    result["data"]["address"],
+                    result["data"]["thread_id"].as_i64(),
+                    result["data"]["snapshot_channel_seq"].as_i64(),
+                    result["data"]["replies"].as_array().map(Vec::len),
+                    result["data"]["channel_background"].as_array().map(Vec::len),
+                )));
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "thread-reply",
+                &format!(
+                    "sumi agent message send '{address}' --body '{THREAD_CLI_REPLY}' --based-on 4 --handle {inbox_item_id} --json"
+                ),
+            )
+        }
+        3 => {
+            let Some((inbox_item_id, address, _)) = claimed_thread_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(reply) = latest_tool_result(&request)
+                .and_then(|result| observed_message_send(&result, &address, 5))
+            else {
+                return bad_provider_request();
+            };
+            let _ = state.events.send(ThreadEvent::Replied {
+                inbox_item_id,
+                reply,
+            });
+            text_stream("Thread reply action completed.")
+        }
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
+fn prompt_has_thread_summary(request: &serde_json::Value) -> bool {
+    request["messages"].as_array().is_some_and(|messages| {
+        messages.iter().any(|message| {
+            message["content"].as_str().is_some_and(|content| {
+                content.contains("\"kind\": \"mention\"")
+                    && content.contains("\"priority\": \"hard\"")
+                    && content.contains("\"address\": \"#general:1\"")
+            })
+        })
+    })
+}
+
+fn claimed_thread_mention(request: &serde_json::Value) -> Option<(Uuid, String, Uuid)> {
+    request["messages"]
+        .as_array()?
+        .iter()
+        .filter_map(tool_result)
+        .find_map(|result| {
+            result["data"]["items"].as_array()?.iter().find_map(|item| {
+                (item["kind"] == "mention"
+                    && item["priority"] == "hard"
+                    && item["status"] == "leased"
+                    && item["thread_id"].as_i64() == Some(1)
+                    && item["address"] == "#general:1")
+                    .then(|| {
+                        Some((
+                            Uuid::parse_str(item["id"].as_str()?).ok()?,
+                            item["address"].as_str()?.to_owned(),
+                            Uuid::parse_str(item["message_id"].as_str()?).ok()?,
+                        ))
+                    })
+                    .flatten()
+            })
+        })
+}
+
+fn valid_thread_read(
+    result: &serde_json::Value,
+    expected_address: &str,
+    agent_id: Uuid,
+    source_message_id: Uuid,
+) -> bool {
+    let replies = result["data"]["replies"].as_array();
+    result["ok"] == true
+        && result["data"]["address"] == expected_address
+        && result["data"]["thread_id"].as_i64() == Some(1)
+        && result["data"]["snapshot_channel_seq"].as_i64() == Some(4)
+        && result["data"]["root"]["seq"].as_i64() == Some(2)
+        && result["data"]["root"]["address"] == expected_address
+        && result["data"]["root"]["body_markdown"] == THREAD_ROOT
+        && replies.is_some_and(|replies| {
+            replies.len() == 2
+                && replies[0]["seq"].as_i64() == Some(3)
+                && replies[0]["body_markdown"] == THREAD_FIRST_REPLY
+                && replies[1]["id"] == source_message_id.to_string()
+                && replies[1]["seq"].as_i64() == Some(4)
+                && replies[1]["mentions"] == serde_json::json!([agent_id])
+                && replies
+                    .iter()
+                    .all(|message| message["address"] == expected_address)
+        })
+        && result["data"]["channel_background"]
+            .as_array()
+            .is_some_and(|messages| {
+                messages.len() == 1
+                    && messages[0]["seq"].as_i64() == Some(1)
+                    && messages[0]["address"] == "#general"
+                    && messages[0]["body_markdown"] == THREAD_BACKGROUND
+            })
+        && result["data"]["has_more_before"] == false
+        && result["data"]["has_more_after"] == false
+}
+
+fn observed_message_send(
+    result: &serde_json::Value,
+    expected_address: &str,
+    expected_seq: i64,
+) -> Option<ObservedAgentReply> {
+    (result["ok"] == true
+        && result["data"]["address"] == expected_address
+        && result["data"]["author"]["kind"] == "agent"
+        && result["data"]["seq"].as_i64() == Some(expected_seq))
+    .then(|| {
+        Some(ObservedAgentReply {
+            id: Uuid::parse_str(result["data"]["id"].as_str()?).ok()?,
+            channel_id: Uuid::parse_str(result["data"]["channel_id"].as_str()?).ok()?,
+            address: result["data"]["address"].as_str()?.to_owned(),
+            author_id: Uuid::parse_str(result["data"]["author"]["id"].as_str()?).ok()?,
+            seq: result["data"]["seq"].as_i64()?,
+        })
+    })
+    .flatten()
+}
+
+#[derive(Debug)]
 enum ChannelAmbientEvent {
     Acked(Uuid),
     Failed(String),
@@ -1041,6 +1292,224 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
     }
 
     harness.shutdown().await
+}
+
+#[tokio::test]
+async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<()> {
+    let mut provider = ThreadProvider::start().await?;
+    let mut harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_thread_test",
+        "Read Thread context and reply in the same Thread through the Sumi Agent CLI.",
+    )
+    .await?;
+    provider.set_agent_id(harness.agent_id).await;
+
+    disable_agent_ambient(&harness).await?;
+    let background = send_channel_message(&harness, THREAD_BACKGROUND, &[]).await?;
+    let root = send_channel_message(&harness, THREAD_ROOT, &[]).await?;
+    ensure!(background.1 == 1 && root.1 == 2);
+
+    let thread_response = harness
+        .client
+        .post(harness.server_url.join(&format!(
+            "/api/v1/channels/{}/threads",
+            harness.space.general_channel_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "root_message_id": root.0 }))
+        .send()
+        .await?;
+    ensure!(thread_response.status() == StatusCode::CREATED);
+    let thread: serde_json::Value = thread_response.json().await?;
+    let thread_id = thread["thread_id"]
+        .as_i64()
+        .context("created Thread id missing")?;
+    ensure!(thread_id == 1 && thread["root_message_id"] == root.0.to_string());
+
+    let first_reply = send_thread_message(&harness, thread_id, THREAD_FIRST_REPLY, &[]).await?;
+    let mention_reply =
+        send_thread_message(&harness, thread_id, THREAD_MENTION, &[harness.agent_id]).await?;
+    ensure!(first_reply.1 == 3 && mention_reply.1 == 4);
+
+    let (inbox_item_id, reply) = match provider.wait_for_event().await? {
+        ThreadEvent::Replied {
+            inbox_item_id,
+            reply,
+        } => (inbox_item_id, reply),
+        ThreadEvent::Failed(reason) => anyhow::bail!(reason),
+    };
+    ensure!(
+        reply.channel_id == harness.space.general_channel_id
+            && reply.author_id == harness.agent_id
+            && reply.address == "#general:1"
+            && reply.seq == 5
+    );
+    wait_for_mention_run(&harness.pool, inbox_item_id, "handled", 1).await?;
+
+    let browser_thread = harness
+        .client
+        .get(harness.server_url.join(&format!(
+            "/api/v1/channels/{}/threads/{thread_id}",
+            harness.space.general_channel_id
+        ))?)
+        .header(header::COOKIE, &harness.cookie)
+        .send()
+        .await?;
+    ensure!(browser_thread.status() == StatusCode::OK);
+    let browser_thread: serde_json::Value = browser_thread.json().await?;
+    let replies = browser_thread["replies"]
+        .as_array()
+        .context("Browser Thread replies missing")?;
+    ensure!(browser_thread["snapshot_channel_seq"].as_i64() == Some(5));
+    ensure!(browser_thread["root"]["id"] == root.0.to_string());
+    ensure!(replies.len() == 3);
+    let browser_reply = replies
+        .iter()
+        .find(|message| message["id"] == reply.id.to_string())
+        .context("Browser Thread did not return the Agent reply")?;
+    ensure!(browser_reply["thread_id"].as_i64() == Some(thread_id));
+    ensure!(browser_reply["author"]["id"] == harness.agent_id.to_string());
+
+    let state: (i64, i64, i64, i64, i64, bool) = sqlx::query_as(
+        "SELECT channels.next_seq, \
+            (SELECT count(*) FROM messages WHERE channel_id = $1 AND thread_id IS NULL), \
+            (SELECT count(*) FROM messages WHERE channel_id = $1 AND thread_id = $2), \
+            (SELECT count(*) FROM messages WHERE id = $3 AND channel_id = $1 \
+                AND thread_id = $2 AND author_member_id = $4), \
+            (SELECT count(*) FROM inbox_items WHERE id = $5 AND member_id = $4 \
+                AND channel_id = $1 AND thread_id = $2 AND kind = 'mention' \
+                AND priority = 'hard' AND status = 'handled'), \
+            EXISTS(SELECT 1 FROM thread_subscriptions WHERE channel_id = $1 AND thread_id = $2 \
+                AND member_id = $4 AND muted_at IS NULL) \
+         FROM channels WHERE channels.id = $1",
+    )
+    .bind(harness.space.general_channel_id)
+    .bind(thread_id)
+    .bind(reply.id)
+    .bind(harness.agent_id)
+    .bind(inbox_item_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(state == (6, 2, 3, 1, 1, true));
+
+    harness.daemon.ensure_running()?;
+    for text in [
+        THREAD_BACKGROUND,
+        THREAD_ROOT,
+        THREAD_FIRST_REPLY,
+        THREAD_MENTION,
+        THREAD_CLI_REPLY,
+        PROVIDER_AUTH,
+    ] {
+        ensure!(
+            !harness.server.logs_contain(text),
+            "Server logs leaked Thread data"
+        );
+        ensure!(
+            !harness.daemon.logs_contain(text),
+            "daemon logs leaked Thread data"
+        );
+    }
+
+    harness.shutdown().await
+}
+
+async fn disable_agent_ambient(harness: &AgentProcessHarness) -> Result<()> {
+    let response = harness
+        .client
+        .patch(
+            harness
+                .server_url
+                .join(&format!("/api/v1/agents/{}", harness.agent_id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "attention_config": {
+                "dm_immediate": true,
+                "mention_immediate": true,
+                "ambient_enabled": false,
+                "ambient_debounce_seconds": 5,
+                "ambient_max_wait_seconds": 30,
+                "max_retry_count": 3
+            }
+        }))
+        .send()
+        .await?;
+    ensure!(response.status() == StatusCode::OK);
+    Ok(())
+}
+
+async fn send_channel_message(
+    harness: &AgentProcessHarness,
+    body: &str,
+    mentions: &[Uuid],
+) -> Result<(Uuid, i64)> {
+    let response = harness
+        .client
+        .post(harness.server_url.join(&format!(
+            "/api/v1/channels/{}/messages",
+            harness.space.general_channel_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "body_markdown": body,
+            "mentions": mentions,
+            "attachment_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(response.status() == StatusCode::CREATED);
+    let message: serde_json::Value = response.json().await?;
+    Ok((
+        Uuid::parse_str(
+            message["id"]
+                .as_str()
+                .context("Channel Message id missing")?,
+        )?,
+        message["seq"]
+            .as_i64()
+            .context("Channel Message sequence missing")?,
+    ))
+}
+
+async fn send_thread_message(
+    harness: &AgentProcessHarness,
+    thread_id: i64,
+    body: &str,
+    mentions: &[Uuid],
+) -> Result<(Uuid, i64)> {
+    let response = harness
+        .client
+        .post(harness.server_url.join(&format!(
+            "/api/v1/channels/{}/threads/{thread_id}/messages",
+            harness.space.general_channel_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "body_markdown": body,
+            "mentions": mentions,
+            "attachment_ids": [],
+            "reply_to_message_id": null
+        }))
+        .send()
+        .await?;
+    ensure!(response.status() == StatusCode::CREATED);
+    let message: serde_json::Value = response.json().await?;
+    Ok((
+        Uuid::parse_str(
+            message["id"]
+                .as_str()
+                .context("Thread Message id missing")?,
+        )?,
+        message["seq"]
+            .as_i64()
+            .context("Thread Message sequence missing")?,
+    ))
 }
 
 #[derive(sqlx::FromRow)]
