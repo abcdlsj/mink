@@ -62,6 +62,7 @@ impl Default for ServerConfig {
 pub struct ComputerConfig {
     pub server_url: Url,
     pub state_dir: PathBuf,
+    pub open_pairing_browser: bool,
     pub codex_config_source: Option<PathBuf>,
     pub codex_auth_source: Option<PathBuf>,
     pub builtin_settings_source: Option<PathBuf>,
@@ -77,6 +78,7 @@ impl Default for ComputerConfig {
         Self {
             server_url: Url::parse("http://127.0.0.1:3000").expect("valid default server URL"),
             state_dir: default_computer_state_dir(),
+            open_pairing_browser: true,
             codex_config_source: None,
             codex_auth_source: None,
             builtin_settings_source: None,

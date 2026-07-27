@@ -154,7 +154,9 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
                     .join(&pairing.browser_path)
                     .context("Server returned an invalid pairing Browser path")?;
                 tracing::info!(url = %browser_url, expires_at = %pairing.expires_at, "Open this URL to pair the Computer");
-                try_open_browser(&browser_url).await;
+                if config.computer.open_pairing_browser {
+                    try_open_browser(&browser_url).await;
+                }
             }
             match poll_pairing(&config.computer.server_url, &secrets_path, &mut secrets).await? {
                 PairingPollOutcome::Confirmed => break,

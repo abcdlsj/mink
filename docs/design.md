@@ -836,6 +836,10 @@ sumi computer --server https://sumi.example.com
 9. 后续启动直接复用同一 Computer ID 和 Token；不得因为进程退出、网络断开或 Computer offline 重新配对。
 10. daemon 建立出站 WebSocket，完成协议握手后 Computer 变为 online。
 
+daemon 默认尝试打开配对页；无人值守、本地自动化和测试配置可以设置
+`computer.open_pairing_browser=false`，此时仍在终端输出配对 URL，由调用方通过同一确认 API 完成配对，
+不得因此绕过配对授权或创建另一套 Computer 身份流程。
+
 配对确认页必须显示 hostname、OS、daemon version、Computer Token 的不可逆短 fingerprint 和目标 Space，防止确认错误机器；不得显示 raw Token。
 
 配对 start 请求提交 base64url 编码的 Computer Token SHA-256、hostname、OS 和 daemon version；Server 生成并只保存 pairing code hash，响应返回 pairing_id、一次性 code、`/pair-computer/{pairing_id}?code=...` Browser URL 与 expires_at。daemon 轮询 result 时使用 raw Computer Token 作为 Bearer token，Server 只比对 hash。Human confirm 请求包含目标 space_id、Computer name 与一次性 code；成功响应不返回 Token，result 也只返回 Computer ID 和 Space ID。raw Computer Token 从生成起只持久化在 daemon 的受限 `secrets.json`，通过 HTTPS/WSS 仅用于认证；Server 始终只持久化 hash。result 在配对有效期内可安全幂等重试，避免首次成功响应丢失后 Computer 永久无法恢复。

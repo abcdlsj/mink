@@ -324,7 +324,7 @@ pub fn write_computer_config(path: &Path, server: &Url, state_dir: &Path) -> Res
     std::fs::write(
         path,
         format!(
-            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nshutdown_grace_period_seconds = 1\n",
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nshutdown_grace_period_seconds = 1\n",
             state_dir.display()
         ),
     )?;
@@ -380,7 +380,7 @@ pub fn write_builtin_computer_config(
     std::fs::write(
         path,
         format!(
-            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nbuiltin_settings_source = '{}'\nbuiltin_models_source = '{}'\nbuiltin_auth_source = '{}'\nmax_concurrent_runs = 1\nper_agent_timeout_seconds = 60\nshutdown_grace_period_seconds = 1\n",
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nbuiltin_settings_source = '{}'\nbuiltin_models_source = '{}'\nbuiltin_auth_source = '{}'\nmax_concurrent_runs = 1\nper_agent_timeout_seconds = 60\nshutdown_grace_period_seconds = 1\n",
             state_dir.display(),
             settings.display(),
             models.display(),

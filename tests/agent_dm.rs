@@ -50,6 +50,8 @@ const THREAD_BACKGROUND: &str = "Channel background before the Thread root.";
 const THREAD_ROOT: &str = "Thread root on the Channel timeline.";
 const THREAD_FIRST_REPLY: &str = "First Human reply in the Thread.";
 const THREAD_MENTION: &str = "@lin inspect this Thread and reply through the CLI.";
+const THREAD_FRESHNESS_REPLY: &str = "Human reply added after the Agent read the Thread.";
+const THREAD_STALE_REPLY: &str = "This stale Thread reply must not be stored.";
 const THREAD_CLI_REPLY: &str = "Thread reply published through the real Sumi CLI.";
 
 struct AgentProcessHarness {
@@ -360,6 +362,14 @@ fn claimed_inbox_identity(request: &serde_json::Value) -> Option<(Uuid, String)>
 
 fn latest_tool_result(request: &serde_json::Value) -> Option<serde_json::Value> {
     serde_json::from_str(latest_tool_content(request)?).ok()
+}
+
+fn latest_tool_error_result(request: &serde_json::Value) -> Option<serde_json::Value> {
+    let content = latest_tool_content(request)?;
+    serde_json::Deserializer::from_str(content.get(content.find('{')?..)?)
+        .into_iter()
+        .next()?
+        .ok()
 }
 
 fn latest_tool_content(request: &serde_json::Value) -> Option<&str> {
@@ -757,6 +767,7 @@ fn valid_channel_mention_read(
 
 #[derive(Debug)]
 enum ThreadEvent {
+    ContextRead,
     Replied {
         inbox_item_id: Uuid,
         reply: ObservedAgentReply,
@@ -774,6 +785,7 @@ struct ThreadProvider {
 struct ThreadProviderState {
     step: Mutex<usize>,
     agent_id: Mutex<Option<Uuid>>,
+    context_changed: Notify,
     events: mpsc::UnboundedSender<ThreadEvent>,
 }
 
@@ -785,6 +797,7 @@ impl ThreadProvider {
         let state = Arc::new(ThreadProviderState {
             step: Mutex::new(0),
             agent_id: Mutex::new(None),
+            context_changed: Notify::new(),
             events: events_tx,
         });
         let app = Router::new()
@@ -813,6 +826,10 @@ impl ThreadProvider {
                 *self.state.step.lock().await
             ),
         }
+    }
+
+    fn context_changed(&self) {
+        self.state.context_changed.notify_one();
     }
 }
 
@@ -879,19 +896,71 @@ async fn thread_chat_stream(
                 )));
                 return bad_provider_request();
             }
+            let _ = state.events.send(ThreadEvent::ContextRead);
+            state.context_changed.notified().await;
             tool_call_stream(
-                "thread-reply",
+                "thread-stale-reply",
                 &format!(
-                    "sumi agent message send '{address}' --body '{THREAD_CLI_REPLY}' --based-on 4 --handle {inbox_item_id} --json"
+                    "sumi agent message send '{address}' --body '{THREAD_STALE_REPLY}' --based-on 4 --handle {inbox_item_id} --json"
                 ),
             )
         }
         3 => {
+            let Some((_, address, _)) = claimed_thread_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(content) = latest_tool_content(&request) else {
+                let _ = state.events.send(ThreadEvent::Failed(
+                    "stale send returned no tool content".to_owned(),
+                ));
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_error_result(&request) else {
+                let _ = state.events.send(ThreadEvent::Failed(format!(
+                    "stale tool result was not parseable JSON: length={}, starts_with_error={}, contains_context_changed={}",
+                    content.len(),
+                    content.starts_with("error:"),
+                    content.contains("context_changed"),
+                )));
+                return bad_provider_request();
+            };
+            if !valid_thread_context_changed(&result, &address) {
+                let _ = state.events.send(ThreadEvent::Failed(format!(
+                    "invalid context_changed response: {result}"
+                )));
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "thread-refresh",
+                &format!("sumi agent thread read '{address}' --include-channel 20 --json"),
+            )
+        }
+        4 => {
+            let Some((inbox_item_id, address, _)) = claimed_thread_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            if !valid_refreshed_thread_read(&result, &address) {
+                let _ = state.events.send(ThreadEvent::Failed(format!(
+                    "invalid refreshed Thread read: {result}"
+                )));
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "thread-fresh-reply",
+                &format!(
+                    "sumi agent message send '{address}' --body '{THREAD_CLI_REPLY}' --based-on 5 --handle {inbox_item_id} --json"
+                ),
+            )
+        }
+        5 => {
             let Some((inbox_item_id, address, _)) = claimed_thread_mention(&request) else {
                 return bad_provider_request();
             };
             let Some(reply) = latest_tool_result(&request)
-                .and_then(|result| observed_message_send(&result, &address, 5))
+                .and_then(|result| observed_message_send(&result, &address, 6))
             else {
                 return bad_provider_request();
             };
@@ -905,6 +974,36 @@ async fn thread_chat_stream(
     };
     *step += 1;
     response
+}
+
+fn valid_thread_context_changed(result: &serde_json::Value, expected_address: &str) -> bool {
+    let details = &result["error"]["details"];
+    let changes = details["changes"].as_array();
+    result["ok"] == false
+        && result["error"]["code"] == "context_changed"
+        && result["error"]["retryable"] == false
+        && details["snapshot_channel_seq"].as_i64() == Some(4)
+        && details["latest_channel_seq"].as_i64() == Some(5)
+        && details["has_more"] == false
+        && changes.is_some_and(|changes| {
+            changes.len() == 1
+                && changes[0]["seq"].as_i64() == Some(5)
+                && changes[0]["address"] == expected_address
+                && changes[0]["thread_id"].as_i64() == Some(1)
+                && changes[0]["author"]["kind"] == "human"
+                && changes[0].get("body_markdown").is_none()
+        })
+}
+
+fn valid_refreshed_thread_read(result: &serde_json::Value, expected_address: &str) -> bool {
+    result["ok"] == true
+        && result["data"]["address"] == expected_address
+        && result["data"]["snapshot_channel_seq"].as_i64() == Some(5)
+        && result["data"]["replies"].as_array().is_some_and(|replies| {
+            replies.len() == 3
+                && replies[2]["seq"].as_i64() == Some(5)
+                && replies[2]["body_markdown"] == THREAD_FRESHNESS_REPLY
+        })
 }
 
 fn prompt_has_thread_summary(request: &serde_json::Value) -> bool {
@@ -1295,7 +1394,7 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
 }
 
 #[tokio::test]
-async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<()> {
+async fn builtin_agent_refreshes_changed_thread_and_replies_through_real_cli() -> Result<()> {
     let mut provider = ThreadProvider::start().await?;
     let mut harness = AgentProcessHarness::start(
         &provider.url,
@@ -1333,18 +1432,29 @@ async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<
         send_thread_message(&harness, thread_id, THREAD_MENTION, &[harness.agent_id]).await?;
     ensure!(first_reply.1 == 3 && mention_reply.1 == 4);
 
+    match provider.wait_for_event().await? {
+        ThreadEvent::ContextRead => {}
+        ThreadEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected initial Thread context read, got {event:?}"),
+    }
+    let freshness_reply =
+        send_thread_message(&harness, thread_id, THREAD_FRESHNESS_REPLY, &[]).await?;
+    ensure!(freshness_reply.1 == 5);
+    provider.context_changed();
+
     let (inbox_item_id, reply) = match provider.wait_for_event().await? {
         ThreadEvent::Replied {
             inbox_item_id,
             reply,
         } => (inbox_item_id, reply),
+        ThreadEvent::ContextRead => anyhow::bail!("Thread context was read more than once"),
         ThreadEvent::Failed(reason) => anyhow::bail!(reason),
     };
     ensure!(
         reply.channel_id == harness.space.general_channel_id
             && reply.author_id == harness.agent_id
             && reply.address == "#general:1"
-            && reply.seq == 5
+            && reply.seq == 6
     );
     wait_for_mention_run(&harness.pool, inbox_item_id, "handled", 1).await?;
 
@@ -1362,9 +1472,9 @@ async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<
     let replies = browser_thread["replies"]
         .as_array()
         .context("Browser Thread replies missing")?;
-    ensure!(browser_thread["snapshot_channel_seq"].as_i64() == Some(5));
+    ensure!(browser_thread["snapshot_channel_seq"].as_i64() == Some(6));
     ensure!(browser_thread["root"]["id"] == root.0.to_string());
-    ensure!(replies.len() == 3);
+    ensure!(replies.len() == 4);
     let browser_reply = replies
         .iter()
         .find(|message| message["id"] == reply.id.to_string())
@@ -1392,7 +1502,17 @@ async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<
     .bind(inbox_item_id)
     .fetch_one(&harness.pool)
     .await?;
-    ensure!(state == (6, 2, 3, 1, 1, true));
+    ensure!(state == (7, 2, 4, 1, 1, true));
+    let stale_message_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id = $1 AND author_member_id = $2 \
+         AND body_markdown = $3",
+    )
+    .bind(harness.space.general_channel_id)
+    .bind(harness.agent_id)
+    .bind(THREAD_STALE_REPLY)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(stale_message_count == 0);
 
     harness.daemon.ensure_running()?;
     for text in [
@@ -1400,6 +1520,8 @@ async fn builtin_agent_reads_and_replies_to_thread_through_real_cli() -> Result<
         THREAD_ROOT,
         THREAD_FIRST_REPLY,
         THREAD_MENTION,
+        THREAD_FRESHNESS_REPLY,
+        THREAD_STALE_REPLY,
         THREAD_CLI_REPLY,
         PROVIDER_AUTH,
     ] {
