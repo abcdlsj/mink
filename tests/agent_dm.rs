@@ -488,6 +488,253 @@ enum ChannelMentionEvent {
     Failed(String),
 }
 
+#[derive(Clone, Debug)]
+enum ChannelCreateEvent {
+    Denied(Uuid),
+    Created {
+        inbox_item_id: Uuid,
+        channel_id: Uuid,
+        kind: &'static str,
+    },
+    Failed(String),
+}
+
+struct ChannelCreateProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<ChannelCreateEvent>,
+    state: Arc<ChannelCreateProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct ChannelCreateProviderState {
+    step: Mutex<usize>,
+    agent_id: Mutex<Option<Uuid>>,
+    events: mpsc::UnboundedSender<ChannelCreateEvent>,
+}
+
+impl ChannelCreateProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(ChannelCreateProviderState {
+            step: Mutex::new(0),
+            agent_id: Mutex::new(None),
+            events: events_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(channel_create_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            state,
+            task,
+        })
+    }
+
+    async fn set_agent_id(&self, agent_id: Uuid) {
+        *self.state.agent_id.lock().await = Some(agent_id);
+    }
+
+    async fn wait_for_event(&mut self) -> Result<ChannelCreateEvent> {
+        match tokio::time::timeout(Duration::from_secs(30), self.events.recv()).await {
+            Ok(event) => event.context("Channel create provider stopped before the CLI action"),
+            Err(_) => anyhow::bail!(
+                "timed out waiting for Channel create action at provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for ChannelCreateProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn channel_create_chat_stream(
+    State(state): State<Arc<ChannelCreateProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    let Some(agent_id) = *state.agent_id.lock().await else {
+        return bad_provider_request();
+    };
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 | 4 | 8 => tool_call_stream(
+            &format!("channel-create-inbox-{step}"),
+            "sumi agent inbox current --json",
+        ),
+        1 => tool_call_stream(
+            "channel-create-denied",
+            "sumi agent channel create agent-denied --name 'Agent Denied' --private --json",
+        ),
+        2 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            if !latest_tool_error_result(&request).is_some_and(|result| {
+                result["ok"] == false && result["error"]["code"] == "permission_denied"
+            }) {
+                let _ = state.events.send(ChannelCreateEvent::Failed(
+                    "unprivileged channel create did not return permission_denied".to_owned(),
+                ));
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "channel-create-denied-ack",
+                &format!(
+                    "sumi agent inbox ack {inbox_item_id} --reason 'channel create permission checked' --json"
+                ),
+            )
+        }
+        3 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            if !valid_ack_result(&request, inbox_item_id) {
+                return bad_provider_request();
+            }
+            let _ = state.events.send(ChannelCreateEvent::Denied(inbox_item_id));
+            text_stream("Denied Channel create was handled explicitly.")
+        }
+        5 => tool_call_stream(
+            "channel-create-private",
+            "sumi agent channel create agent-private-real --name 'Agent Private Real' --private --json",
+        ),
+        6 => {
+            channel_create_then_ack(
+                &state,
+                &request,
+                agent_id,
+                "private",
+                "agent-private-real",
+                "channel-create-private-ack",
+            )
+            .await
+        }
+        7 => finish_channel_create(&state, &request, "private"),
+        9 => tool_call_stream(
+            "channel-create-admin-public",
+            "sumi agent channel create agent-admin-real --name 'Agent Admin Real' --json",
+        ),
+        10 => {
+            channel_create_then_ack(
+                &state,
+                &request,
+                agent_id,
+                "public",
+                "agent-admin-real",
+                "channel-create-admin-ack",
+            )
+            .await
+        }
+        11 => finish_channel_create(&state, &request, "public"),
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
+}
+
+async fn channel_create_then_ack(
+    state: &ChannelCreateProviderState,
+    request: &serde_json::Value,
+    agent_id: Uuid,
+    expected_kind: &'static str,
+    expected_slug: &str,
+    call_id: &str,
+) -> Response {
+    let Some((inbox_item_id, _, _)) = claimed_channel_mention(request) else {
+        return bad_provider_request();
+    };
+    let Some(result) = latest_tool_result(request) else {
+        return bad_provider_request();
+    };
+    let valid = result["ok"] == true
+        && result["data"]["kind"] == expected_kind
+        && result["data"]["slug"] == expected_slug
+        && result["data"]["joined"] == true
+        && result["data"]["created_by_member_id"] == agent_id.to_string()
+        && result["data"]["id"].as_str().is_some();
+    if !valid {
+        let _ = state.events.send(ChannelCreateEvent::Failed(format!(
+            "invalid {expected_kind} Channel create response: {result}"
+        )));
+        return bad_provider_request();
+    }
+    let Some(channel_id) = result["data"]["id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok())
+    else {
+        return bad_provider_request();
+    };
+    tool_call_stream(
+        call_id,
+        &format!(
+            "sumi agent inbox ack {inbox_item_id} --reason 'created {expected_kind} channel {channel_id}' --json"
+        ),
+    )
+}
+
+fn finish_channel_create(
+    state: &ChannelCreateProviderState,
+    request: &serde_json::Value,
+    kind: &'static str,
+) -> Response {
+    let Some((inbox_item_id, _, _)) = claimed_channel_mention(request) else {
+        return bad_provider_request();
+    };
+    if !valid_ack_result(request, inbox_item_id) {
+        return bad_provider_request();
+    }
+    let channel_id = request["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(tool_result)
+        .find_map(|result| {
+            (result["ok"] == true && result["data"]["kind"] == kind)
+                .then(|| {
+                    result["data"]["id"]
+                        .as_str()
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                })
+                .flatten()
+        });
+    let Some(channel_id) = channel_id else {
+        return bad_provider_request();
+    };
+    let _ = state.events.send(ChannelCreateEvent::Created {
+        inbox_item_id,
+        channel_id,
+        kind,
+    });
+    text_stream("Channel create completed through the real Sumi CLI.")
+}
+
+fn valid_ack_result(request: &serde_json::Value, inbox_item_id: Uuid) -> bool {
+    latest_tool_result(request).is_some_and(|result| {
+        result["ok"] == true
+            && result["data"]["handled_inbox_item_ids"]
+                .as_array()
+                .is_some_and(|ids| ids == &[serde_json::json!(inbox_item_id)])
+    })
+}
+
 #[derive(sqlx::FromRow)]
 struct ChannelMentionInboxState {
     kind: String,
@@ -1461,6 +1708,192 @@ fn valid_channel_ambient_read(
                     })
                     && messages[4]["id"] == latest_message_id.to_string()
             })
+}
+
+#[tokio::test]
+async fn builtin_agent_creates_channels_with_permission_and_admin_through_real_cli() -> Result<()> {
+    let mut provider = ChannelCreateProvider::start().await?;
+    let mut harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_channel_create_test",
+        "Create Channels only through the Sumi Agent CLI when authorized.",
+    )
+    .await?;
+    provider.set_agent_id(harness.agent_id).await;
+    disable_agent_ambient(&harness).await?;
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin attempt the denied Channel create boundary.",
+    )
+    .await?;
+    let denied_item_id = match provider.wait_for_event().await? {
+        ChannelCreateEvent::Denied(item_id) => item_id,
+        ChannelCreateEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected denied Channel create, got {event:?}"),
+    };
+    wait_for_mention_run(&harness.pool, denied_item_id, "handled", 1).await?;
+    let denied_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM channels WHERE slug = 'agent-denied'")
+            .fetch_one(&harness.pool)
+            .await?;
+    ensure!(denied_count == 0);
+
+    let grant = harness
+        .client
+        .patch(harness.server_url.join(&format!(
+            "/api/v1/spaces/{}/members/{}",
+            harness.space.id, harness.agent_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "permissions": ["channel:create"] }))
+        .send()
+        .await?;
+    ensure!(grant.status() == StatusCode::OK);
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin create the authorized private Channel.",
+    )
+    .await?;
+    let (private_item_id, private_channel_id) = match provider.wait_for_event().await? {
+        ChannelCreateEvent::Created {
+            inbox_item_id,
+            channel_id,
+            kind: "private",
+        } => (inbox_item_id, channel_id),
+        ChannelCreateEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected private Channel create, got {event:?}"),
+    };
+    wait_for_mention_run(&harness.pool, private_item_id, "handled", 2).await?;
+
+    let promote = harness
+        .client
+        .patch(harness.server_url.join(&format!(
+            "/api/v1/spaces/{}/members/{}",
+            harness.space.id, harness.agent_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "access_level": "admin" }))
+        .send()
+        .await?;
+    ensure!(promote.status() == StatusCode::OK);
+    let explicit_permission_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM member_permissions WHERE member_id = $1")
+            .bind(harness.agent_id)
+            .fetch_one(&harness.pool)
+            .await?;
+    ensure!(explicit_permission_count == 0);
+
+    send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        "@lin create the Agent Admin public Channel.",
+    )
+    .await?;
+    let (admin_item_id, public_channel_id) = match provider.wait_for_event().await? {
+        ChannelCreateEvent::Created {
+            inbox_item_id,
+            channel_id,
+            kind: "public",
+        } => (inbox_item_id, channel_id),
+        ChannelCreateEvent::Failed(reason) => anyhow::bail!(reason),
+        event => anyhow::bail!("expected Agent Admin public Channel create, got {event:?}"),
+    };
+    wait_for_mention_run(&harness.pool, admin_item_id, "handled", 3).await?;
+
+    let private_state: (Uuid, String, Uuid, i64, i64, i64) = sqlx::query_as(
+        "SELECT space_id, kind, created_by_member_id, \
+            (SELECT count(*) FROM channel_members WHERE channel_id = channels.id), \
+            (SELECT count(*) FROM audit_events WHERE subject_id = channels.id \
+                AND action = 'channel.created'), \
+            (SELECT count(*) FROM outbox_events WHERE aggregate_id = channels.id \
+                AND topic = 'channel.created') \
+         FROM channels WHERE id = $1",
+    )
+    .bind(private_channel_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(
+        private_state
+            == (
+                harness.space.id,
+                "private".to_owned(),
+                harness.agent_id,
+                1,
+                1,
+                1,
+            )
+    );
+    let public_state: (Uuid, String, Uuid, i64, i64, i64) = sqlx::query_as(
+        "SELECT space_id, kind, created_by_member_id, \
+            (SELECT count(*) FROM channel_members WHERE channel_id = channels.id), \
+            (SELECT count(*) FROM audit_events WHERE subject_id = channels.id \
+                AND action = 'channel.created'), \
+            (SELECT count(*) FROM outbox_events WHERE aggregate_id = channels.id \
+                AND topic = 'channel.created') \
+         FROM channels WHERE id = $1",
+    )
+    .bind(public_channel_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(
+        public_state
+            == (
+                harness.space.id,
+                "public".to_owned(),
+                harness.agent_id,
+                1,
+                1,
+                1,
+            )
+    );
+    let transaction_state: (i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+            (SELECT count(*) FROM idempotency_records \
+                WHERE scope = $1 AND response_status = 201), \
+            (SELECT count(*) FROM inbox_items WHERE id = ANY($2) AND status = 'handled'), \
+            (SELECT count(*) FROM agent_runs WHERE agent_member_id = $3 \
+                AND status = 'completed')",
+    )
+    .bind(format!("space:{}:channel:create", harness.space.id))
+    .bind(vec![denied_item_id, private_item_id, admin_item_id])
+    .bind(harness.agent_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(transaction_state == (2, 3, 3));
+
+    harness.daemon.ensure_running()?;
+    for text in [
+        "attempt the denied Channel create boundary",
+        "create the authorized private Channel",
+        "create the Agent Admin public Channel",
+        PROVIDER_AUTH,
+    ] {
+        ensure!(
+            !harness.server.logs_contain(text),
+            "Server logs leaked run input"
+        );
+        ensure!(
+            !harness.daemon.logs_contain(text),
+            "daemon logs leaked run input"
+        );
+    }
+
+    harness.shutdown().await
 }
 
 #[tokio::test]
