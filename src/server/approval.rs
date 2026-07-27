@@ -159,7 +159,10 @@ async fn request_agent_create_for_member(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    require_online_computer(&mut transaction, payload.computer_id, space_id).await?;
+    // Creating an Approval is intentionally independent from Computer
+    // availability. The target may go offline while a Human reviews the
+    // request; only the approval decision may enqueue provisioning.
+    require_computer(&mut transaction, payload.computer_id, space_id).await?;
     let approval_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
     sqlx::query(
@@ -396,6 +399,29 @@ async fn require_online_computer(
             "computer_not_found",
             "Computer was not found",
         )),
+    }
+}
+
+async fn require_computer(
+    transaction: &mut Transaction<'_, Postgres>,
+    computer_id: Uuid,
+    space_id: Uuid,
+) -> Result<(), ApiError> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM computers WHERE id = $1 AND space_id = $2)",
+    )
+    .bind(computer_id)
+    .bind(space_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    if exists {
+        Ok(())
+    } else {
+        Err(ApiError::not_found(
+            "computer_not_found",
+            "Computer was not found",
+        ))
     }
 }
 
