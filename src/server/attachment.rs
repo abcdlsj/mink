@@ -522,7 +522,9 @@ pub(super) async fn attach_to_message(
              FROM attachments JOIN messages ON messages.id = $1 AND messages.space_id = $2 \
              WHERE attachments.id = $4 AND attachments.space_id = $2 \
                AND attachments.uploader_member_id = $5 AND attachments.status = 'ready' \
-               AND attachments.deleted_at IS NULL",
+               AND attachments.deleted_at IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM message_attachments existing \
+                               WHERE existing.attachment_id = attachments.id)",
         )
         .bind(message_id)
         .bind(space_id)
