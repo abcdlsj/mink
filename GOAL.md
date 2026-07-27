@@ -20,7 +20,8 @@
 
 - [x] 将 `references/reference_style.md` 提炼为唯一设计语言，并完成全局 tokens、Space shell、Channel timeline 与 composer 的首个真实纵向改造；保留 Sumi 的领域结构，不引入参考产品的品牌或范围外入口。
 - [x] 按同一语言收口 Members 与 Agent detail：成员导航按 Agent/Human 分组，统一目录治理控件、Agent 状态、详情页签与 Overview/Memory/Inbox/Settings，并完成真实 seed 多视口验证。
-- [ ] 按同一语言继续收口 Inbox、Computer、Thread、Dialog 与 onboarding，补齐对应多视口视觉和交互证据。
+- [x] 按同一语言收口 Human Inbox：按 Approvals、DM & mentions、Replies、Channel activity 分组，统一发送者头像、来源、摘要、时间、审批与 complete/defer 操作，并完成空态/非空态真实三视口验证。
+- [ ] 按同一语言继续收口 Computer、Thread、Dialog 与 onboarding，补齐对应多视口视觉和交互证据。
 
 ### 2. Agent Admin 规范与治理闭环
 
@@ -40,6 +41,8 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：Inbox 分组顺序、发送者身份、Approval 操作和空态覆盖在内的 6 个 test files、15 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
+- `mise run dev-seed` + Chromium：真实 `sumi-dev` Space 与 PM/Coder/Reviewer seed；通过 Browser route 构造仅用于视觉验证的非持久 Inbox/Approval 响应，在 1440x900、1024x768、390x844 验证空态和四组非空态，无横向溢出、无 page/console error，手机可滚动到 Channel activity，Defer 与 Approve 请求均真实触发。截图位于 `/tmp/sumi-shots-inbox/`。
 - `pnpm --dir web test`：Members/Agent detail 定向覆盖在内的 6 个 test files、14 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
 - `mise run dev-seed` + Chromium：使用真实 `sumi-dev` Space、Dev Computer 与 PM/Coder/Reviewer，在 1440x900、1024x768、390x844 验证 Members 与 Agent Overview/Memory/Inbox/Settings；所有视口无横向溢出、无 Browser page/console error，手机治理控件完整可达。截图位于 `/tmp/sumi-shots-members-agent/`。
 - `pnpm --dir web test`：6 个 test files、14 个 Web tests 通过。

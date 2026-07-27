@@ -44,6 +44,7 @@ export interface SpaceShellContext {
   navigationOpen: boolean;
   channels: Channel[];
   directMessages: DirectMessage[];
+  members: Member[];
   currentMember: Member;
   openNavigation: () => void;
 }
@@ -393,6 +394,7 @@ export function SpaceShell({
         user: user.data,
         channels: channels.data.channels,
         directMessages: availableDirectMessages,
+        members: members.data,
         currentMember,
         navigationOpen,
         openNavigation,

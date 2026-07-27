@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Clock3, Inbox, Menu, X } from "lucide-react";
+import { Check, Clock3, Inbox, Menu, ShieldCheck, X, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   ackInboxItem,
@@ -11,17 +12,44 @@ import {
   type InboxItem,
   type Member,
 } from "../api/client";
-import { SpaceShell } from "../components/SpaceShell";
+import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+
+const inboxGroups: Array<{
+  id: "direct" | "reply" | "activity";
+  label: string;
+  description: string;
+  kinds: InboxItem["kind"][];
+}> = [
+  {
+    id: "direct",
+    label: "DM & mentions",
+    description: "Direct requests and explicit mentions",
+    kinds: ["direct", "mention"],
+  },
+  {
+    id: "reply",
+    label: "Replies",
+    description: "Thread and Message responses to revisit",
+    kinds: ["reply", "thread_activity"],
+  },
+  {
+    id: "activity",
+    label: "Channel activity",
+    description: "Ambient collaboration worth reviewing",
+    kinds: ["channel_activity", "system"],
+  },
+];
 
 export function InboxPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/inbox" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="inbox">
-      {({ space, currentMember, openNavigation }) => (
+      {({ space, members, currentMember, openNavigation }) => (
         <InboxWorkspace
           spaceSlug={space.slug}
           spaceId={space.id}
           memberId={currentMember.id}
+          members={members}
           currentMember={currentMember}
           openNavigation={openNavigation}
         />
@@ -34,12 +62,14 @@ function InboxWorkspace({
   spaceSlug,
   spaceId,
   memberId,
+  members,
   currentMember,
   openNavigation,
 }: {
   spaceSlug: string;
   spaceId: string;
   memberId: string;
+  members: Member[];
   currentMember: Member;
   openNavigation: () => void;
 }) {
@@ -71,9 +101,11 @@ function InboxWorkspace({
     },
   });
   const pendingApprovals = approvals.data?.filter((approval) => approval.status === "pending") ?? [];
-  const attentionItems = [...(inbox.data?.filter((item) => item.kind !== "approval") ?? [])].sort(
-    (left, right) => inboxRank(left.kind) - inboxRank(right.kind),
-  );
+  const attentionItems = inbox.data?.filter((item) => item.kind !== "approval") ?? [];
+  const groupedItems = inboxGroups.map((group) => ({
+    ...group,
+    items: attentionItems.filter((item) => group.kinds.includes(item.kind)),
+  }));
 
   function open(item: InboxItem) {
     if (item.kind === "direct" && item.sender_member_id) {
@@ -103,18 +135,32 @@ function InboxWorkspace({
         </div>
       </header>
       <div className="inbox-list">
-        {canGovern && pendingApprovals.length > 0 ? (
-          <section className="approval-list" aria-labelledby="approval-heading">
-            <div className="approval-heading">
-              <span>GOVERNANCE</span>
-              <h2 id="approval-heading">Agent creation</h2>
-            </div>
+        <div className="inbox-list-inner">
+          {canGovern && pendingApprovals.length > 0 ? (
+          <InboxGroup
+            id="approvals"
+            label="Approvals"
+            description="Governance decisions waiting for you"
+            count={pendingApprovals.length}
+            icon={ShieldCheck}
+          >
             {pendingApprovals.map((approval) => (
               <article className="approval-item" key={approval.id}>
-                <div>
-                  <span className="inbox-kind">approval</span>
-                  <strong>{approval.payload.name}</strong>
-                  <p>Requested by {approval.requester_name} for the {approval.payload.driver_kind} Driver.</p>
+                <div className="inbox-item-identity">
+                  <PixelIdentity
+                    name={approval.requester_name}
+                    kind={members.find((member) => member.id === approval.requested_by_member_id)?.kind ?? "human"}
+                    seed={approval.requested_by_member_id}
+                  />
+                  <div className="inbox-item-copy">
+                    <div className="inbox-item-meta">
+                      <strong>{approval.requester_name}</strong>
+                      <span className="inbox-kind">approval</span>
+                      <time dateTime={approval.created_at}>{formatInboxTime(approval.created_at)}</time>
+                    </div>
+                    <p>Requests a new Agent: <b>{approval.payload.name}</b></p>
+                    <span className="approval-detail">{approval.payload.driver_kind} Driver · {approval.payload.access_level} access</span>
+                  </div>
                 </div>
                 <div className="inbox-actions">
                   <button
@@ -137,11 +183,12 @@ function InboxWorkspace({
               </article>
             ))}
             {resolve.error ? <p className="timeline-status timeline-status--error">{resolve.error.message}</p> : null}
-          </section>
-        ) : null}
-        {inbox.isPending ? <p className="timeline-status">Loading Inbox...</p> : null}
-        {inbox.error ? <p className="timeline-status timeline-status--error">{inbox.error.message}</p> : null}
-        {!inbox.isPending && !inbox.error && (!canGovern || !approvals.isPending) && attentionItems.length === 0 && pendingApprovals.length === 0 ? (
+          </InboxGroup>
+          ) : null}
+          {inbox.isPending ? <p className="timeline-status">Loading Inbox...</p> : null}
+          {inbox.error ? <p className="timeline-status timeline-status--error">{inbox.error.message}</p> : null}
+          {canGovern && approvals.error ? <p className="timeline-status timeline-status--error">{approvals.error.message}</p> : null}
+          {!inbox.isPending && !inbox.error && (!canGovern || (!approvals.isPending && !approvals.error)) && attentionItems.length === 0 && pendingApprovals.length === 0 ? (
           <section className="inbox-empty" aria-labelledby="inbox-empty-title">
             <div className="inbox-empty-intro">
               <span className="inbox-empty-icon" aria-hidden="true"><Inbox /></span>
@@ -158,30 +205,87 @@ function InboxWorkspace({
               <li><span><strong>Channel activity</strong><small>Ambient collaboration worth reviewing</small></span><b>0</b></li>
             </ul>
           </section>
-        ) : null}
-        {attentionItems.map((item) => (
-          <article className={`inbox-item inbox-item--${item.priority}`} key={item.id}>
-            <button className="inbox-open" type="button" onClick={() => open(item)}>
-              <span className="inbox-kind">{item.kind.replace("_", " ")}</span>
-              <strong>{item.sender_display_name ?? "Sumi"}</strong>
-              <span className="inbox-address">{item.channel_slug ? `#${item.channel_slug}${item.thread_id ? `:${item.thread_id}` : ""}` : "SYSTEM"}</span>
-              <p>{item.summary ?? "Attention required"}</p>
-              <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
-            </button>
-            <div className="inbox-actions">
-              <button type="button" aria-label="Complete Inbox Item" onClick={() => ack.mutate(item.id)}><Check />DONE</button>
-              <button type="button" aria-label="Defer Inbox Item one hour" onClick={() => defer.mutate(item.id)}><Clock3 />LATER</button>
-            </div>
-          </article>
-        ))}
+          ) : null}
+          {groupedItems.map((group) => group.items.length > 0 ? (
+          <InboxGroup
+            key={group.id}
+            id={group.id}
+            label={group.label}
+            description={group.description}
+            count={group.items.length}
+          >
+            {group.items.map((item) => {
+              const sender = members.find((member) => member.id === item.sender_member_id);
+              const senderName = item.sender_display_name ?? "Sumi";
+              const address = item.channel_slug
+                ? `#${item.channel_slug}${item.thread_id ? `:${item.thread_id}` : ""}`
+                : "SYSTEM";
+              return (
+                <article className={`inbox-item inbox-item--${item.priority}`} key={item.id}>
+                  <button className="inbox-open" type="button" onClick={() => open(item)} aria-label={`Open ${address} from ${senderName}`}>
+                    <PixelIdentity name={senderName} kind={sender?.kind ?? "human"} seed={item.sender_member_id ?? item.id} />
+                    <span className="inbox-item-copy">
+                      <span className="inbox-item-meta">
+                        <strong>{senderName}</strong>
+                        <span className="inbox-address">{address}</span>
+                        <time dateTime={item.created_at}>{formatInboxTime(item.created_at)}</time>
+                      </span>
+                      <span className="inbox-summary">{item.summary ?? "Attention required"}</span>
+                      <span className="inbox-kind">{formatInboxKind(item.kind)}</span>
+                    </span>
+                  </button>
+                  <div className="inbox-actions">
+                    <button type="button" disabled={ack.isPending || defer.isPending} aria-label="Complete Inbox Item" onClick={() => ack.mutate(item.id)}><Check />DONE</button>
+                    <button type="button" disabled={ack.isPending || defer.isPending} aria-label="Defer Inbox Item one hour" onClick={() => defer.mutate(item.id)}><Clock3 />LATER</button>
+                  </div>
+                </article>
+              );
+            })}
+          </InboxGroup>
+          ) : null)}
+          {ack.error || defer.error ? (
+            <p className="timeline-status timeline-status--error">{ack.error?.message ?? defer.error?.message}</p>
+          ) : null}
+        </div>
       </div>
     </section>
   );
 }
 
-function inboxRank(kind: InboxItem["kind"]): number {
-  if (kind === "direct" || kind === "mention") return 0;
-  if (kind === "reply" || kind === "thread_activity") return 1;
-  if (kind === "channel_activity") return 2;
-  return 3;
+function InboxGroup({ id, label, description, count, icon: Icon = Inbox, children }: {
+  id: string;
+  label: string;
+  description: string;
+  count: number;
+  icon?: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <section className="inbox-group" aria-labelledby={`inbox-group-${id}`}>
+      <header className="inbox-group-heading">
+        <Icon aria-hidden="true" />
+        <span>
+          <h2 id={`inbox-group-${id}`}>{label}</h2>
+          <p>{description}</p>
+        </span>
+        <b aria-label={`${count} items`}>{String(count).padStart(2, "0")}</b>
+      </header>
+      <div className="inbox-group-items">{children}</div>
+    </section>
+  );
+}
+
+function formatInboxKind(kind: InboxItem["kind"]): string {
+  if (kind === "thread_activity") return "thread activity";
+  if (kind === "channel_activity") return "channel activity";
+  return kind;
+}
+
+function formatInboxTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
