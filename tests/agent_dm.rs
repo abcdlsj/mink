@@ -13,6 +13,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use reqwest::Client;
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use support::{
     SpaceResponse, SumiProcess, TestDatabase, confirm_pairing, create_space,
@@ -53,6 +54,9 @@ const THREAD_MENTION: &str = "@lin inspect this Thread and reply through the CLI
 const THREAD_FRESHNESS_REPLY: &str = "Human reply added after the Agent read the Thread.";
 const THREAD_STALE_REPLY: &str = "This stale Thread reply must not be stored.";
 const THREAD_CLI_REPLY: &str = "Thread reply published through the real Sumi CLI.";
+const PRIVATE_CHANNEL_BODY: &str = "Private roadmap content must remain inaccessible.";
+const PERMISSION_BOUNDARY_MENTION: &str =
+    "@lin verify the current authorization boundary and acknowledge it.";
 
 struct AgentProcessHarness {
     _root: tempfile::TempDir,
@@ -63,6 +67,8 @@ struct AgentProcessHarness {
     client: Client,
     cookie: String,
     space: SpaceResponse,
+    computer_id: Uuid,
+    computer_state: PathBuf,
     agent_id: Uuid,
     pool: sqlx::PgPool,
 }
@@ -145,6 +151,8 @@ impl AgentProcessHarness {
             client,
             cookie,
             space,
+            computer_id: paired.id,
+            computer_state,
             agent_id,
             pool,
         })
@@ -763,6 +771,164 @@ fn valid_channel_mention_read(
                         && message["mentions"] == serde_json::json!([agent_id])
                 })
             })
+}
+
+struct PermissionBoundaryProvider {
+    url: Url,
+    completed: mpsc::Receiver<Uuid>,
+    state: Arc<PermissionBoundaryProviderState>,
+    task: JoinHandle<()>,
+}
+
+struct PermissionBoundaryProviderState {
+    step: Mutex<usize>,
+    other_agent_marker: Mutex<Option<PathBuf>>,
+    completed: mpsc::Sender<Uuid>,
+}
+
+impl PermissionBoundaryProvider {
+    async fn start() -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (completed_tx, completed) = mpsc::channel(1);
+        let state = Arc::new(PermissionBoundaryProviderState {
+            step: Mutex::new(0),
+            other_agent_marker: Mutex::new(None),
+            completed: completed_tx,
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(permission_boundary_chat_stream))
+            .with_state(state.clone());
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            completed,
+            state,
+            task,
+        })
+    }
+
+    async fn set_other_agent_marker(&self, marker: PathBuf) {
+        *self.state.other_agent_marker.lock().await = Some(marker);
+    }
+
+    async fn wait_for_completion(&mut self) -> Result<Uuid> {
+        match tokio::time::timeout(Duration::from_secs(30), self.completed.recv()).await {
+            Ok(Some(item_id)) => Ok(item_id),
+            Ok(None) => anyhow::bail!("permission boundary provider stopped before completion"),
+            Err(_) => anyhow::bail!(
+                "permission boundary Agent stopped after provider step {}",
+                *self.state.step.lock().await
+            ),
+        }
+    }
+}
+
+impl Drop for PermissionBoundaryProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn permission_boundary_chat_stream(
+    State(state): State<Arc<PermissionBoundaryProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+
+    let mut step = state.step.lock().await;
+    let response = match *step {
+        0 => tool_call_stream(
+            "permission-boundary-inbox",
+            "sumi agent inbox current --json",
+        ),
+        1 => {
+            if claimed_channel_mention(&request).is_none() {
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "permission-boundary-private-read",
+                "sumi agent channel read '#owners-private' --json",
+            )
+        }
+        2 => {
+            let Some(result) = latest_tool_error_result(&request) else {
+                return bad_provider_request();
+            };
+            if result["ok"] != false
+                || result["error"]["code"] != "permission_denied"
+                || latest_tool_content(&request)
+                    .is_some_and(|value| value.contains(PRIVATE_CHANNEL_BODY))
+            {
+                return bad_provider_request();
+            }
+            tool_call_stream(
+                "permission-boundary-forged-token",
+                "if SUMI_RUN_TOKEN=forged-run-token sumi agent whoami --json >/dev/null 2>&1; then exit 71; fi; printf forged-run-token-denied",
+            )
+        }
+        3 => {
+            if !latest_tool_content(&request)
+                .is_some_and(|content| content.contains("forged-run-token-denied"))
+            {
+                return bad_provider_request();
+            }
+            let Some(marker) = state.other_agent_marker.lock().await.clone() else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "permission-boundary-other-home",
+                &format!(
+                    "if test -r '{}'; then exit 72; fi; printf other-agent-home-hidden",
+                    marker.display()
+                ),
+            )
+        }
+        4 => {
+            if !latest_tool_content(&request)
+                .is_some_and(|content| content.contains("other-agent-home-hidden"))
+            {
+                return bad_provider_request();
+            }
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "permission-boundary-ack",
+                &format!(
+                    "sumi agent inbox ack {inbox_item_id} --reason 'authorization boundary verified' --json"
+                ),
+            )
+        }
+        5 => {
+            let Some((inbox_item_id, _, _)) = claimed_channel_mention(&request) else {
+                return bad_provider_request();
+            };
+            let Some(result) = latest_tool_result(&request) else {
+                return bad_provider_request();
+            };
+            if result["data"]["handled_inbox_item_ids"]
+                .as_array()
+                .is_none_or(|ids| ids != &[serde_json::json!(inbox_item_id)])
+            {
+                return bad_provider_request();
+            }
+            let _ = state.completed.send(inbox_item_id).await;
+            text_stream("Permission boundary verification completed.")
+        }
+        _ => return bad_provider_request(),
+    };
+    *step += 1;
+    response
 }
 
 #[derive(Debug)]
@@ -1388,6 +1554,182 @@ async fn builtin_agent_replies_acks_and_defers_channel_mentions_through_real_cli
             !harness.daemon.logs_contain(text),
             "daemon logs leaked Channel mention data"
         );
+    }
+
+    harness.shutdown().await
+}
+
+#[tokio::test]
+async fn agent_admin_cannot_cross_private_computer_home_or_run_boundaries() -> Result<()> {
+    let mut provider = PermissionBoundaryProvider::start().await?;
+    let harness = AgentProcessHarness::start(
+        &provider.url,
+        "sumi_agent_permission_boundary_test",
+        "Verify authorization boundaries through the Sumi Agent CLI.",
+    )
+    .await?;
+
+    let private_channel = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/spaces/{}/channels", harness.space.id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "slug": "owners-private",
+            "name": "Owners Private",
+            "kind": "private",
+            "topic": null,
+            "agent_member_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(private_channel.status() == StatusCode::CREATED);
+    let private_channel: serde_json::Value = private_channel.json().await?;
+    let private_channel_id = Uuid::parse_str(
+        private_channel["id"]
+            .as_str()
+            .context("private Channel id missing")?,
+    )?;
+    let private_message = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/channels/{private_channel_id}/messages"))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "body_markdown": PRIVATE_CHANNEL_BODY,
+            "mentions": [],
+            "attachment_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(private_message.status() == StatusCode::CREATED);
+
+    let promote = harness
+        .client
+        .patch(harness.server_url.join(&format!(
+            "/api/v1/spaces/{}/members/{}",
+            harness.space.id, harness.agent_id
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({ "access_level": "admin" }))
+        .send()
+        .await?;
+    ensure!(promote.status() == StatusCode::OK);
+
+    let other_agent = harness
+        .client
+        .post(
+            harness
+                .server_url
+                .join(&format!("/api/v1/spaces/{}/agents", harness.space.id))?,
+        )
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &harness.cookie)
+        .json(&serde_json::json!({
+            "computer_id": harness.computer_id,
+            "name": "Mira",
+            "handle": "mira",
+            "role_text": "Own a distinct Agent Home for the isolation test.",
+            "access_level": "member",
+            "driver_kind": "builtin"
+        }))
+        .send()
+        .await?;
+    ensure!(other_agent.status() == StatusCode::CREATED);
+    let other_agent: serde_json::Value = other_agent.json().await?;
+    let other_agent_id = Uuid::parse_str(
+        other_agent["member_id"]
+            .as_str()
+            .context("other Agent id missing")?,
+    )?;
+    wait_for_agent_active(&harness.pool, other_agent_id).await?;
+    let other_agent_marker = harness
+        .computer_state
+        .join("agents")
+        .join(other_agent_id.to_string())
+        .join("memory")
+        .join("isolation-marker");
+    tokio::fs::write(&other_agent_marker, "other-agent-private-memory").await?;
+    provider
+        .set_other_agent_marker(other_agent_marker.clone())
+        .await;
+
+    let other_computer_id = Uuid::now_v7();
+    let other_computer_token = "test-only-other-computer-token";
+    sqlx::query(
+        "INSERT INTO computers \
+         (id, space_id, name, hostname, os, token_hash, status, daemon_version, \
+          last_seen_at, created_at) \
+         VALUES ($1, $2, 'Other Computer', 'other.local', 'macos', $3, 'online', \
+                 '0.1.0', now(), now())",
+    )
+    .bind(other_computer_id)
+    .bind(harness.space.id)
+    .bind(Sha256::digest(other_computer_token.as_bytes()).to_vec())
+    .execute(&harness.pool)
+    .await?;
+    let cross_computer = harness
+        .client
+        .post(harness.server_url.join(&format!(
+            "/api/v1/computers/{}/agent-actions",
+            harness.computer_id
+        ))?)
+        .bearer_auth(other_computer_token)
+        .json(&serde_json::json!({
+            "agent_member_id": harness.agent_id,
+            "run_id": Uuid::now_v7(),
+            "action": { "action": "channel_list" }
+        }))
+        .send()
+        .await?;
+    ensure!(cross_computer.status() == StatusCode::UNAUTHORIZED);
+
+    let source_message_id = send_channel_mention(
+        &harness.client,
+        &harness.server_url,
+        &harness.cookie,
+        harness.space.general_channel_id,
+        harness.agent_id,
+        PERMISSION_BOUNDARY_MENTION,
+    )
+    .await?;
+    let inbox_item_id = provider.wait_for_completion().await?;
+    wait_for_mention_run(&harness.pool, inbox_item_id, "handled", 1).await?;
+
+    let invariants: (String, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT members.access_level, \
+         (SELECT count(*) FROM channel_members WHERE channel_id = $2 AND member_id = $1), \
+         (SELECT count(*) FROM messages WHERE channel_id = $2 AND body_markdown = $3), \
+         (SELECT count(*) FROM inbox_items WHERE id = $4 AND message_id = $5 \
+            AND status = 'handled'), \
+         (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1) \
+         FROM members WHERE members.id = $1",
+    )
+    .bind(harness.agent_id)
+    .bind(private_channel_id)
+    .bind(PRIVATE_CHANNEL_BODY)
+    .bind(inbox_item_id)
+    .bind(source_message_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(invariants == ("admin".to_owned(), 0, 1, 1, 1));
+    ensure!(other_agent_marker.exists());
+    for text in [
+        PRIVATE_CHANNEL_BODY,
+        "other-agent-private-memory",
+        PROVIDER_AUTH,
+    ] {
+        ensure!(!harness.server.logs_contain(text));
+        ensure!(!harness.daemon.logs_contain(text));
     }
 
     harness.shutdown().await
