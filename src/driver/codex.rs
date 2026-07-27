@@ -347,8 +347,6 @@ pub(crate) fn sandboxed_command(
     }
     match std::env::consts::OS {
         "macos" => {
-            let escaped_home = sandbox_string(&agent_home)?;
-            let escaped_agents = sandbox_string(&agents_root)?;
             let escaped_state = sandbox_string(&state_dir)?;
             let escaped_socket = sandbox_string(&environment.socket_path)?;
             let escaped_workspace = sandbox_string(&workspace)?;
@@ -363,8 +361,15 @@ pub(crate) fn sandboxed_command(
                 .context("HOME is unavailable")?
                 .canonicalize()?;
             let escaped_user_home = sandbox_string(&user_home)?;
+            // Deny reading file *contents* under the user home and Computer state
+            // trees, but allow file *metadata* (lstat) across both. Codex
+            // canonicalizes CODEX_HOME (nested at
+            // state/agents/<id>/drivers/codex) on startup, which lstats every
+            // intermediate path component; a literal-only metadata allow misses
+            // the `drivers` level and fails with EPERM. Metadata leaks only
+            // names/sizes/timestamps — never contents (secrets stay unreadable).
             let profile = format!(
-                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read-metadata (literal \"{escaped_state}\") (literal \"{escaped_agents}\") (literal \"{escaped_home}\"))\n(allow file-read* (literal \"{escaped_executable}\") (literal \"{escaped_resolved_executable}\") (literal \"{escaped_sumi_executable}\"))\n(allow file-read* file-write* (subpath \"{escaped_workspace}\") (subpath \"{escaped_memory}\") (subpath \"{escaped_runs}\") (subpath \"{escaped_driver_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
+                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read-metadata (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read* (literal \"{escaped_executable}\") (literal \"{escaped_resolved_executable}\") (literal \"{escaped_sumi_executable}\"))\n(allow file-read* file-write* (subpath \"{escaped_workspace}\") (subpath \"{escaped_memory}\") (subpath \"{escaped_runs}\") (subpath \"{escaped_driver_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
             );
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);

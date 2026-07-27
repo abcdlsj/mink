@@ -81,5 +81,13 @@ run = '''
 trap 'kill 0' EXIT INT TERM
 cargo run -- server &
 pnpm --dir web dev &
+if [ "${SUMI_DEV_SEED:-0}" = "1" ]; then
+  node scripts/dev-seed.mjs &
+fi
 wait
 '''
+
+[tasks.dev-seed]
+description = "Run dev server pre-seeded with an owner, Space, paired Computer, and a ready-to-chat Agent"
+env = { SUMI_DEV_SEED = "1" }
+run = "mise run dev"
