@@ -45,7 +45,7 @@ Sumi v1 必须支持以下闭环：
 - Space 具有全局唯一 slug，并出现在 HTTP URL 中。
 - Agent 可以获得 Admin。
 - Agent 发起创建 Agent 时，即使发起者是 Admin，也需要 Human Admin 或 Owner 审批。
-- WebUI 使用 Neo-Brutalism 视觉语言和 pixel art avatars，但不得复刻 Raft。
+- WebUI 使用 Neo-Brutalism 视觉语言和 pixel art avatars。`references/reference_style.md` 是 v1 的主要视觉参考；允许贴近其配色、排版密度、硬边框、硬阴影、布局比例和交互手感，但不得复制参考产品的品牌名称、专属图标、文案或 Sumi 范围外的信息架构。
 - WebUI 的实时 Server push 使用 SSE，所有写操作继续使用 HTTP。
 - Server、Computer daemon 和 Agent CLI 均使用 Rust，并编译为同一个 sumi 可执行文件。
 - sumi 以 server、computer 和 agent 三个一级子命令区分运行方式；不发布 sumi-server、sumi-daemon 等独立入口。
@@ -627,11 +627,12 @@ size 与十六进制 SHA-256。Server 在 complete 时从 storage 重新流式�
 
 Sumi 使用“协作控制室”式 Neo-Brutalism：
 
-- 信息密度高，但布局安静、可扫描。
-- 使用硬分隔、明确层级、鲜明选中态，不使用浮动卡片堆砌页面。
+- 信息密度高，但通过稳定栏宽、统一 62px header、紧凑行高和明确分组保持安静、可扫描。
+- `references/reference_style.md` 是视觉实现的主要校准基线。应主动学习并贴近它的字体比例、cream/white 内容分层、高饱和工具 rail、粉色选中态、硬边框、硬阴影和按压反馈，不为制造差异而削弱这些特征。
+- 默认表面保持平整；硬阴影主要出现在选中项、主要动作、浮层和 focus 上，不把所有内容都做成浮动卡片。
 - Agent 与 Human 的 Message 视觉层级相同。
 - pixel art avatar 是第一识别信号；不得使用通用机器人图标代替每个 Agent 的身份。
-- 不复刻 Raft 的黄色 rail、粉色 Channel 行、Chat/Tasks/Files 标签组合或相同导航顺序。
+- 只保留 Sumi 自己的产品信息架构和领域语言：Space、Inbox、Channels、DMs、Members、Computers 与 Settings。不得引入参考产品的品牌、Tasks/Files 等 v1 范围外入口或专属文案。
 
 Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel header 显示当前在线 Members 的像素头像及简短状态，让 Space 看起来像一间有人和 Agent 正在工作的房间，而不是消息数据库。
 
@@ -641,15 +642,17 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 
 | Token | Value | 用途 |
 | --- | --- | --- |
-| ink | #171717 | 文字、边框 |
-| paper | #F8F7F2 | 主背景 |
-| panel | #EBEAE4 | 导航与次级背景 |
-| accent | #5065D8 | 当前选择、主要动作与 focus |
-| accent-soft | #DFE3FF | 轻量选择和信息提示 |
-| cyan | #C9E7E7 | Attachment、Computer 的低饱和技术语义 |
-| green | #83B77B | online、成功 |
-| yellow | #E3B341 | Agent queued/running，即 busy |
-| red | #D95C55 | 错误、危险操作 |
+| ink | #141111 | 文字、2px 边框和硬阴影 |
+| paper | #FFFFFF | 主内容与控件背景 |
+| panel | #FFFAEF | 会话导航与次级背景 |
+| rail | #FFD440 | Space 工具 rail、soft signal |
+| accent | #FE7DA8 | 当前选择、主要动作与 focus |
+| accent-soft | #FFE0EA | 轻量选择、hover 和信息提示 |
+| cyan | #27CCF3 | Attachment、Computer 与技术语义 |
+| green | #A9D877 | online、成功 |
+| orange | #F8A16F | warning、待确认操作 |
+| red | #F97264 | 错误、危险操作 |
+| stone | #C0B9B1 | offline、disabled 与中性状态 |
 
 规则：
 
@@ -657,10 +660,11 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 - 主分隔线 2px ink。
 - 控件边框 2px ink。
 - 常规控件圆角 0 至 4px。
-- 可点击主控件使用 3px 或 4px 硬偏移阴影；按下时位移并收回阴影。
-- 全站使用 Space Grotesk，加 Noto Sans SC 作为中文字形 fallback；版本、时间和计数使用 tabular numbers，不再混用 monospace 字体。
+- 可点击主控件默认使用 2px 硬偏移阴影，hover 提升到 4px，按下时位移 2px 并收回阴影；导航普通行默认无边框无阴影，只在 hover/selected 时显现。
+- 全站使用 Space Grotesk，加 Noto Sans SC 作为中文字形 fallback。正文与标题使用 display font；路径、版本、时间、计数和低层级辅助信息可以使用 Space Mono，并使用 tabular numbers。
 - 字间距固定为 0。
 - 最小正文 14px，Message 正文建议 15px 至 16px。
+- 分组 kicker 使用 10px 至 12px、700 weight、uppercase 和 0.08em 至 0.1em tracking；它只表达层级，不承担正文阅读。
 
 ### 10.3 Pixel art avatars
 
@@ -685,11 +689,11 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 
 稳定尺寸：
 
-- Space rail：56px。
-- Navigation：260px，可折叠到 72px。
+- Space rail：64px；矮屏可收窄到 50px。
+- Navigation：294px，可由桌面分隔拖拽调整；小桌面隐藏为抽屉，不保留仅图标的第二条 rail。
 - Channel：min-width 480px，填满剩余空间。
 - Thread pane：360px，宽屏可调整到 480px。
-- Channel header：64px。
+- Channel header：62px；Navigation 和详情页 header 使用同一高度。
 - Composer：最小 88px，随正文增长到 240px 后内部滚动。
 
 Thread 未打开时不得保留空白右栏。打开 Thread 不得覆盖 Channel 主时间线。
@@ -2050,7 +2054,7 @@ v1 不实现业务 metrics、不建设 metrics export/storage/dashboard，不做
 - Thread desktop 右侧并列，mobile 全屏返回。
 - 超长 Channel/Member/Space 名称不遮挡按钮。
 - Neo-Brutalism 硬边框和 pixel avatars 正常渲染。
-- 页面不存在 Raft 名称、图标、文案、完全相同色板或 Chat/Tasks/Files 结构。
+- 页面不存在参考产品的品牌名称、专属图标、文案或 Tasks/Files 等 Sumi v1 范围外结构；允许并要求视觉 palette、排版密度和交互手感贴近 `reference_style.md`。
 - 键盘 focus、reduced motion 和基本 screen reader labels。
 
 ## 23. 实现纪律

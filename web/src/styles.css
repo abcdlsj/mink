@@ -1,20 +1,24 @@
 :root {
   font-family: "Space Grotesk Variable", "Space Grotesk", "Noto Sans SC", sans-serif;
-  color: #171717;
+  color: #141111;
   background: var(--paper);
   font-synthesis: none;
   letter-spacing: 0;
-  --ink: #171717;
-  --paper: #f8f7f2;
-  --panel: #ebeae4;
-  --accent: #5065d8;
-  --accent-soft: #dfe3ff;
-  --cyan: #c9e7e7;
-  --green: #83b77b;
-  --yellow: #e3b341;
-  --red: #d95c55;
-  --status-offline: #9d9a93;
-  --muted: #6f706c;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+  --ink: #141111;
+  --paper: #ffffff;
+  --panel: #fffaef;
+  --rail: #ffd440;
+  --accent: #fe7da8;
+  --accent-soft: #ffe0ea;
+  --cyan: #27ccf3;
+  --green: #a9d877;
+  --yellow: #ffd440;
+  --orange: #f8a16f;
+  --red: #f97264;
+  --stone: #c0b9b1;
+  --status-offline: var(--stone);
+  --muted: #716b67;
   /* Flat classification chip tones — colour carries the category, no border needed. */
   --chip-runtime: #c9e7e7;
   --chip-model: #dfe3ff;
@@ -1416,7 +1420,7 @@ h1 {
   }
 }
 
-/* Channel fidelity pass: Raft-like density with Sumi's own cobalt control-room identity. */
+/* Channel fidelity pass: reference-directed density with Sumi's domain model. */
 .space-shell {
   --space-accent: var(--accent);
   grid-template-columns: 56px 260px minmax(0, 1fr);
@@ -3783,5 +3787,316 @@ h1 {
 
   .thread-message {
     padding: 12px;
+  }
+}
+
+/* Reference-directed visual language, iteration 1: shell and conversation. */
+@media (min-width: 1100px) {
+  .space-shell {
+    grid-template-columns: 64px 294px minmax(0, 1fr);
+  }
+}
+
+.space-rail {
+  padding: 10px 0 8px;
+  background: var(--rail);
+}
+
+.space-badge {
+  width: 40px;
+  height: 40px;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--rail);
+  box-shadow: 2px 2px 0 var(--paper);
+}
+
+.rail-tools {
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.rail-tool {
+  width: 40px;
+  height: 40px;
+  color: var(--ink);
+  transition: background-color 100ms linear, border-color 100ms linear, box-shadow 100ms linear, transform 100ms linear;
+}
+
+.rail-tool:hover:not(.rail-tool--disabled),
+.rail-tool:focus-visible,
+.rail-tool--active {
+  border-color: var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.space-navigation,
+.space-navigation nav {
+  background: var(--panel);
+}
+
+.space-name-row,
+.channel-header {
+  height: 62px;
+  min-height: 62px;
+}
+
+.space-name-row {
+  padding: 0 20px;
+  background: var(--panel);
+}
+
+.navigation-close {
+  display: none;
+}
+
+.space-name-row h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.space-name-eyebrow,
+.nav-label,
+.nav-label--section,
+.composer-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.space-name-eyebrow,
+.nav-label span,
+.nav-empty,
+.message-content time,
+.message-seq,
+.composer-shortcut {
+  font-family: var(--font-mono);
+}
+
+.space-navigation nav {
+  padding: 10px 8px 18px;
+}
+
+.nav-label,
+.nav-label--section {
+  height: 24px;
+  margin: 12px 8px 4px;
+}
+
+.nav-item {
+  min-height: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 100ms linear, border-color 100ms linear, box-shadow 100ms linear;
+}
+
+.nav-item:hover:not(.nav-item--active) {
+  border-color: var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.nav-item--active {
+  border-color: var(--ink);
+  background: var(--accent);
+  color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.dm-nav-item.nav-item--active small {
+  color: rgb(20 17 17 / 58%);
+}
+
+.channel-workspace {
+  grid-template-rows: 62px minmax(0, 1fr) auto;
+  background: var(--paper);
+}
+
+.channel-header {
+  gap: 12px;
+  padding: 0 20px;
+}
+
+.channel-header-glyph {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  background: var(--rail);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.channel-header-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.channel-title h1 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.channel-title p {
+  color: rgb(20 17 17 / 50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.channel-header > .icon-button,
+.composer > .icon-button,
+.send-button {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+  box-shadow: 2px 2px 0 var(--ink);
+  transition: box-shadow 100ms linear, transform 100ms linear;
+}
+
+.channel-header > .icon-button:hover:not(:disabled),
+.composer > .icon-button:hover:not(:disabled),
+.send-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.member-strip {
+  gap: 4px;
+}
+
+.member-strip .presence-identity {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+
+.message-timeline {
+  padding: 6px 0 10px;
+  scrollbar-color: rgb(20 17 17 / 24%) transparent;
+  scrollbar-width: thin;
+}
+
+.day-divider {
+  padding: 18px 20px 8px;
+}
+
+.day-divider time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.message-row {
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 20px;
+}
+
+.message-row > .pixel-identity {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+}
+
+.message-row:hover,
+.message-row--has-thread:hover {
+  background: rgb(20 17 17 / 3%);
+}
+
+.message-content header {
+  gap: 7px;
+}
+
+.message-content header strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.message-content time,
+.message-seq {
+  color: rgb(20 17 17 / 40%);
+  font-size: 10px;
+}
+
+.message-content p {
+  margin-top: 1px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.agent-label {
+  border: 0;
+  background: var(--cyan);
+  font-size: 8px;
+  letter-spacing: .04em;
+}
+
+.composer {
+  min-height: 0;
+  grid-template-rows: minmax(42px, auto) auto;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  border-width: 2px 0 0;
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.composer-label {
+  display: none;
+}
+
+.composer textarea {
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  transition: box-shadow 100ms linear;
+}
+
+.composer textarea:focus {
+  outline: 0;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.composer .send-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  background: var(--accent);
+  color: var(--ink);
+}
+
+.composer .send-button span {
+  display: none;
+}
+
+.composer-shortcut {
+  color: rgb(20 17 17 / 38%);
+  font-size: 9px;
+}
+
+@media (max-width: 1099px) {
+  .navigation-close {
+    display: grid;
+  }
+}
+
+@media (max-height: 600px) and (min-width: 700px) {
+  .space-shell {
+    grid-template-columns: 50px 294px minmax(0, 1fr);
+  }
+
+  .rail-tool,
+  .space-badge {
+    width: 36px;
+    height: 36px;
   }
 }

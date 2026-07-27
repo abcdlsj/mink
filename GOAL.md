@@ -16,14 +16,19 @@
 
 ## 剩余工作
 
-### 1. Agent Admin 规范与治理闭环
+### 1. Reference-directed WebUI 收口
+
+- [x] 将 `references/reference_style.md` 提炼为唯一设计语言，并完成全局 tokens、Space shell、Channel timeline 与 composer 的首个真实纵向改造；保留 Sumi 的领域结构，不引入参考产品的品牌或范围外入口。
+- [ ] 按同一语言逐步收口 Inbox、Members、Agent、Computer、Thread、Dialog 与 onboarding，补齐多视口视觉和交互证据。
+
+### 2. Agent Admin 规范与治理闭环
 
 - [x] 先修正 `docs/design.md` §8.2、§14.3、§17 和 §22.2 的冲突：逐项明确 Agent Admin 在 v1 可通过 `sumi agent` 到达的治理动作，以及必须保持 Human-only 的动作。当前缺失入口包括 Space name/accent、Human 邀请/移除、Channel 成员/归档、Agent suspend/resume、audit 读取；不得默认把所有 Browser API 原样暴露给 Agent。
 - [x] 按修正后的唯一规范补齐最小治理协议、权限校验、audit/outbox/idempotency，并用真实 Builtin + `sumi agent` + PostgreSQL 证明 Agent Admin 可执行允许动作、不能执行 Human-only 动作、不能绕过 private Channel membership。
 
 验证：`cargo test --test agent_dm builtin_agent_admin_executes_governance_and_respects_human_private_boundaries -- --nocapture`；`cargo test --test agent_dm -- --nocapture`（11 个真实 Agent 场景）；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`。
 
-### 2. 并发、幂等与 PostgreSQL 不变量
+### 3. 并发、幂等与 PostgreSQL 不变量
 
 - [x] 补齐同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突的并发证据。
 - [x] 用真实 PostgreSQL integration tests 系统验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
@@ -34,6 +39,9 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：6 个 test files、14 个 Web tests 通过。
+- `pnpm --dir web lint` 与 `pnpm --dir web build` 通过；Space Mono 随 production bundle 本地发布。
+- `node web/e2e/shot.mjs`：真实注册、Space、Message、Thread 流程通过，并人工复核 1440x900、1024x768、390x844 的 Channel 与 Members 截图；shell、timeline、composer 和响应式布局无溢出或空白栏。
 - `mise run test-dev-seed`：6 个开发 seed 任务与状态恢复测试通过。
 - `mise run dev-seed`：从缺失 `sumi_dev` 的首次启动路径创建数据库并完成 migration；数据库重建后的旧 Dev Computer 状态被保留归档，新 Computer 配对、PM/Coder/Reviewer provision 和 `#general` membership 均通过。
 
