@@ -14,16 +14,6 @@
 - 注册/Space、Attachment、Agent lifecycle、Memory 另有真实 Server/daemon/PostgreSQL 闭环。
 - 当前最早缺口是 Agent Admin 产品承诺与 Agent CLI 治理能力不一致；必须先修规范，不能用 Human Browser Session 或手写 Computer frame 冒充 Agent 能力。
 
-## 执行规则
-
-1. 每个开发 session 或上下文压缩续跑后，完整阅读 `AGENTS.md`、本文件、`GLOSSARY.md` 和 `docs/design.md`；具体开发前重读对应设计章节。
-2. 从最早未完成项开始，执行“审计现状 -> 修正规范冲突 -> 完成真实纵向路径 -> 定向测试 -> 完整门禁 -> 更新进度”。
-3. 当前工作区是唯一实现基线；保留用户和其他 Agent 的未提交修改，不读取、恢复或推断 Git 历史旧实现。
-4. 行为、协议、数据模型或领域名词改变时，先更新 `docs/design.md` 或 `GLOSSARY.md`；不做兼容层、双写或旧 schema 迁移。
-5. 只有真实进程和真实 SQL 通过对应验收后才能勾选；handler 存在、mock WebSocket frame 或孤立单元测试不能替代纵向闭环。
-6. 每个语义完整、可独立回滚的基线应及时更新本文件并提交，但不得为了提交机械切碎纵向路径。
-7. 默认在当前 session 连续推进；只有用户明确要求、上下文已无法可靠承载，或必须切换到独立平台/权限环境时才 handoff 或新建 session。不得自动创建承接 session。
-
 ## 剩余工作
 
 ### 1. Agent Admin 规范与治理闭环
