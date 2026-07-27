@@ -207,10 +207,10 @@ function ComputerDetail({
         <h3>Info</h3>
         <dl className="detail-grid">
           <Field label="Operating system" value={computer.os} />
-          <Field label="Daemon version" value={`v${computer.daemon_version}`} mono />
-          <Field label="Hostname" value={computer.hostname} mono />
-          <Field label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} mono />
-          <Field label="Created" value={new Date(computer.created_at).toLocaleString()} mono />
+          <Field label="Daemon version" value={`v${computer.daemon_version}`} tabular />
+          <Field label="Hostname" value={computer.hostname} tabular />
+          <Field label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} tabular />
+          <Field label="Created" value={new Date(computer.created_at).toLocaleString()} tabular />
         </dl>
       </section>
       <section className="detail-section">
@@ -312,4 +312,4 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
 }
 
 function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`}><i />{value}</span>; }
-function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div><dt>{label}</dt><dd className={mono ? "mono" : undefined}>{value}</dd></div>; }
+function Field({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><dt>{label}</dt><dd className={tabular ? "tabular" : undefined}>{value}</dd></div>; }

@@ -224,39 +224,60 @@ export function MessageWorkspace({
             <h2>{emptyTitle}</h2>
           </div>
         ) : null}
-        {messages.data?.messages.map((message) => (
-          <article className="message-row" key={message.id}>
-            <PixelIdentity name={message.author.display_name} />
-            <div className="message-content">
-              <header>
-                <strong>{message.author.display_name}</strong>
-                {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
-                <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
-                <span className="message-seq">@{message.seq}</span>
-              </header>
-              <p>{message.deleted_at ? "Message 已删除" : message.body_markdown}</p>
-              {!message.deleted_at && message.attachments?.length ? (
-                <AttachmentList attachments={message.attachments} />
+        {messages.data?.messages.map((message, index, all) => {
+          const previous = index > 0 ? all[index - 1] : undefined;
+          const showDivider = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
+          // A day divider always restarts the visual grouping.
+          const grouped = !showDivider && !startsNewGroup(message, previous);
+          return (
+            <div className="message-block" key={message.id}>
+              {showDivider ? (
+                <div className="day-divider" role="separator">
+                  <time dateTime={message.created_at}>{formatDayDivider(message.created_at)}</time>
+                </div>
               ) : null}
-              {!message.deleted_at ? (
-                <button
-                  className="thread-action"
-                  type="button"
-                  disabled={threadCreation.isPending}
-                  onClick={() => {
-                    if (message.thread_id) setThreadId(message.thread_id);
-                    else threadCreation.mutate(message.id);
-                  }}
-                >
-                  <MessageSquareReply aria-hidden="true" />
-                  {message.reply_count > 0
-                    ? `${message.reply_count} ${message.reply_count === 1 ? "reply" : "replies"}`
-                    : "Reply in Thread"}
-                </button>
-              ) : null}
+              <article className={`message-row${grouped ? " message-row--grouped" : ""}`}>
+                {grouped ? (
+                  <time className="message-gutter-time" dateTime={message.created_at}>
+                    {formatMessageTime(message.created_at)}
+                  </time>
+                ) : (
+                  <PixelIdentity name={message.author.display_name} />
+                )}
+                <div className="message-content">
+                  {grouped ? null : (
+                    <header>
+                      <strong>{message.author.display_name}</strong>
+                      {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
+                      <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+                      <span className="message-seq">@{message.seq}</span>
+                    </header>
+                  )}
+                  <p>{message.deleted_at ? "Message 已删除" : message.body_markdown}</p>
+                  {!message.deleted_at && message.attachments?.length ? (
+                    <AttachmentList attachments={message.attachments} />
+                  ) : null}
+                  {!message.deleted_at ? (
+                    <button
+                      className="thread-action"
+                      type="button"
+                      disabled={threadCreation.isPending}
+                      onClick={() => {
+                        if (message.thread_id) setThreadId(message.thread_id);
+                        else threadCreation.mutate(message.id);
+                      }}
+                    >
+                      <MessageSquareReply aria-hidden="true" />
+                      {message.reply_count > 0
+                        ? `${message.reply_count} ${message.reply_count === 1 ? "reply" : "replies"}`
+                        : "Reply in Thread"}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
             </div>
-          </article>
-        ))}
+          );
+        })}
       </div>
 
       <form className="composer" onSubmit={submit}>
@@ -666,4 +687,35 @@ function formatMessageTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(
     new Date(value),
   );
+}
+
+const MESSAGE_GROUP_GAP_MS = 5 * 60 * 1000;
+
+// Merge a message into the block above it when the same author posted within a
+// short window, so a burst reads as one turn instead of repeating the identity.
+function startsNewGroup(message: Message, previous: Message | undefined): boolean {
+  if (!previous) return true;
+  if (previous.author.id !== message.author.id) return true;
+  const gap = new Date(message.created_at).getTime() - new Date(previous.created_at).getTime();
+  return !Number.isFinite(gap) || gap > MESSAGE_GROUP_GAP_MS;
+}
+
+function dayKey(value: string): string {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatDayDivider(value: string): string {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (dayKey(value) === dayKey(today.toISOString())) return "Today";
+  if (dayKey(value) === dayKey(yesterday.toISOString())) return "Yesterday";
+  const sameYear = date.getFullYear() === today.getFullYear();
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    day: "numeric",
+    year: sameYear ? undefined : "numeric",
+  }).format(date);
 }

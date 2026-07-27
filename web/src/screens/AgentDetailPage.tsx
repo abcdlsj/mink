@@ -82,10 +82,10 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
         {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <>
-            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} mono /></dl></DetailSection>
+            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} tabular /></dl></DetailSection>
             <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} mono /><Field label="Driver" value={capitalize(value.driver_kind)} /><Field label="Status" value={capitalize(value.status)} /><Field label="Role revision" value={String(value.role_revision)} mono /></dl></DetailSection>
-            <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} mono /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} mono /></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={capitalize(value.status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
+            <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} tabular /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} tabular /></dl></DetailSection>
           </>
         ) : null}
         {tab === "memory" ? (
@@ -100,7 +100,7 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
             {memory.error ? <p className="form-error" role="alert">Memory unavailable. The Computer may be offline or you may lack permission.</p> : null}
           </section>
         ) : null}
-        {tab === "inbox" ? <DetailSection title="Inbox"><div className="agent-inbox-state"><Inbox aria-hidden="true" /><h2>Attention status</h2><p>Agent Inbox contents stay private. This view exposes only safe runtime status.</p><dl className="detail-grid"><Field label="Agent status" value={capitalize(value.status)} /><Field label="Last failure" value={value.last_error_code ?? "No recent failure reported"} mono={Boolean(value.last_error_code)} /></dl></div></DetailSection> : null}
+        {tab === "inbox" ? <DetailSection title="Inbox"><div className="agent-inbox-state"><Inbox aria-hidden="true" /><h2>Attention status</h2><p>Agent Inbox contents stay private. This view exposes only safe runtime status.</p><dl className="detail-grid"><Field label="Agent status" value={capitalize(value.status)} /><Field label="Last failure" value={value.last_error_code ?? "No recent failure reported"} tabular={Boolean(value.last_error_code)} /></dl></div></DetailSection> : null}
         {tab === "settings" ? (
           <>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}
@@ -119,5 +119,8 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
 }
 
 function DetailSection({ title, children }: { title: string; children: ReactNode }) { return <section className="detail-section"><h2>{title}</h2>{children}</section>; }
-function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div><dt>{label}</dt><dd className={mono ? "mono" : undefined}>{value}</dd></div>; }
+function Field({ label, value, tabular = false, chip }: { label: string; value: string; tabular?: boolean; chip?: "runtime" | "model" | "reasoning" | "mode" }) {
+  const body = chip ? <dd><span className={`chip chip--${chip}`}>{value}</span></dd> : <dd className={tabular ? "tabular" : undefined}>{value}</dd>;
+  return <div><dt>{label}</dt>{body}</div>;
+}
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
