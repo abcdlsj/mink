@@ -21,16 +21,13 @@
 
 ## 实现边界
 
-- v1 使用 Rust 实现 Server、Computer daemon 和 Agent CLI，只发布一个 `sumi` binary，通过 `sumi server`、`sumi computer`、`sumi agent` 区分入口。
-- 保持模块化单体和单 Cargo package；遵守 `docs/design.md` 第 4.2、23 节，不提前引入微服务、消息队列、抽象框架或范围外功能。
+- 范围、技术栈、平台目标和 binary 结构以 `docs/design.md`（§3 技术栈与平台、§4 v1 范围）为准；不提前引入范围外功能、微服务、消息队列或抽象框架。
 - 默认只保留最新产品模型和唯一最新 schema；未经用户明确要求，不做兼容读取、双写、deprecated 字段、旧入口或数据迁移。
-- Agent 与 Sumi 的交互只能通过 `sumi agent` CLI；Driver stdout 不能自动成为 Message。
-- Server 和 Computer v1 只支持 macOS 与 Linux，不添加未经测试的 Windows 分支。
 
 ## 质量与验证
 
 - 代码简洁直接，只为真实边界抽象；命名准确、函数短小、主路径清晰。
 - 只为核心不变量、并发或安全原因写英文注释；日志和测试输出不得泄露 Message、Attachment、Memory 或 Secret 正文。
 - 核心路径和高风险边界必须有有效测试；不为 getter、derive 或框架既有行为写无价值测试。
-- 日常运行最小相关测试；阶段完成后运行对应完整测试，最终运行仓库统一 test command。
-- Rust 必须通过 `cargo fmt` 和 `cargo clippy --all-targets --all-features -- -D warnings`；PostgreSQL integration tests 必须验证真实 SQL；Playwright 仅用于 UI 里程碑、明确回归和最终验收。
+- 日常运行最小相关测试；阶段完成后运行对应完整测试，最终运行仓库统一 test command（测试分层与工具见 `docs/design.md` §3.1.1、§3.2）。
+- Rust 提交前必须通过 `cargo fmt` 和 `cargo clippy --all-targets --all-features -- -D warnings`。
