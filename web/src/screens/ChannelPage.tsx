@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Bell, BellOff, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
@@ -94,19 +94,35 @@ export function MessageWorkspace({
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [threadId, setThreadId] = useState<number>();
+  const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const timeline = useRef<HTMLDivElement>(null);
+  const channelScrollPosition = useRef(0);
   const threadTrigger = useRef<HTMLButtonElement | null>(null);
 
-  function openThread(nextThreadId: number, trigger: HTMLButtonElement) {
-    threadTrigger.current = trigger;
+  function openThread(nextThreadId: number, trigger?: HTMLButtonElement) {
+    if (trigger) threadTrigger.current = trigger;
+    channelScrollPosition.current = timeline.current?.scrollTop ?? 0;
+    setThreadOpenedAtMainSeq(latestMainMessageSeq);
     setThreadId(nextThreadId);
   }
 
-  function closeThread() {
+  const closeThread = useCallback(() => {
     setThreadId(undefined);
-    window.requestAnimationFrame(() => threadTrigger.current?.focus());
-  }
+    window.requestAnimationFrame(() => {
+      if (timeline.current) timeline.current.scrollTop = channelScrollPosition.current;
+      threadTrigger.current?.focus();
+    });
+  }, []);
+
+  const showLatestChannelMessages = useCallback(() => {
+    document.getElementById("channel-heading")?.focus();
+    setThreadId(undefined);
+    window.requestAnimationFrame(() => {
+      if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight;
+    });
+  }, []);
   const messages = useQuery({
     queryKey: ["messages", channel.id],
     queryFn: () => listMessages(channel.id),
@@ -123,6 +139,10 @@ export function MessageWorkspace({
     queryKey: ["agents", spaceId],
     queryFn: () => listAgents(spaceId),
   });
+  const latestMainMessageSeq = Math.max(
+    0,
+    ...(messages.data?.messages.map((message) => message.seq) ?? []),
+  );
   const activityByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
   );
@@ -143,7 +163,7 @@ export function MessageWorkspace({
   const threadCreation = useMutation({
     mutationFn: (rootMessageId: string) => createThread(channel.id, rootMessageId),
     onSuccess: (thread) => {
-      setThreadId(thread.thread_id);
+      openThread(thread.thread_id);
       void queryClient.invalidateQueries({ queryKey: ["messages", channel.id] });
     },
   });
@@ -206,7 +226,7 @@ export function MessageWorkspace({
           {direct ? <MessageCircle /> : <Hash />}
         </span>
         <div className="channel-title">
-          <h1 id="channel-heading" aria-label={title}>{title.replace(/^#/, "")}</h1>
+          <h1 id="channel-heading" tabIndex={-1} aria-label={title}>{title.replace(/^#/, "")}</h1>
           <p>{subtitle}</p>
         </div>
         <div className="member-strip" aria-label="Current Member">
@@ -232,7 +252,7 @@ export function MessageWorkspace({
         ) : null}
       </header>
 
-      <div className="message-timeline" aria-live="polite">
+      <div ref={timeline} className="message-timeline" aria-live="polite">
         {messages.isPending ? <div className="timeline-status">Loading Messages...</div> : null}
         {messages.error ? (
           <div className="timeline-status timeline-status--error" role="alert">
@@ -381,7 +401,10 @@ export function MessageWorkspace({
           threadId={threadId}
           channelSlug={channel.slug}
           members={channelMembers.data?.members ?? []}
+          latestMainMessageSeq={latestMainMessageSeq}
+          openedAtMainSeq={threadOpenedAtMainSeq}
           close={closeThread}
+          showLatestChannelMessages={showLatestChannelMessages}
         />
       ) : null}
       {agentPickerOpen ? (
@@ -403,19 +426,27 @@ function ThreadPane({
   threadId,
   channelSlug,
   members,
+  latestMainMessageSeq,
+  openedAtMainSeq,
   close,
+  showLatestChannelMessages,
 }: {
   channelId: string;
   spaceId: string;
   threadId: number;
   channelSlug: string;
   members: Member[];
+  latestMainMessageSeq: number;
+  openedAtMainSeq: number;
   close: () => void;
+  showLatestChannelMessages: () => void;
 }) {
   const queryClient = useQueryClient();
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const channelHasNewMessages = latestMainMessageSeq > openedAtMainSeq;
   const thread = useQuery({
     queryKey: ["thread", channelId, threadId],
     queryFn: () => readThread(channelId, threadId),
@@ -445,6 +476,15 @@ function ThreadPane({
       );
     },
   });
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") close();
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [close]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -477,13 +517,19 @@ function ThreadPane({
             {thread.data.is_following ? <BellOff /> : <Bell />}
           </button>
         ) : null}
-        <button className="thread-close icon-button" type="button" aria-label="Close Thread" title="Close Thread" onClick={close}>
+        <button ref={closeButton} className="thread-close icon-button" type="button" aria-label="Close Thread" title="Close Thread" onClick={() => close()}>
           <ArrowLeft className="thread-close-back" aria-hidden="true" />
           <X className="thread-close-x" aria-hidden="true" />
           <span>Channel</span>
         </button>
       </header>
       <div className="thread-messages">
+        {channelHasNewMessages ? (
+          <button className="thread-context-update" type="button" onClick={showLatestChannelMessages}>
+            <span>New messages in #{channelSlug}</span>
+            <strong>Return to latest</strong>
+          </button>
+        ) : null}
         {thread.isPending ? <div className="timeline-status">Loading Thread...</div> : null}
         {thread.error ? <div className="timeline-status timeline-status--error">{thread.error.message}</div> : null}
         {thread.data ? (
@@ -673,28 +719,25 @@ function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channe
     staleTime: 15_000,
   });
   const replies = thread.data?.replies.slice(-3) ?? [];
+  const hiddenReplyCount = Math.max(0, replyCount - replies.length);
   return (
     <section className="inline-thread-preview" aria-label={`${replyCount} Thread ${replyCount === 1 ? "reply" : "replies"}`}>
       <button className="inline-thread-heading" type="button" aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} onClick={(event) => open(event.currentTarget)}>
-        <span>{replyCount} {replyCount === 1 ? "REPLY" : "REPLIES"}</span>
-        <strong>Open Thread <MessageSquareReply aria-hidden="true" /></strong>
+        <span>{hiddenReplyCount > 0 ? `${hiddenReplyCount} earlier ${hiddenReplyCount === 1 ? "reply" : "replies"}` : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} <b aria-hidden="true">›</b></span>
       </button>
       {thread.isPending ? <span className="inline-thread-status">Loading replies…</span> : null}
       {thread.error ? <span className="inline-thread-status">Replies unavailable</span> : null}
       {replies.map((reply) => (
         <button className="inline-reply" type="button" key={reply.id} onClick={(event) => open(event.currentTarget)}>
           <PixelIdentity name={reply.author.display_name} kind={reply.author.kind} seed={reply.author.id} />
-          <span>
-            <span className="inline-reply-meta">
-              <strong>{reply.author.display_name}</strong>
-              {reply.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
-              <time dateTime={reply.created_at}>{formatMessageTime(reply.created_at)}</time>
-            </span>
-            <span className="inline-reply-body">{reply.deleted_at ? "Message 已删除" : reply.body_markdown}</span>
+          <span className="inline-reply-author">
+            <strong>{reply.author.display_name}</strong>
+            {reply.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
           </span>
+          <span className="inline-reply-body">{reply.deleted_at ? "Message 已删除" : reply.body_markdown}</span>
+          <time dateTime={reply.created_at}>{formatMessageTime(reply.created_at)}</time>
         </button>
       ))}
-      {replyCount > 3 ? <button className="inline-thread-more" type="button" onClick={(event) => open(event.currentTarget)}>+{replyCount - 3} more replies</button> : null}
     </section>
   );
 }

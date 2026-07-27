@@ -22,7 +22,7 @@
 - [x] 按同一语言收口 Members 与 Agent detail：成员导航按 Agent/Human 分组，统一目录治理控件、Agent 状态、详情页签与 Overview/Memory/Inbox/Settings，并完成真实 seed 多视口验证。
 - [x] 按同一语言收口 Human Inbox：按 Approvals、DM & mentions、Replies、Channel activity 分组，统一发送者头像、来源、摘要、时间、审批与 complete/defer 操作，并完成空态/非空态真实三视口验证。
 - [x] 按同一语言收口 Computer：统一 machine list/detail、workload/runtime、空态、Pair 与 Delete 确认，修正 Human 治理权限和删除后的身份语义，并完成真实 seed 多视口验证。
-- [ ] 按同一语言继续收口 Thread，补齐对应多视口视觉和交互证据。
+- [x] 按同一语言继续收口 Thread，补齐对应多视口视觉和交互证据。
 - [ ] 按同一语言继续收口 Dialog，补齐对应多视口视觉和交互证据。
 - [ ] 按同一语言继续收口 onboarding，补齐对应多视口视觉和交互证据。
 
@@ -44,6 +44,8 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：Thread 最近三条回复 preview、desktop/tablet pane、mobile 返回、主时间线变化提示、follow/unfollow、Escape 与焦点回落覆盖在内的 6 个 test files、16 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
+- `mise run dev-seed` + `node web/e2e/thread-verify.mjs` + Chromium：真实 `sumi-dev`、在线 Dev Computer 与 PM/Coder/Reviewer；在 1440x900、1024x768、390x844 验证 Thread preview 与 pane，桌面/平板保持 Channel 并列、手机全屏返回，三视口无横向溢出且关闭后滚动位置恢复；follow/unfollow、主时间线变化提示与返回最新焦点均真实通过，无 page/console error。截图位于 `/tmp/sumi-shots-thread/`。
 - `pnpm --dir web test`：Computer 治理权限、Pair 键盘交互、受影响 Agent 强确认和删除身份语义覆盖在内的 6 个 test files、16 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
 - `mise run dev-seed` + Chromium：真实 `sumi-dev` Space、在线 Dev Computer 与 PM/Coder/Reviewer；在 1440x900、1024x768、390x844 验证 Computer detail、Pair 和 Delete，均无横向溢出、无 page/console error，复制命令、Escape/焦点循环、3 个受影响 Agent 和确认前禁用均真实通过。截图位于 `/tmp/sumi-shots-computers/`。
 - `pnpm --dir web test`：Inbox 分组顺序、发送者身份、Approval 操作和空态覆盖在内的 6 个 test files、15 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。

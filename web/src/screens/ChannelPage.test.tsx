@@ -212,11 +212,16 @@ describe("ChannelPage", () => {
       if (path.endsWith(`/channels/${channelId}/threads/1/subscription`) && init?.method === "PUT") {
         return json({ channel_id: channelId, thread_id: 1, is_following: true });
       }
+      if (path.endsWith(`/channels/${channelId}/threads/1/subscription`) && init?.method === "DELETE") {
+        return json({ channel_id: channelId, thread_id: 1, is_following: false });
+      }
       if (path.endsWith(`/channels/${channelId}/threads/1/messages`) && init?.method === "POST") {
         return json(message(channelId, 3, "New Thread reply"), 201);
       }
       if (path.endsWith(`/channels/${channelId}/messages`) && init?.method === "POST") {
-        return json(message(channelId, 2, "@lin Please review"), 201);
+        const input = JSON.parse(String(init.body)) as { body_markdown: string };
+        const seq = input.body_markdown === "Channel moved" ? 4 : 2;
+        return json(message(channelId, seq, input.body_markdown), 201);
       }
       if (path === "/api/v1/attachments/uploads" && init?.method === "POST") {
         return json({
@@ -308,13 +313,28 @@ describe("ChannelPage", () => {
     await waitFor(() => expect(within(preview).getByRole("button", { name: "1 reply" })).toHaveFocus());
     fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
     const reopenedThreadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
-    fireEvent.click(within(reopenedThreadPane).getByRole("button", { name: "Follow Thread" }));
-    expect(await screen.findByRole("button", { name: "Unfollow Thread" })).toBeVisible();
+    const channelInput = screen.getByLabelText("Message");
+    fireEvent.change(channelInput, { target: { value: "Channel moved" } });
+    fireEvent.submit(channelInput.closest("form")!);
+    const contextUpdate = await within(reopenedThreadPane).findByRole("button", { name: /New messages in #general.*Return to latest/ });
+    fireEvent.click(contextUpdate);
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: /Thread #general:1/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "#general" })).toHaveFocus();
+
+    fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
+    const latestThreadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
+    fireEvent.click(within(latestThreadPane).getByRole("button", { name: "Follow Thread" }));
+    const unfollow = await screen.findByRole("button", { name: "Unfollow Thread" });
+    fireEvent.click(unfollow);
+    expect(await screen.findByRole("button", { name: "Follow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");
     fireEvent.change(threadInput, { target: { value: "New Thread reply" } });
     fireEvent.submit(threadInput.closest("form")!);
     expect(await screen.findByText("New Thread reply")).toBeVisible();
     expect(threadInput).toHaveValue("");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: /Thread #general:1/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(preview).getByRole("button", { name: "1 reply" })).toHaveFocus());
   });
 
   it("archives a managed Channel and returns to general", async () => {
