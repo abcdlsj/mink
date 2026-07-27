@@ -558,7 +558,7 @@ async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result<Spa
         .json(&serde_json::json!({
             "name": "Lifecycle Lab",
             "slug": format!("life-{}", &Uuid::now_v7().simple().to_string()[..8]),
-            "accent": "#5065D8"
+            "accent": "#FE7DA8"
         }))
         .send()
         .await?;

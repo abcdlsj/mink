@@ -45,7 +45,7 @@ async fn create_space(app: &Router, cookie: &str, name: &str, slug: &str) -> Res
             &serde_json::json!({
                 "name": name,
                 "slug": slug,
-                "accent": "#5065D8"
+                "accent": "#FE7DA8"
             }),
             Some(cookie),
         )?)

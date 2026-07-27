@@ -31,7 +31,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &serde_json::json!({
                 "name": "Computer Lab",
                 "slug": "computer-lab",
-                "accent": "#6B8F71"
+                "accent": "#A9D877"
             }),
             Some(&owner.cookie),
         )?)
@@ -1081,7 +1081,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &serde_json::json!({
                 "name": "Other Agent Lab",
                 "slug": "other-agent-lab",
-                "accent": "#B08A5A"
+                "accent": "#FFD440"
             }),
             Some(&owner.cookie),
         )?)

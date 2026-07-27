@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, ArrowLeft, Bell, BellOff, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Archive, ArrowLeft, Asterisk, Bell, BellOff, Check, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Monitor, Paperclip, Plus, Send, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -10,7 +10,8 @@ import {
   createThread,
   createThreadReply,
   listAgents,
-  listChannelMembers,
+    listChannelMembers,
+    listComputers,
   listMembers,
   listMessages,
   readThread,
@@ -58,6 +59,12 @@ export function ChannelPage() {
                 ["owner", "admin"].includes(currentMember.access_level))
             }
             spaceSlug={space.slug}
+            setup={channel.slug === "general" ? {
+              canPairComputer: ["owner", "admin"].includes(currentMember.access_level),
+              canCreateAgent:
+                ["owner", "admin"].includes(currentMember.access_level) ||
+                currentMember.permissions.includes("agent:create"),
+            } : undefined}
           />
         );
       }}
@@ -77,6 +84,7 @@ export function MessageWorkspace({
   direct = false,
   canArchive = false,
   spaceSlug,
+  setup,
 }: {
   channel: Channel;
   spaceId: string;
@@ -89,6 +97,7 @@ export function MessageWorkspace({
   direct?: boolean;
   canArchive?: boolean;
   spaceSlug?: string;
+  setup?: { canPairComputer: boolean; canCreateAgent: boolean };
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -139,6 +148,12 @@ export function MessageWorkspace({
   const agents = useQuery({
     queryKey: ["agents", spaceId],
     queryFn: () => listAgents(spaceId),
+  });
+  const computers = useQuery({
+    queryKey: ["computers", spaceId],
+    queryFn: () => listComputers(spaceId),
+    enabled: Boolean(setup),
+    retry: false,
   });
   const latestMainMessageSeq = Math.max(
     0,
@@ -254,6 +269,17 @@ export function MessageWorkspace({
       </header>
 
       <div ref={timeline} className="message-timeline" aria-live="polite">
+        {setup && spaceSlug ? (
+          <SetupStrip
+            spaceSlug={spaceSlug}
+            computers={computers.data}
+            agents={agents.data}
+            loading={computers.isPending || agents.isPending}
+            unavailable={Boolean(computers.error || agents.error)}
+            canPairComputer={setup.canPairComputer}
+            canCreateAgent={setup.canCreateAgent}
+          />
+        ) : null}
         {messages.isPending ? <div className="timeline-status">Loading Messages...</div> : null}
         {messages.error ? (
           <div className="timeline-status timeline-status--error" role="alert">
@@ -417,6 +443,67 @@ export function MessageWorkspace({
           submit={(ids) => addAgents.mutate(ids)}
         />
       ) : null}
+    </section>
+  );
+}
+
+function SetupStrip({
+  spaceSlug,
+  computers,
+  agents,
+  loading,
+  unavailable,
+  canPairComputer,
+  canCreateAgent,
+}: {
+  spaceSlug: string;
+  computers?: Awaited<ReturnType<typeof listComputers>>;
+  agents?: Awaited<ReturnType<typeof listAgents>>;
+  loading: boolean;
+  unavailable: boolean;
+  canPairComputer: boolean;
+  canCreateAgent: boolean;
+}) {
+  if (loading) {
+    return <section className="setup-strip setup-strip--loading" aria-label="Loading Space setup">Preparing Space setup...</section>;
+  }
+  if (unavailable) {
+    return (
+      <section className="setup-strip setup-strip--error" aria-label="Space setup unavailable">
+        <strong>Setup status unavailable</strong>
+        <span>Messages still work. Check the Server connection before pairing a Computer.</span>
+      </section>
+    );
+  }
+
+  const hasComputer = Boolean(computers?.length);
+  const hasOnlineComputer = Boolean(computers?.some((computer) => computer.status === "online"));
+  const hasAgent = Boolean(agents?.some((agent) => agent.status !== "retired"));
+  if (hasComputer && hasAgent) return null;
+
+  return (
+    <section className="setup-strip" aria-labelledby="setup-strip-title">
+      <div className="setup-strip-heading">
+        <span>03 / 03</span>
+        <strong id="setup-strip-title">Finish your Space setup</strong>
+        <small>#general is ready. Add local compute, then your first Agent.</small>
+      </div>
+      <ol className="setup-steps">
+        <li className={hasComputer ? "is-complete" : ""}>
+          <span className="setup-step-icon" aria-hidden="true">{hasComputer ? <Check /> : <Monitor />}</span>
+          <span><strong>Connect a Computer</strong><small>{hasComputer ? `${computers?.length} paired` : "macOS or Linux"}</small></span>
+          {!hasComputer && canPairComputer ? (
+            <Link className="setup-action" to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer">Pair</Link>
+          ) : null}
+        </li>
+        <li className={hasAgent ? "is-complete" : ""}>
+          <span className="setup-step-icon setup-step-icon--agent" aria-hidden="true">{hasAgent ? <Check /> : <Asterisk />}</span>
+          <span><strong>Create your first Agent</strong><small>{hasAgent ? `${agents?.filter((agent) => agent.status !== "retired").length} created` : hasOnlineComputer ? "Choose a Role and Driver" : "Requires an online Computer"}</small></span>
+          {!hasAgent && canCreateAgent && hasOnlineComputer ? (
+            <Link className="setup-action" to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="create-agent">Create</Link>
+          ) : null}
+        </li>
+      </ol>
     </section>
   );
 }

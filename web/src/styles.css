@@ -1420,6 +1420,509 @@ h1 {
   }
 }
 
+/* Onboarding is a three-step product flow, not a marketing landing page. */
+.onboarding-shell {
+  min-height: 100dvh;
+  grid-template-rows: 62px minmax(0, 1fr) 40px;
+  overflow-x: hidden;
+  background: var(--panel);
+}
+
+.brand-bar {
+  padding: 0 22px;
+  background: var(--rail);
+}
+
+.wordmark {
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.wordmark-mark {
+  width: 34px;
+  height: 34px;
+  background: var(--accent);
+  color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.onboarding-progress {
+  display: flex;
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-progress li {
+  display: grid;
+  min-width: 104px;
+  grid-template-columns: auto 1fr;
+  align-content: center;
+  gap: 0 8px;
+  padding: 0 14px;
+  border-left: 2px solid var(--ink);
+  color: rgb(20 17 17 / 52%);
+}
+
+.onboarding-progress li span {
+  grid-row: 1 / 3;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.onboarding-progress li strong {
+  font-size: 11px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.onboarding-progress li.is-current {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 -4px 0 var(--accent);
+}
+
+.onboarding-progress li.is-complete {
+  background: var(--green);
+  color: var(--ink);
+}
+
+.register-stage {
+  width: min(1060px, calc(100% - 48px));
+  min-height: 520px;
+  margin: 24px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.stage-copy,
+.register-form {
+  padding: clamp(34px, 5vw, 64px);
+}
+
+.stage-copy {
+  min-height: 516px;
+  background: var(--accent);
+  color: var(--ink);
+}
+
+.stage-copy--login {
+  background: var(--paper);
+}
+
+.stage-copy--invite {
+  background: var(--accent-soft);
+}
+
+.eyebrow {
+  margin-bottom: 24px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.stage-copy h1 {
+  max-width: 600px;
+  color: var(--ink);
+  font-size: clamp(48px, 6vw, 78px);
+  font-weight: 700;
+  line-height: .94;
+}
+
+.stage-note {
+  max-width: 430px;
+  margin-top: 24px;
+  color: rgb(20 17 17 / 72%);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.onboarding-identities,
+.member-signal {
+  position: absolute;
+  right: 40px;
+  bottom: 40px;
+  left: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.onboarding-human-mark,
+.onboarding-agent-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  margin-left: -6px;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.onboarding-human-mark {
+  margin-left: 0;
+}
+
+.onboarding-agent-mark {
+  background: var(--rail);
+}
+
+.onboarding-agent-mark--cyan {
+  background: var(--cyan);
+}
+
+.onboarding-agent-mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.register-form {
+  gap: 20px;
+  padding-right: clamp(32px, 5vw, 58px);
+  padding-left: clamp(32px, 5vw, 58px);
+}
+
+.register-form label,
+.accent-fieldset legend {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.register-form input {
+  height: 46px;
+  transition: background-color 100ms linear, box-shadow 100ms linear;
+}
+
+.register-form input:hover {
+  background: var(--panel);
+}
+
+.register-form input:focus-visible {
+  background: var(--paper);
+}
+
+.primary-action {
+  min-height: 48px;
+  margin-top: 4px;
+  background: var(--accent);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  text-decoration: none;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.primary-action:active:not(:disabled) {
+  transform: translate(3px, 3px);
+}
+
+.stage-copy--space {
+  color: var(--ink);
+}
+
+.space-address {
+  margin-top: 32px;
+  padding: 9px 12px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.accent-options {
+  gap: 12px;
+}
+
+.accent-option span {
+  width: 38px;
+  height: 38px;
+}
+
+.accent-option input:checked + span {
+  box-shadow: 3px 3px 0 var(--ink);
+  transform: translate(-2px, -2px);
+}
+
+.onboarding-footer {
+  padding: 0 22px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+
+/* Step three stays inside #general and reflects real Computer/Agent state. */
+.space-shell {
+  --accent: var(--space-accent, #fe7da8);
+}
+
+.space-rail {
+  background: var(--space-accent, var(--rail));
+}
+
+.setup-strip {
+  display: grid;
+  width: min(860px, calc(100% - 40px));
+  grid-template-columns: minmax(190px, .8fr) minmax(360px, 1.5fr);
+  gap: 18px;
+  margin: 14px auto 20px;
+  padding: 14px;
+  border: 2px solid var(--ink);
+  background: var(--panel);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.setup-strip-heading {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 2px 4px;
+}
+
+.setup-strip-heading > span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.setup-strip-heading > strong {
+  font-size: 16px;
+}
+
+.setup-strip-heading > small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.setup-steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  list-style: none;
+}
+
+.setup-steps li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 7px 8px;
+}
+
+.setup-steps li + li {
+  border-top: 2px solid var(--ink);
+}
+
+.setup-steps li.is-complete {
+  background: color-mix(in srgb, var(--green) 45%, var(--paper));
+}
+
+.setup-step-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--cyan);
+}
+
+.setup-step-icon--agent {
+  background: var(--accent);
+}
+
+.setup-steps .is-complete .setup-step-icon {
+  background: var(--green);
+}
+
+.setup-step-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.setup-steps li > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.setup-steps li strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-steps li small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-action {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 2px solid var(--ink);
+  background: var(--accent);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.setup-action:hover {
+  background: var(--accent-soft);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.setup-strip--loading,
+.setup-strip--error {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.setup-strip--loading {
+  font-family: var(--font-mono);
+}
+
+.setup-strip--error {
+  background: color-mix(in srgb, var(--red) 22%, var(--paper));
+}
+
+@media (max-width: 760px) {
+  .onboarding-shell {
+    grid-template-rows: 58px minmax(0, 1fr) 36px;
+  }
+
+  .brand-bar {
+    padding: 0 12px;
+  }
+
+  .wordmark-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .onboarding-progress li {
+    min-width: 42px;
+    grid-template-columns: 1fr;
+    padding: 0 9px;
+    text-align: center;
+  }
+
+  .onboarding-progress li span {
+    grid-row: auto;
+  }
+
+  .onboarding-progress li strong {
+    display: none;
+  }
+
+  .register-stage {
+    width: min(100% - 24px, 520px);
+    min-height: 0;
+    margin: 16px auto 22px;
+    grid-template-columns: 1fr;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .stage-copy {
+    min-height: 230px;
+    padding: 26px 24px;
+  }
+
+  .stage-copy h1,
+  .stage-copy--space h1 {
+    font-size: clamp(42px, 13vw, 58px);
+  }
+
+  .stage-note {
+    margin-top: 16px;
+    font-size: 14px;
+  }
+
+  .onboarding-identities,
+  .member-signal {
+    display: none;
+  }
+
+  .register-form {
+    gap: 16px;
+    padding: 24px;
+  }
+
+  .onboarding-footer {
+    padding: 0 12px;
+  }
+
+  .setup-strip {
+    width: calc(100% - 24px);
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin: 12px auto 18px;
+    padding: 10px;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .setup-strip-heading {
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+  }
+
+  .setup-strip-heading > span {
+    grid-row: 1 / 3;
+  }
+
+  .setup-strip-heading > small {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 420px) {
+  .onboarding-footer span:first-child {
+    display: none;
+  }
+
+  .onboarding-footer {
+    justify-content: flex-end;
+  }
+
+  .setup-steps li {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .setup-step-icon {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 
 /* Channel fidelity pass: reference-directed density with Sumi's domain model. */
 .space-shell {

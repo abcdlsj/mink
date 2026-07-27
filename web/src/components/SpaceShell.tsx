@@ -13,7 +13,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { FormEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -130,7 +130,12 @@ export function SpaceShell({
       });
     },
   });
-  const routeError = space.error ?? user.error ?? channels.error ?? members.error ?? computers.error;
+  const routeError =
+    space.error ??
+    user.error ??
+    channels.error ??
+    members.error ??
+    (active === "computers" ? computers.error : undefined);
 
   useEffect(() => {
     if (routeError instanceof ApiRequestError && routeError.status === 401) {
@@ -192,7 +197,10 @@ export function SpaceShell({
   );
 
   return (
-    <main className="space-shell">
+    <main
+      className="space-shell"
+      style={{ "--space-accent": space.data.accent } as CSSProperties}
+    >
       <aside className="space-rail" aria-label="Space tools">
         <Link
           className="space-badge"
@@ -607,9 +615,9 @@ export function PresenceIdentity({ name, kind = "human", seed, activityStatus }:
 export function PixelIdentity({ name, kind = "human", seed }: { name: string; kind?: "human" | "agent"; seed?: string }) {
   const variant = pixelVariant(seed ?? name);
   const palettes = [
-    { background: "#C9E7E7", foreground: "#173F46", accent: "#5065D8" },
+    { background: "#C9E7E7", foreground: "#173F46", accent: "#FE7DA8" },
     { background: "#DFE3FF", foreground: "#2E377A", accent: "#D95C55" },
-    { background: "#F5E2A8", foreground: "#5A4312", accent: "#5065D8" },
+    { background: "#F5E2A8", foreground: "#5A4312", accent: "#FE7DA8" },
     { background: "#F2D3BD", foreground: "#63392D", accent: "#315B55" },
   ] as const;
   const palette = palettes[variant % palettes.length];

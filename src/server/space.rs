@@ -26,7 +26,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "assets",
     "health",
 ];
-const ACCENTS: &[&str] = &["#5065D8", "#667085", "#6B8F71", "#B08A5A"];
+const ACCENTS: &[&str] = &["#FE7DA8", "#27CCF3", "#FFD440", "#A9D877"];
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CreateSpaceRequest {

@@ -23,8 +23,8 @@ export function RegisterPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     registration.mutate({
-      display_name: String(form.get("displayName") ?? ""),
-      email: String(form.get("email") ?? ""),
+      display_name: String(form.get("displayName") ?? "").trim(),
+      email: String(form.get("email") ?? "").trim(),
       password: String(form.get("password") ?? ""),
     });
   }
@@ -38,20 +38,20 @@ export function RegisterPage() {
           </span>
           SUMI
         </Link>
-        <span className="step-index">01 / 03</span>
+        <OnboardingProgress current={1} />
       </header>
 
       <section className="register-stage" aria-labelledby="register-title">
         <div className="stage-copy">
-          <p className="eyebrow">YOUR SEAT IS READY</p>
-          <h1 id="register-title">Join the room.</h1>
+          <p className="eyebrow">01 · HUMAN IDENTITY</p>
+          <h1 id="register-title">Join your collaborators.</h1>
           <p className="stage-note">
-            Start with your Human identity. Your first Space comes next.
+            Create the Human identity you will use beside Agents. Your first Space comes next.
           </p>
-          <div className="member-signal" aria-hidden="true">
-            <PixelFace variant="sun" />
-            <PixelFace variant="cyan" />
-            <PixelFace variant="pink" />
+          <div className="onboarding-identities" aria-hidden="true">
+            <span className="onboarding-human-mark">H</span>
+            <span className="onboarding-agent-mark"><Asterisk strokeWidth={3} /></span>
+            <span className="onboarding-agent-mark onboarding-agent-mark--cyan"><Asterisk strokeWidth={3} /></span>
             <span className="signal-line" />
           </div>
         </div>
@@ -59,7 +59,7 @@ export function RegisterPage() {
         <form className="register-form" onSubmit={submit}>
           <label>
             Display name
-            <input name="displayName" autoComplete="name" required maxLength={40} />
+            <input name="displayName" autoComplete="name" autoFocus required maxLength={40} />
           </label>
           <label>
             Email
@@ -102,16 +102,20 @@ export function RegisterPage() {
   );
 }
 
-function isSafeRedirect(value: string | undefined): value is string {
-  return Boolean(value?.startsWith("/") && !value.startsWith("//"));
+export function OnboardingProgress({ current }: { current: 1 | 2 }) {
+  return (
+    <ol className="onboarding-progress" aria-label={`Onboarding step ${current} of 3`}>
+      <li className={current === 1 ? "is-current" : "is-complete"} aria-current={current === 1 ? "step" : undefined}>
+        <span>01</span><strong>Identity</strong>
+      </li>
+      <li className={current === 2 ? "is-current" : ""} aria-current={current === 2 ? "step" : undefined}>
+        <span>02</span><strong>Space</strong>
+      </li>
+      <li><span>03</span><strong>Setup</strong></li>
+    </ol>
+  );
 }
 
-function PixelFace({ variant }: { variant: "sun" | "cyan" | "pink" }) {
-  return (
-    <span className={`pixel-face pixel-face--${variant}`}>
-      <span className="pixel-eye pixel-eye--left" />
-      <span className="pixel-eye pixel-eye--right" />
-      <span className="pixel-mouth" />
-    </span>
-  );
+function isSafeRedirect(value: string | undefined): value is string {
+  return Boolean(value?.startsWith("/") && !value.startsWith("//"));
 }

@@ -24,7 +24,7 @@
 - [x] 按同一语言收口 Computer：统一 machine list/detail、workload/runtime、空态、Pair 与 Delete 确认，修正 Human 治理权限和删除后的身份语义，并完成真实 seed 多视口验证。
 - [x] 按同一语言继续收口 Thread，补齐对应多视口视觉和交互证据。
 - [x] 按同一语言继续收口 Dialog，补齐对应多视口视觉和交互证据。
-- [ ] 按同一语言继续收口 onboarding，补齐对应多视口视觉和交互证据。
+- [x] 按同一语言继续收口 onboarding，补齐对应多视口视觉和交互证据。
 
 ### 2. Agent Admin 规范与治理闭环
 
@@ -44,6 +44,9 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：Register 01、Create Space 02、实时 canonical URL、唯一 palette、进入 general、Space 内真实 setup 状态与 Pair CTA 覆盖在内的 7 个 test files、18 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
+- `mise run dev-seed` + `node web/e2e/onboarding-verify.mjs` + Chromium：从真实 Register、Create Space 事务进入新 Space 的 `#general`；在 1440x900、1024x768、390x844 验证 Register、Create Space 与 setup strip，均无横向溢出、无 page/console error；初始焦点、实时 slug、accent 选择、注册错误态、redirect 与 setup Pair Dialog 真实通过。截图位于 `/tmp/sumi-shots-onboarding/`。
+- onboarding 收口后的完整门禁：`cargo test --test registration_space -- --nocapture`、`mise run test-dev-seed`、`cargo test --all-features`、`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过；Space accent 的 Browser/Server/Agent CLI 唯一 palette 已与设计 tokens 对齐。
 - `pnpm --dir web test`：统一 Dialog frame 的初始焦点、焦点循环/守卫、Escape、遮罩关闭、滚动锁定与触发器回退覆盖在内的 7 个 test files、17 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
 - `mise run dev-seed` + `node web/e2e/dialog-verify.mjs` + Chromium：真实 `sumi-dev`、在线 Dev Computer 与 PM/Coder/Reviewer；在 1440x900、1024x768、390x844 验证 Create Channel、Add Agents、Pair Computer、Create Agent 和 Delete Computer，16 个场景均在视口内且无横向溢出、无 page/console error；初始焦点、Escape、遮罩关闭、焦点回退、错误态与危险强确认真实通过。截图位于 `/tmp/sumi-shots-dialog/`。
 - `pnpm --dir web test`：Thread 最近三条回复 preview、desktop/tablet pane、mobile 返回、主时间线变化提示、follow/unfollow、Escape 与焦点回落覆盖在内的 6 个 test files、16 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。

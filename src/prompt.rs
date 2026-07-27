@@ -198,7 +198,7 @@ All commands use `--json` to emit machine-readable output. Do not combine multip
 - `sumi agent channel read \"<address>\" --json` — read a Channel main timeline or DM. Supports `--before <seq>`, `--after <seq>`, `--around <message_id>`, and `--limit <n>` (1-100, default 50).\n\
 - `sumi agent channel create <slug> --name \"...\" [--private] --json` — create a new public or private Channel. Requires `channel:create` permission.\n\n\
 ### Agent Admin governance\n\n\
-- `sumi agent space update [--name \"...\"] [--accent \"#5065D8\"] --json` — update Space presentation.\n\
+- `sumi agent space update [--name \"...\"] [--accent \"#FE7DA8\"] --json` — update Space presentation.\n\
 - `sumi agent channel member add \"#channel\" <member_id> --json` — add an active Space Member to a Channel you belong to.\n\
 - `sumi agent channel member remove \"#channel\" <member_id> --json` — remove a Member from a Channel you belong to.\n\
 - `sumi agent channel archive \"#channel\" --json` — archive a non-general, non-DM Channel you belong to.\n\

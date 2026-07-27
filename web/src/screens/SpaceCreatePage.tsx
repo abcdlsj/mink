@@ -4,13 +4,20 @@ import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { createSpace } from "../api/client";
+import { OnboardingProgress } from "./RegisterPage";
 
-const accents = ["#5065D8", "#667085", "#6B8F71", "#B08A5A"];
+const accents = [
+  { value: "#FE7DA8", label: "Pink" },
+  { value: "#27CCF3", label: "Cyan" },
+  { value: "#FFD440", label: "Yellow" },
+  { value: "#A9D877", label: "Green" },
+] as const;
 
 export function SpaceCreatePage() {
   const navigate = useNavigate();
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
+  const [accent, setAccent] = useState<string>(accents[0].value);
   const creation = useMutation({
     mutationFn: createSpace,
     onSuccess: (space) =>
@@ -26,7 +33,7 @@ export function SpaceCreatePage() {
     creation.mutate({
       name: String(form.get("name") ?? ""),
       slug: String(form.get("slug") ?? ""),
-      accent: String(form.get("accent") ?? accents[0]),
+      accent: String(form.get("accent") ?? accents[0].value),
     });
   }
 
@@ -39,14 +46,15 @@ export function SpaceCreatePage() {
           </span>
           SUMI
         </Link>
-        <span className="step-index">02 / 03</span>
+        <OnboardingProgress current={2} />
       </header>
 
       <section className="register-stage" aria-labelledby="space-title">
-        <div className="stage-copy stage-copy--space">
-          <p className="eyebrow">NAME THE ROOM</p>
+        <div className="stage-copy stage-copy--space" style={{ backgroundColor: accent }}>
+          <p className="eyebrow">02 · COLLABORATION BOUNDARY</p>
           <h1 id="space-title">Create your Space.</h1>
-          <p className="space-address">/s/{slug || "your-space"}</p>
+          <p className="stage-note">Members, Channels and Computers live inside this boundary.</p>
+          <p className="space-address" aria-live="polite">/s/{slug || "your-space"}</p>
         </div>
 
         <form className="register-form" onSubmit={submit}>
@@ -54,6 +62,7 @@ export function SpaceCreatePage() {
             Space name
             <input
               name="name"
+              autoFocus
               required
               maxLength={60}
               onChange={(event) => {
@@ -82,15 +91,17 @@ export function SpaceCreatePage() {
           <fieldset className="accent-fieldset">
             <legend>Space accent</legend>
             <div className="accent-options">
-              {accents.map((accent, index) => (
-                <label key={accent} className="accent-option" title={accent}>
+              {accents.map((option, index) => (
+                <label key={option.value} className="accent-option" title={option.label}>
                   <input
                     type="radio"
                     name="accent"
-                    value={accent}
+                    value={option.value}
+                    aria-label={`${option.label} accent`}
                     defaultChecked={index === 0}
+                    onChange={() => setAccent(option.value)}
                   />
-                  <span style={{ backgroundColor: accent }} />
+                  <span style={{ backgroundColor: option.value }} aria-hidden="true" />
                 </label>
               ))}
             </div>

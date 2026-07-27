@@ -24,7 +24,7 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
 });
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
-  assert.deepEqual(DEV_SPACE, { name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#5065D8" });
+  assert.deepEqual(DEV_SPACE, { name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
   assert.equal(DEV_CHANNEL_SLUG, "general");
   assert.deepEqual(AGENT_PROFILES.map(({ name, handle, driver_kind }) => ({ name, handle, driver_kind })), [
     { name: "PM", handle: "pm", driver_kind: "codex" },

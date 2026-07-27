@@ -814,10 +814,10 @@ async fn governance_chat_stream(
         0 => tool_call_stream("governance-inbox", "sumi agent inbox current --json"),
         1 => tool_call_stream(
             "governance-space",
-            "sumi agent space update --name 'Governed Space' --accent '#6B8F71' --json",
+            "sumi agent space update --name 'Governed Space' --accent '#A9D877' --json",
         ),
         2 if latest_tool_result(&request).is_some_and(|result| {
-            result["data"]["name"] == "Governed Space" && result["data"]["accent"] == "#6B8F71"
+            result["data"]["name"] == "Governed Space" && result["data"]["accent"] == "#A9D877"
         }) =>
         {
             tool_call_stream(
@@ -2698,7 +2698,7 @@ async fn builtin_agent_admin_executes_governance_and_respects_human_private_boun
     .bind(hidden_channel_id)
     .fetch_one(&harness.pool)
     .await?;
-    ensure!(state.0 == "Governed Space" && state.1 == "#6B8F71" && state.2 == "active");
+    ensure!(state.0 == "Governed Space" && state.1 == "#A9D877" && state.2 == "active");
     ensure!(state.3 == 0 && state.4 && state.5);
     ensure!(state.6 >= 6 && state.7 >= 6 && state.8 == 0);
 

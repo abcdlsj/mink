@@ -19,7 +19,7 @@ describe("ChannelPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/spaces/by-slug/")) {
-        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#5065D8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
       }
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) {
@@ -34,6 +34,7 @@ describe("ChannelPage", () => {
       if (path.endsWith("/agents") && !init?.method) {
         return json([{ member_id: linId, activity_status: "busy" }]);
       }
+      if (path.endsWith("/computers") && !init?.method) return json([]);
       if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) {
         return json({
           members: [
@@ -58,6 +59,11 @@ describe("ChannelPage", () => {
     renderRoute("/s/sumi-lab/channels/general");
 
     expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Finish your Space setup" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Pair" })).toHaveAttribute(
+      "href",
+      "/s/sumi-lab/computers#pair-computer",
+    );
     expect(screen.getByLabelText("Message")).toHaveAttribute("placeholder", "Message #general");
     expect(screen.getAllByLabelText("Lin is Busy").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Busy.*Lin.*@lin.*Busy/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
@@ -98,7 +104,7 @@ describe("ChannelPage", () => {
           id: "019c0000-0000-7000-8000-000000000001",
           name: "Sumi Lab",
           slug: "sumi-lab",
-          accent: "#5065D8",
+          accent: "#FE7DA8",
           owner_member_id: "019c0000-0000-7000-8000-000000000002",
           current_member_id: "019c0000-0000-7000-8000-000000000002",
           general_channel_id: channelId,
@@ -346,7 +352,7 @@ describe("ChannelPage", () => {
           id: "019c0000-0000-7000-8000-000000000001",
           name: "Sumi Lab",
           slug: "sumi-lab",
-          accent: "#5065D8",
+          accent: "#FE7DA8",
           owner_member_id: "019c0000-0000-7000-8000-000000000002",
           current_member_id: "019c0000-0000-7000-8000-000000000002",
           general_channel_id: "019c0000-0000-7000-8000-000000000003",

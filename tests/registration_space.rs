@@ -114,7 +114,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         .json(&serde_json::json!({
             "name": "Conflicting Lab",
             "slug": "SUMI-LAB",
-            "accent": "#5065D8"
+            "accent": "#FE7DA8"
         }))
         .send()
         .await?;
@@ -127,7 +127,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         .json(&serde_json::json!({
             "name": "Conflicting Lab",
             "slug": "sumi-lab",
-            "accent": "#5065D8"
+            "accent": "#FE7DA8"
         }))
         .send()
         .await?;
@@ -190,7 +190,7 @@ async fn create_space(
         .json(&serde_json::json!({
             "name": "Sumi Lab",
             "slug": slug,
-            "accent": "#5065D8"
+            "accent": "#FE7DA8"
         }))
         .send()
         .await?

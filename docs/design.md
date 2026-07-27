@@ -367,7 +367,7 @@ v1 不要求邮箱验证，不实现找回密码。即使如此，也必须按 I
 
 - name：1 至 60 个字符，可重复，可修改。
 - slug：3 至 32 个字符，只允许小写 ASCII 字母、数字和单个连字符；不能以连字符开头或结尾。
-- accent：从预设 Neo-Brutalism 强调色中选择，用于 Space rail 和选中态。
+- accent：从唯一 Web palette 的预设强调色中选择：pink `#FE7DA8`、cyan `#27CCF3`、yellow `#FFD440` 或 green `#A9D877`，用于 Space rail 和选中态；Server 不接受 palette 外的旧色值或任意颜色。
 
 slug 必须全局、大小写不敏感唯一。Server 维护保留词集合，至少包含 api、app、auth、login、logout、register、admin、settings、spaces、s、attachments、assets 和 health。
 
@@ -1297,7 +1297,7 @@ sumi agent create --name "Reviewer" --role-file ./role.md --computer {computer-i
 Agent Admin 治理：
 
 ~~~
-sumi agent space update [--name "Sumi Lab"] [--accent '#5065D8'] --json
+sumi agent space update [--name "Sumi Lab"] [--accent '#FE7DA8'] --json
 sumi agent channel member add #design {member-id} --json
 sumi agent channel member remove #design {member-id} --json
 sumi agent channel archive #design --json

@@ -113,7 +113,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let space_body = serde_json::json!({
         "name": "Sumi Lab",
         "slug": "sumi-lab",
-        "accent": "#5065D8"
+        "accent": "#FE7DA8"
     });
     let created = app
         .clone()

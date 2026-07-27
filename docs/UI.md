@@ -53,17 +53,17 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 
 | Token | Value | 用途 |
 | --- | --- | --- |
-| `ink` | `#171717` | 主文字、图标、边框、focus ring |
-| `paper` | `#F8F7F2` | 主内容背景、输入面 |
-| `panel` | `#EBEAE4` | 上下文导航、次级区域、空状态底色 |
-| `accent` | `#5065D8` | 当前选择、主要动作和 focus |
-| `accent-soft` | `#DFE3FF` | 轻量选择、信息提示 |
-| `cyan` | `#C9E7E7` | Attachment、Computer 的低饱和技术语义 |
-| `green` | `#83B77B` | online、成功、active |
-| `yellow` | `#E3B341` | Agent busy（queued/running） |
-| `red` | `#D95C55` | error、destructive、dead |
+| `ink` | `#141111` | 主文字、图标、边框、focus ring |
+| `paper` | `#FFFFFF` | 主内容背景、输入面 |
+| `panel` | `#FFFAEF` | 上下文导航、次级区域、空状态底色 |
+| `accent` | `#FE7DA8` | 当前选择、主要动作和 focus |
+| `accent-soft` | `#FFE0EA` | 轻量选择、信息提示 |
+| `cyan` | `#27CCF3` | Attachment、Computer 的技术语义 |
+| `green` | `#A9D877` | online、成功、active |
+| `yellow` | `#FFD440` | Agent busy（queued/running）和 rail |
+| `red` | `#F97264` | error、destructive、dead |
 
-视觉收敛为暖白纸面、深墨色和单一钴蓝强调。Space accent 在 v1 WebUI 中只作为品牌元数据保留，不直接覆盖主要控件，避免不同 Space 产生不可控的糖果色组合。同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
+视觉收敛为白色纸面、cream panel、深墨色和受控 palette。Space accent 使用 pink、cyan、yellow、green 四个预设之一，并真实作用于 Space rail、选中态与主要动作；同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
 
 禁止渐变、玻璃拟态、模糊、柔和投影、bokeh 和纯装饰纹理。
 
