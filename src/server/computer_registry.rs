@@ -598,7 +598,7 @@ async fn run_computer_socket(
         },
     )
     .await?;
-    replay_commands(state, computer_id, socket).await?;
+    replay_commands(state, computer_id, socket, true).await?;
     let mut command_poll = tokio::time::interval(std::time::Duration::from_secs(1));
     command_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     command_poll.tick().await;
@@ -610,7 +610,7 @@ async fn run_computer_socket(
                     send_frame(socket, &ServerFrame::Shutdown { reason: "computer_deleted".to_string() }).await?;
                     break;
                 }
-                replay_commands(state, computer_id, socket).await?;
+                replay_commands(state, computer_id, socket, false).await?;
                 continue;
             }
             message = socket.recv() => message,
@@ -1094,12 +1094,15 @@ async fn replay_commands(
     state: &AppState,
     computer_id: Uuid,
     socket: &mut ws::WebSocket,
+    include_acked: bool,
 ) -> Result<(), ApiError> {
     let commands = sqlx::query_as::<_, (Uuid, i64, String, serde_json::Value)>(
         "SELECT id, computer_seq, kind, payload_json FROM computer_commands \
-         WHERE computer_id = $1 AND status IN ('pending', 'acked') ORDER BY computer_seq",
+         WHERE computer_id = $1 AND (status = 'pending' OR ($2 AND status = 'acked')) \
+         ORDER BY computer_seq",
     )
     .bind(computer_id)
+    .bind(include_acked)
     .fetch_all(&state.database)
     .await
     .map_err(ApiError::database)?;

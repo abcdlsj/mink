@@ -865,6 +865,7 @@ daemon 默认尝试打开配对页；无人值守、本地自动化和测试配�
 - 重连使用指数退避：1s、2s、4s、8s，最大 30s，并加入随机抖动。
 - 每个 Server command 必须先持久化到 PostgreSQL，具有 command_id 和递增 computer_seq。WebSocket 只负责低延迟投递，不是事实来源。
 - daemon 在本地 SQLite 保存最近完成的 command_id 和结果；重复命令必须返回原结果而非重复执行。
+- 新 WebSocket 建立时 Server 重放尚未完成的 pending/acked commands 一次，以恢复断线期间完成但尚未上报的结果；同一连接的周期轮询只发送 pending commands，收到 ack 后不得继续每秒重复投递正在执行的 command。
 - 连接断开时，Server 保留未确认 command。daemon 重连握手携带 last_acked_computer_seq，Server 按序重发后续 command。因此交付语义是 at-least-once，幂等执行使业务效果等价于一次。
 - protocol ping/pong 仅用于探测连接；业务 heartbeat 仍是带类型的 JSON frame，并更新 Computer 状态。
 

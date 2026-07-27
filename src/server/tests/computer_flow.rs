@@ -736,6 +736,43 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     })
     .await
     .context("Agent run did not enter running")?;
+    ensure!(
+        tokio::time::timeout(std::time::Duration::from_millis(1_200), socket.next())
+            .await
+            .is_err(),
+        "acked Agent run command was redelivered on the same connection"
+    );
+    socket.close(None).await?;
+    let mut reconnect_request =
+        format!("ws://{address}/api/v1/computers/{}/connect", computer.id).into_client_request()?;
+    reconnect_request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
+    let (mut socket, _) = tokio_tungstenite::connect_async(reconnect_request).await?;
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::json!({
+                "type": "hello",
+                "last_acked_computer_seq": run_command["computer_seq"]
+            })
+            .to_string()
+            .into(),
+        ))
+        .await?;
+    let welcome = socket.next().await.context("Reconnect welcome missing")??;
+    ensure!(welcome.to_text()?.contains("\"type\":\"welcome\""));
+    let replayed_run = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await?
+        .context("Acknowledged Agent run was not replayed after reconnect")??;
+    let replayed_run: serde_json::Value = serde_json::from_str(replayed_run.to_text()?)?;
+    ensure!(replayed_run["command_id"] == run_command["command_id"]);
+    ensure!(replayed_run["kind"] == "agent.run");
+    ensure!(
+        tokio::time::timeout(std::time::Duration::from_millis(1_200), socket.next())
+            .await
+            .is_err(),
+        "replayed Agent run command repeated again on the reconnected socket"
+    );
 
     let denied_create = app
         .clone()
