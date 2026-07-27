@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { Check, Copy, Menu, Monitor, Plus, Trash2, X } from "lucide-react";
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import {
   createAgent,
@@ -12,6 +12,7 @@ import {
   type Computer,
 } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+import { DialogFrame } from "../components/DialogFrame";
 
 export function ComputersPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/computers" });
@@ -52,10 +53,11 @@ function ComputersWorkspace({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const [agentFormOpen, setAgentFormOpen] = useState(() => String(location.hash).includes("create-agent"));
-  const [agentComputerId, setAgentComputerId] = useState<string>();
-  const [deleteTarget, setDeleteTarget] = useState<Computer>();
   const activeHash = String(location.hash).replace(/^#/, "");
+  const agentFormOpen = activeHash === "create-agent";
+  const [agentComputerId, setAgentComputerId] = useState<string>();
+  const [agentReturnHash, setAgentReturnHash] = useState(() => activeHash === "create-agent" ? "" : activeHash);
+  const [deleteTarget, setDeleteTarget] = useState<Computer>();
   const pairFormOpen = canManage && activeHash === "pair-computer";
   const computers = useQuery({
     queryKey: ["computers", spaceId],
@@ -78,8 +80,7 @@ function ComputersWorkspace({
   const agentCreation = useMutation({
     mutationFn: (input: Parameters<typeof createAgent>[1]) => createAgent(spaceId, input),
     onSuccess: () => {
-      setAgentFormOpen(false);
-      setAgentComputerId(undefined);
+      closeAgentDialog();
       void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });
     },
@@ -93,9 +94,24 @@ function ComputersWorkspace({
   const selectedAgents = agents.data?.filter((agent) => agent.computer_id === effectiveSelectedId) ?? [];
 
   function openAgentDialog(computerId?: string) {
+    setAgentReturnHash(activeHash === "create-agent" ? "" : activeHash);
     setAgentComputerId(computerId);
     agentCreation.reset();
-    setAgentFormOpen(true);
+    void navigate({
+      to: "/s/$spaceSlug/computers",
+      params: { spaceSlug },
+      hash: "create-agent",
+    });
+  }
+
+  function closeAgentDialog() {
+    setAgentComputerId(undefined);
+    void navigate({
+      to: "/s/$spaceSlug/computers",
+      params: { spaceSlug },
+      hash: agentReturnHash || undefined,
+      replace: true,
+    });
   }
 
   function submitAgent(event: FormEvent<HTMLFormElement>) {
@@ -152,10 +168,7 @@ function ComputersWorkspace({
       {agentFormOpen ? (
         <AgentDialog
           submit={submitAgent}
-          close={() => {
-            setAgentFormOpen(false);
-            setAgentComputerId(undefined);
-          }}
+          close={closeAgentDialog}
           pending={agentCreation.isPending}
           error={agentCreation.error?.message}
           computers={onlineComputers}
@@ -259,7 +272,7 @@ function PairComputerDialog({ close }: { close: () => void }) {
   }
 
   return (
-    <ComputerDialogFrame close={close} labelId="pair-computer-title" className="pair-computer-dialog">
+    <DialogFrame close={close} labelId="pair-computer-title" className="pair-computer-dialog">
         <header>
           <div><p className="section-kicker">ADD CAPACITY</p><h2 id="pair-computer-title">Pair Computer</h2></div>
           <button className="icon-button" type="button" aria-label="Close Pair Computer" onClick={close}><X /></button>
@@ -277,14 +290,14 @@ function PairComputerDialog({ close }: { close: () => void }) {
           <p className="pair-computer-note">A deleted Computer cannot reuse its old identity. The daemon clears that identity and exits; run it again to start a fresh pairing.</p>
         </div>
         <footer><button className="command-button command-button--accent" type="button" onClick={close}>Done</button></footer>
-    </ComputerDialogFrame>
+    </DialogFrame>
   );
 }
 
 function DeleteDialog({ computer, agents, pending, error, close, confirm }: { computer: Computer; agents: Agent[]; pending: boolean; error?: string; close: () => void; confirm: () => void }) {
   const [acknowledged, setAcknowledged] = useState(agents.length === 0);
   return (
-    <ComputerDialogFrame close={close} labelId="delete-computer-title" className="confirm-dialog">
+    <DialogFrame close={close} labelId="delete-computer-title" className="confirm-dialog">
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
         <p>The daemon will exit and its Computer Token can never reconnect. A fresh pairing creates a new Computer identity; retired Agents are not restored.</p>
         <h3>Affected Agents ({agents.length})</h3>
@@ -292,56 +305,17 @@ function DeleteDialog({ computer, agents, pending, error, close, confirm }: { co
         {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || !acknowledged} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>
-    </ComputerDialogFrame>
+    </DialogFrame>
   );
-}
-
-function ComputerDialogFrame({ close, labelId, className, children }: { close: () => void; labelId: string; className: string; children: ReactNode }) {
-  const dialog = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement as HTMLElement | null;
-    dialog.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-        return;
-      }
-      if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      previousFocus?.focus();
-    };
-  }, [close]);
-
-  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) close();
-  }
-
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={closeFromBackdrop}><section ref={dialog} className={className} role="dialog" aria-modal="true" aria-labelledby={labelId}>{children}</section></div>;
 }
 
 function AgentDialog({ submit, close, pending, error, computers, selectedComputerId, isOwner }: { submit: (event: FormEvent<HTMLFormElement>) => void; close: () => void; pending: boolean; error?: string; computers: Computer[]; selectedComputerId?: string; isOwner: boolean }) {
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby="create-agent-title">
+    <DialogFrame className="agent-dialog" close={close} labelId="create-agent-title">
         <header><div><p className="section-kicker">NEW MEMBER</p><h2 id="create-agent-title">Create Agent</h2></div><button className="icon-button" type="button" aria-label="Close Create Agent" onClick={close}><X /></button></header>
         <form className="agent-create-form" onSubmit={submit}>
           <label className="agent-field agent-field--wide">Computer *<select name="computer_id" required defaultValue={selectedComputerId ?? computers[0]?.id ?? ""} disabled={computers.length === 0}>{computers.map((computer) => <option key={computer.id} value={computer.id}>{computer.name} · {computer.hostname}</option>)}</select></label>
-          <label className="agent-field">Name *<input name="name" aria-label="Agent name" required maxLength={40} placeholder="e.g. Iris" autoFocus /></label>
+          <label className="agent-field">Name *<input name="name" aria-label="Agent name" required maxLength={40} placeholder="e.g. Iris" data-dialog-initial-focus /></label>
           <label className="agent-field">Handle<input name="handle" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="auto-generated" /></label>
           <label className="agent-field agent-field--wide">Role *<textarea name="role_text" aria-label="Role" required maxLength={12000} placeholder="Describe responsibilities and boundaries…" /></label>
           <label className="agent-field">Driver<select name="driver_kind"><option value="codex">Codex</option><option value="builtin">Builtin</option></select></label>
@@ -350,8 +324,7 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || computers.length === 0}>{pending ? "Creating…" : "Create Agent"}</button></footer>
         </form>
-      </section>
-    </div>
+    </DialogFrame>
   );
 }
 

@@ -25,6 +25,7 @@ import {
   type ThreadRead,
 } from "../api/client";
 import { PixelIdentity, PresenceIdentity, SpaceShell } from "../components/SpaceShell";
+import { DialogFrame } from "../components/DialogFrame";
 import { formatBytes } from "../format";
 
 export function ChannelPage() {
@@ -677,19 +678,17 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
     submit(new FormData(event.currentTarget).getAll("agent_member_ids").map(String));
   }
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section className="channel-dialog channel-member-dialog" role="dialog" aria-modal="true" aria-labelledby="add-channel-agents-title">
+    <DialogFrame className="channel-dialog channel-member-dialog" close={close} labelId="add-channel-agents-title">
         <header><div><p className="section-kicker">CHANNEL MEMBERS</p><h2 id="add-channel-agents-title">Add Agents</h2></div><button className="icon-button" type="button" aria-label="Close Add Agents" onClick={close}><X /></button></header>
         <form onSubmit={handleSubmit}>
           <fieldset className="channel-agent-picker">
             <legend>Available Agents</legend>
-            {agents.length ? agents.map((agent) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
+            {agents.length ? agents.map((agent, index) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} {...(index === 0 ? { "data-dialog-initial-focus": true } : {})} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
           </fieldset>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? "Adding…" : "Add selected"}</button></footer>
         </form>
-      </section>
-    </div>
+    </DialogFrame>
   );
 }
 

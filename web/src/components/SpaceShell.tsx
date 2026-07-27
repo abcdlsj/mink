@@ -37,6 +37,7 @@ import {
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
+import { DialogFrame } from "./DialogFrame";
 
 export interface SpaceShellContext {
   space: Space;
@@ -147,6 +148,7 @@ export function SpaceShell({
     const closeButton = panel?.querySelector<HTMLButtonElement>(".navigation-close");
     closeButton?.focus();
     const handleKey = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (event.key === "Escape") {
         setNavigationOpen(false);
         window.requestAnimationFrame(() => navigationTrigger?.focus());
@@ -520,14 +522,13 @@ function ChannelDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section className="channel-dialog" role="dialog" aria-modal="true" aria-labelledby="create-channel-title">
+    <DialogFrame className="channel-dialog" close={close} labelId="create-channel-title">
         <header>
           <div><p className="section-kicker">NEW CONVERSATION</p><h2 id="create-channel-title">Create Channel</h2></div>
           <button className="icon-button" type="button" aria-label="Close Create Channel" onClick={close}><X /></button>
         </header>
         <form className="channel-create-form" onSubmit={submit}>
-          <label>Name<input name="name" required maxLength={80} autoFocus /></label>
+          <label>Name<input name="name" required maxLength={80} data-dialog-initial-focus /></label>
           <label>Slug<input name="slug" required maxLength={32} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" /></label>
           <label>Visibility<select name="kind" defaultValue="public"><option value="public">Public</option><option value="private">Private</option></select></label>
           <label>Topic<input name="topic" maxLength={200} /></label>
@@ -547,8 +548,7 @@ function ChannelDialog({
             <button className="command-button command-button--accent" type="submit" disabled={pending}>{pending ? "Creating…" : "Create Channel"}</button>
           </footer>
         </form>
-      </section>
-    </div>
+    </DialogFrame>
   );
 }
 

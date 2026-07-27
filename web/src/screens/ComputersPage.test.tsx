@@ -74,6 +74,7 @@ describe("Computer flows", () => {
     expect(screen.getAllByText("online")[0]).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair Computer" })).toBeVisible();
     expect(screen.getAllByRole("heading", { name: "Computers" })).toHaveLength(1);
+    expect(screen.getByLabelText("Agent name")).toHaveFocus();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Review boundaries." } });
@@ -87,6 +88,11 @@ describe("Computer flows", () => {
         }),
       );
     });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Agent" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByRole("dialog", { name: "Create Agent" })).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Agent" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const deleteDialog = screen.getByRole("dialog", { name: "Delete Studio?" });
     expect(within(deleteDialog).getByText("Rin")).toBeVisible();

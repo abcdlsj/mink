@@ -5279,3 +5279,137 @@ h1 {
     display: none;
   }
 }
+
+/* Dialog is one product surface: every modal shares geometry and interaction affordances. */
+.dialog-backdrop {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  padding:
+    max(20px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  overflow: hidden;
+  background: rgb(20 17 17 / 48%);
+}
+
+.dialog-surface {
+  width: min(520px, 100%);
+  max-width: 100%;
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: 6px 6px 0 var(--ink);
+  color: var(--ink);
+}
+
+.dialog-surface > header {
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--panel);
+}
+
+.dialog-surface > header > div,
+.dialog-surface > header h2 {
+  min-width: 0;
+}
+
+.dialog-surface > header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.dialog-surface > header .section-kicker {
+  margin: 0 0 2px;
+}
+
+.dialog-surface > header .icon-button {
+  flex: 0 0 36px;
+  background: var(--paper);
+}
+
+.dialog-surface footer {
+  flex-wrap: wrap;
+}
+
+.dialog-surface .form-error {
+  padding: 9px 10px;
+  border: 2px solid var(--ink);
+  background: color-mix(in srgb, var(--red) 22%, var(--paper));
+  color: var(--ink);
+}
+
+.dialog-surface.confirm-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 40px);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.dialog-surface.confirm-dialog > header,
+.dialog-surface.confirm-dialog > footer {
+  min-height: 56px;
+  padding: 10px 18px;
+}
+
+.dialog-surface.confirm-dialog > p,
+.dialog-surface.confirm-dialog > h3,
+.dialog-surface.confirm-dialog > ul {
+  margin-right: 18px;
+  margin-left: 18px;
+}
+
+@media (max-width: 700px) {
+  .dialog-backdrop {
+    place-items: end center;
+    padding:
+      max(10px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+  }
+
+  .dialog-surface,
+  .dialog-surface.agent-dialog,
+  .dialog-surface.channel-dialog,
+  .dialog-surface.confirm-dialog,
+  .dialog-surface.pair-computer-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .dialog-surface > header {
+    min-height: 54px;
+    padding: 8px 12px;
+  }
+
+  .dialog-surface > header .icon-button {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  .dialog-surface form > footer,
+  .dialog-surface > footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .dialog-surface form > footer > button,
+  .dialog-surface > footer > button {
+    flex: 1 1 auto;
+  }
+}

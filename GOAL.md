@@ -23,7 +23,7 @@
 - [x] 按同一语言收口 Human Inbox：按 Approvals、DM & mentions、Replies、Channel activity 分组，统一发送者头像、来源、摘要、时间、审批与 complete/defer 操作，并完成空态/非空态真实三视口验证。
 - [x] 按同一语言收口 Computer：统一 machine list/detail、workload/runtime、空态、Pair 与 Delete 确认，修正 Human 治理权限和删除后的身份语义，并完成真实 seed 多视口验证。
 - [x] 按同一语言继续收口 Thread，补齐对应多视口视觉和交互证据。
-- [ ] 按同一语言继续收口 Dialog，补齐对应多视口视觉和交互证据。
+- [x] 按同一语言继续收口 Dialog，补齐对应多视口视觉和交互证据。
 - [ ] 按同一语言继续收口 onboarding，补齐对应多视口视觉和交互证据。
 
 ### 2. Agent Admin 规范与治理闭环
@@ -44,6 +44,8 @@
 
 2026-07-28：
 
+- `pnpm --dir web test`：统一 Dialog frame 的初始焦点、焦点循环/守卫、Escape、遮罩关闭、滚动锁定与触发器回退覆盖在内的 7 个 test files、17 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
+- `mise run dev-seed` + `node web/e2e/dialog-verify.mjs` + Chromium：真实 `sumi-dev`、在线 Dev Computer 与 PM/Coder/Reviewer；在 1440x900、1024x768、390x844 验证 Create Channel、Add Agents、Pair Computer、Create Agent 和 Delete Computer，16 个场景均在视口内且无横向溢出、无 page/console error；初始焦点、Escape、遮罩关闭、焦点回退、错误态与危险强确认真实通过。截图位于 `/tmp/sumi-shots-dialog/`。
 - `pnpm --dir web test`：Thread 最近三条回复 preview、desktop/tablet pane、mobile 返回、主时间线变化提示、follow/unfollow、Escape 与焦点回落覆盖在内的 6 个 test files、16 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
 - `mise run dev-seed` + `node web/e2e/thread-verify.mjs` + Chromium：真实 `sumi-dev`、在线 Dev Computer 与 PM/Coder/Reviewer；在 1440x900、1024x768、390x844 验证 Thread preview 与 pane，桌面/平板保持 Channel 并列、手机全屏返回，三视口无横向溢出且关闭后滚动位置恢复；follow/unfollow、主时间线变化提示与返回最新焦点均真实通过，无 page/console error。截图位于 `/tmp/sumi-shots-thread/`。
 - `pnpm --dir web test`：Computer 治理权限、Pair 键盘交互、受影响 Agent 强确认和删除身份语义覆盖在内的 6 个 test files、16 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过；`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过。
