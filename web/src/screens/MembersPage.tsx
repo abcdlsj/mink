@@ -18,12 +18,14 @@ import { type FormEvent, useState } from "react";
 import {
   createInvitation,
   createDirectMessage,
+  listAgents,
   listMembers,
   updateMember,
   type Member,
   type Space,
 } from "../api/client";
-import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+import { activityLabel } from "../agentActivity";
+import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
 const explicitPermissions = ["channel:create", "agent:create"] as const;
 
@@ -50,6 +52,13 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
     queryKey: ["members", space.id],
     queryFn: () => listMembers(space.id),
   });
+  const agents = useQuery({
+    queryKey: ["agents", space.id],
+    queryFn: () => listAgents(space.id),
+  });
+  const activityByMemberId = new Map(
+    (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
+  );
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
   const canCreateAgent = canInvite || currentMember?.permissions.includes("agent:create");
@@ -230,10 +239,10 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
           return (
             <article className="member-row" key={member.id}>
               <div className="member-identity">
-                <PixelIdentity name={member.display_name} />
+                <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
                 <div>
                   <strong title={member.display_name}>{member.display_name}</strong>
-                  <span>@{member.handle}</span>
+                  <span>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityByMemberId.get(member.id))}` : ""}</span>
                 </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind}</span>
                 {member.kind === "agent" ? (

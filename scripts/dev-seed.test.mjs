@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBrowserSessionHandoff } from "./dev-seed.mjs";
+import { AGENT_PROFILES, createBrowserSessionHandoff } from "./dev-seed.mjs";
+
+test("development seed defines three distinct Codex responsibilities", () => {
+  assert.deepEqual(AGENT_PROFILES.map(({ name, handle, driver_kind }) => ({ name, handle, driver_kind })), [
+    { name: "Coder", handle: "coder", driver_kind: "codex" },
+    { name: "Reviewer", handle: "reviewer", driver_kind: "codex" },
+    { name: "PM", handle: "pm", driver_kind: "codex" },
+  ]);
+  assert.equal(new Set(AGENT_PROFILES.map((profile) => profile.role_text)).size, 3);
+  for (const profile of AGENT_PROFILES) assert.ok(profile.role_text.length > 80);
+});
 
 test("browser Session handoff sets the Cookie and remains retryable", async (context) => {
   const destination = "http://127.0.0.1:5173/s/dev-space/channels/general";

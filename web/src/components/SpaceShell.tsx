@@ -23,16 +23,19 @@ import {
   getSpaceBySlug,
   joinChannel,
   listChannels,
+  listAgents,
   listComputers,
   listDirectMessages,
   listMembers,
   type Channel,
+  type Agent,
   type Computer,
   type DirectMessage,
   type Member,
   type Space,
   type User,
 } from "../api/client";
+import { activityLabel } from "../agentActivity";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 
 export interface SpaceShellContext {
@@ -89,6 +92,12 @@ export function SpaceShell({
     queryKey: ["members", space.data?.id],
     queryFn: () => listMembers(space.data!.id),
     enabled: Boolean(space.data),
+  });
+  const agents = useQuery({
+    queryKey: ["agents", space.data?.id],
+    queryFn: () => listAgents(space.data!.id),
+    enabled: Boolean(space.data),
+    retry: false,
   });
   const computers = useQuery({
     queryKey: ["computers", space.data?.id],
@@ -175,6 +184,9 @@ export function SpaceShell({
     return <div className="route-status route-status--error">Member identity unavailable.</div>;
   }
   const availableDirectMessages = directMessages.data ?? [];
+  const activityByMemberId = new Map(
+    (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
+  );
 
   return (
     <main className="space-shell">
@@ -214,7 +226,7 @@ export function SpaceShell({
           />
         </nav>
         <div className="rail-spacer" />
-        <PixelIdentity name={user.data.display_name} />
+        <PixelIdentity name={user.data.display_name} kind="human" seed={currentMember.id} />
       </aside>
 
       {navigationOpen ? (
@@ -234,7 +246,10 @@ export function SpaceShell({
         }}
       >
         <header className="space-name-row">
-          <h2 title={space.data.name}>{active === "channel" || active === "dm" ? space.data.name : capitalize(active)}</h2>
+          <div>
+            <span className="space-name-eyebrow" title={space.data.name}>{space.data.name}</span>
+            <h2>{active === "channel" || active === "dm" ? "Conversations" : capitalize(active)}</h2>
+          </div>
           <ChevronDown className="desktop-only" aria-hidden="true" />
           <button
             className="navigation-close icon-button"
@@ -276,7 +291,7 @@ export function SpaceShell({
             ) : null}
           </div>
           {active === "members" ? (
-            <MembersNavigation members={members.data} spaceSlug={space.data.slug} locationPath={location.pathname} />
+            <MembersNavigation members={members.data} activityByMemberId={activityByMemberId} spaceSlug={space.data.slug} locationPath={location.pathname} />
           ) : active === "computers" ? (
             <ComputersNavigation computers={computers.data ?? []} spaceSlug={space.data.slug} activeHash={location.hash} />
           ) : active === "inbox" ? (
@@ -289,7 +304,7 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/inbox`}
           />
           <div className="nav-section-heading">
-            <p className="nav-label">CHANNELS</p>
+            <p className="nav-label"><ChevronDown aria-hidden="true" /> CHANNELS <span>{channels.data.channels.filter((channel) => channel.joined).length}</span></p>
             {channels.data.can_create ? (
               <button
                 type="button"
@@ -340,17 +355,17 @@ export function SpaceShell({
                 ))}
             </>
           ) : null}
-          <p className="nav-label">DMS</p>
+          <p className="nav-label nav-label--section"><ChevronDown aria-hidden="true" /> DMS <span>{availableDirectMessages.length}</span></p>
           {directMessages.error ? (
             <span className="nav-empty">DMs unavailable</span>
           ) : availableDirectMessages.length === 0 ? (
             <span className="nav-empty">Start from Members</span>
           ) : null}
           {availableDirectMessages.map((dm) => (
-            <NavigationItem
+            <DirectMessageNavigationItem
               key={dm.channel_id}
-              icon={MessageCircle}
-              label={dm.other_member.display_name}
+              member={dm.other_member}
+              activityStatus={activityByMemberId.get(dm.other_member.id)}
               active={
                 active === "dm" &&
                 location.pathname.endsWith(`/dm/${dm.other_member.id}`)
@@ -391,8 +406,8 @@ function RouteFailure({ error, retry }: { error: unknown; retry: () => void }) {
   return <main className="route-status route-status--error"><section className="route-status-panel" role="alert"><p className="section-kicker">COULD NOT OPEN SPACE</p><h1>Something interrupted this view.</h1><p>{message}</p><button className="command-button command-button--accent" type="button" onClick={retry}>Retry</button></section></main>;
 }
 
-function MembersNavigation({ members, spaceSlug, locationPath }: { members: Member[]; spaceSlug: string; locationPath: string }) {
-  return <><p className="nav-label">MEMBERS · {members.length}</p>{members.map((member) => member.kind === "agent" ? <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Agent</small></span></Link> : <div className="context-entity-row context-entity-row--static" key={member.id}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Human</small></span></div>)}</>;
+function MembersNavigation({ members, activityByMemberId, spaceSlug, locationPath }: { members: Member[]; activityByMemberId: Map<string, Agent["activity_status"]>; spaceSlug: string; locationPath: string }) {
+  return <><p className="nav-label">MEMBERS · {members.length}</p>{members.map((member) => member.kind === "agent" ? <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}><PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · {activityLabel(activityByMemberId.get(member.id))}</small></span></Link> : <div className="context-entity-row context-entity-row--static" key={member.id}><PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Human</small></span></div>)}</>;
 }
 
 function ComputersNavigation({ computers, spaceSlug, activeHash }: { computers: Computer[]; spaceSlug: string; activeHash: string }) {
@@ -474,7 +489,7 @@ function ChannelDialog({
             {agents.length ? agents.map((agent) => (
               <label key={agent.id}>
                 <input type="checkbox" name="agent_member_ids" value={agent.id} />
-                <PixelIdentity name={agent.display_name} />
+                <PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} />
                 <span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span>
               </label>
             )) : <p>No active Agents are available.</p>}
@@ -517,8 +532,63 @@ function NavigationItem({
   );
 }
 
-export function PixelIdentity({ name }: { name: string }) {
-  return <span className="pixel-identity">{initials(name)}</span>;
+function DirectMessageNavigationItem({ member, activityStatus, active, href }: { member: Member; activityStatus?: Agent["activity_status"]; active: boolean; href: string }) {
+  return (
+    <Link className={`nav-item dm-nav-item${active ? " nav-item--active" : ""}`} to={href} aria-current={active ? "page" : undefined}>
+      <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
+      <span>
+        <strong title={member.display_name}>{member.display_name}</strong>
+        <small>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityStatus)}` : ""}</small>
+      </span>
+    </Link>
+  );
+}
+
+export function PresenceIdentity({ name, kind = "human", seed, activityStatus }: { name: string; kind?: "human" | "agent"; seed?: string; activityStatus?: Agent["activity_status"] }) {
+  if (kind !== "agent" || !activityStatus) {
+    return <PixelIdentity name={name} kind={kind} seed={seed} />;
+  }
+  const label = activityLabel(activityStatus);
+  return (
+    <span className="presence-identity">
+      <PixelIdentity name={name} kind={kind} seed={seed} />
+      <span className={`presence-dot presence-dot--${activityStatus}`} role="img" aria-label={`${name} is ${label}`} title={`${name} · ${label}`} />
+    </span>
+  );
+}
+
+export function PixelIdentity({ name, kind = "human", seed }: { name: string; kind?: "human" | "agent"; seed?: string }) {
+  const variant = pixelVariant(seed ?? name);
+  const palettes = [
+    { background: "#C9E7E7", foreground: "#24304A", accent: "#5065D8" },
+    { background: "#DFE3FF", foreground: "#57352A", accent: "#83B77B" },
+    { background: "#F5E2A8", foreground: "#171717", accent: "#D95C55" },
+    { background: "#F2D3BD", foreground: "#315B55", accent: "#5065D8" },
+  ] as const;
+  const palette = palettes[variant % palettes.length];
+  const initial = [...name.trim()][0]?.toLocaleUpperCase() ?? "?";
+  return (
+    <span
+      className={`pixel-identity pixel-identity--${kind}`}
+      role="img"
+      aria-label={`${name} avatar`}
+      title={name}
+      style={{ background: palette.background, color: palette.foreground }}
+    >
+      {kind === "human" ? <span aria-hidden="true">{initial}</span> : (
+        <svg viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
+          <rect width="16" height="16" fill={palette.background} />
+          <path d={variant % 2 === 0 ? "M1 1h5v3h4V1h5v5h-3v4h3v5h-5v-3H6v3H1v-5h3V6H1z" : "M1 3h3V1h3v4h2V1h3v2h3v4h-4v2h4v4h-3v2H9v-4H7v4H4v-2H1V9h4V7H1z"} fill={palette.foreground} />
+          <rect x={variant % 3 === 0 ? 6 : 7} y={variant % 3 === 0 ? 6 : 7} width="3" height="3" fill={palette.accent} />
+        </svg>
+      )}
+      <span className="visually-hidden">{initials(name)}</span>
+    </span>
+  );
+}
+
+function pixelVariant(name: string): number {
+  return [...name].reduce((hash, character) => ((hash * 31) + character.codePointAt(0)!) >>> 0, 7);
 }
 
 function initials(name: string): string {

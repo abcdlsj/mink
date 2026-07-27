@@ -60,6 +60,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 | `accent-soft` | `#DFE3FF` | 轻量选择、信息提示 |
 | `cyan` | `#C9E7E7` | Attachment、Computer 的低饱和技术语义 |
 | `green` | `#83B77B` | online、成功、active |
+| `yellow` | `#E3B341` | Agent busy（queued/running） |
 | `red` | `#D95C55` | error、destructive、dead |
 
 视觉收敛为暖白纸面、深墨色和单一钴蓝强调。Space accent 在 v1 WebUI 中只作为品牌元数据保留，不直接覆盖主要控件，避免不同 Space 产生不可控的糖果色组合。同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
@@ -94,8 +95,10 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 - 使用统一的 outline 图标集，视觉尺寸 18–20px，描边约 2px。
 - 图标按钮通常为 36x36px；窄 rail 中为 40x40px；命中区不得小于 40x40px。
 - 所有图标按钮必须有 accessible name；hover/focus 显示 tooltip。
-- Member avatar 使用 16x16 或 24x24 bitmap 源，按整数倍放大并设置 `image-rendering: pixelated`。
-- Agent 与 Human 使用相同头像外框和生成器。Agent 只在名字旁增加紧凑 `AGENT` 标签，不使用机器人头图标区分。
+- Human avatar 使用 display name 首个 Unicode 字符，member ID 决定受控背景色；同首字母的 Humans 通过颜色区分。
+- Agent avatar 使用 16x16 抽象像素纹样，不出现脸、人物或机器人轮廓；member ID 决定纹样和颜色。
+- Agent 与 Human 使用相同尺寸和硬边外框；Agent 名字旁仍增加紧凑 `AGENT` 标签。
+- Agent 头像右下角允许叠加 10px activity 点：busy yellow、idle green、offline gray、error red；点具有 2px ink 外框，必须同时提供可见文字或 accessible name。busy 只做低幅阶梯脉冲，`prefers-reduced-motion` 下完全静止。
 - Computer 使用显示器像素图标，不与 Member avatar 混用。
 
 ## 3. 全局 Shell
@@ -170,13 +173,15 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 | Destructive | red 填充、2px ink 边框；确认文案必须写明对象和后果 |
 | Disabled | panel 填充、低对比文字、无阴影，并带不可用原因 |
 
-按钮高度以 32px 为默认，紧凑工具栏操作为 30px，移动端视觉高度可为 36px但命中区至少 44px。按钮必须使用动词，如 `Pair Computer`、`Create Agent`、`Send`，避免只有含糊图标。
+按钮只使用三档视觉高度：紧凑 `30px`、默认 `36px`、主要表单动作 `42px`；同一工具栏不得混用高度。水平 padding 分别为 `8px / 12px / 16px`，图标为 `14px / 16px / 18px`。移动端命中区至少 44px，可通过伪元素扩展而不改变视觉高度。按钮必须使用动词，如 `Pair Computer`、`Create Agent`、`Send`，避免只有含糊图标。
+
+Member 权限使用 36px 高的矩形 toggle：未选中为 paper，选中为 accent-soft 并显示 check；disabled 保留边框和明确文字，不使用浏览器默认 checkbox 的灰化小方块。Access Level select 与相邻 toggle 同高。
 
 ### 4.2 Tag 与状态
 
 - Tag 为 24–28px 高的矩形色块，1–2px ink 边框，字体 12–13px / 700。
 - `AGENT`、Access Level、Driver 是分类标签；online/offline/running 是状态，不得混成同一颜色语义。
-- online：green 点 + `Online`；offline：灰点 + `Offline`；error：red 图形 + `Error`；queued/running 必须有文字。
+- idle/online：green 点 + `Idle`/`Online`；busy：yellow 点 + `Busy`；offline：灰点 + `Offline`；error：red 点/图形 + `Error`。
 - 颜色不能单独承载含义。
 
 ### 4.3 Section 与详情字段
@@ -212,7 +217,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 2. Channels：public/private Channel；header 提供排序/发现和创建操作。
 3. DMs：Human 与 Agent 混合排列。
 
-不显示 Saved、Pinned、Joint Channels。Channel 行以 `#` 开头，private Channel 使用 lock 图标；DM 行使用 Member pixel avatar、名称、简短 Role/描述与状态。当前 Channel/DM 使用统一 accent 选中态。
+不显示 Saved、Pinned、Joint Channels。Channel 行以 `#` 开头，private Channel 使用 lock 图标；DM 行必须外露 Member pixel avatar、名称、`@handle` 与状态，Agent avatar 叠加 activity 点。当前 Channel/DM 使用统一 accent 选中态。
 
 ### 5.2 Channel header
 
@@ -231,7 +236,8 @@ Message 使用无气泡行布局：
 [avatar]  Display Name  [AGENT]  09:08
           Markdown body with links and @mentions
           [Attachment rows]
-          12 replies · last reply 3m ago · [avatars]
+          [up to 3 compact recent replies]
+          12 replies · open full Thread
 ```
 
 - avatar 列固定 40px；正文列保持可读宽度，但不强制居中成窄文章栏。
@@ -241,7 +247,7 @@ Message 使用无气泡行布局：
 - mention 使用 pink 的浅色底/下划线语义，不把整条 Message 染粉。
 - Attachment 使用 cyan accent、文件名、大小、媒体类型和下载动作。
 - hover/focus 后显示 reply、copy link、more；触屏设备通过显式 more 按钮访问。
-- Thread summary 是紧凑的单行入口，不在主时间线内嵌多条 reply。
+- 有回复的 Thread 在主时间线内嵌最多 3 条最近 reply，使用紧凑头像、作者、时间和单行/双行摘要；预览整体和剩余 reply 数量都可打开完整 Thread pane。无回复时仅在 hover/focus 显示 `Reply in Thread`。
 - Agent 处理状态只呈现可验证动作，例如 `Lin is reading 3 Inbox items` 或 `Lin is using Codex`，不得展示或伪造思维链。
 
 ### 5.4 Composer
@@ -350,6 +356,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 - Inbox 行包含来源地址、sender avatar、摘要、时间和 priority 文案。
 - Approvals 详情清楚区分申请者、目标 Computer、Driver、权限和 approve/reject 后果。
 - error/dead 项不得展示 private Channel 正文或敏感内容。
+- 空 Inbox 使用扁平解释区：`Nothing needs your attention`、一句说明和四条 `0` 计数分组（Approvals、DM & mentions、Replies、Channel activity）。它必须说明 Inbox 是显式待处理入口而非消息历史，不制造示例数据或营销插画。
 - Settings 与配对确认等治理表单继续使用 section、label/value、硬边框控件，不改成浮动卡片页。
 
 ## 9. 表单与编辑

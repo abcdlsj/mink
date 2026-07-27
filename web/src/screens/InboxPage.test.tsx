@@ -57,6 +57,35 @@ describe("Approval governance", () => {
     });
     await waitFor(() => expect(screen.queryByText("Reviewer")).not.toBeInTheDocument());
   });
+
+  it("explains an empty Inbox instead of looking like missing content", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") {
+        return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      }
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) {
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+      }
+      if (path.endsWith(`/members/${ownerId}/inbox`)) return json([]);
+      if (path.endsWith(`/spaces/${space.id}/approvals`)) return json([]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/inbox");
+
+    expect(await screen.findByRole("heading", { name: "Nothing needs your attention" })).toBeVisible();
+    expect(screen.getByText(/not your Message history/i)).toBeVisible();
+    const groups = screen.getByRole("list", { name: "Empty Inbox groups" });
+    expect(groups).toHaveTextContent("Approvals");
+    expect(groups).toHaveTextContent("DM & mentions");
+    expect(groups).toHaveTextContent("Replies");
+    expect(groups).toHaveTextContent("Channel activity");
+    expect(screen.getAllByText("0")).toHaveLength(4);
+  });
 });
 
 function approval(status: string) {

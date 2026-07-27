@@ -33,6 +33,7 @@ pub struct AgentResponse {
     pub role_text: String,
     pub role_revision: i64,
     pub status: String,
+    pub activity_status: String,
     pub driver_kind: String,
     pub attention_config: AttentionConfig,
     #[serde(with = "time::serde::rfc3339")]
@@ -110,6 +111,8 @@ struct AgentRow {
     role_text: String,
     role_revision: i64,
     status: String,
+    computer_status: String,
+    has_active_run: bool,
     driver_kind: String,
     attention_config_json: serde_json::Value,
     driver_config_json: serde_json::Value,
@@ -417,10 +420,14 @@ pub async fn read_memory(
 
 const AGENT_SELECT: &str = "SELECT agents.member_id, agents.space_id, agents.computer_id, \
     members.display_name AS name, members.handle, members.access_level, agents.role_text, \
-    agents.role_revision, agents.status, agents.driver_kind, agents.attention_config_json, \
+    agents.role_revision, agents.status, computers.status AS computer_status, \
+    EXISTS(SELECT 1 FROM agent_runs WHERE agent_runs.agent_member_id = agents.member_id \
+        AND agent_runs.status IN ('queued', 'running')) AS has_active_run, \
+    agents.driver_kind, agents.attention_config_json, \
     agents.driver_config_json, agents.created_at, agents.updated_at, agents.retired_at, \
     agents.last_error_code FROM agents \
-    JOIN members ON members.id = agents.member_id";
+    JOIN members ON members.id = agents.member_id \
+    JOIN computers ON computers.id = agents.computer_id";
 
 pub async fn create(
     State(state): State<std::sync::Arc<AppState>>,
@@ -603,6 +610,7 @@ pub(super) async fn provision_agent_tx(
         role_text: request.role_text,
         role_revision: 1,
         status: "provisioning".to_owned(),
+        activity_status: "offline".to_owned(),
         driver_kind: request.driver_kind,
         attention_config,
         created_at: now,
@@ -881,6 +889,9 @@ impl AgentRow {
     ) -> Result<AgentResponse, ApiError> {
         let attention_config =
             serde_json::from_value(self.attention_config_json).map_err(|_| ApiError::Internal)?;
+        let activity_status =
+            agent_activity_status(&self.status, &self.computer_status, self.has_active_run)
+                .to_owned();
         Ok(AgentResponse {
             member_id: self.member_id,
             space_id: self.space_id,
@@ -891,6 +902,7 @@ impl AgentRow {
             role_text: self.role_text,
             role_revision: self.role_revision,
             status: self.status,
+            activity_status,
             driver_kind: self.driver_kind,
             attention_config,
             created_at: self.created_at,
@@ -899,6 +911,22 @@ impl AgentRow {
             last_error_code: self.last_error_code,
             memory_files,
         })
+    }
+}
+
+fn agent_activity_status(
+    lifecycle_status: &str,
+    computer_status: &str,
+    has_active_run: bool,
+) -> &'static str {
+    if lifecycle_status == "error" {
+        "error"
+    } else if lifecycle_status != "active" || computer_status != "online" {
+        "offline"
+    } else if has_active_run {
+        "busy"
+    } else {
+        "idle"
     }
 }
 
@@ -932,4 +960,21 @@ async fn unique_handle(
         prefix.trim_end_matches('-'),
         &Uuid::now_v7().simple().to_string()[..6]
     ))
+}
+
+#[cfg(test)]
+mod activity_status_tests {
+    use super::agent_activity_status;
+
+    #[test]
+    fn derives_the_four_public_agent_activity_states() {
+        assert_eq!(agent_activity_status("active", "online", false), "idle");
+        assert_eq!(agent_activity_status("active", "online", true), "busy");
+        assert_eq!(agent_activity_status("active", "offline", true), "offline");
+        assert_eq!(
+            agent_activity_status("suspended", "online", false),
+            "offline"
+        );
+        assert_eq!(agent_activity_status("error", "offline", false), "error");
+    }
 }

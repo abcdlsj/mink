@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
+import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 
 import {
@@ -9,6 +9,7 @@ import {
   createMessage,
   createThread,
   createThreadReply,
+  listAgents,
   listChannelMembers,
   listMembers,
   listMessages,
@@ -23,7 +24,7 @@ import {
   type Message,
   type ThreadRead,
 } from "../api/client";
-import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+import { PixelIdentity, PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
 export function ChannelPage() {
@@ -72,6 +73,7 @@ export function MessageWorkspace({
   subtitle,
   placeholder,
   emptyTitle,
+  direct = false,
   canArchive = false,
   spaceSlug,
 }: {
@@ -83,6 +85,7 @@ export function MessageWorkspace({
   subtitle: string;
   placeholder: string;
   emptyTitle: string;
+  direct?: boolean;
   canArchive?: boolean;
   spaceSlug?: string;
 }) {
@@ -105,6 +108,13 @@ export function MessageWorkspace({
     queryKey: ["channel-members", channel.id],
     queryFn: () => listChannelMembers(channel.id),
   });
+  const agents = useQuery({
+    queryKey: ["agents", spaceId],
+    queryFn: () => listAgents(spaceId),
+  });
+  const activityByMemberId = new Map(
+    (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
+  );
   const send = useMutation({
     mutationFn: (input: Parameters<typeof createMessage>[1]) => createMessage(channel.id, input),
     onSuccess: (message) => {
@@ -181,13 +191,16 @@ export function MessageWorkspace({
         >
           <Menu />
         </button>
+        <span className="channel-header-glyph" aria-hidden="true">
+          {direct ? <MessageCircle /> : <Hash />}
+        </span>
         <div className="channel-title">
-          <h1 id="channel-heading">{title}</h1>
+          <h1 id="channel-heading" aria-label={title}>{title.replace(/^#/, "")}</h1>
           <p>{subtitle}</p>
         </div>
         <div className="member-strip" aria-label="Current Member">
           {(channelMembers.data?.members ?? []).slice(0, 4).map((member) => (
-            <PixelIdentity key={member.id} name={member.display_name} />
+            <PresenceIdentity key={member.id} name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
           ))}
           <span>{channelMembers.data ? `${channelMembers.data.members.length} Members` : currentDisplayName}</span>
         </div>
@@ -228,7 +241,7 @@ export function MessageWorkspace({
           const previous = index > 0 ? all[index - 1] : undefined;
           const showDivider = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
           // A day divider always restarts the visual grouping.
-          const grouped = !showDivider && !startsNewGroup(message, previous);
+          const grouped = !showDivider && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
             <div className="message-block" key={message.id}>
               {showDivider ? (
@@ -236,13 +249,13 @@ export function MessageWorkspace({
                   <time dateTime={message.created_at}>{formatDayDivider(message.created_at)}</time>
                 </div>
               ) : null}
-              <article className={`message-row${grouped ? " message-row--grouped" : ""}`}>
+              <article className={`message-row${grouped ? " message-row--grouped" : ""}${message.reply_count > 0 ? " message-row--has-thread" : ""}`}>
                 {grouped ? (
                   <time className="message-gutter-time" dateTime={message.created_at}>
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
-                  <PixelIdentity name={message.author.display_name} />
+                  <PixelIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} />
                 )}
                 <div className="message-content">
                   {grouped ? null : (
@@ -257,7 +270,7 @@ export function MessageWorkspace({
                   {!message.deleted_at && message.attachments?.length ? (
                     <AttachmentList attachments={message.attachments} />
                   ) : null}
-                  {!message.deleted_at ? (
+                  {!message.deleted_at && message.reply_count === 0 ? (
                     <button
                       className="thread-action"
                       type="button"
@@ -268,10 +281,16 @@ export function MessageWorkspace({
                       }}
                     >
                       <MessageSquareReply aria-hidden="true" />
-                      {message.reply_count > 0
-                        ? `${message.reply_count} ${message.reply_count === 1 ? "reply" : "replies"}`
-                        : "Reply in Thread"}
+                      Reply in Thread
                     </button>
+                  ) : null}
+                  {!message.deleted_at && message.thread_id && message.reply_count > 0 ? (
+                    <InlineThreadPreview
+                      channelId={channel.id}
+                      threadId={message.thread_id}
+                      replyCount={message.reply_count}
+                      open={() => setThreadId(message.thread_id!)}
+                    />
                   ) : null}
                 </div>
               </article>
@@ -281,6 +300,7 @@ export function MessageWorkspace({
       </div>
 
       <form className="composer" onSubmit={submit}>
+        <span className="composer-label">MESSAGE</span>
         <input
           ref={fileInput}
           className="visually-hidden"
@@ -316,6 +336,7 @@ export function MessageWorkspace({
         >
           {send.isPending ? <LoaderCircle className="spin" /> : <Send />}
         </button>
+        <span className="composer-shortcut">⌘ ENTER TO SEND</span>
         {attachments.length ? (
           <div className="composer-attachments" aria-label="Attachments ready to send">
             {attachments.map((attachment) => (
@@ -551,7 +572,7 @@ function MentionInput({ ariaLabel, className, placeholder, rows, value, members,
         <div className="mention-suggestions" role="listbox" aria-label="Mention suggestions">
           {suggestions.map((member, index) => (
             <button key={member.id} type="button" role="option" aria-selected={index === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
-              <PixelIdentity name={member.display_name} />
+              <PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} />
               <span><strong>{member.display_name}</strong><small>@{member.handle}</small></span>
               {member.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
             </button>
@@ -594,7 +615,7 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
         <form onSubmit={handleSubmit}>
           <fieldset className="channel-agent-picker">
             <legend>Available Agents</legend>
-            {agents.length ? agents.map((agent) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} /><PixelIdentity name={agent.display_name} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
+            {agents.length ? agents.map((agent) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
           </fieldset>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? "Adding…" : "Add selected"}</button></footer>
@@ -607,7 +628,7 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
 function CompactMessage({ message }: { message: Message }) {
   return (
     <article className="thread-message">
-      <PixelIdentity name={message.author.display_name} />
+      <PixelIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} />
       <div>
         <header>
           <strong>{message.author.display_name}</strong>
@@ -620,6 +641,39 @@ function CompactMessage({ message }: { message: Message }) {
         ) : null}
       </div>
     </article>
+  );
+}
+
+function InlineThreadPreview({ channelId, threadId, replyCount, open }: { channelId: string; threadId: number; replyCount: number; open: () => void }) {
+  const thread = useQuery({
+    queryKey: ["thread", channelId, threadId],
+    queryFn: () => readThread(channelId, threadId),
+    staleTime: 15_000,
+  });
+  const replies = thread.data?.replies.slice(-3) ?? [];
+  return (
+    <section className="inline-thread-preview" aria-label={`${replyCount} Thread ${replyCount === 1 ? "reply" : "replies"}`}>
+      <button className="inline-thread-heading" type="button" aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} onClick={open}>
+        <span>{replyCount} {replyCount === 1 ? "REPLY" : "REPLIES"}</span>
+        <strong>Open Thread <MessageSquareReply aria-hidden="true" /></strong>
+      </button>
+      {thread.isPending ? <span className="inline-thread-status">Loading replies…</span> : null}
+      {thread.error ? <span className="inline-thread-status">Replies unavailable</span> : null}
+      {replies.map((reply) => (
+        <button className="inline-reply" type="button" key={reply.id} onClick={open}>
+          <PixelIdentity name={reply.author.display_name} kind={reply.author.kind} seed={reply.author.id} />
+          <span>
+            <span className="inline-reply-meta">
+              <strong>{reply.author.display_name}</strong>
+              {reply.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
+              <time dateTime={reply.created_at}>{formatMessageTime(reply.created_at)}</time>
+            </span>
+            <span className="inline-reply-body">{reply.deleted_at ? "Message 已删除" : reply.body_markdown}</span>
+          </span>
+        </button>
+      ))}
+      {replyCount > 3 ? <button className="inline-thread-more" type="button" onClick={open}>+{replyCount - 3} more replies</button> : null}
+    </section>
   );
 }
 

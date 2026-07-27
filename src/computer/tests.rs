@@ -1,5 +1,6 @@
 use super::local_ipc::{
-    authenticate_run, handle_local_connection, prepare_download_target, prepare_upload_source,
+    authenticate_run, handle_local_connection, local_response_error_code, prepare_download_target,
+    prepare_upload_source,
 };
 use super::*;
 use crate::local_protocol::{AgentIdentity, LocalRequest, LocalResponse};
@@ -683,4 +684,47 @@ fn shutdown_frame_is_a_terminal_server_instruction() {
         frame,
         super::ServerFrame::Shutdown { reason } if reason == "computer_deleted"
     ));
+}
+
+#[test]
+fn command_log_context_only_extracts_safe_identifiers() {
+    let agent_id = Uuid::now_v7();
+    let run_id = Uuid::now_v7();
+    let payload = serde_json::json!({
+        "agent_id": agent_id,
+        "run_id": run_id,
+        "role_text": "private role",
+        "prompt": "private prompt",
+        "body_markdown": "private message",
+        "token": "private token"
+    });
+
+    assert_eq!(
+        command_log_context(&payload),
+        CommandLogContext {
+            agent_member_id: Some(agent_id),
+            run_id: Some(run_id),
+        }
+    );
+}
+
+#[test]
+fn command_result_log_summary_only_exposes_error_code() {
+    let outcome = LocalCommandOutcome {
+        ok: false,
+        result: serde_json::json!({
+            "error_code": "driver_failed",
+            "prompt": "private prompt",
+            "result": "private result"
+        }),
+    };
+
+    assert_eq!(command_error_code(&outcome), "driver_failed");
+}
+
+#[test]
+fn local_action_log_summary_only_exposes_error_code() {
+    let response = LocalResponse::failure("context_changed", "private upstream explanation", true);
+
+    assert_eq!(local_response_error_code(&response), "context_changed");
 }

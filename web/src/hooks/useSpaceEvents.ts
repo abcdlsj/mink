@@ -28,6 +28,9 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "member.updated") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       }
+      if (payload.type === "agent.status_changed" || payload.type === "agent.run_changed") {
+        void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });
+      }
       if (payload.type.startsWith("approval.")) {
         void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
@@ -41,6 +44,8 @@ export function useSpaceEvents(spaceId?: string) {
       "channel.created",
       "channel.updated",
       "member.updated",
+      "agent.status_changed",
+      "agent.run_changed",
       "approval.created",
       "approval.resolved",
     ];

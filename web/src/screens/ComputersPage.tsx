@@ -230,7 +230,7 @@ function ComputerDetail({
         </div>
         {agents.length ? <div className="hosted-agent-list">{agents.map((agent) => (
           <Link key={agent.member_id} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
-            <PixelIdentity name={agent.name} />
+            <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
             <span><strong>{agent.name}</strong><small>{agent.driver_kind} Driver</small></span>
             <span className={`agent-state agent-state--${agent.status}`}><i />{agent.status}</span>
           </Link>
@@ -281,7 +281,7 @@ function DeleteDialog({ computer, agents, pending, error, close, confirm }: { co
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
         <p>The daemon will exit and its Computer Token can never reconnect. Pair it again to restore this machine.</p>
         <h3>Affected Agents ({agents.length})</h3>
-        {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} /><span>{agent.name}</span><Status value={agent.status} /></li>)}</ul> : <p>No hosted Agents.</p>}
+        {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={agent.status} /></li>)}</ul> : <p>No hosted Agents.</p>}
         {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || !acknowledged} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>

@@ -36,6 +36,7 @@ describe("Agent detail", () => {
           role_text: body.role_text ?? current.role_text,
           role_revision: body.role_text ? current.role_revision + 1 : current.role_revision,
           status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "provisioning" : current.status,
+          activity_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "offline" : current.activity_status,
           last_error_code: body.lifecycle?.action === "suspend" ? "driver_unavailable" : undefined,
         };
         return json(current);
@@ -49,6 +50,7 @@ describe("Agent detail", () => {
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Busy");
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();
@@ -87,6 +89,7 @@ function agent(status: "provisioning" | "active" | "suspended" | "error" | "reti
     role_text: "Review boundaries.",
     role_revision: 1,
     status,
+    activity_status: status === "error" ? "error" : status === "active" ? "busy" : "offline",
     driver_kind: "codex",
     attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
     created_at: "2026-07-25T00:00:00Z",

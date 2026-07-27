@@ -2,7 +2,8 @@
 // Dev-only seed: drives the same HTTP flow the integration tests use to leave a
 // running server in a ready-to-chat state — a registered owner, a Space, a
 // paired Computer (codex driver, reusing the local ~/.codex login), and an
-// Agent already joined to #general. Enable with SUMI_DEV_SEED=1 (see mise task).
+// three Codex Agents already joined to #general. Enable with SUMI_DEV_SEED=1
+// (see mise task).
 //
 // This never touches production: it only talks to a local Sumi server and
 // spawns a local Computer daemon that reads your existing codex credentials.
@@ -21,6 +22,27 @@ const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex")
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
 const SEED_MARKER = "[dev-seed]";
+
+export const AGENT_PROFILES = Object.freeze([
+  Object.freeze({
+    name: "Coder",
+    handle: "coder",
+    role_text: "You are the implementation owner. Diagnose root causes, write focused code, run relevant tests, and report verifiable results. Keep changes simple and never hide failures behind compatibility layers.",
+    driver_kind: "codex",
+  }),
+  Object.freeze({
+    name: "Reviewer",
+    handle: "reviewer",
+    role_text: "You are the independent reviewer. Inspect specifications and changes for correctness, security, regressions, and missing tests. Challenge weak evidence and do not approve work until risks are explicit.",
+    driver_kind: "codex",
+  }),
+  Object.freeze({
+    name: "PM",
+    handle: "pm",
+    role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
+    driver_kind: "codex",
+  }),
+]);
 
 const log = (...args) => console.log(SEED_MARKER, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -225,16 +247,16 @@ async function waitForComputerOnline(cookie, spaceId) {
   throw new Error("Computer did not come online within 60s");
 }
 
-async function createAgent(cookie, spaceId, computerId) {
+async function createAgent(cookie, spaceId, computerId, profile) {
   const response = await api("POST", `/api/v1/spaces/${spaceId}/agents`, {
     cookie,
     body: {
       computer_id: computerId,
-      name: "Sol",
-      handle: "sol",
-      role_text: "You are Sol, a helpful pair-programming agent in this dev space. Answer concisely.",
+      name: profile.name,
+      handle: profile.handle,
+      role_text: profile.role_text,
       access_level: "member",
-      driver_kind: "codex",
+      driver_kind: profile.driver_kind,
     },
   });
   if (response.status !== 201) {
@@ -243,10 +265,10 @@ async function createAgent(cookie, spaceId, computerId) {
   return response.json();
 }
 
-async function addAgentToChannel(cookie, channelId, agentMemberId) {
+async function addAgentsToChannel(cookie, channelId, agentMemberIds) {
   const response = await api("POST", `/api/v1/channels/${channelId}/members`, {
     cookie,
-    body: { agent_member_ids: [agentMemberId] },
+    body: { agent_member_ids: agentMemberIds },
   });
   if (!response.ok) {
     throw new Error(`add agent to channel failed: ${response.status} ${await response.text()}`);
@@ -271,10 +293,12 @@ async function main() {
   const online = await waitForComputerOnline(cookie, space.id);
   log(`Computer "${online.name ?? "Dev Computer"}" is online`);
 
-  const agent = await createAgent(cookie, space.id, computer.id);
-  const agentMemberId = agent.member_id;
-  await addAgentToChannel(cookie, space.general_channel_id, agentMemberId);
-  log(`agent @sol created and joined #general`);
+  const agents = [];
+  for (const profile of AGENT_PROFILES) {
+    agents.push(await createAgent(cookie, space.id, computer.id, profile));
+  }
+  await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
+  log(`agents ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} created and joined #general`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
   const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);
 
@@ -284,7 +308,7 @@ async function main() {
   log(`  destination: ${channelUrl}`);
   log(`  fallback login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
   log("");
-  log("Keeping the Computer daemon alive so @sol can reply. Ctrl-C to stop.");
+  log(`Keeping the Computer daemon alive so ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} can reply. Ctrl-C to stop.`);
 
   // Keep the daemon (and this process) running for the acceptance session.
   await new Promise(() => {});

@@ -79,13 +79,16 @@ pub(super) async fn handle_local_connection(
             .unwrap_or_else(LocalResponse::denied),
         LocalRequest::AgentAction { run_token, action } => {
             if let Some(identity) = authenticate_run(database, &run_token).await? {
-                tracing::debug!(
+                let action_name = action.name();
+                let started = std::time::Instant::now();
+                tracing::info!(
+                    computer_id = %computer_id,
                     run_id = %identity.run_id,
                     agent_member_id = %identity.agent_member_id,
-                    action = action.name(),
-                    "Agent local IPC action"
+                    action = action_name,
+                    "Agent CLI action received"
                 );
-                proxy_agent_action(
+                let response = proxy_agent_action(
                     &AgentProxy {
                         state_dir,
                         server,
@@ -95,8 +98,26 @@ pub(super) async fn handle_local_connection(
                     },
                     action,
                 )
-                .await
+                .await;
+                tracing::info!(
+                    computer_id = %computer_id,
+                    run_id = %identity.run_id,
+                    agent_member_id = %identity.agent_member_id,
+                    action = action_name,
+                    ok = response.ok,
+                    error_code = local_response_error_code(&response),
+                    duration_ms = started.elapsed().as_millis(),
+                    "Agent CLI action finished"
+                );
+                response
             } else {
+                tracing::warn!(
+                    computer_id = %computer_id,
+                    action = action.name(),
+                    ok = false,
+                    error_code = "permission_denied",
+                    "Agent CLI action rejected"
+                );
                 LocalResponse::denied()
             }
         }
@@ -104,6 +125,14 @@ pub(super) async fn handle_local_connection(
     writer.write_all(&serde_json::to_vec(&response)?).await?;
     writer.write_all(b"\n").await?;
     Ok(())
+}
+
+pub(super) fn local_response_error_code(response: &LocalResponse) -> &str {
+    response
+        .error
+        .as_ref()
+        .map(|error| error.code.as_str())
+        .unwrap_or("none")
 }
 
 struct AgentProxy<'a> {

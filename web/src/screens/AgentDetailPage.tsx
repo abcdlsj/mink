@@ -4,7 +4,8 @@ import { Brain, Eye, Inbox, Menu, Pause, Play, RotateCcw, Save, Trash2, X } from
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { getAgent, readAgentMemory, updateAgent } from "../api/client";
-import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+import { activityLabel } from "../agentActivity";
+import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
 type AgentTab = "overview" | "memory" | "inbox" | "settings";
@@ -64,12 +65,12 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
     <section className="agent-workspace" aria-labelledby="agent-heading">
       <header className="entity-detail-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <PixelIdentity name={value.name} />
+        <PresenceIdentity name={value.name} kind="agent" seed={value.member_id} activityStatus={value.activity_status} />
         <div className="entity-detail-title">
           <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>
           <p>@{value.handle} · {value.role_text}</p>
         </div>
-        <span className={`agent-state agent-state--${value.status}`} role="status"><i />{value.status}</span>
+        <span className={`agent-state agent-state--${value.activity_status}`} role="status"><i />{activityLabel(value.activity_status)}</span>
       </header>
       <nav className="detail-tabs" aria-label="Agent detail">
         {(["overview", "memory", "inbox", "settings"] as const).map((item) => (
@@ -84,7 +85,7 @@ function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: strin
           <>
             <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} tabular /></dl></DetailSection>
             <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={capitalize(value.status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Activity" value={activityLabel(value.activity_status)} /><Field label="Lifecycle" value={capitalize(value.status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
             <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} tabular /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} tabular /></dl></DetailSection>
           </>
         ) : null}

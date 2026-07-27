@@ -114,6 +114,14 @@ impl Supervisor {
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&self.inner.database)
         .await?;
+        tracing::info!(
+            run_id = %run.run_id,
+            agent_member_id = %run.agent_id,
+            space_id = %run.space_id,
+            driver_kind = %run.driver_kind,
+            status = "queued",
+            "Agent run queued"
+        );
         active.insert(
             run.run_id,
             ActiveRun {
@@ -125,6 +133,9 @@ impl Supervisor {
 
         let supervisor = self.clone();
         tokio::spawn(async move {
+            let run_id = run.run_id;
+            let agent_id = run.agent_id;
+            let started = std::time::Instant::now();
             let result = match supervisor.execute(run, cancel_rx).await {
                 Ok(result) => result,
                 Err(error) => supervisor
@@ -136,6 +147,14 @@ impl Supervisor {
                         error_code: Some(error.code),
                     }),
             };
+            tracing::info!(
+                run_id = %run_id,
+                agent_member_id = %agent_id,
+                status = %result.status,
+                error_code = result.error_code.as_deref().unwrap_or("none"),
+                duration_ms = started.elapsed().as_millis(),
+                "Agent run finished"
+            );
             supervisor.inner.active.lock().await.remove(&result.run_id);
             let _ = result_tx.send(result);
         });
@@ -241,6 +260,13 @@ impl Supervisor {
             _ = &mut cancel_rx => return self.finish_without_process(run.run_id, "canceled", None).await,
         };
         let _permit = permit;
+        tracing::info!(
+            run_id = %run.run_id,
+            agent_member_id = %run.agent_id,
+            driver_kind = %run.driver_kind,
+            status = "starting",
+            "Agent run acquired execution slot"
+        );
         let driver = self
             .inner
             .drivers
@@ -283,6 +309,14 @@ impl Supervisor {
             })
             .await
             .map_err(|_| RunFailure::new(run.run_id, "driver_start_failed"))?;
+        tracing::info!(
+            run_id = %run.run_id,
+            agent_member_id = %run.agent_id,
+            driver_kind = %run.driver_kind,
+            process_id = process.pid(),
+            status = "running",
+            "Agent Driver started"
+        );
         sqlx::query("UPDATE local_agent_runs SET process_id = ?2 WHERE run_id = ?1")
             .bind(run.run_id.to_string())
             .bind(process.pid().map(i64::from))
@@ -296,9 +330,15 @@ impl Supervisor {
             .await
             .ok();
         let event_run_id = run.run_id;
+        let event_agent_id = run.agent_id;
         let event_task = tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
-                tracing::debug!(run_id = %event_run_id, event = ?event, "Driver event");
+                tracing::info!(
+                    run_id = %event_run_id,
+                    agent_member_id = %event_agent_id,
+                    event_type = driver_event_name(&event),
+                    "Agent Driver event"
+                );
             }
         });
         let (outcome, must_cancel) = {
@@ -409,6 +449,18 @@ impl Supervisor {
     }
 }
 
+fn driver_event_name(event: &crate::driver::DriverEvent) -> &str {
+    match event {
+        crate::driver::DriverEvent::ProcessStarted => "process_started",
+        crate::driver::DriverEvent::OutputReceived { event_type } => event_type,
+        crate::driver::DriverEvent::CommandStarted => "command_started",
+        crate::driver::DriverEvent::CommandFinished => "command_finished",
+        crate::driver::DriverEvent::ProcessCompleted => "process_completed",
+        crate::driver::DriverEvent::ProcessFailed => "process_failed",
+        crate::driver::DriverEvent::ProcessCanceled => "process_canceled",
+    }
+}
+
 struct RunFailure {
     run_id: Uuid,
     code: String,
@@ -446,18 +498,83 @@ pub async fn recover_interrupted_runs(database: &SqlitePool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{os::unix::fs::PermissionsExt, sync::Arc};
+    use std::sync::Arc;
 
-    use crate::{database, driver::codex::CodexDriver};
+    use async_trait::async_trait;
+    use tokio::sync::mpsc;
+
+    use crate::{
+        database,
+        driver::{DriverEvent, DriverProcess},
+    };
 
     use super::*;
+
+    struct TestDriver;
+
+    #[async_trait]
+    impl Driver for TestDriver {
+        async fn validate(&self, _environment: &DriverEnvironment) -> Result<()> {
+            Ok(())
+        }
+
+        async fn start(&self, run: DriverRun) -> Result<DriverProcess> {
+            let delay = match run.prompt.render().as_str() {
+                "hold" => Duration::from_secs(1),
+                "timeout" => Duration::from_secs(5),
+                _ => Duration::ZERO,
+            };
+            let (events_tx, events) = mpsc::channel(1);
+            let task = tokio::spawn(async move {
+                events_tx
+                    .send(DriverEvent::OutputReceived {
+                        event_type: "test_started".to_owned(),
+                    })
+                    .await
+                    .ok();
+                tokio::time::sleep(delay).await;
+            });
+            Ok(DriverProcess::Internal { task, events })
+        }
+
+        async fn observe(
+            &self,
+            process: &mut DriverProcess,
+            events: &mpsc::Sender<DriverEvent>,
+        ) -> Result<DriverOutcome> {
+            let DriverProcess::Internal {
+                task,
+                events: source,
+            } = process
+            else {
+                bail!("Test Driver requires an internal task");
+            };
+            while let Ok(event) = source.try_recv() {
+                events.send(event).await.ok();
+            }
+            task.await.context("Test Driver task failed")?;
+            Ok(DriverOutcome::Completed)
+        }
+
+        async fn cancel(&self, process: &mut DriverProcess, _grace_period: Duration) -> Result<()> {
+            let DriverProcess::Internal { task, .. } = process else {
+                bail!("Test Driver requires an internal task");
+            };
+            task.abort();
+            let _ = task.await;
+            Ok(())
+        }
+
+        async fn cleanup(&self, _environment: &DriverEnvironment) -> Result<()> {
+            Ok(())
+        }
+    }
 
     async fn fixture(
         max_runs: usize,
         timeout_seconds: u64,
-    ) -> (tempfile::TempDir, tempfile::TempDir, Supervisor, Uuid, Uuid) {
+    ) -> (tempfile::TempDir, Supervisor, Uuid, Uuid) {
         let root = tempfile::tempdir().unwrap();
-        let tools = tempfile::tempdir().unwrap();
         let state = root.path().join("computer");
         std::fs::create_dir_all(state.join("agents")).unwrap();
         let first = Uuid::now_v7();
@@ -470,13 +587,6 @@ mod tests {
             std::fs::write(home.join("profile.json"), r#"{"status":"active"}"#).unwrap();
         }
         std::fs::write(state.join("daemon.sock"), "").unwrap();
-        let executable = tools.path().join("fake-codex");
-        std::fs::write(
-            &executable,
-            "#!/bin/sh\ntest \"${1:-}\" = \"--version\" && exit 0\nIFS= read -r prompt\nprintf '%s\\n' '{\"type\":\"thread.started\"}'\ncase \"$prompt\" in hold) sleep 1 ;; timeout) sleep 5 ;; esac\nprintf '%s\\n' '{\"type\":\"turn.completed\"}'\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         let database = database::connect_sqlite(&state.join("daemon.db"))
             .await
             .unwrap();
@@ -492,10 +602,10 @@ mod tests {
             state.clone(),
             state.join("daemon.sock"),
             &config,
-            Arc::new(CodexDriver::with_executable(executable)),
+            Arc::new(TestDriver),
             None,
         );
-        (root, tools, supervisor, first, second)
+        (root, supervisor, first, second)
     }
 
     fn run(agent_id: Uuid, prompt: &str) -> StartRun {
@@ -518,7 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrency_limit_queues_other_agents_and_rejects_same_agent_overlap() {
-        let (_root, _tools, supervisor, first, second) = fixture(1, 10).await;
+        let (_root, supervisor, first, second) = fixture(1, 10).await;
         let first_run = run(first, "hold");
         let first_id = first_run.run_id;
         let first_result = supervisor.start(first_run).await.unwrap();
@@ -541,13 +651,17 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_and_timeout_stop_processes_and_persist_terminal_state() {
-        let (_root, _tools, supervisor, first, second) = fixture(2, 1).await;
+        let (_root, supervisor, first, second) = fixture(2, 1).await;
         let canceled = run(first, "timeout");
         let canceled_id = canceled.run_id;
         let canceled_result = supervisor.start(canceled).await.unwrap();
-        while status(&supervisor, canceled_id).await != "running" {
-            tokio::task::yield_now().await;
-        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while status(&supervisor, canceled_id).await != "running" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("canceled run did not enter running state");
         supervisor.cancel(canceled_id).await.unwrap();
         assert_eq!(canceled_result.await.unwrap().status, "canceled");
         assert_eq!(status(&supervisor, canceled_id).await, "canceled");
@@ -562,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_cancels_all_active_runs_before_returning() {
-        let (_root, _tools, supervisor, first, second) = fixture(2, 10).await;
+        let (_root, supervisor, first, second) = fixture(2, 10).await;
         let first_run = run(first, "timeout");
         let first_id = first_run.run_id;
         let first_result = supervisor.start(first_run).await.unwrap();

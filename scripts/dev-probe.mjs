@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Dev-only probe: logs in as the seed owner, posts a message mentioning @sol in
+// Dev-only probe: logs in as the seed owner, posts a message mentioning @coder in
 // #general, and polls until an agent-authored reply appears. Verifies the codex
 // driver actually produces a real reply end-to-end. Usage:
 //   node scripts/dev-probe.mjs <space-slug>
@@ -59,15 +59,15 @@ async function main() {
 
   const agentsRes = await api("GET", `/api/v1/spaces/${space.id}/agents`, { cookie });
   const agents = await agentsRes.json();
-  const sol = agents.find((a) => a.handle === "sol" || a.name === "Sol");
-  if (!sol) throw new Error(`@sol not found; agents: ${JSON.stringify(agents)}`);
-  const agentMemberId = sol.member_id;
-  console.log(`[probe] posting mention to @sol (member ${agentMemberId}) in channel ${channelId}`);
+  const coder = agents.find((agent) => agent.handle === "coder" || agent.name === "Coder");
+  if (!coder) throw new Error(`@coder not found; agents: ${JSON.stringify(agents)}`);
+  const agentMemberId = coder.member_id;
+  console.log(`[probe] posting mention to @coder (member ${agentMemberId}) in channel ${channelId}`);
 
   const post = await api("POST", `/api/v1/channels/${channelId}/messages`, {
     cookie,
     body: {
-      body_markdown: "@sol Reply with a single short sentence to confirm you are alive.",
+      body_markdown: "@coder Reply with a single short sentence to confirm you are alive.",
       mentions: [agentMemberId],
       attachment_ids: [],
     },
@@ -76,7 +76,7 @@ async function main() {
     throw new Error(`post message failed: ${post.status} ${await post.text()}`);
   }
   const posted = await post.json();
-  console.log(`[probe] message posted (id ${posted.id}); waiting for @sol reply...`);
+  console.log(`[probe] message posted (id ${posted.id}); waiting for @coder reply...`);
 
   const deadline = Date.now() + 120_000;
   let lastCount = 0;
@@ -89,10 +89,10 @@ async function main() {
         lastCount = messages.length;
       }
       const agentReply = messages.find(
-        (m) => m.author?.kind === "agent" || m.author_kind === "agent",
+        (m) => m.seq > posted.seq && m.author?.id === agentMemberId,
       );
       if (agentReply) {
-        console.log("[probe] ✅ @sol replied:");
+        console.log("[probe] ✅ @coder replied:");
         console.log("  " + (agentReply.body_markdown ?? JSON.stringify(agentReply)).replace(/\n/g, "\n  "));
         process.exit(0);
       }

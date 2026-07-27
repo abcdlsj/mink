@@ -507,7 +507,7 @@ Thread 不单独拥有成员表。它由一个 Channel 主时间线 Message 作�
 - root_message_id 指向该 Channel 主时间线 Message。
 - Thread reply 保存 thread_id，不复制 root_message_id 作为地址。
 - reply_to_message_id 可指向 root 或同一 Thread 内的 Message。
-- UI 在 Channel 中显示 reply count 和最后回复 Members。
+- UI 在 Channel 中为有回复的 Thread 外露最多 3 条最近回复，并显示 reply count；点击预览或剩余数量进入完整 Thread pane。
 - 打开 Thread 时，Channel 主区域保持可见，桌面端在右侧打开 Thread pane。
 
 Thread 创建必须在 PostgreSQL 事务中原子更新 Channel.next_thread_id 并插入 threads；并发创建不得得到相同 ID。数字 ID 只是可读地址，不是访问凭证，权限仍由 Space 和 Channel membership 决定。
@@ -642,6 +642,7 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 | accent-soft | #DFE3FF | 轻量选择和信息提示 |
 | cyan | #C9E7E7 | Attachment、Computer 的低饱和技术语义 |
 | green | #83B77B | online、成功 |
+| yellow | #E3B341 | Agent queued/running，即 busy |
 | red | #D95C55 | 错误、危险操作 |
 
 规则：
@@ -658,8 +659,8 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 ### 10.3 Pixel art avatars
 
 - 头像源画布为 16x16 或 24x24 bitmap，显示时使用 image-rendering: pixelated。
-- 未上传头像时，以 member_id 为 seed，从受控部件和颜色集合确定性生成 PNG。
-- Agent 和 Human 使用同一生成器，不以头像形状区分身份。
+- Human 未上传头像时显示 display name 的首个 Unicode 字符；以 member_id 为 seed 选择受控背景色，因此相同首字母的 Humans 仍可区分。
+- Agent 使用不含脸、人物或机器人轮廓的粗粒度抽象像素纹样；以 member_id 为 seed 确定颜色和纹样。
 - Agent 名字旁显示小型 AGENT 标签，Human 不显示 HUMAN 标签。
 - 上传头像必须裁剪为方形；Server 保存原图和生成后的 1x/2x/4x PNG。
 
@@ -702,6 +703,8 @@ Conversation navigation：
 - Channels：Pinned、public/private Channels。
 - DMs：Human 与 Agent 混合排序。
 
+DM 行必须外露对方的 pixel avatar；Agent avatar 同时叠加当前运行状态点，Human 继续使用首字符头像。
+
 中间左栏只承载 Inbox、Channels、DM 及其创建/发现操作，不放 Members、Computers 或 Settings。
 产品内页面跳转必须经过 TanStack Router，不得用原生链接或 `window.location` 触发整页重载；Attachment 下载等明确的文件导航除外。
 
@@ -721,10 +724,12 @@ Message timeline 使用无气泡行布局：
 - 左侧 avatar。
 - 第一行 name、AGENT 标签、时间。
 - 第二行 Markdown body。
-- Attachment、reactions 和 Thread summary 在正文下方。
+- Attachment、reactions 和 Thread preview 在正文下方；有回复时外露最多 3 条最近回复，剩余数量进入完整 Thread pane。
 - hover 后显示 reply、copy link、more 图标。
 
 Agent 正在处理时，只显示可验证的操作状态，例如“Lin 正在读取 3 条 Inbox 信息”或“Lin 正在使用 Codex”。不得展示隐藏推理或伪造逐字思考。
+
+Agent 的统一 activity status 由 Server 计算并随 Agent list/detail 返回：`busy` 表示存在 queued/running Agent Run，`idle` 表示 Agent active、Computer online 且没有 active run，`offline` 表示 Computer 不在线或 Agent lifecycle 当前不可运行，`error` 表示 Agent lifecycle error。优先级为 error、offline、busy、idle。UI 使用 yellow/green/gray/red 状态点与文字双重表达；状态点附着于头像右下角，不插入 Message 正文，也不把历史 Message 伪装成实时运行日志。
 
 Composer 包含：
 
@@ -755,6 +760,8 @@ Human Inbox 按以下顺序显示：
 4. Channel activity。
 
 每项显示来源地址，例如 #design 或 #design:thread、发送者 avatar、摘要和时间。Human 可以完成、稍后处理或打开原位置。
+
+Inbox 不是 Message 历史。没有待处理项时，空态必须明确说明这里只保留需要显式处理的协作事项，并以紧凑的零计数行列出 Approvals、DM & mentions、Replies、Channel activity；不得用假 Message 填充空页面。
 
 Agent Inbox 默认不对普通 Member 公开。Owner/Admin 可在 Agent 管理页查看聚合状态和失败项，但不能读取未授权 private Channel 正文。
 
@@ -1551,7 +1558,7 @@ POST /api/v1/approvals/{approval_id}/reject
 ~~~
 
 Agent list/detail 对同一 Space Member 返回 identity、Role revision、状态、Computer、Driver 和
-attention config；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
+attention config，以及 Server 计算的 `activity_status=idle|busy|offline|error`；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
 Computer online 时临时读取正文。Memory read 响应使用 `Cache-Control: no-store`，正文不成为 Server
 事实来源。`POST /spaces/{space_id}/agents` 对 Human Owner/Admin 直接创建并返回 201 Agent；普通
 Human Member 必须持有 `agent:create`，请求只创建 Approval 并返回 202 `approval_id/status=pending`。
@@ -1843,7 +1850,10 @@ Server、daemon 和 CLI 日志至少带：
 - inbox_item_id，可空。
 - action、duration_ms、result。
 
+Computer daemon 默认 `info` 日志必须能按 ID 串联完整执行链：WebSocket connect/disconnect、Server command received/ack/result、非空 Inbox claim、Agent Run queued/started/Driver event/finished、Agent CLI action received/finished，以及 lease renew/release 的失败。command 与 CLI 日志只记录 `kind/action`、`ok/status/error_code` 和必要 ID；heartbeat、空 Inbox poll 与无业务变化的周期检查只使用 `debug`，不得每秒污染默认日志。
+
 Message body、Attachment 内容、Memory 正文、Computer Token 和模型认证不进入普通日志。
+Role、prompt、Server command payload、Agent CLI request/response data 和 Driver stdout/stderr 同样不得直接格式化进日志；Driver 只允许记录规范化 event type。
 
 ### 20.2 v1 状态保证
 

@@ -431,6 +431,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let agent_detail: AgentResponse = decode_json(agent_detail).await?;
     ensure!(agent_detail.memory_files.len() == 1);
     ensure!(agent_detail.memory_files[0].path == "MEMORY.md");
+    ensure!(agent_detail.activity_status == "idle");
 
     let memory_app = app.clone();
     let memory_cookie = owner.cookie.clone();
@@ -671,6 +672,17 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let claim: serde_json::Value = decode_json(claim).await?;
     ensure!(claim["claimed"] == true);
     let run_id = Uuid::parse_str(claim["run_id"].as_str().context("claimed run id missing")?)?;
+    let busy_agent = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/agents/{}", agent.member_id))
+                .header(header::COOKIE, &owner.cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    let busy_agent: AgentResponse = decode_json(busy_agent).await?;
+    ensure!(busy_agent.activity_status == "busy");
     let run_command = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await?
         .context("Agent run command missing")??;

@@ -141,8 +141,23 @@ function InboxWorkspace({
         ) : null}
         {inbox.isPending ? <p className="timeline-status">Loading Inbox...</p> : null}
         {inbox.error ? <p className="timeline-status timeline-status--error">{inbox.error.message}</p> : null}
-        {attentionItems.length === 0 && pendingApprovals.length === 0 ? (
-          <div className="empty-channel"><Inbox aria-hidden="true" /><h2>Inbox is clear.</h2></div>
+        {!inbox.isPending && !inbox.error && (!canGovern || !approvals.isPending) && attentionItems.length === 0 && pendingApprovals.length === 0 ? (
+          <section className="inbox-empty" aria-labelledby="inbox-empty-title">
+            <div className="inbox-empty-intro">
+              <span className="inbox-empty-icon" aria-hidden="true"><Inbox /></span>
+              <div>
+                <p className="section-kicker">ATTENTION QUEUE</p>
+                <h2 id="inbox-empty-title">Nothing needs your attention</h2>
+                <p>Inbox holds collaboration you must explicitly finish or defer. It is not your Message history.</p>
+              </div>
+            </div>
+            <ul className="inbox-empty-groups" aria-label="Empty Inbox groups">
+              <li><span><strong>Approvals</strong><small>Governance decisions waiting for you</small></span><b>0</b></li>
+              <li><span><strong>DM &amp; mentions</strong><small>Direct requests and explicit mentions</small></span><b>0</b></li>
+              <li><span><strong>Replies</strong><small>Thread and Message responses to revisit</small></span><b>0</b></li>
+              <li><span><strong>Channel activity</strong><small>Ambient collaboration worth reviewing</small></span><b>0</b></li>
+            </ul>
+          </section>
         ) : null}
         {attentionItems.map((item) => (
           <article className={`inbox-item inbox-item--${item.priority}`} key={item.id}>

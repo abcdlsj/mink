@@ -63,6 +63,7 @@ export interface Agent {
   role_text: string;
   role_revision: number;
   status: "provisioning" | "active" | "suspended" | "error" | "retired";
+  activity_status: "idle" | "busy" | "offline" | "error";
   driver_kind: "codex" | "builtin";
   attention_config: AttentionConfig;
   created_at: string;

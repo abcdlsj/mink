@@ -40,6 +40,21 @@ for (const line of lines) {
     page.getByRole("button", { name: "Send message", exact: true }).click(),
   ]);
 }
+await page.getByRole("button", { name: "Reply in Thread" }).first().click();
+const threadComposer = page.getByRole("textbox", { name: "Thread reply", exact: true });
+for (const reply of [
+  "The denser rhythm works. Keep the root and these replies visually connected.",
+  "Agent marks should stay abstract; no faces or robot silhouettes.",
+  "Permission controls need one consistent 36px baseline across the directory.",
+]) {
+  await threadComposer.fill(reply);
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && /\/threads\/\d+\/messages$/.test(response.url())),
+    page.getByRole("button", { name: "Send Thread reply", exact: true }).click(),
+  ]);
+  await threadComposer.waitFor({ state: "visible" });
+}
+await page.getByRole("button", { name: "Close Thread" }).click();
 await page.waitForTimeout(300);
 
 for (const [w, h, tag] of [[1440, 900, "desktop"], [1024, 768, "tablet"], [390, 844, "mobile"]]) {
@@ -48,11 +63,13 @@ for (const [w, h, tag] of [[1440, 900, "desktop"], [1024, 768, "tablet"], [390, 
   await page.screenshot({ path: `${OUT}/channel-${tag}.png`, fullPage: false });
 }
 
-// Members page for the strip/count treatment.
-await page.setViewportSize({ width: 1440, height: 900 });
+// Members page for the control sizing and responsive permission treatment.
 await page.goto(`${BASE}/s/${slug}/members`);
-await page.waitForTimeout(300);
-await page.screenshot({ path: `${OUT}/members-desktop.png` });
+for (const [w, h, tag] of [[1440, 900, "desktop"], [1024, 768, "tablet"], [390, 844, "mobile"]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT}/members-${tag}.png`, fullPage: false });
+}
 
 console.log("SLUG", slug);
 await browser.close();

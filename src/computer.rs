@@ -67,6 +67,8 @@ struct HostedAgent {
 #[derive(Deserialize)]
 struct AgentClaimResponse {
     claimed: bool,
+    run_id: Option<Uuid>,
+    inbox_item_ids: Vec<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -315,6 +317,7 @@ async fn connect_once(
     supervisor: Supervisor,
 ) -> Result<ConnectionOutcome> {
     let computer_id = secrets.computer_id.context("paired Computer has no id")?;
+    tracing::info!(computer_id = %computer_id, status = "connecting", "Computer connecting");
     let mut endpoint = server.join(&format!("/api/v1/computers/{computer_id}/connect"))?;
     match endpoint.scheme() {
         "http" => endpoint.set_scheme("ws").expect("ws is a valid URL scheme"),
@@ -390,6 +393,7 @@ async fn connect_once(
                     agents_count,
                     active_runs,
                 }).await?;
+                tracing::debug!(computer_id = %computer_id, agents_count, active_runs, "Computer heartbeat sent");
             }
             _ = attention.tick() => {
                 if let Err(error) = poll_agent_inbox(server, computer_id, secrets.token.expose()).await {
@@ -408,23 +412,50 @@ async fn connect_once(
             }
             completion = completion_rx.recv() => {
                 let completion = completion.context("Computer command completion channel closed")?;
+                let error_code = command_error_code(&completion.outcome).to_owned();
+                let ok = completion.outcome.ok;
                 send_ws_frame(&mut writer, &ComputerFrame::CommandResult {
                     command_id: completion.command_id,
                     computer_seq: completion.computer_seq,
-                    ok: completion.outcome.ok,
+                    ok,
                     result: completion.outcome.result,
                 }).await?;
+                tracing::info!(
+                    computer_id = %computer_id,
+                    command_id = %completion.command_id,
+                    computer_seq = completion.computer_seq,
+                    ok,
+                    error_code,
+                    "Computer command result sent"
+                );
             }
             message = reader.next() => {
-                let Some(message) = message else { return Ok(ConnectionOutcome::Disconnected); };
+                let Some(message) = message else {
+                    tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "stream_ended", "Computer disconnected");
+                    return Ok(ConnectionOutcome::Disconnected);
+                };
                 match message? {
                     tungstenite::Message::Text(text) => {
                         match serde_json::from_str(&text).context("Server sent an invalid Computer frame")? {
                             ServerFrame::Command { command_id, computer_seq, kind, payload } => {
+                                let context = command_log_context(&payload);
+                                tracing::info!(
+                                    computer_id = %computer_id,
+                                    command_id = %command_id,
+                                    computer_seq,
+                                    kind,
+                                    agent_member_id = context.agent_member_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                                    run_id = context.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                                    "Computer command received"
+                                );
                                 persist_command(database, command_id, computer_seq, &kind, &payload).await?;
                                 send_ws_frame(&mut writer, &ComputerFrame::CommandAck { command_id, computer_seq }).await?;
+                                tracing::info!(computer_id = %computer_id, command_id = %command_id, computer_seq, kind, "Computer command acknowledged");
                                 if let Some(outcome) = command_processor.process(command_id, computer_seq, &kind, &payload).await? {
-                                    send_ws_frame(&mut writer, &ComputerFrame::CommandResult { command_id, computer_seq, ok: outcome.ok, result: outcome.result }).await?;
+                                    let error_code = command_error_code(&outcome).to_owned();
+                                    let ok = outcome.ok;
+                                    send_ws_frame(&mut writer, &ComputerFrame::CommandResult { command_id, computer_seq, ok, result: outcome.result }).await?;
+                                    tracing::info!(computer_id = %computer_id, command_id = %command_id, computer_seq, kind, ok, error_code, "Computer command result sent");
                                 }
                             }
                             ServerFrame::Shutdown { reason } => {
@@ -439,7 +470,10 @@ async fn connect_once(
                         }
                     }
                     tungstenite::Message::Ping(bytes) => writer.send(tungstenite::Message::Pong(bytes)).await?,
-                    tungstenite::Message::Close(_) => return Ok(ConnectionOutcome::Disconnected),
+                    tungstenite::Message::Close(_) => {
+                        tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "server_closed", "Computer disconnected");
+                        return Ok(ConnectionOutcome::Disconnected);
+                    }
                     tungstenite::Message::Binary(_) | tungstenite::Message::Pong(_) | tungstenite::Message::Frame(_) => {}
                 }
             }
@@ -475,7 +509,15 @@ async fn poll_agent_inbox(server: &Url, computer_id: Uuid, token: &str) -> Resul
             .error_for_status()?
             .json()
             .await?;
-        let _claimed = claim.claimed;
+        if claim.claimed {
+            tracing::info!(
+                computer_id = %computer_id,
+                agent_member_id = %agent.member_id,
+                run_id = claim.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                inbox_items_count = claim.inbox_item_ids.len(),
+                "Agent Inbox claimed"
+            );
+        }
     }
     Ok(())
 }
@@ -496,15 +538,22 @@ async fn renew_active_run_leases(
     for (run_id, agent_id) in runs {
         let run_id = Uuid::parse_str(&run_id)?;
         let agent_id = Uuid::parse_str(&agent_id)?;
-        client
+        let response = client
             .post(server.join(&format!(
                 "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew"
             ))?)
             .bearer_auth(token)
             .json(&serde_json::json!({ "run_id": run_id }))
             .send()
-            .await?
-            .error_for_status()?;
+            .await;
+        match response.and_then(reqwest::Response::error_for_status) {
+            Ok(_) => {
+                tracing::debug!(computer_id = %computer_id, agent_member_id = %agent_id, run_id = %run_id, "Agent Inbox lease renewed")
+            }
+            Err(_) => {
+                tracing::warn!(computer_id = %computer_id, agent_member_id = %agent_id, run_id = %run_id, error_code = "lease_renew_failed", "Agent Inbox lease renewal failed")
+            }
+        }
     }
     Ok(())
 }
@@ -538,6 +587,13 @@ async fn release_interrupted_runs(
             .send()
             .await?
             .error_for_status()?;
+        tracing::info!(
+            computer_id = %computer_id,
+            agent_member_id = %agent_id,
+            run_id = %run_id,
+            error_code = "process_lost",
+            "Interrupted Agent run lease released"
+        );
         sqlx::query(
             "UPDATE local_agent_runs SET server_recovery_reported_at = ?2 WHERE run_id = ?1",
         )
@@ -552,6 +608,33 @@ async fn release_interrupted_runs(
 struct LocalCommandOutcome {
     ok: bool,
     result: serde_json::Value,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CommandLogContext {
+    agent_member_id: Option<Uuid>,
+    run_id: Option<Uuid>,
+}
+
+fn command_log_context(payload: &serde_json::Value) -> CommandLogContext {
+    let parse_id = |name: &str| {
+        payload
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+    };
+    CommandLogContext {
+        agent_member_id: parse_id("agent_id").or_else(|| parse_id("agent_member_id")),
+        run_id: parse_id("run_id"),
+    }
+}
+
+fn command_error_code(outcome: &LocalCommandOutcome) -> &str {
+    outcome
+        .result
+        .get("error_code")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none")
 }
 
 struct CommandCompletion {
@@ -581,12 +664,14 @@ impl LocalCommandProcessor {
                 .fetch_one(&self.database)
                 .await?;
         if matches!(existing.0.as_str(), "completed" | "failed") {
+            tracing::info!(command_id = %command_id, computer_seq, kind, replayed = true, status = %existing.0, "Computer command replayed from local result");
             return Ok(Some(LocalCommandOutcome {
                 ok: existing.0 == "completed",
                 result: serde_json::from_str(existing.1.as_deref().unwrap_or("{}"))?,
             }));
         }
         if existing.0 == "running" {
+            tracing::info!(command_id = %command_id, computer_seq, kind, replayed = true, status = "running", "Computer command already running");
             return Ok(None);
         }
         if kind == "agent.memory.read" {

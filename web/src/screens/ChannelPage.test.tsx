@@ -28,10 +28,18 @@ describe("ChannelPage", () => {
       if (path.endsWith("/channels") && init?.method === "POST") {
         return json({ id: "019c0000-0000-7000-8000-000000000030", space_id: spaceId, kind: "private", name: "Design", slug: "design", topic: "Decisions", created_by_member_id: ownerId, joined: true }, 201);
       }
-      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/dms") && !init?.method) {
+        return json([{ channel_id: "dm", space_id: spaceId, other_member: { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] }, created_at: "2026-07-25T00:00:00Z" }]);
+      }
+      if (path.endsWith("/agents") && !init?.method) {
+        return json([{ member_id: linId, activity_status: "busy" }]);
+      }
       if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) {
         return json({
-          members: [{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }],
+          members: [
+            { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] },
+            { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] },
+          ],
           can_manage: true,
         });
       }
@@ -51,6 +59,8 @@ describe("ChannelPage", () => {
 
     expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
     expect(screen.getByLabelText("Message")).toHaveAttribute("placeholder", "Message #general");
+    expect(screen.getAllByLabelText("Lin is Busy").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Busy.*Lin.*@lin.*Busy/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
     fireEvent.click(screen.getByRole("button", { name: "Create Channel" }));
     const dialog = screen.getByRole("dialog", { name: "Create Channel" });
@@ -288,8 +298,11 @@ describe("ChannelPage", () => {
     });
     expect(await screen.findByText("3 Members")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "1 reply" }));
-    expect(await screen.findByText("Existing reply")).toBeVisible();
+    const preview = await screen.findByRole("region", { name: "1 Thread reply" });
+    expect(within(preview).getByText("Existing reply")).toBeVisible();
+    fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
+    const threadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
+    expect(within(threadPane).getByText("Existing reply")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Follow Thread" }));
     expect(await screen.findByRole("button", { name: "Unfollow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");

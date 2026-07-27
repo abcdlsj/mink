@@ -49,7 +49,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await expect(page.getByRole("complementary", { name: /Thread #general:1/ })).toBeVisible();
   await page.getByRole("textbox", { name: "Thread reply", exact: true }).fill("Thread reply keeps the root visible and uses the same Message layout.");
   await page.getByRole("button", { name: "Send Thread reply", exact: true }).click();
-  await expect(page.getByText("Thread reply keeps the root visible and uses the same Message layout.")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: /Thread #general:1/ }).getByText("Thread reply keeps the root visible and uses the same Message layout.")).toBeVisible();
   await page.getByRole("button", { name: "Close Thread" }).click();
 
   await page.locator('input[type="file"]').first().setInputFiles({
@@ -82,6 +82,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
     await page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" }).click();
   }
   await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible();
-  await expect(page.getByText("Inbox is clear.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nothing needs your attention" })).toBeVisible();
+  await expect(page.getByText(/not your Message history/i)).toBeVisible();
   await expect(page.locator("body")).not.toContainText(/Tasks|As Task|Joint Channels|Chat \/ Tasks \/ Files/);
 });
