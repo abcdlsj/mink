@@ -10,8 +10,10 @@
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import readline from "node:readline";
 
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
@@ -71,6 +73,42 @@ function sessionCookie(response) {
   const raw = response.headers.get("set-cookie");
   if (!raw) throw new Error("auth response did not set a session cookie");
   return raw.split(";")[0];
+}
+
+// A Session created by Node belongs to Node's HTTP client, not to the user's
+// browser. Hand it to the browser through a loopback-only authenticated redirect.
+// Cookies are scoped by host rather than port, so the Cookie set here is sent
+// to the Vite dev server on 127.0.0.1:5173 after the redirect.
+export async function createBrowserSessionHandoff(cookie, destination) {
+  const handoffToken = randomBytes(32).toString("base64url");
+  const server = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method !== "GET" || requestUrl.searchParams.get("token") !== handoffToken) {
+      response.writeHead(404).end("Not found");
+      return;
+    }
+    response.writeHead(302, {
+      "Cache-Control": "no-store",
+      Location: destination,
+      "Set-Cookie": `${cookie}; Path=/; HttpOnly; SameSite=Lax`,
+    });
+    response.end();
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("could not bind browser Session handoff server");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/?token=${encodeURIComponent(handoffToken)}`,
+    close: () => new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    }),
+  };
 }
 
 // Register the owner, or log in if a previous seed already created them. This
@@ -237,11 +275,14 @@ async function main() {
   const agentMemberId = agent.member_id;
   await addAgentToChannel(cookie, space.general_channel_id, agentMemberId);
   log(`agent @sol created and joined #general`);
+  const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
+  const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);
 
   log("");
-  log("READY — open the web dev server and go to:");
-  log(`  ${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`);
-  log(`  owner login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
+  log("READY — open this local URL to sign in and enter #general:");
+  log(`  ${browserHandoff.url}`);
+  log(`  destination: ${channelUrl}`);
+  log(`  fallback login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
   log("");
   log("Keeping the Computer daemon alive so @sol can reply. Ctrl-C to stop.");
 
@@ -249,7 +290,9 @@ async function main() {
   await new Promise(() => {});
 }
 
-main().catch((error) => {
-  console.error(SEED_MARKER, "failed:", error.message);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(SEED_MARKER, "failed:", error.message);
+    process.exit(1);
+  });
+}

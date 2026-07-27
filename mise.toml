@@ -49,13 +49,17 @@ run = "cargo test --all-features"
 description = "Run WebUI unit and component tests"
 run = "pnpm --dir web test"
 
+[tasks.test-dev-seed]
+description = "Run local development seed tests"
+run = "node --test scripts/dev-seed.test.mjs"
+
 [tasks.test-e2e]
 description = "Run the Playwright browser acceptance suite"
 run = "pnpm --dir web test:e2e"
 
 [tasks.test]
 description = "Run the complete local test suite"
-depends = ["test-server", "test-web"]
+depends = ["test-server", "test-web", "test-dev-seed"]
 
 [tasks.db-start]
 description = "Start PostgreSQL 17 and create the local development database on macOS"
