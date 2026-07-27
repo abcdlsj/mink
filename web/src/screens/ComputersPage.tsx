@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Copy, Cpu, Menu, Monitor, Plus, ShieldCheck, Trash2, X } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Check, Copy, Menu, Monitor, Plus, Trash2, X } from "lucide-react";
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import {
   createAgent,
@@ -56,7 +56,7 @@ function ComputersWorkspace({
   const [agentComputerId, setAgentComputerId] = useState<string>();
   const [deleteTarget, setDeleteTarget] = useState<Computer>();
   const activeHash = String(location.hash).replace(/^#/, "");
-  const pairFormOpen = activeHash === "pair-computer";
+  const pairFormOpen = canManage && activeHash === "pair-computer";
   const computers = useQuery({
     queryKey: ["computers", spaceId],
     queryFn: () => listComputers(spaceId),
@@ -123,9 +123,11 @@ function ComputersWorkspace({
       {computers.data?.length === 0 ? (
         <div className="computer-empty">
           <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-          <Monitor aria-hidden="true" />
-          <h2>No Computer paired</h2>
-          <p>Run <code>sumi computer --server {window.location.origin}</code> on the machine that will host Agents.</p>
+          <span className="computer-empty-icon"><Monitor aria-hidden="true" /></span>
+          <p className="section-kicker">COMPUTE LAYER</p>
+          <h2>No Computers paired</h2>
+          <p>{canManage ? "Pair a macOS or Linux machine to host Agents in this Space." : "A Human Owner or Admin must pair a machine before this Space can host Agents."}</p>
+          {canManage ? <Link className="command-button command-button--accent" to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer"><Plus />Pair Computer</Link> : null}
         </div>
       ) : null}
       {selected ? (
@@ -194,6 +196,7 @@ function ComputerDetail({
   onCreate: () => void;
   onDelete: () => void;
 }) {
+  const busyAgents = agents.filter((agent) => agent.activity_status === "busy").length;
   return (
     <article className="computer-detail">
       <header className="entity-detail-header">
@@ -203,8 +206,14 @@ function ComputerDetail({
         <Status value={computer.status} />
       </header>
       {computer.status !== "online" ? <p className="inline-notice">Computer is offline. Runtime actions are unavailable until it reconnects.</p> : null}
+      <section className="computer-overview" aria-label="Computer overview">
+        <OverviewMetric label="Hosted Agents" value={String(agents.length)} />
+        <OverviewMetric label="Busy Agents" value={String(busyAgents)} />
+        <OverviewMetric label="Platform" value={computer.os === "macos" ? "macOS" : "Linux"} />
+        <OverviewMetric label="Daemon" value={`v${computer.daemon_version}`} tabular />
+      </section>
       <section className="detail-section">
-        <h3>Info</h3>
+        <h3>Runtime</h3>
         <dl className="detail-grid">
           <Field label="Operating system" value={computer.os} />
           <Field label="Daemon version" value={`v${computer.daemon_version}`} tabular />
@@ -212,13 +221,6 @@ function ComputerDetail({
           <Field label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} tabular />
           <Field label="Created" value={new Date(computer.created_at).toLocaleString()} tabular />
         </dl>
-      </section>
-      <section className="detail-section">
-        <h3>Capabilities</h3>
-        <div className="capability-row">
-          <span><Cpu />{computer.os === "linux" ? "bubblewrap" : "sandbox-exec"}</span>
-          <span><ShieldCheck />Daemon reported</span>
-        </div>
       </section>
       <section className="detail-section">
         <div className="section-title-row">
@@ -244,15 +246,20 @@ function ComputerDetail({
 function PairComputerDialog({ close }: { close: () => void }) {
   const command = `sumi computer --server ${window.location.origin}`;
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   async function copyCommand() {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setCopyError(false);
+    } catch {
+      setCopyError(true);
+    }
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section className="pair-computer-dialog" role="dialog" aria-modal="true" aria-labelledby="pair-computer-title">
+    <ComputerDialogFrame close={close} labelId="pair-computer-title" className="pair-computer-dialog">
         <header>
           <div><p className="section-kicker">ADD CAPACITY</p><h2 id="pair-computer-title">Pair Computer</h2></div>
           <button className="icon-button" type="button" aria-label="Close Pair Computer" onClick={close}><X /></button>
@@ -261,33 +268,70 @@ function PairComputerDialog({ close }: { close: () => void }) {
           <p>Run this command on the machine that will host Agents.</p>
           <div className="pair-command">
             <code>{command}</code>
-            <button className="compact-action" type="button" onClick={() => void copyCommand()}>
+            <button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>
               {copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}
             </button>
           </div>
-          <p className="pair-computer-note">If this machine was deleted before, the first restart clears its invalid identity and exits. Run the command once more to open a fresh pairing page.</p>
+          {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
+          <ol className="pair-steps"><li>Run the command on the target machine.</li><li>Open the short-lived pairing URL it prints.</li><li>Verify the machine identity, then confirm this Space.</li></ol>
+          <p className="pair-computer-note">A deleted Computer cannot reuse its old identity. The daemon clears that identity and exits; run it again to start a fresh pairing.</p>
         </div>
         <footer><button className="command-button command-button--accent" type="button" onClick={close}>Done</button></footer>
-      </section>
-    </div>
+    </ComputerDialogFrame>
   );
 }
 
 function DeleteDialog({ computer, agents, pending, error, close, confirm }: { computer: Computer; agents: Agent[]; pending: boolean; error?: string; close: () => void; confirm: () => void }) {
   const [acknowledged, setAcknowledged] = useState(agents.length === 0);
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-computer-title">
+    <ComputerDialogFrame close={close} labelId="delete-computer-title" className="confirm-dialog">
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
-        <p>The daemon will exit and its Computer Token can never reconnect. Pair it again to restore this machine.</p>
+        <p>The daemon will exit and its Computer Token can never reconnect. A fresh pairing creates a new Computer identity; retired Agents are not restored.</p>
         <h3>Affected Agents ({agents.length})</h3>
         {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={agent.status} /></li>)}</ul> : <p>No hosted Agents.</p>}
         {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || !acknowledged} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>
-      </section>
-    </div>
+    </ComputerDialogFrame>
   );
+}
+
+function ComputerDialogFrame({ close, labelId, className, children }: { close: () => void; labelId: string; className: string; children: ReactNode }) {
+  const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog.current) return;
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      previousFocus?.focus();
+    };
+  }, [close]);
+
+  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) close();
+  }
+
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={closeFromBackdrop}><section ref={dialog} className={className} role="dialog" aria-modal="true" aria-labelledby={labelId}>{children}</section></div>;
 }
 
 function AgentDialog({ submit, close, pending, error, computers, selectedComputerId, isOwner }: { submit: (event: FormEvent<HTMLFormElement>) => void; close: () => void; pending: boolean; error?: string; computers: Computer[]; selectedComputerId?: string; isOwner: boolean }) {
@@ -313,3 +357,4 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
 
 function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`}><i />{value}</span>; }
 function Field({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><dt>{label}</dt><dd className={tabular ? "tabular" : undefined}>{value}</dd></div>; }
+function OverviewMetric({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><span>{label}</span><strong className={tabular ? "tabular" : undefined}>{value}</strong></div>; }
