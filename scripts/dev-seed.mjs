@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // Dev-only seed: drives the same HTTP flow the integration tests use to leave a
 // running server in a ready-to-chat state — a registered owner, a Space, a
-// paired Computer (codex driver, reusing the local ~/.codex login), and an
-// three Codex Agents already joined to #general. Enable with SUMI_DEV_SEED=1
+// paired Computer (codex driver, reusing the local ~/.codex login), and three
+// stable Codex Agents already joined to #general. Enable with SUMI_DEV_SEED=1
 // (see mise task).
 //
 // This never touches production: it only talks to a local Sumi server and
 // spawns a local Computer daemon that reads your existing codex credentials.
 
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir, homedir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import readline from "node:readline";
@@ -22,8 +22,19 @@ const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex")
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
 const SEED_MARKER = "[dev-seed]";
+export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#5065D8" });
+export const DEV_CHANNEL_SLUG = "general";
+const STATE_HOME = process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
+export const DEV_COMPUTER_STATE = process.env.SUMI_SEED_STATE_DIR ?? join(STATE_HOME, "sumi", "dev-seed-computer");
+const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([
+  Object.freeze({
+    name: "PM",
+    handle: "pm",
+    role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
+    driver_kind: "codex",
+  }),
   Object.freeze({
     name: "Coder",
     handle: "coder",
@@ -36,13 +47,19 @@ export const AGENT_PROFILES = Object.freeze([
     role_text: "You are the independent reviewer. Inspect specifications and changes for correctness, security, regressions, and missing tests. Challenge weak evidence and do not approve work until risks are explicit.",
     driver_kind: "codex",
   }),
-  Object.freeze({
-    name: "PM",
-    handle: "pm",
-    role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
-    driver_kind: "codex",
-  }),
 ]);
+
+export function prepareComputerStateDirectory(stateDir) {
+  const socketPath = join(stateDir, "daemon.sock");
+  const socketPathBytes = Buffer.byteLength(socketPath);
+  if (process.platform === "darwin" && socketPathBytes > MACOS_UNIX_SOCKET_PATH_MAX_BYTES) {
+    throw new Error(
+      `Computer state path is too long for a macOS Unix socket (${socketPathBytes} bytes): ${socketPath}. Set SUMI_SEED_STATE_DIR to a shorter persistent path.`,
+    );
+  }
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  chmodSync(stateDir, 0o700);
+}
 
 const log = (...args) => console.log(SEED_MARKER, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -153,18 +170,26 @@ async function ensureOwner() {
   throw new Error(`could not register or log in owner: ${registered.status}/${loggedIn.status}`);
 }
 
-async function createSpace(cookie) {
-  const slug = `dev-${randomUUID().slice(0, 8)}`;
+async function ensureSpace(cookie) {
+  const existing = await api("GET", `/api/v1/spaces/by-slug/${DEV_SPACE.slug}`, { cookie });
+  if (existing.ok) {
+    const space = await existing.json();
+    log(`reusing space "${space.name}" (${space.slug})`);
+    return space;
+  }
+  if (existing.status !== 404) {
+    throw new Error(`lookup space failed: ${existing.status} ${await existing.text()}`);
+  }
   const response = await api("POST", "/api/v1/spaces", {
     cookie,
-    body: { name: "Sumi Dev Lab", slug, accent: "#5065D8" },
+    body: DEV_SPACE,
   });
   if (response.status !== 201) {
     throw new Error(`create space failed: ${response.status} ${await response.text()}`);
   }
   const space = await response.json();
-  log(`created space "${space.name ?? slug}" (${slug})`);
-  return { ...space, slug };
+  log(`created space "${space.name}" (${space.slug})`);
+  return space;
 }
 
 // Spawn a Computer daemon wired to the local codex login and capture the
@@ -174,7 +199,7 @@ async function createSpace(cookie) {
 // integration tests use), NOT env vars — figment's SUMI_ env layer does not map
 // cleanly onto `computer.state_dir`, so an env-only attempt silently falls back
 // to the default state dir and reads whatever stale secrets.json lives there.
-function spawnCodexDaemon(stateDir) {
+function spawnCodexDaemon(stateDir, expectPairing) {
   const configPath = join(stateDir, "computer.toml");
   writeFileSync(
     configPath,
@@ -197,12 +222,17 @@ function spawnCodexDaemon(stateDir) {
       stdio: ["ignore", "inherit", "pipe"],
     },
   );
-  const pairingUrl = new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input: child.stderr });
-    const timer = setTimeout(() => reject(new Error("timed out waiting for pairing URL")), 90_000);
-    rl.on("line", (line) => {
+  const rl = readline.createInterface({ input: child.stderr });
+  let resolvePairing;
+  let rejectPairing;
+  const pairingUrl = expectPairing ? new Promise((resolve, reject) => {
+    resolvePairing = resolve;
+    rejectPairing = reject;
+  }) : undefined;
+  const timer = expectPairing ? setTimeout(() => rejectPairing(new Error("timed out waiting for pairing URL")), 90_000) : undefined;
+  rl.on("line", (line) => {
       process.stderr.write(`  [daemon] ${line}\n`);
-      if (!line.includes("Open this URL to pair the Computer")) return;
+      if (!expectPairing || !line.includes("Open this URL to pair the Computer")) return;
       // tracing emits ANSI colour codes even over a pipe; strip them, then take
       // the first whitespace-delimited token after `url=` (mirrors the tests).
       // eslint-disable-next-line no-control-regex
@@ -210,10 +240,11 @@ function spawnCodexDaemon(stateDir) {
       const raw = clean.split("url=")[1]?.split(/\s+/)[0]?.replace(/"/g, "");
       if (raw) {
         clearTimeout(timer);
-        resolve(raw);
+        resolvePairing(raw);
       }
-    });
-    child.on("exit", (code) => reject(new Error(`daemon exited early (code ${code})`)));
+  });
+  child.on("exit", (code) => {
+    if (expectPairing) rejectPairing(new Error(`daemon exited early (code ${code})`));
   });
   return { child, pairingUrl };
 }
@@ -234,17 +265,25 @@ async function confirmPairing(cookie, spaceId, pairingUrl) {
   return response.json();
 }
 
-async function waitForComputerOnline(cookie, spaceId) {
+async function waitForComputerOnline(cookie, spaceId, computerId) {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const response = await api("GET", `/api/v1/spaces/${spaceId}/computers`, { cookie });
     if (response.ok) {
-      const online = (await response.json()).find((c) => c.status === "online");
+      const online = (await response.json()).find((candidate) => candidate.id === computerId && candidate.status === "online");
       if (online) return online;
     }
     await sleep(500);
   }
   throw new Error("Computer did not come online within 60s");
+}
+
+function pairedComputerIdentity(stateDir) {
+  const path = join(stateDir, "secrets.json");
+  if (!existsSync(path)) return undefined;
+  const secrets = JSON.parse(readFileSync(path, "utf8"));
+  if (!secrets.computer_id || !secrets.space_id) return undefined;
+  return { computerId: secrets.computer_id, spaceId: secrets.space_id };
 }
 
 async function createAgent(cookie, spaceId, computerId, profile) {
@@ -265,6 +304,46 @@ async function createAgent(cookie, spaceId, computerId, profile) {
   return response.json();
 }
 
+async function updateAgentRole(cookie, agent, profile) {
+  const response = await api("PATCH", `/api/v1/agents/${agent.member_id}`, {
+    cookie,
+    body: { role_text: profile.role_text },
+  });
+  if (!response.ok) {
+    throw new Error(`update @${profile.handle} failed: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+async function ensureAgents(cookie, spaceId, computerId) {
+  const response = await api("GET", `/api/v1/spaces/${spaceId}/agents`, { cookie });
+  if (!response.ok) {
+    throw new Error(`list agents failed: ${response.status} ${await response.text()}`);
+  }
+  const existing = await response.json();
+  const agents = [];
+  for (const profile of AGENT_PROFILES) {
+    const matches = existing.filter((agent) => agent.handle === profile.handle);
+    if (matches.length > 1) throw new Error(`multiple active Agents use @${profile.handle}`);
+    const agent = matches[0];
+    if (!agent) {
+      agents.push(await createAgent(cookie, spaceId, computerId, profile));
+      log(`created @${profile.handle}`);
+      continue;
+    }
+    if (agent.status === "retired") throw new Error(`seed Agent @${profile.handle} is retired`);
+    if (agent.computer_id !== computerId) {
+      throw new Error(`seed Agent @${profile.handle} belongs to another Computer`);
+    }
+    if (agent.driver_kind !== profile.driver_kind) {
+      throw new Error(`seed Agent @${profile.handle} uses ${agent.driver_kind}, expected ${profile.driver_kind}`);
+    }
+    agents.push(agent.role_text === profile.role_text ? agent : await updateAgentRole(cookie, agent, profile));
+    log(`reusing @${profile.handle}`);
+  }
+  return agents;
+}
+
 async function addAgentsToChannel(cookie, channelId, agentMemberIds) {
   const response = await api("POST", `/api/v1/channels/${channelId}/members`, {
     cookie,
@@ -280,25 +359,33 @@ async function main() {
   await waitForHealth();
 
   const cookie = await ensureOwner();
-  const space = await createSpace(cookie);
+  const space = await ensureSpace(cookie);
 
-  const stateDir = mkdtempSync(join(tmpdir(), "sumi-dev-computer-"));
+  const stateDir = DEV_COMPUTER_STATE;
+  prepareComputerStateDirectory(stateDir);
+  const pairedIdentity = pairedComputerIdentity(stateDir);
+  if (pairedIdentity && pairedIdentity.spaceId !== space.id) {
+    throw new Error(`Dev Computer state belongs to another Space; remove ${stateDir} and rerun dev-seed`);
+  }
   log(`spawning codex Computer daemon (state: ${stateDir})`);
-  const { child, pairingUrl } = spawnCodexDaemon(stateDir);
+  const { child, pairingUrl } = spawnCodexDaemon(stateDir, !pairedIdentity);
   process.on("exit", () => child.kill("SIGINT"));
 
-  const resolvedPairingUrl = await pairingUrl;
-  log("pairing URL captured — confirming");
-  const computer = await confirmPairing(cookie, space.id, resolvedPairingUrl);
-  const online = await waitForComputerOnline(cookie, space.id);
+  let computer;
+  if (pairedIdentity) {
+    log("reusing paired Dev Computer identity");
+    computer = { id: pairedIdentity.computerId };
+  } else {
+    const resolvedPairingUrl = await pairingUrl;
+    log("pairing URL captured — confirming");
+    computer = await confirmPairing(cookie, space.id, resolvedPairingUrl);
+  }
+  const online = await waitForComputerOnline(cookie, space.id, computer.id);
   log(`Computer "${online.name ?? "Dev Computer"}" is online`);
 
-  const agents = [];
-  for (const profile of AGENT_PROFILES) {
-    agents.push(await createAgent(cookie, space.id, computer.id, profile));
-  }
+  const agents = await ensureAgents(cookie, space.id, computer.id);
   await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
-  log(`agents ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} created and joined #general`);
+  log(`fixed group ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} joined #${DEV_CHANNEL_SLUG}`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
   const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);
 

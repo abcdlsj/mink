@@ -1,16 +1,42 @@
 import assert from "node:assert/strict";
+import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { AGENT_PROFILES, createBrowserSessionHandoff } from "./dev-seed.mjs";
+import { AGENT_PROFILES, DEV_CHANNEL_SLUG, DEV_SPACE, createBrowserSessionHandoff, prepareComputerStateDirectory } from "./dev-seed.mjs";
 
-test("development seed defines three distinct Codex responsibilities", () => {
+test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
+  assert.deepEqual(DEV_SPACE, { name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#5065D8" });
+  assert.equal(DEV_CHANNEL_SLUG, "general");
   assert.deepEqual(AGENT_PROFILES.map(({ name, handle, driver_kind }) => ({ name, handle, driver_kind })), [
+    { name: "PM", handle: "pm", driver_kind: "codex" },
     { name: "Coder", handle: "coder", driver_kind: "codex" },
     { name: "Reviewer", handle: "reviewer", driver_kind: "codex" },
-    { name: "PM", handle: "pm", driver_kind: "codex" },
   ]);
   assert.equal(new Set(AGENT_PROFILES.map((profile) => profile.role_text)).size, 3);
   for (const profile of AGENT_PROFILES) assert.ok(profile.role_text.length > 80);
+});
+
+test("development seed enforces private Computer state permissions", (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sumi-dev-seed-test-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const stateDir = join(parent, "computer");
+
+  prepareComputerStateDirectory(stateDir);
+  assert.equal(statSync(stateDir).mode & 0o777, 0o700);
+
+  chmodSync(stateDir, 0o755);
+  prepareComputerStateDirectory(stateDir);
+  assert.equal(statSync(stateDir).mode & 0o777, 0o700);
+});
+
+test("development seed rejects a Computer state path too long for a macOS Unix socket", { skip: process.platform !== "darwin" }, () => {
+  const stateDir = join(tmpdir(), "x".repeat(110));
+  assert.throws(
+    () => prepareComputerStateDirectory(stateDir),
+    /too long for a macOS Unix socket.*SUMI_SEED_STATE_DIR/,
+  );
 });
 
 test("browser Session handoff sets the Cookie and remains retryable", async (context) => {

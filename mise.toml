@@ -92,6 +92,6 @@ wait
 '''
 
 [tasks.dev-seed]
-description = "Run dev server pre-seeded with an owner, Space, paired Computer, and Coder/Reviewer/PM Agents"
+description = "Run dev server with stable sumi-dev Space, Dev Computer, and PM/Coder/Reviewer group"
 env = { SUMI_DEV_SEED = "1" }
 run = "mise run dev"
