@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { AGENT_PROFILES, DEV_CHANNEL_SLUG, DEV_SPACE, createBrowserSessionHandoff, prepareComputerStateDirectory } from "./dev-seed.mjs";
+import {
+  AGENT_PROFILES,
+  DEV_CHANNEL_SLUG,
+  DEV_SPACE,
+  createBrowserSessionHandoff,
+  prepareComputerStateDirectory,
+  prepareComputerStateForSpace,
+} from "./dev-seed.mjs";
+
+test("dev-seed provisions its PostgreSQL database before starting the server", () => {
+  const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+  const miseConfig = readFileSync(join(repositoryRoot, "mise.toml"), "utf8");
+  const task = miseConfig.match(/\[tasks\.dev-seed\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
+
+  assert.ok(task, "mise.toml must define tasks.dev-seed");
+  assert.match(task, /^depends = \["db-start"\]$/m);
+});
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
   assert.deepEqual(DEV_SPACE, { name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#5065D8" });
@@ -29,6 +46,23 @@ test("development seed enforces private Computer state permissions", (context) =
   chmodSync(stateDir, 0o755);
   prepareComputerStateDirectory(stateDir);
   assert.equal(statSync(stateDir).mode & 0o777, 0o700);
+});
+
+test("development seed preserves stale Computer state when the database was recreated", (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sumi-dev-seed-test-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const stateDir = join(parent, "computer");
+  prepareComputerStateDirectory(stateDir);
+  writeFileSync(join(stateDir, "secrets.json"), JSON.stringify({ computer_id: "old-computer", space_id: "old-space" }));
+
+  const result = prepareComputerStateForSpace(stateDir, "new-space", 1234);
+
+  assert.equal(result.pairedIdentity, undefined);
+  assert.equal(result.archivedStateDir, `${stateDir}.stale-1234`);
+  assert.ok(existsSync(join(result.archivedStateDir, "secrets.json")));
+  assert.ok(existsSync(stateDir));
+  assert.equal(statSync(stateDir).mode & 0o777, 0o700);
+  assert.equal(existsSync(join(stateDir, "secrets.json")), false);
 });
 
 test("development seed rejects a Computer state path too long for a macOS Unix socket", { skip: process.platform !== "darwin" }, () => {

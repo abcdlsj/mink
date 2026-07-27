@@ -10,7 +10,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -286,6 +286,21 @@ function pairedComputerIdentity(stateDir) {
   return { computerId: secrets.computer_id, spaceId: secrets.space_id };
 }
 
+export function prepareComputerStateForSpace(stateDir, spaceId, timestamp = Date.now()) {
+  prepareComputerStateDirectory(stateDir);
+  const pairedIdentity = pairedComputerIdentity(stateDir);
+  if (!pairedIdentity || pairedIdentity.spaceId === spaceId) return { pairedIdentity };
+
+  const archivePrefix = `${stateDir}.stale-${timestamp}`;
+  let archivedStateDir = archivePrefix;
+  for (let suffix = 1; existsSync(archivedStateDir); suffix += 1) {
+    archivedStateDir = `${archivePrefix}-${suffix}`;
+  }
+  renameSync(stateDir, archivedStateDir);
+  prepareComputerStateDirectory(stateDir);
+  return { pairedIdentity: undefined, archivedStateDir };
+}
+
 async function createAgent(cookie, spaceId, computerId, profile) {
   const response = await api("POST", `/api/v1/spaces/${spaceId}/agents`, {
     cookie,
@@ -362,11 +377,8 @@ async function main() {
   const space = await ensureSpace(cookie);
 
   const stateDir = DEV_COMPUTER_STATE;
-  prepareComputerStateDirectory(stateDir);
-  const pairedIdentity = pairedComputerIdentity(stateDir);
-  if (pairedIdentity && pairedIdentity.spaceId !== space.id) {
-    throw new Error(`Dev Computer state belongs to another Space; remove ${stateDir} and rerun dev-seed`);
-  }
+  const { pairedIdentity, archivedStateDir } = prepareComputerStateForSpace(stateDir, space.id);
+  if (archivedStateDir) log(`archived stale Dev Computer state at ${archivedStateDir}`);
   log(`spawning codex Computer daemon (state: ${stateDir})`);
   const { child, pairingUrl } = spawnCodexDaemon(stateDir, !pairedIdentity);
   process.on("exit", () => child.kill("SIGINT"));

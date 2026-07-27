@@ -32,6 +32,11 @@
 
 ## 最新验证基线
 
+2026-07-28：
+
+- `mise run test-dev-seed`：6 个开发 seed 任务与状态恢复测试通过。
+- `mise run dev-seed`：从缺失 `sumi_dev` 的首次启动路径创建数据库并完成 migration；数据库重建后的旧 Dev Computer 状态被保留归档，新 Computer 配对、PM/Coder/Reviewer provision 和 `#general` membership 均通过。
+
 2026-07-27：
 
 - `cargo fmt --all -- --check`
