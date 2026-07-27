@@ -11,7 +11,7 @@
 - Human、Space、Channel、DM、Thread、Message、Attachment、Computer、Agent、Inbox 和 Approval 已有 schema、API 或 UI 基线，保留现有已通过测试作为回归保护。
 - Computer 身份已收敛为单一 Computer Token：raw Token 仅保存在本机受限 `secrets.json`，Server 与配对记录只保存 hash，配对页只显示不可逆短 fingerprint；重连与删除生命周期已通过真实进程验收。
 - Builtin 已从显式 Computer-local source paths 加载 Pi-compatible settings/models/auth，选中并规范化 provider/model，只接受声明的 OpenAI-compatible completions；认证缓存限制在本机 `secrets.json` 与 daemon 所需内存，旧环境变量入口已删除。
-- 现有 Server 集成测试以手工 WebSocket frame 模拟 daemon，Builtin 测试以 mock provider 验证文件工具；没有测试启动真实 Server、daemon、Builtin 和 `sumi agent` CLI 跑通一条 DM、Channel 或 Thread 对话。
+- 真实进程 harness 已启动隔离 PostgreSQL、Server、Computer daemon、Builtin fake provider 和 `sumi agent` CLI，覆盖 DM、Channel、Thread、context freshness、崩溃恢复与权限边界；产品能力收口仍需为未覆盖能力补齐同等级证据。
 - 本机 Pi 配置可作为首个真实验收样本：默认 `deepseek/deepseek-v4-pro`，模型协议为 `openai-completions`，认证按 provider 单独保存；任何测试和日志都不得输出认证值。
 
 ## 执行规则
@@ -59,7 +59,8 @@
 
 ### 4. 产品能力收口
 
-- [ ] 逐项审计 `docs/design.md` 第 22.1、22.2、22.5–22.9 节，补齐尚未形成真实闭环的注册/Space、Attachment、Agent lifecycle、Memory、Channel create、Agent create Approval 和 Admin 治理行为。
+- [x] 按 `docs/design.md` 第 22.1 节完成注册/Space 真实闭环：真实 Server 与 PostgreSQL 验证 Session、`sumi-lab`、Owner/general 原子初始化、大小写等价 slug 拒绝、audit/outbox，并验证未登录深链经登录回到原 URL。
+- [ ] 继续审计 `docs/design.md` 第 22.2、22.5–22.9 节，补齐尚未形成真实闭环的 Attachment、Agent lifecycle、Memory、Channel create、Agent create Approval 和 Admin 治理行为。
 - [ ] 补齐关键并发与幂等不变量：同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突。
 - [ ] 使用真实 PostgreSQL integration tests 验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
 - [ ] 完成 Message、Attachment、Memory、Computer Token 和模型认证的日志 redaction，补齐治理与敏感操作 audit、注册登录及高风险写操作 rate limit、prompt injection 边界和删除/保留策略。
@@ -111,3 +112,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | Thread Agent 真实闭环 | `cargo test --test agent_dm -- --nocapture`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && git diff --check` | 复用真实 PostgreSQL、Server、daemon、Builtin 与 Agent CLI harness，验证 Thread mention 以 `#general:1` hard Item 唤醒唯一 run；Agent 通过真实 `inbox current` 和 `thread read` 读取 root、两条 replies、root 前 Channel 背景与 snapshot=4，再用真实 `message send --based-on 4 --handle` 将唯一回复写入同一 Thread seq=5 并原子 handle；Browser Thread API 同步返回 reply 的 `thread_id=1`，修复其此前错误返回 null 的协议缺口；完整 Rust 门禁通过 56 个常规 tests、7 个真实 Agent 闭环、3 个 CLI、2 个 Computer lifecycle 和 1 个 migration test，1 个手工 live-provider smoke 按设计 ignored
 2026-07-27 | Context freshness 真实闭环 | `cargo test --test agent_dm -- --nocapture`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && git diff --check` | 同一真实 Thread run 在 `snapshot_channel_seq=4` 读取后由 Human 追加 seq=5 reply；真实 `sumi agent message send --based-on 4 --handle` 以 exit 5 返回结构化 `context_changed`，changes 仅含 Message/地址/author 元数据且无正文，PostgreSQL 验证 stale Message 数量为 0、原 hard Item lease 未丢失；Builtin 在同一 run 重读 snapshot=5 后以新 snapshot 写入 seq=6 并原子 handle。完整门禁通过 56 个常规 tests、7 个真实 Agent 闭环、3 个 CLI、2 个 Computer lifecycle 和 1 个 migration test，1 个 live-provider smoke ignored；本地自动化配置 `computer.open_pairing_browser=false` 后仍走同一授权 API 配对且不再打开浏览器标签页
 2026-07-27 | Agent 权限边界真实闭环 | `cargo test --test agent_dm -- --nocapture`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && git diff --check` | 复用同一真实 PostgreSQL、Server、daemon、Builtin 与 Agent CLI harness，将 Agent 提升为 Admin 后仍以真实 `channel read` 拒绝未显式加入的 private Channel 且不泄露正文；Builtin sandbox 中伪造 `SUMI_RUN_TOKEN` 的 `whoami` 被拒，同 OS 用户下另一个已 provision Agent Home 的可读 marker 被隐藏；另一 Computer Token 调用当前 Computer Agent action 返回 401。原 hard mention 最终由真实 CLI ack，SQL 验证 private membership 仍为 0、private Message 保留且唯一 run handled；完整门禁通过 56 个常规 tests、8 个真实 Agent 闭环、3 个 CLI、2 个 Computer lifecycle 和 1 个 migration test，1 个 live-provider smoke ignored
+2026-07-27 | 注册与 Space 真实闭环 | `cargo test --test registration_space -- --nocapture`；`pnpm --dir web test -- RegisterPage.test.tsx --run`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && pnpm --dir web lint && pnpm --dir web build && git diff --check` | 真实隔离 PostgreSQL 与 `sumi server` 进程验证注册即创建 Session、邮箱标准化、`sumi-lab` 可访问、Owner/Human Member/general/membership/audit/outbox 单事务事实，以及大小写等价和重复 slug 均不能创建任何残留 Space；修复受保护深链 401 时反复嵌套 login redirect 的循环，并验证 query 保留、登录成功回到原 URL、注册/登录切换不丢 redirect。完整 Rust 门禁通过 56 个常规 tests、8 个 Agent 真实闭环、3 个 CLI、2 个 Computer lifecycle、1 个 migration 和 1 个注册/Space 真实进程测试；13 个 Web tests、lint 与 production build 通过，1 个 live-provider smoke ignored

@@ -75,7 +75,7 @@ export function LoginPage() {
             )}
           </button>
           <p className="form-switch">
-            New to Sumi? <Link to="/" search={{ redirect: undefined }}>Register</Link>
+            New to Sumi? <Link to="/" search={{ redirect }}>Register</Link>
           </p>
         </form>
       </section>

@@ -56,6 +56,7 @@ export function SpaceShell({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const authenticationRedirect = useRef(location.href);
   const queryClient = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
@@ -124,7 +125,7 @@ export function SpaceShell({
     if (routeError instanceof ApiRequestError && routeError.status === 401) {
       void navigate({
         to: "/login",
-        search: { redirect: window.location.pathname },
+        search: { redirect: authenticationRedirect.current },
         replace: true,
       });
     }

@@ -89,7 +89,7 @@ export function RegisterPage() {
             )}
           </button>
           <p className="form-switch">
-            Already a Member? <Link to="/login" search={{ redirect: undefined }}>Sign in</Link>
+            Already a Member? <Link to="/login" search={{ redirect }}>Sign in</Link>
           </p>
         </form>
       </section>
