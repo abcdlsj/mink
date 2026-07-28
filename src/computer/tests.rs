@@ -209,11 +209,30 @@ async fn restart_recovers_runs_and_received_provision_commands() {
     .execute(&database)
     .await
     .unwrap();
+    let run_command_id = Uuid::now_v7();
+    persist_command(
+        &database,
+        run_command_id,
+        1,
+        "agent.run",
+        &serde_json::json!({
+            "run_id": run_id,
+            "agent_id": agent_id,
+            "space_id": space_id,
+        }),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE server_commands SET status = 'running' WHERE command_id = ?1")
+        .bind(run_command_id.to_string())
+        .execute(&database)
+        .await
+        .unwrap();
     let command_id = Uuid::now_v7();
     persist_command(
         &database,
         command_id,
-        1,
+        2,
         "agent.provision",
         &serde_json::json!({
             "agent_id": agent_id,
@@ -257,6 +276,18 @@ async fn restart_recovers_runs_and_received_provision_commands() {
             .await
             .unwrap();
     assert_eq!(command_status, "completed");
+    let recovered_outbox: (String, String, i64) = sqlx::query_as(
+        "SELECT command_id, payload_json, attempt_count FROM run_result_outbox WHERE run_id = ?1",
+    )
+    .bind(run_id.to_string())
+    .fetch_one(&database)
+    .await
+    .unwrap();
+    assert_eq!(recovered_outbox.0, run_command_id.to_string());
+    assert_eq!(recovered_outbox.2, 0);
+    let recovered_payload: serde_json::Value = serde_json::from_str(&recovered_outbox.1).unwrap();
+    assert_eq!(recovered_payload["status"], "failed");
+    assert_eq!(recovered_payload["error_code"], "process_lost");
     let home = state.join("agents").join(agent_id.to_string());
     let profile: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(home.join("profile.json")).await.unwrap()).unwrap();

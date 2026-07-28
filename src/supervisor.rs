@@ -47,11 +47,27 @@ pub struct StartRun {
     pub driver_kind: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct RunCommand {
+    pub command_id: Uuid,
+    pub computer_seq: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct RunResult {
     pub run_id: Uuid,
     pub status: String,
     pub error_code: Option<String>,
+    pub memory_files: Vec<MemoryFileMetadata>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MemoryFileMetadata {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
 }
 
 impl Supervisor {
@@ -85,7 +101,11 @@ impl Supervisor {
         }
     }
 
-    pub async fn start(&self, run: StartRun) -> Result<oneshot::Receiver<RunResult>> {
+    pub async fn start(
+        &self,
+        run: StartRun,
+        command: RunCommand,
+    ) -> Result<oneshot::Receiver<RunResult>> {
         ensure!(!run.prompt.is_empty(), "Agent run prompt must not be empty");
         let mut active = self.inner.active.lock().await;
         ensure!(
@@ -104,14 +124,19 @@ impl Supervisor {
         }
         let (cancel, cancel_rx) = oneshot::channel();
         let (result_tx, result_rx) = oneshot::channel();
+        let result_event_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
-             token_expires_at, status) VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued')",
+             token_expires_at, status, command_id, computer_seq, result_event_id) \
+             VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued', ?5, ?6, ?7)",
         )
         .bind(run.run_id.to_string())
         .bind(run.agent_id.to_string())
         .bind(run.space_id.to_string())
         .bind(OffsetDateTime::now_utc().to_string())
+        .bind(command.command_id.to_string())
+        .bind(command.computer_seq)
+        .bind(result_event_id.to_string())
         .execute(&self.inner.database)
         .await?;
         tracing::info!(
@@ -136,15 +161,22 @@ impl Supervisor {
             let run_id = run.run_id;
             let agent_id = run.agent_id;
             let started = std::time::Instant::now();
-            let result = match supervisor.execute(run, cancel_rx).await {
+            let result = match supervisor.execute(run, command, cancel_rx).await {
                 Ok(result) => result,
                 Err(error) => supervisor
-                    .finish_without_process(error.run_id, "failed", Some(&error.code))
+                    .persist_terminal_result(
+                        error.run_id,
+                        agent_id,
+                        command,
+                        "failed",
+                        Some(&error.code),
+                    )
                     .await
                     .unwrap_or(RunResult {
                         run_id: error.run_id,
                         status: "failed".to_owned(),
                         error_code: Some(error.code),
+                        memory_files: Vec::new(),
                     }),
             };
             tracing::info!(
@@ -253,11 +285,18 @@ impl Supervisor {
     async fn execute(
         &self,
         run: StartRun,
+        command: RunCommand,
         mut cancel_rx: oneshot::Receiver<()>,
     ) -> std::result::Result<RunResult, RunFailure> {
         let permit = tokio::select! {
             permit = self.inner.slots.clone().acquire_owned() => permit.map_err(|_| RunFailure::new(run.run_id, "supervisor_stopped"))?,
-            _ = &mut cancel_rx => return self.finish_without_process(run.run_id, "canceled", None).await,
+            _ = &mut cancel_rx => return self.persist_terminal_result(
+                run.run_id,
+                run.agent_id,
+                command,
+                "canceled",
+                None,
+            ).await,
         };
         let _permit = permit;
         tracing::info!(
@@ -372,32 +411,105 @@ impl Supervisor {
             .cleanup(&environment)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "driver_cleanup_failed"))?;
-        self.finish_without_process(run.run_id, outcome.0, outcome.1)
+        self.persist_terminal_result(run.run_id, run.agent_id, command, outcome.0, outcome.1)
             .await
     }
 
-    async fn finish_without_process(
+    async fn persist_terminal_result(
         &self,
         run_id: Uuid,
+        agent_id: Uuid,
+        command: RunCommand,
         status: &str,
         error_code: Option<&str>,
     ) -> std::result::Result<RunResult, RunFailure> {
+        let memory_files = match scan_memory(
+            &self
+                .inner
+                .state_dir
+                .join("agents")
+                .join(agent_id.to_string())
+                .join("memory"),
+        )
+        .await
+        {
+            Ok(files) => files,
+            Err(error) => {
+                tracing::warn!(run_id = %run_id, error = %error, "Failed to scan Agent Memory after run");
+                Vec::new()
+            }
+        };
+        let result = RunResult {
+            run_id,
+            status: status.to_owned(),
+            error_code: error_code.map(str::to_owned),
+            memory_files,
+        };
+        let payload = serde_json::json!({
+            "ok": status == "completed",
+            "run_id": run_id,
+            "status": status,
+            "error_code": error_code,
+            "memory_files": &result.memory_files,
+        });
+        let now = OffsetDateTime::now_utc().to_string();
+        let mut transaction = self
+            .inner
+            .database
+            .begin()
+            .await
+            .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?;
         sqlx::query(
             "UPDATE local_agent_runs SET status = ?2, process_id = NULL, finished_at = ?3, \
              last_error_code = ?4 WHERE run_id = ?1",
         )
         .bind(run_id.to_string())
         .bind(status)
-        .bind(OffsetDateTime::now_utc().to_string())
+        .bind(&now)
         .bind(error_code)
-        .execute(&self.inner.database)
+        .execute(&mut *transaction)
         .await
         .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?;
-        Ok(RunResult {
-            run_id,
-            status: status.to_owned(),
-            error_code: error_code.map(str::to_owned),
+        sqlx::query(
+            "UPDATE server_commands SET status = ?2, result_json = ?3, completed_at = ?4 \
+             WHERE command_id = ?1",
+        )
+        .bind(command.command_id.to_string())
+        .bind(if status == "completed" {
+            "completed"
+        } else {
+            "failed"
         })
+        .bind(
+            serde_json::to_string(&payload)
+                .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?,
+        )
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?;
+        sqlx::query(
+            "INSERT INTO run_result_outbox (event_id, command_id, computer_seq, run_id, \
+             payload_json, next_attempt_at, created_at) \
+             SELECT result_event_id, command_id, computer_seq, run_id, ?2, ?3, ?3 \
+             FROM local_agent_runs WHERE run_id = ?1 \
+             ON CONFLICT(event_id) DO NOTHING",
+        )
+        .bind(run_id.to_string())
+        .bind(
+            serde_json::to_string(&payload)
+                .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?,
+        )
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RunFailure::new(run_id, "local_state_failed"))?;
+        tracing::info!(run_id = %run_id, command_id = %command.command_id, "Agent run result persisted to outbox");
+        Ok(result)
     }
 
     fn environment(&self, agent_id: Uuid) -> Result<DriverEnvironment> {
@@ -475,30 +587,157 @@ impl RunFailure {
     }
 }
 
+async fn scan_memory(root: &std::path::Path) -> Result<Vec<MemoryFileMetadata>> {
+    let mut pending = vec![root.to_owned()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let mut entries = tokio::fs::read_dir(&directory).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let bytes = tokio::fs::read(entry.path()).await?;
+            let metadata = entry.metadata().await?;
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(root)?
+                .to_str()
+                .context("Memory path is not UTF-8")?;
+            files.push(MemoryFileMetadata {
+                path: relative.to_owned(),
+                size: metadata.len(),
+                sha256: hex::encode(Sha256::digest(&bytes)),
+                updated_at: OffsetDateTime::from(metadata.modified()?),
+            });
+        }
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
 pub async fn recover_interrupted_runs(database: &SqlitePool) -> Result<()> {
     let now = OffsetDateTime::now_utc().to_string();
-    sqlx::query(
-        "UPDATE local_agent_runs SET status = 'failed', process_id = NULL, finished_at = ?1, \
-         last_error_code = 'process_lost', server_recovery_reported_at = NULL \
-         WHERE status IN ('queued', 'running')",
+    let mut transaction = database.begin().await?;
+    let interrupted: Vec<(String, String, i64, String)> = sqlx::query_as(
+        "SELECT runs.run_id, commands.command_id, commands.computer_seq, \
+         COALESCE(runs.result_event_id, 'result-' || runs.run_id) \
+         FROM local_agent_runs runs JOIN server_commands commands \
+           ON commands.command_id = runs.command_id \
+           OR (runs.command_id IS NULL \
+             AND json_extract(commands.request_json, '$.kind') = 'agent.run' \
+             AND json_extract(commands.request_json, '$.payload.run_id') = runs.run_id) \
+         WHERE runs.status IN ('queued', 'running')",
     )
-    .bind(&now)
-    .execute(database)
+    .fetch_all(&mut *transaction)
     .await?;
-    sqlx::query(
-        "UPDATE server_commands SET status = 'failed', result_json = \
-         '{\"ok\":false,\"error_code\":\"process_lost\"}', completed_at = ?1 \
-         WHERE status = 'running'",
+    for (run_id, command_id, computer_seq, event_id) in interrupted {
+        let payload = serde_json::json!({
+            "ok": false,
+            "run_id": run_id,
+            "status": "failed",
+            "error_code": "process_lost",
+            "memory_files": [],
+        });
+        let payload = serde_json::to_string(&payload)?;
+        sqlx::query(
+            "UPDATE local_agent_runs SET status = 'failed', process_id = NULL, finished_at = ?2, \
+             last_error_code = 'process_lost', server_recovery_reported_at = NULL, \
+             command_id = ?3, computer_seq = ?4, result_event_id = ?5 WHERE run_id = ?1",
+        )
+        .bind(&run_id)
+        .bind(&now)
+        .bind(&command_id)
+        .bind(computer_seq)
+        .bind(&event_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE server_commands SET status = 'failed', result_json = ?2, completed_at = ?3 \
+             WHERE command_id = ?1",
+        )
+        .bind(&command_id)
+        .bind(&payload)
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO run_result_outbox (event_id, command_id, computer_seq, run_id, \
+             payload_json, next_attempt_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
+             ON CONFLICT(event_id) DO NOTHING",
+        )
+        .bind(&event_id)
+        .bind(&command_id)
+        .bind(computer_seq)
+        .bind(&run_id)
+        .bind(&payload)
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    reconcile_run_result_outbox(database).await?;
+    Ok(())
+}
+
+async fn reconcile_run_result_outbox(database: &SqlitePool) -> Result<()> {
+    let now = OffsetDateTime::now_utc().to_string();
+    let mut transaction = database.begin().await?;
+    let missing: Vec<(String, String, i64, String, String)> = sqlx::query_as(
+        "SELECT runs.run_id, commands.command_id, commands.computer_seq, \
+         COALESCE(runs.result_event_id, 'result-' || runs.run_id), commands.result_json \
+         FROM local_agent_runs runs JOIN server_commands commands \
+           ON commands.command_id = runs.command_id \
+           OR (runs.command_id IS NULL \
+             AND json_extract(commands.request_json, '$.kind') = 'agent.run' \
+             AND json_extract(commands.request_json, '$.payload.run_id') = runs.run_id) \
+         LEFT JOIN run_result_outbox outbox ON outbox.run_id = runs.run_id \
+         WHERE runs.status IN ('completed', 'failed', 'canceled') \
+           AND commands.result_json IS NOT NULL AND outbox.run_id IS NULL",
     )
-    .bind(&now)
-    .execute(database)
+    .fetch_all(&mut *transaction)
     .await?;
+    for (run_id, command_id, computer_seq, event_id, payload) in missing {
+        sqlx::query(
+            "UPDATE local_agent_runs SET command_id = ?2, computer_seq = ?3, result_event_id = ?4 \
+             WHERE run_id = ?1",
+        )
+        .bind(&run_id)
+        .bind(&command_id)
+        .bind(computer_seq)
+        .bind(&event_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO run_result_outbox (event_id, command_id, computer_seq, run_id, \
+             payload_json, next_attempt_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        )
+        .bind(&event_id)
+        .bind(&command_id)
+        .bind(computer_seq)
+        .bind(&run_id)
+        .bind(&payload)
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    };
 
     use async_trait::async_trait;
     use tokio::sync::mpsc;
@@ -618,6 +857,33 @@ mod tests {
         }
     }
 
+    async fn start(supervisor: &Supervisor, run: StartRun) -> Result<oneshot::Receiver<RunResult>> {
+        static NEXT_SEQUENCE: AtomicI64 = AtomicI64::new(1);
+        let command = RunCommand {
+            command_id: Uuid::now_v7(),
+            computer_seq: NEXT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        };
+        let request = serde_json::json!({
+            "kind": "agent.run",
+            "payload": {
+                "run_id": run.run_id,
+                "agent_id": run.agent_id,
+                "space_id": run.space_id,
+            },
+        });
+        sqlx::query(
+            "INSERT INTO server_commands (command_id, computer_seq, request_json, status, \
+             received_at) VALUES (?1, ?2, ?3, 'running', ?4)",
+        )
+        .bind(command.command_id.to_string())
+        .bind(command.computer_seq)
+        .bind(serde_json::to_string(&request)?)
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&supervisor.inner.database)
+        .await?;
+        supervisor.start(run, command).await
+    }
+
     async fn status(supervisor: &Supervisor, run_id: Uuid) -> String {
         sqlx::query_scalar("SELECT status FROM local_agent_runs WHERE run_id = ?1")
             .bind(run_id.to_string())
@@ -631,11 +897,11 @@ mod tests {
         let (_root, supervisor, first, second) = fixture(1, 10).await;
         let first_run = run(first, "hold");
         let first_id = first_run.run_id;
-        let first_result = supervisor.start(first_run).await.unwrap();
+        let first_result = start(&supervisor, first_run).await.unwrap();
         let second_run = run(second, "quick");
         let second_id = second_run.run_id;
-        let second_result = supervisor.start(second_run).await.unwrap();
-        assert!(supervisor.start(run(first, "quick")).await.is_err());
+        let second_result = start(&supervisor, second_run).await.unwrap();
+        assert!(start(&supervisor, run(first, "quick")).await.is_err());
         tokio::time::timeout(Duration::from_secs(10), async {
             while status(&supervisor, first_id).await != "running" {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -654,7 +920,7 @@ mod tests {
         let (_root, supervisor, first, second) = fixture(2, 1).await;
         let canceled = run(first, "timeout");
         let canceled_id = canceled.run_id;
-        let canceled_result = supervisor.start(canceled).await.unwrap();
+        let canceled_result = start(&supervisor, canceled).await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), async {
             while status(&supervisor, canceled_id).await != "running" {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -668,10 +934,26 @@ mod tests {
 
         let timed_out = run(second, "timeout");
         let timed_out_id = timed_out.run_id;
-        let result = supervisor.start(timed_out).await.unwrap().await.unwrap();
+        let result = start(&supervisor, timed_out).await.unwrap().await.unwrap();
         assert_eq!(result.status, "failed");
         assert_eq!(result.error_code.as_deref(), Some("run_timeout"));
         assert_eq!(status(&supervisor, timed_out_id).await, "failed");
+        let outbox: Vec<(String, String)> = sqlx::query_as(
+            "SELECT runs.status, outbox.payload_json FROM local_agent_runs runs \
+             JOIN run_result_outbox outbox ON outbox.run_id = runs.run_id \
+             WHERE runs.run_id IN (?1, ?2) ORDER BY runs.run_id",
+        )
+        .bind(canceled_id.to_string())
+        .bind(timed_out_id.to_string())
+        .fetch_all(&supervisor.inner.database)
+        .await
+        .unwrap();
+        assert_eq!(outbox.len(), 2);
+        for (status, payload) in outbox {
+            let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+            assert_eq!(payload["status"], status);
+            assert!(payload["memory_files"].is_array());
+        }
     }
 
     #[tokio::test]
@@ -679,10 +961,10 @@ mod tests {
         let (_root, supervisor, first, second) = fixture(2, 10).await;
         let first_run = run(first, "timeout");
         let first_id = first_run.run_id;
-        let first_result = supervisor.start(first_run).await.unwrap();
+        let first_result = start(&supervisor, first_run).await.unwrap();
         let second_run = run(second, "timeout");
         let second_id = second_run.run_id;
-        let second_result = supervisor.start(second_run).await.unwrap();
+        let second_result = start(&supervisor, second_run).await.unwrap();
         tokio::time::timeout(Duration::from_secs(10), async {
             while status(&supervisor, first_id).await != "running"
                 || status(&supervisor, second_id).await != "running"
@@ -696,5 +978,71 @@ mod tests {
         assert_eq!(first_result.await.unwrap().status, "canceled");
         assert_eq!(second_result.await.unwrap().status, "canceled");
         assert_eq!(supervisor.counts().await.unwrap().1, 0);
+    }
+
+    #[tokio::test]
+    async fn restart_persists_process_lost_result_with_terminal_run_atomically() {
+        let (_root, supervisor, first, _second) = fixture(1, 10).await;
+        let run = run(first, "quick");
+        let run_id = run.run_id;
+        let command = RunCommand {
+            command_id: Uuid::now_v7(),
+            computer_seq: 1,
+        };
+        let request = serde_json::json!({
+            "kind": "agent.run",
+            "payload": {
+                "run_id": run_id,
+                "agent_id": first,
+                "space_id": run.space_id,
+            },
+        });
+        sqlx::query(
+            "INSERT INTO server_commands (command_id, computer_seq, request_json, status, \
+             received_at) VALUES (?1, ?2, ?3, 'running', ?4)",
+        )
+        .bind(command.command_id.to_string())
+        .bind(command.computer_seq)
+        .bind(serde_json::to_string(&request).unwrap())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&supervisor.inner.database)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+             token_expires_at, status, command_id, computer_seq, result_event_id) \
+             VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'running', ?5, ?6, ?7)",
+        )
+        .bind(run_id.to_string())
+        .bind(first.to_string())
+        .bind(run.space_id.to_string())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .bind(command.command_id.to_string())
+        .bind(command.computer_seq)
+        .bind(Uuid::now_v7().to_string())
+        .execute(&supervisor.inner.database)
+        .await
+        .unwrap();
+
+        recover_interrupted_runs(&supervisor.inner.database)
+            .await
+            .unwrap();
+
+        let persisted: (String, String, String, i64) = sqlx::query_as(
+            "SELECT runs.status, commands.status, outbox.payload_json, outbox.attempt_count \
+             FROM local_agent_runs runs JOIN server_commands commands \
+               ON commands.command_id = runs.command_id \
+             JOIN run_result_outbox outbox ON outbox.run_id = runs.run_id \
+             WHERE runs.run_id = ?1",
+        )
+        .bind(run_id.to_string())
+        .fetch_one(&supervisor.inner.database)
+        .await
+        .unwrap();
+        assert_eq!(persisted.0, "failed");
+        assert_eq!(persisted.1, "failed");
+        assert_eq!(persisted.3, 0);
+        let payload: serde_json::Value = serde_json::from_str(&persisted.2).unwrap();
+        assert_eq!(payload["error_code"], "process_lost");
     }
 }

@@ -16,7 +16,7 @@ use crate::{
     config, database,
     driver::builtin_config::{self, BuiltinAuthentication},
     driver::codex::CodexDriver,
-    supervisor::{RunResult, StartRun, Supervisor},
+    supervisor::{RunCommand, RunResult, StartRun, Supervisor},
 };
 
 mod local_ipc;
@@ -225,6 +225,9 @@ enum DaemonExit {
 
 async fn reset_deleted_identity(database: &SqlitePool, secrets_path: &Path) -> Result<()> {
     let mut transaction = database.begin().await?;
+    sqlx::query("DELETE FROM run_result_outbox")
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query("DELETE FROM server_commands")
         .execute(&mut *transaction)
         .await?;
@@ -702,41 +705,31 @@ impl LocalCommandProcessor {
         if kind == "agent.run" {
             let run: StartRun = serde_json::from_value(payload.clone())
                 .context("agent.run command payload is invalid")?;
-            let memory_root = self
-                .state_dir
-                .join("agents")
-                .join(run.agent_id.to_string())
-                .join("memory");
             sqlx::query("UPDATE server_commands SET status = 'running' WHERE command_id = ?1")
                 .bind(command_id.to_string())
                 .execute(&self.database)
                 .await?;
-            let result = self.supervisor.start(run).await;
+            let result = self
+                .supervisor
+                .start(
+                    run,
+                    RunCommand {
+                        command_id,
+                        computer_seq,
+                    },
+                )
+                .await;
             match result {
                 Ok(receiver) => {
-                    let database = self.database.clone();
                     let completion_tx = self.completion_tx.clone();
                     tokio::spawn(async move {
                         let result = receiver.await.unwrap_or(RunResult {
                             run_id: Uuid::nil(),
                             status: "failed".to_owned(),
                             error_code: Some("supervisor_stopped".to_owned()),
+                            memory_files: Vec::new(),
                         });
-                        let mut outcome = command_outcome_for_run(&result);
-                        match scan_memory(&memory_root).await {
-                            Ok(memory_files) => {
-                                outcome.result["memory_files"] = serde_json::json!(memory_files);
-                            }
-                            Err(error) => {
-                                tracing::warn!(run_id = %result.run_id, error = %error, "Failed to scan Agent Memory after run");
-                            }
-                        }
-                        if let Err(error) =
-                            finish_local_command(&database, command_id, &outcome).await
-                        {
-                            tracing::error!(command_id = %command_id, error = %error, "Failed to persist Agent run result");
-                            return;
-                        }
+                        let outcome = command_outcome_for_run(&result);
                         completion_tx
                             .send(CommandCompletion {
                                 command_id,
@@ -805,6 +798,7 @@ fn command_outcome_for_run(result: &RunResult) -> LocalCommandOutcome {
             "run_id": result.run_id,
             "status": result.status,
             "error_code": result.error_code,
+            "memory_files": result.memory_files,
         }),
     }
 }

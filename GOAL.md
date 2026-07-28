@@ -28,7 +28,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 
 规格见 [Agent 生命周期可靠性](docs/design/04-agent-lifecycle-reliability.md)。按以下顺序实现：
 
-- [ ] 在 SQLite 增加 durable result outbox。Run 结束时原子写入终态和待上报结果。
+- [x] 在 SQLite 增加 durable result outbox。Run 结束时原子写入终态和待上报结果。
 - [ ] 增加 `result_receipt`。daemon 收到回执前持续重发，Server 幂等应用结果。
 - [ ] 增加 `run_started`。command ACK 不再把 queued Run 改成 running。
 - [ ] 增加 Run ownership lease、fencing token 和 Server reconciler。过期 Run 释放 Inbox 和 active Run 唯一约束。
@@ -62,6 +62,12 @@ pnpm --dir web build
 ```
 
 涉及 PostgreSQL、daemon 或 Driver 的完成结论必须来自对应集成测试。涉及布局和交互的完成结论必须包含三种目标视口的浏览器验证。
+
+本项验证记录：
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy --all-targets --all-features -- -D warnings`：通过。
+- `cargo test --all-features`：通过；64 个单元测试、21 个进程和数据库集成测试通过，1 个手动 provider smoke test 忽略。
 
 ## 完成条件
 
