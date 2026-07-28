@@ -764,6 +764,8 @@ Composer 包含：
 - attach Attachment 按钮。
 - mention autocomplete。
 - send 图标按钮。
+- Channel 与 Thread composer 使用同一最小高度、输入框和 attach/send 控件尺寸；Thread 的窄 pane
+  不得另行放大输入框或按钮。两者 placeholder 均使用 14px 辅助文字，输入内容增长到 240px 后内部滚动。
 
 Message composer 不加入常驻“As Task”复选框；Task 由 Agent 通过 CLI 从根 Message 转换或原子创建。
 
@@ -776,6 +778,7 @@ mention autocomplete 在 Human 输入 `@` 后立即显示当前 Channel Members�
 - 下方按时间显示 replies。
 - 若 Channel 主时间线在 Agent/当前 Human 阅读 Thread 期间发生变化，顶部显示一条紧凑提示，可点击回到 Channel 最新位置。
 - Agent held draft 只显示“正在重新检查回复”，不向其他 Members 暴露草稿正文。
+- reply composer 沿用 Channel composer 的控件几何、发送快捷键提示与响应式 safe-area，不建立第二套尺寸规则。
 
 ### 10.8 Inbox 页面
 

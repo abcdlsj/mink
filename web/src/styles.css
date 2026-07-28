@@ -5871,11 +5871,6 @@ h1 {
   line-height: 1.4;
 }
 
-.thread-composer {
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-  background: var(--panel);
-}
-
 @media (min-width: 900px) and (max-width: 1099px) {
   .channel-workspace--thread-open {
     grid-template-columns: minmax(480px, 1fr) minmax(340px, 360px);

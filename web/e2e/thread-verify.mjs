@@ -13,6 +13,26 @@ page.on("console", (message) => {
   if (message.type() === "error") errors.push(`console:${message.text()}`);
 });
 
+async function composerGeometry(locator) {
+  return locator.evaluate((form) => {
+    const input = form.querySelector("textarea");
+    const attach = form.querySelector(":scope > .icon-button");
+    const send = form.querySelector(".send-button");
+    if (!input || !attach || !send) throw new Error("composer controls are incomplete");
+    const formBox = form.getBoundingClientRect();
+    const inputBox = input.getBoundingClientRect();
+    const attachBox = attach.getBoundingClientRect();
+    const sendBox = send.getBoundingClientRect();
+    return {
+      height: Math.round(formBox.height),
+      inputHeight: Math.round(inputBox.height),
+      attach: [Math.round(attachBox.width), Math.round(attachBox.height), Math.round(attachBox.y - inputBox.y)],
+      send: [Math.round(sendBox.width), Math.round(sendBox.height), Math.round(sendBox.y - inputBox.y)],
+      fontSize: getComputedStyle(input).fontSize,
+    };
+  });
+}
+
 await page.goto(`${base}/login`);
 await page.getByLabel("Email").fill("dev@example.test");
 await page.getByLabel("Password").fill("correct horse battery staple");
@@ -45,6 +65,12 @@ for (const [width, height, label] of [[1440, 900, "desktop"], [1024, 768, "table
   const pane = page.locator(".thread-pane");
   await pane.waitFor();
   const box = await pane.boundingBox();
+  const channelComposer = await composerGeometry(page.locator(".channel-workspace > .composer"));
+  const threadComposer = await composerGeometry(page.locator(".thread-composer"));
+  if (JSON.stringify(channelComposer) !== JSON.stringify(threadComposer)) {
+    throw new Error(`${label} composers diverge: ${JSON.stringify({ channelComposer, threadComposer })}`);
+  }
+  if (threadComposer.fontSize !== "14px") throw new Error(`${label} Thread placeholder is not 14px`);
   await page.screenshot({ path: `${output}/pane-${label}.png` });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   if (label === "mobile") {
@@ -54,7 +80,7 @@ for (const [width, height, label] of [[1440, 900, "desktop"], [1024, 768, "table
   }
   await page.getByRole("button", { name: "Close Thread" }).click();
   const after = await timeline.evaluate((element) => element.scrollTop);
-  results.push({ label, overflow, scrollRestored: before === after, pane: box && { x: Math.round(box.x), width: Math.round(box.width) } });
+  results.push({ label, overflow, scrollRestored: before === after, composer: threadComposer, pane: box && { x: Math.round(box.x), width: Math.round(box.width) } });
 }
 
 await page.setViewportSize({ width: 1440, height: 900 });

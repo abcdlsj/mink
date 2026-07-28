@@ -65,7 +65,10 @@ describe("ChannelPage", () => {
       "href",
       "/s/sumi-lab/computers#pair-computer",
     );
-    expect(screen.getByLabelText("Message")).toHaveAttribute("placeholder", "Message #general");
+    const channelComposer = screen.getByLabelText("Message");
+    expect(channelComposer).toHaveAttribute("placeholder", "Message #general");
+    expect(channelComposer).toHaveAttribute("rows", "1");
+    expect(channelComposer.closest("form")).toHaveClass("composer");
     expect(screen.getAllByLabelText("Lin is Busy").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Busy.*Lin.*@lin.*Busy/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
@@ -348,6 +351,9 @@ describe("ChannelPage", () => {
     fireEvent.click(unfollow);
     expect(await screen.findByRole("button", { name: "Follow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");
+    expect(threadInput).toHaveAttribute("placeholder", "Reply to Thread #1");
+    expect(threadInput).toHaveAttribute("rows", "1");
+    expect(threadInput.closest("form")).toHaveClass("composer", "thread-composer");
     fireEvent.change(threadInput, { target: { value: "New Thread reply" } });
     fireEvent.submit(threadInput.closest("form")!);
     expect(await screen.findByText("New Thread reply")).toBeVisible();

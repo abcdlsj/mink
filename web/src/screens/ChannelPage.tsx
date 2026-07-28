@@ -639,7 +639,7 @@ function ThreadPane({
           </>
         ) : null}
       </div>
-      <form className="thread-composer" onSubmit={submit}>
+      <form className="composer thread-composer" onSubmit={submit}>
         <input
           ref={fileInput}
           className="visually-hidden"
@@ -655,6 +655,7 @@ function ThreadPane({
           className="icon-button"
           type="button"
           aria-label="Attach file to Thread"
+          title="Attach file to Thread"
           disabled={upload.isPending}
           onClick={() => fileInput.current?.click()}
         >
@@ -663,7 +664,7 @@ function ThreadPane({
         <MentionInput
           ariaLabel="Thread reply"
           placeholder={`Reply to Thread #${threadId}`}
-          rows={2}
+          rows={1}
           value={body}
           members={members}
           onChange={setBody}
@@ -676,6 +677,7 @@ function ThreadPane({
         <button className="send-button" type="submit" aria-label="Send Thread reply" disabled={reply.isPending || upload.isPending || !body.trim()}>
           {reply.isPending ? <LoaderCircle className="spin" /> : <><Send /><span>Send</span></>}
         </button>
+        <span className="composer-shortcut">⌘ ENTER TO SEND</span>
         {reply.error || upload.error ? <p className="composer-error" role="alert">{reply.error?.message ?? upload.error?.message}</p> : null}
       </form>
     </aside>
