@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Asterisk, Bell, BellOff, Check, Hash, ListTodo, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Monitor, Paperclip, Plus, Send, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
@@ -106,11 +106,81 @@ export function MessageWorkspace({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [threadId, setThreadId] = useState<number>();
   const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
+  const [threadPaneWidth, setThreadPaneWidth] = useState(360);
+  const [threadPaneMaxWidth, setThreadPaneMaxWidth] = useState(480);
+  const [threadPaneResizing, setThreadPaneResizing] = useState(false);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const workspace = useRef<HTMLElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const channelScrollPosition = useRef(0);
   const threadTrigger = useRef<HTMLButtonElement | null>(null);
+  const threadResizeStart = useRef<{ pointerId: number; x: number; width: number } | undefined>(undefined);
+
+  const clampThreadPaneWidth = useCallback((width: number) =>
+    Math.min(threadPaneMaxWidth, Math.max(360, width)), [threadPaneMaxWidth]);
+
+  useEffect(() => {
+    const element = workspace.current;
+    if (!element) return;
+    const updateMaximum = () => {
+      if (window.innerWidth < 900) return;
+      const workspaceWidth = element.clientWidth || window.innerWidth;
+      const maximum = Math.min(480, Math.max(360, workspaceWidth - 480));
+      setThreadPaneMaxWidth(maximum);
+      setThreadPaneWidth((current) => Math.min(current, maximum));
+    };
+    updateMaximum();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateMaximum);
+    observer?.observe(element);
+    window.addEventListener("resize", updateMaximum);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateMaximum);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!threadPaneResizing) return;
+    function move(event: globalThis.PointerEvent) {
+      const start = threadResizeStart.current;
+      if (!start || event.pointerId !== start.pointerId) return;
+      setThreadPaneWidth(clampThreadPaneWidth(start.width + start.x - event.clientX));
+    }
+    function finish(event: globalThis.PointerEvent) {
+      if (event.pointerId !== threadResizeStart.current?.pointerId) return;
+      threadResizeStart.current = undefined;
+      setThreadPaneResizing(false);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [clampThreadPaneWidth, threadPaneResizing]);
+
+  function startThreadPaneResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.focus();
+    threadResizeStart.current = { pointerId: event.pointerId, x: event.clientX, width: threadPaneWidth };
+    setThreadPaneResizing(true);
+  }
+
+  function resizeThreadPaneWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 24 : 8;
+    let nextWidth: number | undefined;
+    if (event.key === "ArrowLeft") nextWidth = threadPaneWidth + step;
+    if (event.key === "ArrowRight") nextWidth = threadPaneWidth - step;
+    if (event.key === "Home") nextWidth = 360;
+    if (event.key === "End") nextWidth = threadPaneMaxWidth;
+    if (nextWidth === undefined) return;
+    event.preventDefault();
+    setThreadPaneWidth(clampThreadPaneWidth(nextWidth));
+  }
 
   function openThread(nextThreadId: number, trigger?: HTMLButtonElement) {
     if (trigger) threadTrigger.current = trigger;
@@ -234,7 +304,9 @@ export function MessageWorkspace({
 
   return (
     <section
-      className={`channel-workspace${threadId ? " channel-workspace--thread-open" : ""}`}
+      ref={workspace}
+      className={`channel-workspace${threadId ? " channel-workspace--thread-open" : ""}${threadPaneResizing ? " channel-workspace--thread-resizing" : ""}`}
+      style={threadId ? ({ "--thread-pane-width": `${threadPaneWidth}px` } as CSSProperties) : undefined}
       aria-labelledby="channel-heading"
     >
       <header className="channel-header">
@@ -440,6 +512,10 @@ export function MessageWorkspace({
           members={channelMembers.data?.members ?? []}
           latestMainMessageSeq={latestMainMessageSeq}
           openedAtMainSeq={threadOpenedAtMainSeq}
+          paneWidth={threadPaneWidth}
+          paneMaxWidth={threadPaneMaxWidth}
+          startResize={startThreadPaneResize}
+          resizeWithKeyboard={resizeThreadPaneWithKeyboard}
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
         />
@@ -526,6 +602,10 @@ function ThreadPane({
   members,
   latestMainMessageSeq,
   openedAtMainSeq,
+  paneWidth,
+  paneMaxWidth,
+  startResize,
+  resizeWithKeyboard,
   close,
   showLatestChannelMessages,
 }: {
@@ -536,6 +616,10 @@ function ThreadPane({
   members: Member[];
   latestMainMessageSeq: number;
   openedAtMainSeq: number;
+  paneWidth: number;
+  paneMaxWidth: number;
+  startResize: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  resizeWithKeyboard: (event: KeyboardEvent<HTMLDivElement>) => void;
   close: () => void;
   showLatestChannelMessages: () => void;
 }) {
@@ -598,6 +682,18 @@ function ThreadPane({
 
   return (
     <aside className="thread-pane" aria-label={`Thread #${channelSlug}:${threadId}`}>
+      <div
+        className="thread-resize-handle"
+        role="separator"
+        aria-label="Resize Thread pane"
+        aria-orientation="vertical"
+        aria-valuemin={360}
+        aria-valuemax={paneMaxWidth}
+        aria-valuenow={paneWidth}
+        tabIndex={0}
+        onPointerDown={startResize}
+        onKeyDown={resizeWithKeyboard}
+      />
       <header className="thread-header">
         <div>
           <span>THREAD</span>

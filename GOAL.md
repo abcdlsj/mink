@@ -22,7 +22,7 @@
 - [x] 将最左上角品牌标识收口为高饱和粉红背景、中等字重深酒红 S 字形、轻微倾斜的标识框。
 - [x] 缩小 Conversation navigation 关闭 X，点击后收起左侧导航，并允许通过最左 Space rail 任意空白区重新展开。
 - [x] 统一 Channel 与 Thread composer 尺寸，缩小 Thread placeholder 文字并对齐输入与发送控件。
-- [ ] 支持桌面端拖动调整 Thread pane 宽度，保持 Channel 最小宽度与移动端全屏行为。
+- [x] 支持桌面端拖动调整 Thread pane 宽度，保持 Channel 最小宽度与移动端全屏行为。
 - [ ] 将 Agent 头像收口为由 Member ID 稳定生成、可区分的 GitHub identicon 风格像素印章。
 - [ ] 补齐 DM WebUI 闭环：可从导航创建/打开 DM，并沿用 Channel 的 Message、Thread 与 Agent 注意力模型。
 
@@ -31,6 +31,8 @@
 Task Message 标识验证：`cargo test task_flow_is_channel_scoped_and_permissionless -- --nocapture`、`pnpm --dir web test -- ChannelPage.test.tsx`、`pnpm --dir web lint`、`pnpm --dir web build`、`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过；组件测试同时覆盖 Channel 根 Message、Thread root、TASK 标识和 assignee hover/focus 文本。
 
 Composer 统一验证：`pnpm --dir web test`（8 files、19 tests）、`pnpm --dir web lint`、`pnpm --dir web build` 与 `node web/e2e/thread-verify.mjs` 通过；真实 1440x900 / 1024x768 / 390x844 中 Channel 与 Thread composer 分别同高 89 / 76 / 76px，输入框均 42px、attach/send 均 30px 且 placeholder 均为 14px，无横向溢出、page/console error，截图位于 `/tmp/sumi-shots-thread/`。
+
+Thread pane resize 验证：`pnpm --dir web test`（8 files、19 tests）、`pnpm --dir web lint`、`pnpm --dir web build` 与 `node web/e2e/thread-verify.mjs` 通过；组件测试覆盖 separator ARIA、8/24px 键盘步进、Home/End 与跨控件边界 pointer drag。真实 1440x900 中 pointer 从 360px 调整到 440px、End 到 480px、Home 回 360px；1024x768 中最大 480px 且 Channel 保持至少 480px；390x844 中 resize handle 不可见且 Thread 保持全屏。三视口均无横向溢出、page/console error，截图位于 `/tmp/sumi-shots-thread/`。
 
 ### 1. Task 原型
 

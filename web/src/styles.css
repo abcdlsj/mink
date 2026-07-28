@@ -735,7 +735,12 @@ h1 {
 }
 
 .channel-workspace--thread-open {
-  grid-template-columns: minmax(480px, 1fr) clamp(360px, 30vw, 480px);
+  grid-template-columns: minmax(480px, 1fr) var(--thread-pane-width, 360px);
+}
+
+.channel-workspace--thread-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .channel-workspace--thread-open > .channel-header,
@@ -1040,6 +1045,7 @@ h1 {
 }
 
 .thread-pane {
+  position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;
@@ -1048,6 +1054,42 @@ h1 {
   grid-template-rows: 64px minmax(0, 1fr) auto;
   border-left: 2px solid var(--ink);
   background: var(--paper);
+}
+
+.thread-resize-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 12px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.thread-resize-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 48px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.thread-resize-handle:hover::after,
+.thread-resize-handle:focus-visible::after {
+  background: var(--accent);
+}
+
+.thread-resize-handle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .thread-header {
@@ -4258,6 +4300,10 @@ h1 {
     border-left: 1px solid color-mix(in srgb, var(--ink) 34%, transparent);
   }
 
+  .thread-resize-handle {
+    display: none;
+  }
+
   .thread-header {
     padding: 0 12px;
     border-bottom: 1px solid color-mix(in srgb, var(--ink) 34%, transparent);
@@ -5873,17 +5919,21 @@ h1 {
 
 @media (min-width: 900px) and (max-width: 1099px) {
   .channel-workspace--thread-open {
-    grid-template-columns: minmax(480px, 1fr) minmax(340px, 360px);
+    grid-template-columns: minmax(480px, 1fr) var(--thread-pane-width, 360px);
   }
 
   .thread-pane {
-    position: static;
+    position: relative;
     z-index: auto;
     inset: auto;
     grid-column: 2;
     grid-row: 1 / 4;
     grid-template-rows: 56px minmax(0, 1fr) auto;
     border-left: 2px solid var(--ink);
+  }
+
+  .thread-resize-handle {
+    display: block;
   }
 
   .thread-header .thread-close {

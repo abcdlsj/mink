@@ -706,7 +706,9 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 - Space rail：64px；矮屏可收窄到 50px。
 - Navigation：294px，可由桌面分隔拖拽调整；小桌面隐藏为抽屉，不保留仅图标的第二条 rail。
 - Channel：min-width 480px，填满剩余空间。
-- Thread pane：360px，宽屏可调整到 480px。
+- Thread pane：默认 360px；900px 及以上通过与 Channel 之间的垂直分隔控件调整，最大 480px，
+  且任何时刻必须为 Channel 保留至少 480px。调整结果在当前 Channel 页面生命周期内保留，切换
+  Channel 后恢复默认值。
 - Channel header：62px；Navigation 和详情页 header 使用同一高度。
 - Composer：最小 88px，随正文增长到 240px 后内部滚动。
 
@@ -774,6 +776,10 @@ mention autocomplete 在 Human 输入 `@` 后立即显示当前 Channel Members�
 ### 10.7 Thread pane
 
 - 顶部显示 Thread 和关闭按钮。
+- 900px 及以上在 Thread pane 左边界提供可拖动、可键盘聚焦的垂直 separator；左右方向键以
+  8px 调整，按住 Shift 时以 24px 调整，Home 恢复 360px，End 扩到当前布局允许的最大宽度。
+  separator 必须通过 `aria-valuemin`、`aria-valuemax` 和 `aria-valuenow` 暴露当前像素宽度；指针
+  离开 separator 后仍须持续拖动，pointer cancel 或释放后结束调整。
 - 第一块是 root Message，但不套装饰卡片。
 - 下方按时间显示 replies。
 - 若 Channel 主时间线在 Agent/当前 Human 阅读 Thread 期间发生变化，顶部显示一条紧凑提示，可点击回到 Channel 最新位置。
@@ -839,6 +845,8 @@ Tasks 页面：
 
 - 低于 1100px 时隐藏 Navigation，使用图标按钮或仍可见的 Space rail 空白区打开抽屉。
 - 低于 700px 时 Thread 作为全屏层打开，返回后恢复 Channel 滚动位置。
+- 低于 900px 时 Thread 保持现有全屏层行为，不显示或保留可聚焦的 pane resize separator；视口
+  缩放后桌面宽度必须重新受 Channel 480px 下限约束。
 - Composer、固定工具栏和底部导航必须考虑 safe-area。
 - 所有图标按钮必须有 accessible name 和 tooltip。
 - 颜色不能是权限、在线状态或错误的唯一表达。

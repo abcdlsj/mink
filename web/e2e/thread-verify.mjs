@@ -64,7 +64,43 @@ for (const [width, height, label] of [[1440, 900, "desktop"], [1024, 768, "table
   await page.locator(".inline-thread-heading").first().click();
   const pane = page.locator(".thread-pane");
   await pane.waitFor();
-  const box = await pane.boundingBox();
+  let box = await pane.boundingBox();
+  const resizeHandle = page.getByRole("separator", { name: "Resize Thread pane" });
+  const handleVisible = await resizeHandle.isVisible();
+  let resizedPaneWidth = null;
+  let keyboardResetWidth = null;
+  if (label === "mobile") {
+    if (handleVisible) throw new Error("mobile Thread resize handle must not be visible");
+  } else {
+    if (!handleVisible) throw new Error(`${label} Thread resize handle is not visible`);
+    const channelBox = await page.locator(".channel-header").boundingBox();
+    if (!channelBox || Math.round(channelBox.width) < 480) {
+      throw new Error(`${label} Channel became narrower than 480px: ${JSON.stringify(channelBox)}`);
+    }
+    await resizeHandle.press("End");
+    box = await pane.boundingBox();
+    resizedPaneWidth = box && Math.round(box.width);
+    const maximum = Number(await resizeHandle.getAttribute("aria-valuemax"));
+    if (resizedPaneWidth !== maximum || maximum > 480) {
+      throw new Error(`${label} keyboard maximum is invalid: ${JSON.stringify({ resizedPaneWidth, maximum })}`);
+    }
+    await page.screenshot({ path: `${output}/pane-${label}-max.png` });
+    await resizeHandle.press("Home");
+    box = await pane.boundingBox();
+    keyboardResetWidth = box && Math.round(box.width);
+    if (keyboardResetWidth !== 360) throw new Error(`${label} Home did not restore 360px: ${keyboardResetWidth}`);
+    if (label === "desktop") {
+      const handleBox = await resizeHandle.boundingBox();
+      if (!handleBox) throw new Error("desktop Thread resize handle has no geometry");
+      const pointerX = handleBox.x + handleBox.width / 2;
+      await page.mouse.move(pointerX, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(pointerX - 80, handleBox.y + handleBox.height / 2);
+      await page.mouse.up();
+      box = await pane.boundingBox();
+      if (!box || Math.round(box.width) !== 440) throw new Error(`desktop pointer resize failed: ${JSON.stringify(box)}`);
+    }
+  }
   const channelComposer = await composerGeometry(page.locator(".channel-workspace > .composer"));
   const threadComposer = await composerGeometry(page.locator(".thread-composer"));
   if (JSON.stringify(channelComposer) !== JSON.stringify(threadComposer)) {
@@ -80,7 +116,7 @@ for (const [width, height, label] of [[1440, 900, "desktop"], [1024, 768, "table
   }
   await page.getByRole("button", { name: "Close Thread" }).click();
   const after = await timeline.evaluate((element) => element.scrollTop);
-  results.push({ label, overflow, scrollRestored: before === after, composer: threadComposer, pane: box && { x: Math.round(box.x), width: Math.round(box.width) } });
+  results.push({ label, overflow, scrollRestored: before === after, composer: threadComposer, pane: box && { x: Math.round(box.x), width: Math.round(box.width) }, handleVisible, resizedPaneWidth, keyboardResetWidth });
 }
 
 await page.setViewportSize({ width: 1440, height: 900 });
