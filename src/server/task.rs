@@ -8,7 +8,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, audit, auth, idempotency, member, message, outbox};
+use super::{AppState, api_error::ApiError, audit, auth, idempotency, member, outbox};
 
 const STATUSES: &[&str] = &["open", "in_progress", "done", "canceled"];
 
@@ -234,46 +234,24 @@ pub(super) async fn create_for_agent(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    let seq: i64 = sqlx::query_scalar(
-        "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
-    )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let message_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO messages (id, channel_id, space_id, channel_seq, author_member_id, body_markdown, idempotency_key, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-    ).bind(message_id).bind(channel_id).bind(space_id).bind(seq).bind(agent_id).bind(body).bind(key).bind(now)
-      .execute(&mut *transaction).await.map_err(ApiError::database)?;
-    let inbox_changed = message::insert_channel_ambient_inbox(
+    let published = super::message_publish::publish(
         &mut transaction,
-        message::ChannelAmbientInbox {
+        super::message_publish::PublishMessage {
             space_id,
             channel_id,
-            message_id,
-            actor_id: agent_id,
-            seq,
-            hard_recipients: &[],
-            now,
+            channel_kind: &kind,
+            author_member_id: agent_id,
+            body_markdown: body,
+            mention_member_ids: &[],
+            attachment_ids: &[],
+            thread_id: None,
+            thread_root_message_id: None,
+            reply_to_message_id: None,
+            idempotency_key: key,
         },
     )
     .await?;
-    if kind != "direct" && inbox_changed {
-        outbox::publish(
-            &mut transaction,
-            "inbox.changed",
-            message_id,
-            serde_json::json!({ "space_id": space_id, "channel_id": channel_id }),
-            now,
-        )
-        .await?;
-    }
-    outbox::publish(&mut transaction, "message.created", message_id, serde_json::json!({
-        "space_id": space_id, "channel_id": channel_id, "message_id": message_id, "channel_seq": seq,
-    }), now).await?;
+    let message_id = published.id;
     let response = insert_task(
         &mut transaction,
         space_id,

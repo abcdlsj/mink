@@ -26,7 +26,7 @@
 
 ### 2. 统一 Message 发布事务
 
-- 状态：待开始
+- 状态：已完成
 - 提取事务级 Message 发布应用服务，统一主时间线和 Thread 的 Message、mention、Attachment、Inbox、subscription 与 outbox 写入。
 - Human handler 和 Agent gateway 只保留认证、目标解析、上下文 freshness、Inbox handle 和响应转换。
 - 不增加按表划分的 repository trait，不改变现有 HTTP、CLI 和数据库 schema。

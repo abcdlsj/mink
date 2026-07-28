@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use axum::{
     Json,
@@ -390,146 +390,24 @@ pub async fn create(
         return Ok((status, Json(response)));
     }
 
-    validate_mentions(&mut transaction, channel_id, &request.mentions).await?;
-    let seq: i64 = sqlx::query_scalar(
-        "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
-    )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let message_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO messages \
-         (id, channel_id, space_id, channel_seq, author_member_id, body_markdown, \
-          idempotency_key, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-    )
-    .bind(message_id)
-    .bind(channel_id)
-    .bind(space_id)
-    .bind(seq)
-    .bind(actor.id)
-    .bind(&request.body_markdown)
-    .bind(key.0)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    attachment::attach_to_message(
+    let published = super::message_publish::publish(
         &mut transaction,
-        message_id,
-        space_id,
-        actor.id,
-        &request.attachment_ids,
+        super::message_publish::PublishMessage {
+            space_id,
+            channel_id,
+            channel_kind: &channel_kind,
+            author_member_id: actor.id,
+            body_markdown: &request.body_markdown,
+            mention_member_ids: &request.mentions,
+            attachment_ids: &request.attachment_ids,
+            thread_id: None,
+            thread_root_message_id: None,
+            reply_to_message_id: None,
+            idempotency_key: key.0,
+        },
     )
     .await?;
-    for mentioned_member_id in &request.mentions {
-        sqlx::query(
-            "INSERT INTO message_mentions \
-             (message_id, channel_id, space_id, member_id) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(message_id)
-        .bind(channel_id)
-        .bind(space_id)
-        .bind(mentioned_member_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        if channel_kind != "direct" && *mentioned_member_id != actor.id {
-            sqlx::query(
-                "INSERT INTO inbox_items \
-                 (id, member_id, kind, priority, channel_id, message_id, first_seq, last_seq, \
-                  available_at, created_at, space_id) \
-                 VALUES ($1, $2, 'mention', 'hard', $3, $4, $5, $5, $6, $6, $7)",
-            )
-            .bind(Uuid::now_v7())
-            .bind(mentioned_member_id)
-            .bind(channel_id)
-            .bind(message_id)
-            .bind(seq)
-            .bind(now)
-            .bind(space_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(ApiError::database)?;
-        }
-    }
-    if channel_kind == "direct" {
-        let recipient_id: Uuid = sqlx::query_scalar(
-            "SELECT member_id FROM channel_members \
-             WHERE channel_id = $1 AND member_id <> $2",
-        )
-        .bind(channel_id)
-        .bind(actor.id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        sqlx::query(
-            "INSERT INTO inbox_items \
-             (id, member_id, space_id, kind, priority, channel_id, message_id, \
-              first_seq, last_seq, available_at, created_at) \
-             VALUES ($1, $2, $3, 'direct', 'hard', $4, $5, $6, $6, $7, $7)",
-        )
-        .bind(Uuid::now_v7())
-        .bind(recipient_id)
-        .bind(space_id)
-        .bind(channel_id)
-        .bind(message_id)
-        .bind(seq)
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-    }
-    let ambient_changed = if channel_kind == "direct" {
-        false
-    } else {
-        insert_channel_ambient_inbox(
-            &mut transaction,
-            ChannelAmbientInbox {
-                space_id,
-                channel_id,
-                message_id,
-                actor_id: actor.id,
-                seq,
-                hard_recipients: &request.mentions,
-                now,
-            },
-        )
-        .await?
-    };
-    if channel_kind == "direct"
-        || request
-            .mentions
-            .iter()
-            .any(|member_id| *member_id != actor.id)
-        || ambient_changed
-    {
-        super::outbox::publish(
-            &mut transaction,
-            "inbox.changed",
-            message_id,
-            serde_json::json!({ "space_id": space_id, "channel_id": channel_id }),
-            now,
-        )
-        .await?;
-    }
-    super::outbox::publish(
-        &mut transaction,
-        "message.created",
-        message_id,
-        serde_json::json!({
-            "space_id": space_id,
-            "channel_id": channel_id,
-            "message_id": message_id,
-            "channel_seq": seq
-        }),
-        now,
-    )
-    .await?;
-    let response = message_by_id(&mut transaction, message_id).await?;
+    let response = message_by_id(&mut transaction, published.id).await?;
     idempotency::finish(
         &mut transaction,
         &scope,
@@ -540,102 +418,6 @@ pub async fn create(
     .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok((StatusCode::CREATED, Json(response)))
-}
-
-pub(super) struct ChannelAmbientInbox<'a> {
-    pub space_id: Uuid,
-    pub channel_id: Uuid,
-    pub message_id: Uuid,
-    pub actor_id: Uuid,
-    pub seq: i64,
-    pub hard_recipients: &'a [Uuid],
-    pub now: OffsetDateTime,
-}
-
-pub(super) async fn insert_channel_ambient_inbox(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    input: ChannelAmbientInbox<'_>,
-) -> Result<bool, ApiError> {
-    let ChannelAmbientInbox {
-        space_id,
-        channel_id,
-        message_id,
-        actor_id,
-        seq,
-        hard_recipients,
-        now,
-    } = input;
-    let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
-        "SELECT agents.member_id, \
-                (agents.attention_config_json->>'ambient_debounce_seconds')::bigint \
-         FROM agents JOIN channel_members ON channel_members.member_id = agents.member_id \
-         WHERE channel_members.channel_id = $1 AND agents.member_id <> $2 \
-           AND agents.desired_lifecycle IN ('active', 'suspended') \
-           AND agents.provision_status = 'ready' \
-           AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false) \
-           AND NOT (agents.member_id = ANY($3))",
-    )
-    .bind(channel_id)
-    .bind(actor_id)
-    .bind(hard_recipients)
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-
-    for (member_id, debounce_seconds) in &recipients {
-        let available_at = now + time::Duration::seconds(*debounce_seconds);
-        sqlx::query(
-            "INSERT INTO inbox_items \
-             (id, member_id, space_id, kind, priority, channel_id, message_id, first_seq, \
-              last_seq, message_count, status, available_at, created_at) \
-             VALUES ($1, $2, $3, 'channel_activity', 'ambient', $4, $5, $6, $6, 1, \
-                     'pending', $7, $8) \
-             ON CONFLICT (member_id, channel_id) \
-               WHERE kind = 'channel_activity' AND thread_id IS NULL AND status = 'pending' \
-             DO UPDATE SET message_id = EXCLUDED.message_id, last_seq = EXCLUDED.last_seq, \
-                           message_count = inbox_items.message_count + 1",
-        )
-        .bind(Uuid::now_v7())
-        .bind(member_id)
-        .bind(space_id)
-        .bind(channel_id)
-        .bind(message_id)
-        .bind(seq)
-        .bind(available_at)
-        .bind(now)
-        .execute(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
-    }
-    Ok(!recipients.is_empty())
-}
-
-pub(super) async fn validate_mentions(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    channel_id: Uuid,
-    mentions: &[Uuid],
-) -> Result<(), ApiError> {
-    if mentions.is_empty() {
-        return Ok(());
-    }
-    let valid = sqlx::query_scalar::<_, Uuid>(
-        "SELECT member_id FROM channel_members \
-         WHERE channel_id = $1 AND member_id = ANY($2)",
-    )
-    .bind(channel_id)
-    .bind(mentions)
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?
-    .into_iter()
-    .collect::<HashSet<_>>();
-    if mentions.iter().any(|member_id| !valid.contains(member_id)) {
-        return Err(ApiError::validation(
-            "invalid_mention",
-            "Mentioned Member must belong to the Channel",
-        ));
-    }
-    Ok(())
 }
 
 async fn publish_message_event(

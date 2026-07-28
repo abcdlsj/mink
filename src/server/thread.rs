@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use axum::{
     Json,
     extract::{Path, State},
@@ -202,104 +200,24 @@ pub async fn reply(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok((status, Json(response)));
     }
-    if let Some(reply_to) = request.reply_to_message_id {
-        let valid_reply: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1 AND channel_id = $2 \
-             AND (id = $3 OR thread_id = $4))",
-        )
-        .bind(reply_to)
-        .bind(channel_id)
-        .bind(root_message_id)
-        .bind(thread_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        if !valid_reply {
-            return Err(ApiError::validation(
-                "invalid_reply_target",
-                "Reply target must be the Thread root or a Message in this Thread",
-            ));
-        }
-    }
-    message::validate_mentions(&mut transaction, channel_id, &request.mentions).await?;
-    let seq: i64 = sqlx::query_scalar(
-        "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
-    )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let message_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO messages \
-         (id, channel_id, space_id, channel_seq, thread_id, reply_to_message_id, \
-          author_member_id, body_markdown, idempotency_key, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-    )
-    .bind(message_id)
-    .bind(channel_id)
-    .bind(space_id)
-    .bind(seq)
-    .bind(thread_id)
-    .bind(request.reply_to_message_id)
-    .bind(actor.id)
-    .bind(&request.body_markdown)
-    .bind(key.0)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    super::attachment::attach_to_message(
+    let published = super::message_publish::publish(
         &mut transaction,
-        message_id,
-        space_id,
-        actor.id,
-        &request.attachment_ids,
-    )
-    .await?;
-    let inbox_changed = insert_thread_attention(
-        &mut transaction,
-        ThreadAttention {
+        super::message_publish::PublishMessage {
             space_id,
             channel_id,
-            thread_id,
-            message_id,
-            actor_id: actor.id,
-            seq,
-            reply_to_message_id: request.reply_to_message_id,
-            mentions: &request.mentions,
             channel_kind: &channel_kind,
-            now,
+            author_member_id: actor.id,
+            body_markdown: &request.body_markdown,
+            mention_member_ids: &request.mentions,
+            attachment_ids: &request.attachment_ids,
+            thread_id: Some(thread_id),
+            thread_root_message_id: Some(root_message_id),
+            reply_to_message_id: request.reply_to_message_id,
+            idempotency_key: key.0,
         },
     )
     .await?;
-    if inbox_changed {
-        super::outbox::publish(
-            &mut transaction,
-            "inbox.changed",
-            message_id,
-            serde_json::json!({ "space_id": space_id, "channel_id": channel_id, "thread_id": thread_id }),
-            now,
-        )
-        .await?;
-    }
-    subscribe(&mut transaction, channel_id, thread_id, actor.id, now).await?;
-    super::outbox::publish(
-        &mut transaction,
-        "message.created",
-        message_id,
-        serde_json::json!({
-            "space_id": space_id,
-            "channel_id": channel_id,
-            "thread_id": thread_id,
-            "message_id": message_id,
-            "channel_seq": seq
-        }),
-        now,
-    )
-    .await?;
-    let response = message::message_by_id(&mut transaction, message_id).await?;
+    let response = message::message_by_id(&mut transaction, published.id).await?;
     idempotency::finish(
         &mut transaction,
         &scope,
@@ -479,181 +397,6 @@ async fn subscribe(
     .await
     .map_err(ApiError::database)?;
     Ok(())
-}
-
-pub(super) struct ThreadAttention<'a> {
-    pub space_id: Uuid,
-    pub channel_id: Uuid,
-    pub thread_id: i64,
-    pub message_id: Uuid,
-    pub actor_id: Uuid,
-    pub seq: i64,
-    pub reply_to_message_id: Option<Uuid>,
-    pub mentions: &'a [Uuid],
-    pub channel_kind: &'a str,
-    pub now: OffsetDateTime,
-}
-
-pub(super) async fn insert_thread_attention(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    input: ThreadAttention<'_>,
-) -> Result<bool, ApiError> {
-    let ThreadAttention {
-        space_id,
-        channel_id,
-        thread_id,
-        message_id,
-        actor_id,
-        seq,
-        reply_to_message_id,
-        mentions,
-        channel_kind,
-        now,
-    } = input;
-    let mut hard_recipients = HashSet::new();
-    for mentioned_member_id in mentions {
-        sqlx::query(
-            "INSERT INTO message_mentions \
-             (message_id, channel_id, space_id, member_id) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(message_id)
-        .bind(channel_id)
-        .bind(space_id)
-        .bind(mentioned_member_id)
-        .execute(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
-        subscribe(
-            transaction,
-            channel_id,
-            thread_id,
-            *mentioned_member_id,
-            now,
-        )
-        .await?;
-        if channel_kind != "direct" && *mentioned_member_id != actor_id {
-            hard_recipients.insert(*mentioned_member_id);
-            sqlx::query(
-                "INSERT INTO inbox_items \
-                 (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
-                  first_seq, last_seq, available_at, created_at) \
-                 VALUES ($1, $2, $3, 'mention', 'hard', $4, $5, $6, $7, $7, $8, $8)",
-            )
-            .bind(Uuid::now_v7())
-            .bind(mentioned_member_id)
-            .bind(space_id)
-            .bind(channel_id)
-            .bind(thread_id)
-            .bind(message_id)
-            .bind(seq)
-            .bind(now)
-            .execute(&mut **transaction)
-            .await
-            .map_err(ApiError::database)?;
-        }
-    }
-    if channel_kind == "direct" {
-        let recipient_id: Uuid = sqlx::query_scalar(
-            "SELECT member_id FROM channel_members \
-             WHERE channel_id = $1 AND member_id <> $2",
-        )
-        .bind(channel_id)
-        .bind(actor_id)
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
-        sqlx::query(
-            "INSERT INTO inbox_items \
-             (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
-              first_seq, last_seq, available_at, created_at) \
-             VALUES ($1, $2, $3, 'direct', 'hard', $4, $5, $6, $7, $7, $8, $8)",
-        )
-        .bind(Uuid::now_v7())
-        .bind(recipient_id)
-        .bind(space_id)
-        .bind(channel_id)
-        .bind(thread_id)
-        .bind(message_id)
-        .bind(seq)
-        .bind(now)
-        .execute(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
-        return Ok(true);
-    }
-    if let Some(reply_to_message_id) = reply_to_message_id {
-        let reply_recipient: Uuid =
-            sqlx::query_scalar("SELECT author_member_id FROM messages WHERE id = $1")
-                .bind(reply_to_message_id)
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(ApiError::database)?;
-        if reply_recipient != actor_id && hard_recipients.insert(reply_recipient) {
-            sqlx::query(
-                "INSERT INTO inbox_items \
-                 (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
-                  first_seq, last_seq, available_at, created_at) \
-                 VALUES ($1, $2, $3, 'reply', 'hard', $4, $5, $6, $7, $7, $8, $8)",
-            )
-            .bind(Uuid::now_v7())
-            .bind(reply_recipient)
-            .bind(space_id)
-            .bind(channel_id)
-            .bind(thread_id)
-            .bind(message_id)
-            .bind(seq)
-            .bind(now)
-            .execute(&mut **transaction)
-            .await
-            .map_err(ApiError::database)?;
-        }
-    }
-    let hard_recipients = hard_recipients.into_iter().collect::<Vec<_>>();
-    let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
-        "SELECT subscriptions.member_id, \
-                COALESCE((agents.attention_config_json->>'ambient_debounce_seconds')::bigint, 5) \
-         FROM thread_subscriptions subscriptions \
-         LEFT JOIN agents ON agents.member_id = subscriptions.member_id \
-         WHERE subscriptions.channel_id = $1 AND subscriptions.thread_id = $2 \
-           AND subscriptions.muted_at IS NULL AND subscriptions.member_id <> $3 \
-           AND NOT (subscriptions.member_id = ANY($4)) \
-           AND (agents.member_id IS NULL OR (agents.desired_lifecycle IN ('active', 'suspended') \
-             AND agents.provision_status = 'ready' \
-             AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false)))",
-    )
-    .bind(channel_id)
-    .bind(thread_id)
-    .bind(actor_id)
-    .bind(&hard_recipients)
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    for (member_id, debounce_seconds) in &recipients {
-        sqlx::query(
-            "INSERT INTO inbox_items \
-             (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
-              first_seq, last_seq, message_count, status, available_at, created_at) \
-             VALUES ($1, $2, $3, 'thread_activity', 'ambient', $4, $5, $6, $7, $7, 1, \
-                     'pending', $8, $9) \
-             ON CONFLICT (member_id, channel_id, thread_id) \
-               WHERE kind = 'thread_activity' AND thread_id IS NOT NULL AND status = 'pending' \
-             DO UPDATE SET message_id = EXCLUDED.message_id, last_seq = EXCLUDED.last_seq, \
-                           message_count = inbox_items.message_count + 1",
-        )
-        .bind(Uuid::now_v7())
-        .bind(member_id)
-        .bind(space_id)
-        .bind(channel_id)
-        .bind(thread_id)
-        .bind(message_id)
-        .bind(seq)
-        .bind(now + time::Duration::seconds(*debounce_seconds))
-        .bind(now)
-        .execute(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
-    }
-    Ok(!hard_recipients.is_empty() || !recipients.is_empty())
 }
 
 async fn fetch_message(

@@ -8,8 +8,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency,
-    message, space, task,
+    AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency, space,
+    task,
 };
 use crate::local_protocol::AgentAction;
 
@@ -954,107 +954,25 @@ async fn agent_message_send(
         .await
         .map_err(ApiError::database)?
     };
-    let seq: i64 = sqlx::query_scalar(
-        "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
-    )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let message_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO messages (id, channel_id, space_id, channel_seq, thread_id, author_member_id, \
-         body_markdown, idempotency_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
-    .bind(message_id)
-    .bind(channel_id)
-    .bind(space_id)
-    .bind(seq)
-    .bind(thread_id)
-    .bind(agent_id)
-    .bind(body_markdown)
-    .bind(idempotency_key)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    attachment::attach_to_message(
+    let published = super::message_publish::publish(
         &mut transaction,
-        message_id,
-        space_id,
-        agent_id,
-        &attachment_ids,
+        super::message_publish::PublishMessage {
+            space_id,
+            channel_id,
+            channel_kind: &channel_kind,
+            author_member_id: agent_id,
+            body_markdown,
+            mention_member_ids: &mentions,
+            attachment_ids: &attachment_ids,
+            thread_id,
+            thread_root_message_id: None,
+            reply_to_message_id: None,
+            idempotency_key,
+        },
     )
     .await?;
-    for mentioned_member_id in &mentions {
-        sqlx::query(
-            "INSERT INTO message_mentions \
-             (message_id, channel_id, space_id, member_id) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(message_id)
-        .bind(channel_id)
-        .bind(space_id)
-        .bind(mentioned_member_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-    }
-    let mut thread_inbox_changed = false;
-    if let Some(thread_id) = thread_id {
-        sqlx::query(
-            "INSERT INTO thread_subscriptions (channel_id, thread_id, member_id, created_at) \
-             VALUES ($1, $2, $3, $4) ON CONFLICT (channel_id, thread_id, member_id) \
-             DO UPDATE SET muted_at = NULL",
-        )
-        .bind(channel_id)
-        .bind(thread_id)
-        .bind(agent_id)
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        if channel_kind != "direct" {
-            thread_inbox_changed = super::thread::insert_thread_attention(
-                &mut transaction,
-                super::thread::ThreadAttention {
-                    space_id,
-                    channel_id,
-                    thread_id,
-                    message_id,
-                    actor_id: agent_id,
-                    seq,
-                    reply_to_message_id: None,
-                    mentions: &mentions,
-                    channel_kind: &channel_kind,
-                    now,
-                },
-            )
-            .await?;
-        }
-    }
-    let mut mention_inbox_changed = false;
-    if channel_kind != "direct" && thread_id.is_none() {
-        for mentioned_member_id in mentions.iter().filter(|member_id| **member_id != agent_id) {
-            sqlx::query(
-                "INSERT INTO inbox_items \
-                 (id, member_id, kind, priority, channel_id, message_id, first_seq, last_seq, \
-                  available_at, created_at, space_id) \
-                 VALUES ($1, $2, 'mention', 'hard', $3, $4, $5, $5, $6, $6, $7)",
-            )
-            .bind(Uuid::now_v7())
-            .bind(mentioned_member_id)
-            .bind(channel_id)
-            .bind(message_id)
-            .bind(seq)
-            .bind(now)
-            .bind(space_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(ApiError::database)?;
-            mention_inbox_changed = true;
-        }
-    }
+    let message_id = published.id;
+    let now = OffsetDateTime::now_utc();
     if let Some(item_id) = handle_item_id {
         let updated = sqlx::query(
             "UPDATE inbox_items SET status = 'handled', handled_by_run_id = $2, handled_at = $3, \
@@ -1076,93 +994,6 @@ async fn agent_message_send(
         }
         publish_inbox_update(&mut transaction, space_id, agent_id, item_id, now).await?;
     }
-    if channel_kind == "direct" {
-        let recipient_id: Uuid = sqlx::query_scalar(
-            "SELECT member_id FROM channel_members WHERE channel_id = $1 AND member_id <> $2",
-        )
-        .bind(channel_id)
-        .bind(agent_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        let recipient_item_id = Uuid::now_v7();
-        sqlx::query(
-            "INSERT INTO inbox_items (id, member_id, space_id, kind, priority, channel_id, \
-             message_id, first_seq, last_seq, available_at, created_at) \
-             VALUES ($1, $2, $3, 'direct', 'hard', $4, $5, $6, $6, $7, $7)",
-        )
-        .bind(recipient_item_id)
-        .bind(recipient_id)
-        .bind(space_id)
-        .bind(channel_id)
-        .bind(message_id)
-        .bind(seq)
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-        publish_inbox_update(
-            &mut transaction,
-            space_id,
-            recipient_id,
-            recipient_item_id,
-            now,
-        )
-        .await?;
-    }
-    if thread_inbox_changed {
-        super::outbox::publish(
-            &mut transaction,
-            "inbox.changed",
-            message_id,
-            serde_json::json!({
-                "space_id": space_id,
-                "channel_id": channel_id,
-                "thread_id": thread_id,
-            }),
-            now,
-        )
-        .await?;
-    }
-    let ambient_inbox_changed = channel_kind != "direct"
-        && thread_id.is_none()
-        && message::insert_channel_ambient_inbox(
-            &mut transaction,
-            message::ChannelAmbientInbox {
-                space_id,
-                channel_id,
-                message_id,
-                actor_id: agent_id,
-                seq,
-                hard_recipients: &mentions,
-                now,
-            },
-        )
-        .await?;
-    if mention_inbox_changed || ambient_inbox_changed {
-        super::outbox::publish(
-            &mut transaction,
-            "inbox.changed",
-            message_id,
-            serde_json::json!({ "space_id": space_id, "channel_id": channel_id }),
-            now,
-        )
-        .await?;
-    }
-    super::outbox::publish(
-        &mut transaction,
-        "message.created",
-        message_id,
-        serde_json::json!({
-            "space_id": space_id,
-            "channel_id": channel_id,
-            "thread_id": thread_id,
-            "message_id": message_id,
-            "channel_seq": seq,
-        }),
-        now,
-    )
-    .await?;
     let response = agent_message_json(&mut transaction, message_id, &display_address).await?;
     idempotency::finish(
         &mut transaction,

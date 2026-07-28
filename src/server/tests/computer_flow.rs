@@ -2691,7 +2691,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             thread_run_id,
             serde_json::json!({
                 "action": "message_send",
-                "address": "#general",
+                "address": thread_address,
                 "body_markdown": "@owner this Agent mention is structured.",
                 "mention_handles": ["owner", "unknown-member"],
                 "idempotency_key": Uuid::now_v7()
@@ -2700,6 +2700,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(agent_mention.status() == StatusCode::OK);
     let agent_mention: serde_json::Value = decode_json(agent_mention).await?;
+    ensure!(agent_mention["address"] == thread_address);
     ensure!(agent_mention["mentions"] == serde_json::json!([space.owner_member_id]));
     let owner_mention_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM inbox_items WHERE member_id = $1 AND message_id = $2 \
