@@ -1,48 +1,49 @@
-# Sumi
+# Sumi 开发约定
 
-An AI Agent assistant implemented in Go.
+## 开始前
 
-The current product spec lives in [`docs/sumi.md`](docs/sumi.md).
+1. 每个 session、上下文压缩续跑或工作交接后，依次阅读本文件、`GOAL.md`、`GLOSSARY.md` 和 `docs/design.md`。
+2. 开始实现前，阅读 `docs/design.md` 链接的相关主题文档。无需读取与任务无关的主题。
+3. 检查工作区状态，保留用户和其他 Agent 的未提交修改。
+4. 以当前工作区为实现基线。除非用户要求，禁止用 Git 历史覆盖当前文件。
 
-## Core Philosophy
+## 文档职责
 
-- **Aesthetics is Productivity**: Beautiful code is the first priority
-- **Efficiency & Correctness**: Extreme efficiency, rationality, and correctness
-- **Perfect Code-ism**: Pursuit of perfect code
-- **Clean and Elegant**: Hack when you can, but make it beautiful
+- 用户当前指令优先。
+- `docs/design.md` 及其主题文档定义产品行为、技术边界、数据模型和验收标准。
+- `GLOSSARY.md` 定义领域词汇。
+- `GOAL.md` 记录目标、进度和完成条件，不重复设计规格。
+- 行为、协议、数据模型或领域词汇改变时，先更新对应设计文档或术语表。
+- 文档与代码冲突时，先确认预期行为，再修改文档或代码。禁止用兼容层保留两套行为。
 
-## Code Style
+## 中文写作
 
-Rob Pike's style Go code, elevated:
+- 每句话都要提供一个可说明的事实、规则、原因或结果。删除后不影响意思的句子必须删除。
+- 删除不影响含义的形容词、背景和从句。
+- 直接写结论及依据。只有读者可能产生某个具体误解时，才写否定性说明。
+- 比喻、新术语和概括必须帮助理解，并能展开为具体事实。否则改成直述。
+- 发现内容没有用途时删除内容，不为它补充解释。
+- 禁止用假对立、情绪词或夸大判断代替论证。
+- 使用常用中文词和通行标点。保留有明确技术含义的英文词，并在首次出现时说明用途。
+- 标题、列表和表格用于组织信息。禁止用一两个字加冒号充当句子。
 
-- **Short naming**: `i`, `s *Session`
-- **Use interface sparingly**: Only when polymorphism is needed
-- **Composition over inheritance**
-- **Handle errors immediately**: `if err != nil { return err }`
-- **Avoid over-abstraction**: But don't sacrifice elegance
-- **Small functions, fit on one screen**
-- **Names are documentation**: Only comment complex algorithms
-- **Aesthetics first**: If it looks ugly, refactor it
+## 执行与进度
 
-## Git Commit
+- 从 `GOAL.md` 最早的未完成项开始，执行“检查现状、实现、定向测试、修复、更新进度”。
+- 编译错误、测试失败和可验证的不确定性需要继续处理。缺少外部权限或密钥、需要用户决定产品行为、或操作可能破坏数据时暂停并说明原因。
+- 通过对应验收后才能勾选 `GOAL.md`。验证记录只保留复现完成结论所需的命令和结果。
+- 每完成一个可独立提交的目标，更新 `GOAL.md` 并提交。随后生成 handoff 文档，并用 `superset agents create` 在当前 Superset workspace 创建承接 session。
+- handoff 只记录当前状态、改动、验证、风险和下一步。新 session 创建成功后删除已承接的旧 handoff。
 
-When AI tools commit code, use this format:
+## 实现边界
 
-```bash
-git commit --author="<ToolName> <ai@songjian.li>" -m "type: message
+- 范围和技术栈见 [产品基础与系统结构](docs/design/01-foundations.md)。
+- 默认只维护当前产品模型和当前 schema。兼容读取、双写、deprecated 字段、旧入口和数据迁移需要用户明确要求。
+- 代码只为已有边界抽象。命名要描述业务行为，函数保持单一职责。
+- 注释用于说明不变量、并发原因或安全边界。日志和测试输出不得包含 Message、Attachment、Memory 或 Secret 正文。
 
-Co-authored-by: <ToolName> <ai@songjian.li>"
-```
+## 验证
 
-- `<ToolName>`: AI tool name, e.g. `Claude Code`, `OpenClaw`, `Kimi`, `OpenCode`, `Cursor`, `AmpCode`, `GitHub Copilot`
-- Email: always use `ai@songjian.li`
-
----
-
-**Author's Code Style**: Extreme efficiency, rationality, and correctness. Perfect code-ism. Aesthetics is the first productivity.
-
-## Attentions
-
-记住每次最后一句话结尾加一个「喵」
-
-如无必要，别加任何注释，需要注释才能看懂的代码就已经需要重构了！
+- 日常改动运行最小相关测试。阶段完成后运行对应主题文档要求的测试。
+- 核心流程、并发和安全边界必须有测试。getter、derive 和依赖库已有保证不需要重复测试。
+- Rust 提交前运行 `cargo fmt --all -- --check` 和 `cargo clippy --all-targets --all-features -- -D warnings`。
