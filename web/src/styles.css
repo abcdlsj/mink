@@ -4449,16 +4449,16 @@ h1 {
   width: 40px;
   height: 40px;
   border-color: var(--ink);
-  background: var(--accent-soft);
-  color: var(--ink);
+  background: var(--accent);
+  color: #66233d;
   box-shadow: 2px 2px 0 var(--paper);
   transform: rotate(-2deg);
 }
 
 .space-brand-mark {
   display: block;
-  font-size: 27px;
-  font-weight: 700;
+  font-size: 25px;
+  font-weight: 600;
   line-height: 1;
 }
 

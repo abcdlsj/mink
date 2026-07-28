@@ -716,7 +716,7 @@ Thread 未打开时不得保留空白右栏。打开 Thread 不得覆盖 Channel
 
 Space rail：
 
-- 顶部为固定浅红色背景、深色 S 字形的品牌标识，整个标识框轻微左倾；Space accent 继续由 rail 和选中态表达，不把品牌标识替换成通用图标或每个 Space 的动态徽标。
+- 顶部为固定高饱和粉红背景、中等字重深酒红 S 字形的品牌标识，整个标识框轻微左倾；Space accent 继续由 rail 和选中态表达，不把品牌标识替换成通用图标或每个 Space 的动态徽标。
 - 中部为 Space 切换。
 - 固定提供 Members、Computers 和 Space Settings 等 Space 级工具入口；这些入口不得混入会话导航。
 - 底部保持简洁，不重复显示当前 Human 首字母头像或第二个品牌符号；可点击空白区继续承担 Conversation navigation 重新展开。
