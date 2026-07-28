@@ -21,6 +21,7 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
 
   assert.ok(task, "mise.toml must define tasks.dev-seed");
   assert.match(task, /^depends = \["db-start"\]$/m);
+  assert.match(task, /RUST_LOG = "sumi=warn,tower_http=warn"/);
 });
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {

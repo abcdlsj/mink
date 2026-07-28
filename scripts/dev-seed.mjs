@@ -353,7 +353,6 @@ async function ensureAgents(cookie, spaceId, computerId) {
       throw new Error(`seed Agent @${profile.handle} uses ${agent.driver_kind}, expected ${profile.driver_kind}`);
     }
     agents.push(agent.role_text === profile.role_text ? agent : await updateAgentRole(cookie, agent, profile));
-    log(`reusing @${profile.handle}`);
   }
   return agents;
 }
@@ -396,7 +395,7 @@ async function main() {
 
   const agents = await ensureAgents(cookie, space.id, computer.id);
   await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
-  log(`fixed group ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} joined #${DEV_CHANNEL_SLUG}`);
+  log(`Agents ready in #${DEV_CHANNEL_SLUG}: ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")}`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
   const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);
 

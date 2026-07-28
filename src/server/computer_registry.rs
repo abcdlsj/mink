@@ -974,7 +974,7 @@ async fn apply_command_result(
                     ));
                 }
             } else {
-                tracing::warn!(computer_id = %computer_id, command_id = %command_id, event_id, error_code = "stale_fencing_token", "Run result arrived after Server reconciliation");
+                tracing::debug!(computer_id = %computer_id, command_id = %command_id, event_id, error_code = "stale_fencing_token", "Run result arrived after Server reconciliation");
             }
         }
         transaction.commit().await.map_err(ApiError::database)?;
@@ -995,7 +995,7 @@ async fn apply_command_result(
                     .is_some_and(|expires_at| expires_at > OffsetDateTime::now_utc())
         });
         if !owns_run {
-            tracing::warn!(computer_id = %computer_id, run_id = %command_run_id, command_id = %command_id, error_code = "stale_fencing_token", "Stale Agent run result ignored");
+            tracing::debug!(computer_id = %computer_id, run_id = %command_run_id, command_id = %command_id, error_code = "stale_fencing_token", "Stale Agent run result ignored");
             transaction.commit().await.map_err(ApiError::database)?;
             return Ok(());
         }

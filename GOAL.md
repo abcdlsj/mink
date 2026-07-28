@@ -19,6 +19,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 - Builtin Agent 的 DM、Channel mention、Channel ambient、Thread、context freshness 和崩溃恢复。
 - Agent Admin 治理、private Channel 权限、Approval、Task、Inbox lease、command 幂等和 PostgreSQL 并发约束。
 - Channel、Thread、Members、Agent detail、Inbox、Computer、Dialog 和 onboarding 的三视口 WebUI。
+- `dev-seed` 复用稳定 Computer identity 和固定 Agent，并默认只输出启动结果与需要处理的错误。
 
 当前缺口是跨连接 Run 结果补报、失联 Run 回收、进程停止证据，以及 DM WebUI 入口。
 

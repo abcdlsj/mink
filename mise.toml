@@ -94,5 +94,5 @@ wait
 [tasks.dev-seed]
 description = "Run dev server with stable sumi-dev Space, Dev Computer, and PM/Coder/Reviewer group"
 depends = ["db-start"]
-env = { SUMI_DEV_SEED = "1" }
+env = { SUMI_DEV_SEED = "1", RUST_LOG = "sumi=warn,tower_http=warn" }
 run = "mise run dev"
