@@ -223,5 +223,3 @@ Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状
 SIGTERM 和 SIGKILL 返回值，两次等待都受 timeout 限制。第二次等待超时后，本地 Run 保持非终态并
 写入 `orphaned`，后台 reaper 取得退出证据后才写终态和 result outbox。attention scheduler 按执行
 槽数加 1 个 prefetch 限制 claim，并在稳定的 Agent 顺序上轮转起点。
-
-实施顺序见 [GOAL.md](../../GOAL.md)。
