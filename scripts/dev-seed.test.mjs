@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,9 +9,10 @@ import {
   AGENT_PROFILES,
   DEV_CHANNEL_SLUG,
   DEV_SPACE,
+  computerStateDirectory,
   createBrowserSessionHandoff,
+  findComputerStateForSpace,
   prepareComputerStateDirectory,
-  prepareComputerStateForSpace,
 } from "./dev-seed.mjs";
 
 test("dev-seed provisions its PostgreSQL database before starting the server", () => {
@@ -49,29 +50,25 @@ test("development seed enforces private Computer state permissions", (context) =
   assert.equal(statSync(stateDir).mode & 0o777, 0o700);
 });
 
-test("development seed preserves stale Computer state when the database was recreated", (context) => {
+test("development seed stores Computer state under Space and Computer IDs", (context) => {
   const parent = mkdtempSync(join(tmpdir(), "sumi-dev-seed-test-"));
   context.after(() => rmSync(parent, { recursive: true, force: true }));
-  const stateDir = join(parent, "computer");
-  prepareComputerStateDirectory(stateDir);
-  writeFileSync(join(stateDir, "secrets.json"), JSON.stringify({ computer_id: "old-computer", space_id: "old-space" }));
+  const spaceId = "019fa900-0000-7000-8000-000000000001";
+  const computerId = "019fa900-0000-7000-8000-000000000002";
+  const stateDir = computerStateDirectory(parent, spaceId, computerId);
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, "secrets.json"), JSON.stringify({ computer_id: computerId, space_id: spaceId }));
 
-  const result = prepareComputerStateForSpace(stateDir, "new-space", 1234);
+  const result = findComputerStateForSpace(parent, spaceId);
 
-  assert.equal(result.pairedIdentity, undefined);
-  assert.equal(result.archivedStateDir, `${stateDir}.stale-1234`);
-  assert.ok(existsSync(join(result.archivedStateDir, "secrets.json")));
-  assert.ok(existsSync(stateDir));
-  assert.equal(statSync(stateDir).mode & 0o777, 0o700);
-  assert.equal(existsSync(join(stateDir, "secrets.json")), false);
+  assert.equal(result.stateDir, join(parent, spaceId, computerId));
+  assert.deepEqual(result.pairedIdentity, { computerId, spaceId });
 });
 
-test("development seed rejects a Computer state path too long for a macOS Unix socket", { skip: process.platform !== "darwin" }, () => {
+test("development seed allows a deep Computer state path when its runtime path is short", { skip: process.platform !== "darwin" }, (context) => {
   const stateDir = join(tmpdir(), "x".repeat(110));
-  assert.throws(
-    () => prepareComputerStateDirectory(stateDir),
-    /too long for a macOS Unix socket.*SUMI_SEED_STATE_DIR/,
-  );
+  context.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  assert.doesNotThrow(() => prepareComputerStateDirectory(stateDir));
 });
 
 test("browser Session handoff sets the Cookie and remains retryable", async (context) => {

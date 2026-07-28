@@ -34,6 +34,11 @@ async fn run_migration_assertions(admin_url: &str, database_name: &str) -> Resul
     url.set_path(&format!("/{database_name}"));
     let pool = sumi_database_for_test(url.as_str()).await?;
 
+    let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(migration_count, 1);
+
     let table_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM information_schema.tables \
          WHERE table_schema = 'public' AND table_name IN \

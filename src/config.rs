@@ -161,7 +161,7 @@ fn validate(config: &SumiConfig) -> Result<()> {
     Ok(())
 }
 
-fn default_computer_state_dir() -> PathBuf {
+pub(crate) fn default_computer_state_dir() -> PathBuf {
     default_sumi_dir().join("computer")
 }
 
@@ -174,6 +174,15 @@ pub(crate) fn default_sumi_dir() -> PathBuf {
 
 /// Runtime 与 Computer 状态分离，避免 socket 和临时文件污染持久状态目录。
 pub(crate) fn runtime_dir_for(state_dir: &std::path::Path) -> PathBuf {
+    if let (Some(computer_id), Some(space_dir)) = (state_dir.file_name(), state_dir.parent())
+        && let Some(computer_root) = space_dir.parent()
+        && computer_root
+            .file_name()
+            .is_some_and(|name| name == "computer")
+        && let Some(sumi_root) = computer_root.parent()
+    {
+        return sumi_root.join("runtime").join(computer_id);
+    }
     state_dir
         .parent()
         .map(|parent| parent.join("runtime"))
@@ -246,5 +255,18 @@ mod tests {
                 home.join(".sumi/runtime")
             );
         }
+    }
+
+    #[test]
+    fn id_scoped_computer_state_uses_short_id_scoped_runtime_path() {
+        let state = PathBuf::from(
+            "/tmp/.sumi/computer/019fa900-0000-7000-8000-000000000001/\
+             019fa900-0000-7000-8000-000000000002",
+        );
+
+        assert_eq!(
+            runtime_dir_for(&state),
+            PathBuf::from("/tmp/.sumi/runtime/019fa900-0000-7000-8000-000000000002")
+        );
     }
 }

@@ -20,6 +20,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 - Agent Admin 治理、private Channel 权限、Approval、Task、Inbox lease、command 幂等和 PostgreSQL 并发约束。
 - Channel、Thread、Members、Agent detail、Inbox、Computer、Dialog 和 onboarding 的三视口 WebUI。
 - `dev-seed` 复用稳定 Computer identity 和固定 Agent，并默认只输出启动结果与需要处理的错误。
+- PostgreSQL 和 SQLite 各使用一个最终 schema；本地 Computer、runtime 和 Agent Home 目录只使用对应实体 ID。
 
 当前缺口是跨连接 Run 结果补报、失联 Run 回收、进程停止证据，以及 DM WebUI 入口。
 
@@ -68,7 +69,9 @@ pnpm --dir web build
 
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
-- `cargo test --all-features`：通过；71 个单元测试和 21 个进程与数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `cargo test --all-features`：通过；72 个单元测试和 21 个进程与数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `node --test scripts/dev-seed.test.mjs`：通过；6 个测试通过。
+- `mise run dev-seed`：通过；从空 PostgreSQL 和 SQLite 启动到 READY，创建 1 个 Space、1 台 Computer 和 3 个 Agent；两个数据库各只记录 1 条 schema，Computer 状态位于 `{space_id}/{computer_id}`。
 - `pnpm --dir web test`：通过；9 个测试文件、23 个测试通过。
 - `pnpm --dir web lint`：通过。
 - `pnpm --dir web build`：通过。

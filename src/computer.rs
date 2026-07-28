@@ -162,18 +162,23 @@ enum ServerFrame {
 }
 
 pub async fn run(args: ComputerArgs) -> Result<()> {
+    let uses_default_computer_root = args.config.is_none();
     let mut config = config::load(args.config.as_ref())?;
     if let Some(server_url) = args.server {
         config.computer.server_url = server_url;
     }
+    let computer_root = (uses_default_computer_root
+        && config.computer.state_dir == config::default_computer_state_dir())
+    .then(|| config.computer.state_dir.clone());
+    if let Some(root) = computer_root.as_ref() {
+        config.computer.state_dir = resolve_default_computer_state_dir(root).await?;
+    }
     prepare_state_dir(&config.computer.state_dir).await?;
-    let runtime_dir = config::runtime_dir_for(&config.computer.state_dir);
-    prepare_state_dir(&runtime_dir).await?;
     let database_path = config.computer.state_dir.join("daemon.db");
-    let database = database::connect_sqlite(&database_path).await?;
+    let mut database = database::connect_sqlite(&database_path).await?;
     crate::supervisor::recover_interrupted_runs(&database).await?;
     prepare_agent_root(&config.computer.state_dir).await?;
-    let secrets_path = config.computer.state_dir.join("secrets.json");
+    let mut secrets_path = config.computer.state_dir.join("secrets.json");
     let mut secrets = load_or_create_secrets(&secrets_path).await?;
     let builtin_provider = builtin_config::load(&config.computer)?;
     let builtin_auth = builtin_provider
@@ -206,6 +211,46 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
             }
         }
     }
+
+    if let Some(root) = computer_root.as_ref()
+        && config
+            .computer
+            .state_dir
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "pending")
+    {
+        let space_id = secrets
+            .space_id
+            .context("paired Computer has no Space id")?;
+        let computer_id = secrets
+            .computer_id
+            .context("paired Computer has no Computer id")?;
+        let final_state_dir = root
+            .join(space_id.to_string())
+            .join(computer_id.to_string());
+        ensure!(
+            !final_state_dir.exists(),
+            "Computer state directory already exists: {}",
+            final_state_dir.display()
+        );
+        database.close().await;
+        prepare_state_dir(
+            final_state_dir
+                .parent()
+                .context("invalid Computer state path")?,
+        )
+        .await?;
+        tokio::fs::rename(&config.computer.state_dir, &final_state_dir)
+            .await
+            .context("failed to move paired Computer state into its ID directory")?;
+        config.computer.state_dir = final_state_dir;
+        secrets_path = config.computer.state_dir.join("secrets.json");
+        database = database::connect_sqlite(&config.computer.state_dir.join("daemon.db")).await?;
+    }
+
+    let runtime_dir = config::runtime_dir_for(&config.computer.state_dir);
+    prepare_state_dir(&runtime_dir).await?;
 
     tracing::info!(
         computer_id = %secrets.computer_id.context("paired Computer has no id")?,
@@ -1873,6 +1918,57 @@ async fn prepare_state_dir(path: &Path) -> Result<()> {
         .context("failed to inspect Computer state directory")?;
     ensure!(metadata.is_dir(), "Computer state path is not a directory");
     ensure_secure_permissions(path, &metadata, 0o700, "Computer state directory")
+}
+
+async fn resolve_default_computer_state_dir(root: &Path) -> Result<std::path::PathBuf> {
+    prepare_state_dir(root).await?;
+    let mut candidates = Vec::new();
+    let mut spaces = tokio::fs::read_dir(root).await?;
+    while let Some(space_entry) = spaces.next_entry().await? {
+        if !space_entry.file_type().await?.is_dir() {
+            continue;
+        }
+        let space_name = space_entry.file_name();
+        if space_name == "pending" {
+            let mut pending = tokio::fs::read_dir(space_entry.path()).await?;
+            while let Some(entry) = pending.next_entry().await? {
+                if entry.file_type().await?.is_dir() && entry.path().join("secrets.json").exists() {
+                    candidates.push(entry.path());
+                }
+            }
+            continue;
+        }
+        let Ok(space_id) = Uuid::parse_str(&space_name.to_string_lossy()) else {
+            continue;
+        };
+        let mut computers = tokio::fs::read_dir(space_entry.path()).await?;
+        while let Some(entry) = computers.next_entry().await? {
+            if !entry.file_type().await?.is_dir() {
+                continue;
+            }
+            let Ok(computer_id) = Uuid::parse_str(&entry.file_name().to_string_lossy()) else {
+                continue;
+            };
+            let secrets_path = entry.path().join("secrets.json");
+            if !secrets_path.exists() {
+                continue;
+            }
+            let bytes = tokio::fs::read(&secrets_path).await?;
+            let secrets: ComputerSecrets =
+                serde_json::from_slice(&bytes).context("Computer secrets are invalid")?;
+            if secrets.space_id == Some(space_id) && secrets.computer_id == Some(computer_id) {
+                candidates.push(entry.path());
+            }
+        }
+    }
+    ensure!(
+        candidates.len() <= 1,
+        "multiple local Computer identities found under {}",
+        root.display()
+    );
+    Ok(candidates
+        .pop()
+        .unwrap_or_else(|| root.join("pending").join(Uuid::now_v7().to_string())))
 }
 
 async fn load_or_create_secrets(path: &Path) -> Result<ComputerSecrets> {
