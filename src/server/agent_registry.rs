@@ -11,9 +11,11 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, approval, auth, idempotency, member, space};
-use crate::computer_protocol::{
-    AgentConfiguration, AgentMemoryReadCommand, AttentionConfig as ProtocolAttentionConfig,
-    ComputerCommand, DriverConfig, SuspendMode as ProtocolSuspendMode,
+use crate::{
+    agent_config::{AttentionConfig, SuspendMode},
+    computer_protocol::{
+        AgentConfiguration, AgentMemoryReadCommand, ComputerCommand, DriverConfig,
+    },
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -56,29 +58,6 @@ pub struct AgentResponse {
 pub enum CreateAgentResponse {
     Agent(Box<AgentResponse>),
     Approval(approval::PendingApprovalResponse),
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
-pub struct AttentionConfig {
-    pub dm_immediate: bool,
-    pub mention_immediate: bool,
-    pub ambient_enabled: bool,
-    pub ambient_debounce_seconds: u16,
-    pub ambient_max_wait_seconds: u16,
-    pub max_retry_count: u8,
-}
-
-impl Default for AttentionConfig {
-    fn default() -> Self {
-        Self {
-            dm_immediate: true,
-            mention_immediate: true,
-            ambient_enabled: true,
-            ambient_debounce_seconds: 5,
-            ambient_max_wait_seconds: 30,
-            max_retry_count: 3,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -142,13 +121,6 @@ pub enum LifecycleAction {
     Resume,
     Retry,
     Retire,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SuspendMode {
-    StopAfterCurrent,
-    CancelNow,
 }
 
 pub async fn list(
@@ -277,14 +249,14 @@ pub async fn update(
         driver_kind: current.driver_kind,
         driver_config: serde_json::from_value(current.driver_config_json)
             .map_err(|_| ApiError::Internal)?,
-        attention_config: protocol_attention_config(&next_attention),
+        attention_config: next_attention,
         mode: request.lifecycle.as_ref().and_then(|action| match action {
             LifecycleAction::Suspend {
                 mode: SuspendMode::StopAfterCurrent,
-            } => Some(ProtocolSuspendMode::StopAfterCurrent),
+            } => Some(SuspendMode::StopAfterCurrent),
             LifecycleAction::Suspend {
                 mode: SuspendMode::CancelNow,
-            } => Some(ProtocolSuspendMode::CancelNow),
+            } => Some(SuspendMode::CancelNow),
             _ => None,
         }),
     };
@@ -539,14 +511,14 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         driver_kind: current.driver_kind,
         driver_config: serde_json::from_value(current.driver_config_json)
             .map_err(|_| ApiError::Internal)?,
-        attention_config: protocol_attention_config(&attention),
+        attention_config: attention,
         mode: match lifecycle {
             LifecycleAction::Suspend {
                 mode: SuspendMode::StopAfterCurrent,
-            } => Some(ProtocolSuspendMode::StopAfterCurrent),
+            } => Some(SuspendMode::StopAfterCurrent),
             LifecycleAction::Suspend {
                 mode: SuspendMode::CancelNow,
-            } => Some(ProtocolSuspendMode::CancelNow),
+            } => Some(SuspendMode::CancelNow),
             _ => None,
         },
     };
@@ -743,7 +715,7 @@ pub(super) async fn provision_agent_tx(
         role_revision: 1,
         driver_kind: request.driver_kind.clone(),
         driver_config: DriverConfig { schema_version: 1 },
-        attention_config: protocol_attention_config(&attention_config),
+        attention_config: attention_config.clone(),
         mode: None,
     });
     let payload = command.payload_json().map_err(|_| ApiError::Internal)?;
@@ -844,23 +816,13 @@ fn validate_update(request: &mut UpdateAgentRequest) -> Result<(), ApiError> {
             ));
         }
     }
-    if let Some(config) = &request.attention_config {
-        if !config.dm_immediate || !config.mention_immediate {
-            return Err(ApiError::validation(
-                "invalid_attention_config",
-                "DM and mention immediate attention are fixed in Sumi v1",
-            ));
-        }
-        if !(1..=60).contains(&config.ambient_debounce_seconds)
-            || !(5..=300).contains(&config.ambient_max_wait_seconds)
-            || config.ambient_max_wait_seconds < config.ambient_debounce_seconds
-            || config.max_retry_count == 0
-        {
-            return Err(ApiError::validation(
-                "invalid_attention_config",
-                "Agent attention configuration is outside the supported range",
-            ));
-        }
+    if let Some(config) = &request.attention_config
+        && !config.is_valid()
+    {
+        return Err(ApiError::validation(
+            "invalid_attention_config",
+            "Agent attention configuration is outside the supported range",
+        ));
     }
     if matches!(
         request.lifecycle,
@@ -949,17 +911,6 @@ async fn allocate_command(
     .await
     .map_err(ApiError::database)?;
     Ok(command_id)
-}
-
-fn protocol_attention_config(config: &AttentionConfig) -> ProtocolAttentionConfig {
-    ProtocolAttentionConfig {
-        dm_immediate: config.dm_immediate,
-        mention_immediate: config.mention_immediate,
-        ambient_enabled: config.ambient_enabled,
-        ambient_debounce_seconds: config.ambient_debounce_seconds,
-        ambient_max_wait_seconds: config.ambient_max_wait_seconds,
-        max_retry_count: config.max_retry_count,
-    }
 }
 
 async fn publish_agent_status(

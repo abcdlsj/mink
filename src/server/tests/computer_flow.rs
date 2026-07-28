@@ -182,7 +182,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             role_revision: 1,
             driver_kind: "builtin".to_owned(),
             driver_config: crate::computer_protocol::DriverConfig { schema_version: 1 },
-            attention_config: crate::computer_protocol::AttentionConfig {
+            attention_config: crate::agent_config::AttentionConfig {
                 dm_immediate: true,
                 mention_immediate: true,
                 ambient_enabled: true,

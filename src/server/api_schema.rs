@@ -1,6 +1,8 @@
 use anyhow::Context;
 use utoipa::OpenApi;
 
+use crate::agent_config::{AttentionConfig, SuspendMode};
+
 use super::{
     agent_registry, api_error, approval, attachment, auth, channel, computer_pairing, inbox,
     member, message, space, task, thread,
@@ -24,13 +26,13 @@ use super::{
         computer_pairing::PairingDetailsResponse,
         agent_registry::CreateAgentRequest,
         agent_registry::AgentResponse,
-        agent_registry::AttentionConfig,
+        AttentionConfig,
         agent_registry::MemoryFileResponse,
         agent_registry::ReadMemoryRequest,
         agent_registry::MemoryContentResponse,
         agent_registry::UpdateAgentRequest,
         agent_registry::LifecycleAction,
-        agent_registry::SuspendMode,
+        SuspendMode,
         member::MemberResponse,
         member::UpdateMemberRequest,
         member::CreateInvitationRequest,

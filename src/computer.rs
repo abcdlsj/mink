@@ -16,10 +16,11 @@ use uuid::Uuid;
 const ATTENTION_PREFETCH_RUNS: usize = 1;
 
 use crate::{
+    agent_config::SuspendMode,
     cli::ComputerArgs,
     computer_protocol::{
         AgentMemoryReadCommand, CommandResult, ComputerCommand, ComputerFrame, MemoryFileMetadata,
-        RunResultStatus, ServerFrame, SuspendMode,
+        RunResultStatus, ServerFrame,
     },
     config, database,
     driver::builtin_config::{self, BuiltinAuthentication},
@@ -1398,6 +1399,10 @@ async fn execute_local_command(
         ComputerCommand::Retire(configuration) => (configuration, "retired", false),
         _ => bail!("unsupported local command: {}", command.kind()),
     };
+    ensure!(
+        configuration.driver_config.schema_version == 1,
+        "unsupported Agent driver configuration schema"
+    );
     let agent_id = configuration.agent_id;
     let home = if provision {
         ensure!(
@@ -1426,7 +1431,16 @@ async fn execute_local_command(
             "driver_config": configuration.driver_config,
         })
     } else {
-        serde_json::from_slice(&tokio::fs::read(&profile_path).await?)?
+        let profile: serde_json::Value =
+            serde_json::from_slice(&tokio::fs::read(&profile_path).await?)?;
+        ensure!(
+            profile
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64)
+                == Some(1),
+            "unsupported Agent profile schema"
+        );
+        profile
     };
     let profile = profile
         .as_object_mut()
@@ -1447,7 +1461,7 @@ async fn execute_local_command(
         profile
             .get("desired_lifecycle")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("active")
+            .context("Agent profile has no desired lifecycle")?
     } else {
         lifecycle
     };
@@ -1842,8 +1856,7 @@ async fn resolve_default_computer_state_dir(root: &Path) -> Result<std::path::Pa
                 continue;
             }
             let bytes = tokio::fs::read(&secrets_path).await?;
-            let secrets: ComputerSecrets =
-                serde_json::from_slice(&bytes).context("Computer secrets are invalid")?;
+            let secrets = decode_secrets(&bytes)?;
             if secrets.space_id == Some(space_id) && secrets.computer_id == Some(computer_id) {
                 candidates.push(entry.path());
             }
@@ -1866,7 +1879,7 @@ async fn load_or_create_secrets(path: &Path) -> Result<ComputerSecrets> {
         let bytes = tokio::fs::read(path)
             .await
             .context("failed to read Computer secrets")?;
-        return serde_json::from_slice(&bytes).context("Computer secrets are invalid");
+        return decode_secrets(&bytes);
     }
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).context("failed to generate Computer Token")?;
@@ -1879,6 +1892,16 @@ async fn load_or_create_secrets(path: &Path) -> Result<ComputerSecrets> {
         space_id: None,
     };
     write_secrets(path, &secrets).await?;
+    Ok(secrets)
+}
+
+fn decode_secrets(bytes: &[u8]) -> Result<ComputerSecrets> {
+    let secrets: ComputerSecrets =
+        serde_json::from_slice(bytes).context("Computer secrets are invalid")?;
+    ensure!(
+        secrets.schema_version == 1,
+        "unsupported Computer secrets schema"
+    );
     Ok(secrets)
 }
 

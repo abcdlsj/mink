@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::prompt::AgentRunPrompt;
+use crate::{
+    agent_config::{AttentionConfig, SuspendMode},
+    prompt::AgentRunPrompt,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -151,7 +154,6 @@ pub(crate) struct AgentConfiguration {
     pub(crate) driver_kind: String,
     pub(crate) driver_config: DriverConfig,
     pub(crate) attention_config: AttentionConfig,
-    #[serde(default)]
     pub(crate) mode: Option<SuspendMode>,
 }
 
@@ -159,24 +161,6 @@ pub(crate) struct AgentConfiguration {
 #[serde(deny_unknown_fields)]
 pub(crate) struct DriverConfig {
     pub(crate) schema_version: u32,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct AttentionConfig {
-    pub(crate) dm_immediate: bool,
-    pub(crate) mention_immediate: bool,
-    pub(crate) ambient_enabled: bool,
-    pub(crate) ambient_debounce_seconds: u16,
-    pub(crate) ambient_max_wait_seconds: u16,
-    pub(crate) max_retry_count: u8,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum SuspendMode {
-    StopAfterCurrent,
-    CancelNow,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

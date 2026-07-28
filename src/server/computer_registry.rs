@@ -12,8 +12,12 @@ use uuid::Uuid;
 use super::{AppState, api_error::ApiError, auth, idempotency, member};
 
 use super::computer_pairing::ComputerResponse;
-use crate::computer_protocol::{
-    AgentRunCommand, CommandResult, ComputerCommand, ComputerFrame, RunResultStatus, ServerFrame,
+use crate::{
+    computer_protocol::{
+        AgentRunCommand, CommandResult, ComputerCommand, ComputerFrame, RunResultStatus,
+        ServerFrame,
+    },
+    prompt::{self, PromptContext},
 };
 
 pub async fn list(
@@ -417,14 +421,15 @@ pub async fn claim_agent_inbox(
             })
         })
         .collect::<Vec<_>>();
-    let prompt = super::agent_prompt::build(
-        &agent_name,
-        &agent_handle,
-        agent_id,
+    let inbox_summary = serde_json::to_string_pretty(&summaries).map_err(|_| ApiError::Internal)?;
+    let prompt = prompt::build_agent_run_prompt(&PromptContext {
+        agent_name,
+        agent_handle,
+        agent_id: agent_id.to_string(),
         role_revision,
-        &role_text,
-        &summaries,
-    );
+        role_text,
+        inbox_summary,
+    });
     let command = ComputerCommand::Run(AgentRunCommand {
         run_id,
         agent_id,
@@ -1154,8 +1159,8 @@ async fn release_run_inbox_items(
 ) -> Result<(u64, u64), ApiError> {
     let released: Vec<(Uuid, String)> = sqlx::query_as(
         "UPDATE inbox_items SET status = CASE \
-             WHEN retry_count + 1 >= COALESCE((SELECT (attention_config_json->>'max_retry_count')::int \
-                FROM agents WHERE member_id = inbox_items.member_id), 3) THEN 'dead' \
+             WHEN retry_count + 1 >= (SELECT (attention_config_json->>'max_retry_count')::int \
+                FROM agents WHERE member_id = inbox_items.member_id) THEN 'dead' \
              ELSE 'pending' END, retry_count = retry_count + 1, \
              available_at = now() + make_interval(secs => LEAST(60, 2 ^ LEAST(retry_count, 5))), \
              lease_id = NULL, lease_expires_at = NULL, last_error = $2 \

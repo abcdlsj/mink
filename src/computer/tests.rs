@@ -19,7 +19,7 @@ fn test_agent_configuration(
         role_revision: 1,
         driver_kind: driver_kind.to_owned(),
         driver_config: crate::computer_protocol::DriverConfig { schema_version: 1 },
-        attention_config: crate::computer_protocol::AttentionConfig {
+        attention_config: crate::agent_config::AttentionConfig {
             dm_immediate: true,
             mention_immediate: true,
             ambient_enabled: true,
@@ -90,6 +90,30 @@ async fn secrets_are_created_with_restricted_permissions_and_reused() {
             0o600
         );
     }
+}
+
+#[test]
+fn computer_secrets_reject_unknown_schema() {
+    let error = decode_secrets(
+        serde_json::json!({
+            "schema_version": 2,
+            "token": "token",
+            "builtin_auth": null,
+            "pairing_id": null,
+            "computer_id": null,
+            "space_id": null
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .err()
+    .unwrap();
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported Computer secrets schema")
+    );
 }
 
 #[tokio::test]
@@ -225,20 +249,8 @@ async fn restart_recovers_runs_and_received_provision_commands() {
     let run_id = Uuid::now_v7();
     let agent_id = Uuid::now_v7();
     let space_id = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
-         token_expires_at, status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
-    )
-    .bind(run_id.to_string())
-    .bind(agent_id.to_string())
-    .bind(space_id.to_string())
-    .bind(Sha256::digest(b"token").to_vec())
-    .bind((OffsetDateTime::now_utc() + time::Duration::hours(1)).to_string())
-    .bind(OffsetDateTime::now_utc().to_string())
-    .execute(&database)
-    .await
-    .unwrap();
     let run_command_id = Uuid::now_v7();
+    let ownership_lease_expires_at = OffsetDateTime::now_utc() + time::Duration::hours(1);
     persist_command(
         &database,
         run_command_id,
@@ -249,7 +261,7 @@ async fn restart_recovers_runs_and_received_provision_commands() {
             space_id,
             driver_kind: "codex".to_owned(),
             fencing_token: "fencing-token".to_owned(),
-            ownership_lease_expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            ownership_lease_expires_at,
             prompt: crate::prompt::AgentRunPrompt::plain("test"),
         }),
     )
@@ -260,6 +272,25 @@ async fn restart_recovers_runs_and_received_provision_commands() {
         .execute(&database)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+         token_expires_at, status, started_at, command_id, computer_seq, result_event_id, \
+         fencing_token, ownership_lease_expires_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6, ?7, 1, ?8, ?9, ?10)",
+    )
+    .bind(run_id.to_string())
+    .bind(agent_id.to_string())
+    .bind(space_id.to_string())
+    .bind(Sha256::digest(b"token").to_vec())
+    .bind(ownership_lease_expires_at.to_string())
+    .bind(OffsetDateTime::now_utc().to_string())
+    .bind(run_command_id.to_string())
+    .bind(Uuid::now_v7().to_string())
+    .bind("fencing-token")
+    .bind(ownership_lease_expires_at.to_string())
+    .execute(&database)
+    .await
+    .unwrap();
     let command_id = Uuid::now_v7();
     persist_command(
         &database,
@@ -1013,7 +1044,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
     )
     .await
     .unwrap();
-    configuration.mode = Some(crate::computer_protocol::SuspendMode::CancelNow);
+    configuration.mode = Some(crate::agent_config::SuspendMode::CancelNow);
     execute_local_command(
         &state,
         &ComputerCommand::Suspend(configuration.clone()),

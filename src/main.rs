@@ -1,4 +1,5 @@
 mod agent_cli;
+mod agent_config;
 mod agent_core;
 mod cli;
 mod computer;

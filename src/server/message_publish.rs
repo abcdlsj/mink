@@ -288,7 +288,8 @@ async fn publish_thread_attention(
     let hard_recipients = hard_recipients.into_iter().collect::<Vec<_>>();
     let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
         "SELECT subscriptions.member_id, \
-                COALESCE((agents.attention_config_json->>'ambient_debounce_seconds')::bigint, 5) \
+                CASE WHEN agents.member_id IS NULL THEN 5 \
+                     ELSE (agents.attention_config_json->>'ambient_debounce_seconds')::bigint END \
          FROM thread_subscriptions subscriptions \
          LEFT JOIN agents ON agents.member_id = subscriptions.member_id \
          WHERE subscriptions.channel_id = $1 AND subscriptions.thread_id = $2 \
@@ -296,7 +297,7 @@ async fn publish_thread_attention(
            AND NOT (subscriptions.member_id = ANY($4)) \
            AND (agents.member_id IS NULL OR (agents.desired_lifecycle IN ('active', 'suspended') \
              AND agents.provision_status = 'ready' \
-             AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false)))",
+             AND (agents.attention_config_json->>'ambient_enabled')::boolean))",
     )
     .bind(input.channel_id)
     .bind(thread_id)
@@ -347,7 +348,7 @@ async fn insert_channel_ambient(
          WHERE channel_members.channel_id = $1 AND agents.member_id <> $2 \
            AND agents.desired_lifecycle IN ('active', 'suspended') \
            AND agents.provision_status = 'ready' \
-           AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false) \
+           AND (agents.attention_config_json->>'ambient_enabled')::boolean \
            AND NOT (agents.member_id = ANY($3))",
     )
     .bind(input.channel_id)

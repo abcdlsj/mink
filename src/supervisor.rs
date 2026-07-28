@@ -1036,13 +1036,9 @@ pub async fn recover_interrupted_runs(database: &SqlitePool) -> Result<()> {
     let now = OffsetDateTime::now_utc().to_string();
     let mut transaction = database.begin().await?;
     let interrupted: Vec<(String, String, i64, String)> = sqlx::query_as(
-        "SELECT runs.run_id, commands.command_id, commands.computer_seq, \
-         COALESCE(runs.result_event_id, 'result-' || runs.run_id) \
+        "SELECT runs.run_id, commands.command_id, commands.computer_seq, runs.result_event_id \
          FROM local_agent_runs runs JOIN server_commands commands \
            ON commands.command_id = runs.command_id \
-           OR (runs.command_id IS NULL \
-             AND json_extract(commands.request_json, '$.kind') = 'agent.run' \
-             AND json_extract(commands.request_json, '$.payload.run_id') = runs.run_id) \
          WHERE runs.status IN ('queued', 'running')",
     )
     .fetch_all(&mut *transaction)
@@ -1101,12 +1097,9 @@ async fn reconcile_run_result_outbox(database: &SqlitePool) -> Result<()> {
     let mut transaction = database.begin().await?;
     let missing: Vec<(String, String, i64, String, String)> = sqlx::query_as(
         "SELECT runs.run_id, commands.command_id, commands.computer_seq, \
-         COALESCE(runs.result_event_id, 'result-' || runs.run_id), commands.result_json \
+         runs.result_event_id, commands.result_json \
          FROM local_agent_runs runs JOIN server_commands commands \
            ON commands.command_id = runs.command_id \
-           OR (runs.command_id IS NULL \
-             AND json_extract(commands.request_json, '$.kind') = 'agent.run' \
-             AND json_extract(commands.request_json, '$.payload.run_id') = runs.run_id) \
          LEFT JOIN run_result_outbox outbox ON outbox.run_id = runs.run_id \
          WHERE runs.status IN ('completed', 'failed', 'canceled') \
            AND commands.result_json IS NOT NULL AND outbox.run_id IS NULL",

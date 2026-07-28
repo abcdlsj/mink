@@ -334,9 +334,9 @@ pub async fn agent_action(
                 request.agent_member_id,
                 agent_member_id,
                 Some(if cancel_now {
-                    agent_registry::SuspendMode::CancelNow
+                    crate::agent_config::SuspendMode::CancelNow
                 } else {
-                    agent_registry::SuspendMode::StopAfterCurrent
+                    crate::agent_config::SuspendMode::StopAfterCurrent
                 }),
                 idempotency_key,
             )

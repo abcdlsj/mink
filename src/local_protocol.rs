@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+const SCHEMA_VERSION: u32 = 1;
+
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LocalRequest {
@@ -212,7 +214,7 @@ pub struct LocalError {
 impl LocalResponse {
     pub fn success<T: Serialize>(data: T) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             ok: true,
             data: serde_json::to_value(data).ok(),
             error: None,
@@ -221,7 +223,7 @@ impl LocalResponse {
 
     pub fn upstream(data: serde_json::Value) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             ok: true,
             data: Some(data),
             error: None,
@@ -230,7 +232,7 @@ impl LocalResponse {
 
     pub fn denied() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             ok: false,
             data: None,
             error: Some(LocalError {
@@ -244,7 +246,7 @@ impl LocalResponse {
 
     pub fn failure(code: impl Into<String>, message: impl Into<String>, retryable: bool) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             ok: false,
             data: None,
             error: Some(LocalError {
