@@ -266,7 +266,6 @@ export function SpaceShell({
           title="Open navigation"
           onClick={openNavigation}
         />
-        <PixelIdentity name={user.data.display_name} kind="human" seed={currentMember.id} />
       </aside>
 
       {navigationOpen ? (

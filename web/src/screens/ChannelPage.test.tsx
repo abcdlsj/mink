@@ -77,6 +77,7 @@ describe("ChannelPage", () => {
     fireEvent.click(within(navigation).getByRole("button", { name: "Close navigation" }));
     expect(shell).toHaveClass("space-shell--navigation-collapsed");
     const railOpen = within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("button", { name: "Open navigation" });
+    expect(within(screen.getByRole("complementary", { name: "Space tools" })).queryByRole("img", { name: "Ada avatar" })).not.toBeInTheDocument();
     fireEvent.click(railOpen);
     expect(shell).not.toHaveClass("space-shell--navigation-collapsed");
     expect(navigation).toHaveClass("space-navigation--open");
