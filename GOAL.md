@@ -54,7 +54,7 @@
 
 ### 5. Message hydration 批量查询
 
-- 状态：待开始
+- 状态：已完成
 - 使用 Message ID 集合批量读取 Attachment、mention 和 Task summary。
 - Browser Channel、Thread read 和 Agent read 复用批量 hydration。
 

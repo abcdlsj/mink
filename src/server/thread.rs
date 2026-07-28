@@ -13,6 +13,7 @@ use super::{
     api_error::ApiError,
     auth, idempotency, member,
     message::{self, MessageResponse},
+    message_hydration::MessageHydration,
 };
 
 #[derive(Deserialize, Serialize, utoipa::ToSchema)]
@@ -269,8 +270,15 @@ pub async fn read(
         access.ok_or_else(|| {
             ApiError::forbidden("permission_denied", "Channel membership is required")
         })?;
-    let root = fetch_message(&state.database, root_message_id).await?;
-    let replies = fetch_replies(&state.database, channel_id, thread_id).await?;
+    let mut root = fetch_message(&state.database, root_message_id).await?;
+    let mut replies = fetch_replies(&state.database, channel_id, thread_id).await?;
+    let hydration = MessageHydration::load(
+        &state.database,
+        std::iter::once(root.id).chain(replies.iter().map(|message| message.id)),
+    )
+    .await?;
+    hydration.apply_to_responses(std::slice::from_mut(&mut root));
+    hydration.apply_to_responses(&mut replies);
     Ok(Json(ThreadReadResponse {
         channel_id,
         thread_id,
@@ -403,16 +411,12 @@ async fn fetch_message(
     database: &sqlx::PgPool,
     message_id: Uuid,
 ) -> Result<MessageResponse, ApiError> {
-    let mut message: MessageResponse = sqlx::query_as::<_, MessageWireRow>(MESSAGE_SELECT)
+    sqlx::query_as::<_, MessageWireRow>(MESSAGE_SELECT)
         .bind(message_id)
         .fetch_one(database)
         .await
         .map(Into::into)
-        .map_err(ApiError::database)?;
-    message.attachments =
-        super::attachment::attachments_for_message_pool(database, message_id).await?;
-    message::hydrate_task_summaries_pool(database, std::slice::from_mut(&mut message)).await?;
-    Ok(message)
+        .map_err(ApiError::database)
 }
 
 async fn fetch_replies(
@@ -423,27 +427,20 @@ async fn fetch_replies(
     let query = format!(
         "{MESSAGE_SELECT} AND messages.channel_id = $2 AND messages.thread_id = $3 ORDER BY messages.channel_seq"
     );
-    let mut messages: Vec<MessageResponse> = sqlx::query_as::<_, MessageWireRow>(&query)
+    sqlx::query_as::<_, MessageWireRow>(&query)
         .bind(Uuid::nil())
         .bind(channel_id)
         .bind(thread_id)
         .fetch_all(database)
         .await
         .map(|rows| rows.into_iter().map(Into::into).collect())
-        .map_err(ApiError::database)?;
-    for message in &mut messages {
-        message.attachments =
-            super::attachment::attachments_for_message_pool(database, message.id).await?;
-    }
-    Ok(messages)
+        .map_err(ApiError::database)
 }
 
 const MESSAGE_SELECT: &str = "SELECT messages.id, messages.channel_id, messages.channel_seq AS seq, \
             members.id AS author_id, members.kind AS author_kind, \
             members.display_name AS author_display_name, members.handle AS author_handle, \
-            messages.body_markdown, \
-            COALESCE((SELECT array_agg(member_id ORDER BY member_id) FROM message_mentions \
-                      WHERE message_mentions.message_id = messages.id), ARRAY[]::uuid[]) AS mentions, \
+            messages.body_markdown, ARRAY[]::uuid[] AS mentions, \
             messages.created_at, messages.edited_at, messages.deleted_at, \
             COALESCE(messages.thread_id, threads_for_root.thread_id) AS thread_id, \
             COALESCE((SELECT count(*) FROM messages replies \

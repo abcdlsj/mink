@@ -8,8 +8,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
-    AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency, space,
-    task,
+    AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency,
+    message_hydration::MessageHydration, space, task,
 };
 use crate::local_protocol::AgentAction;
 
@@ -633,7 +633,7 @@ async fn agent_channel_read(
     .fetch_one(database)
     .await
     .map_err(ApiError::database)?;
-    enrich_agent_messages(database, &mut messages).await?;
+    hydrate_agent_message_groups(database, &mut [&mut messages]).await?;
     Ok(serde_json::json!({
         "address": display_address,
         "channel_id": channel_id,
@@ -691,7 +691,7 @@ async fn agent_thread_read(
             "Agent is not a member of this Thread Channel",
         )
     })?;
-    let root = agent_message_json_pool(database, root_message_id, address).await?;
+    let mut root = agent_message_json_pool(database, root_message_id, address).await?;
     let replies: Vec<serde_json::Value> = sqlx::query_scalar(
         "SELECT jsonb_build_object('id', messages.id, 'seq', messages.channel_seq, \
             'author', jsonb_build_object('id', members.id, 'kind', members.kind, \
@@ -734,9 +734,16 @@ async fn agent_thread_read(
     .fetch_all(database)
     .await
     .map_err(ApiError::database)?;
-    enrich_agent_messages(database, &mut replies).await?;
     let mut background = background.into_iter().rev().collect::<Vec<_>>();
-    enrich_agent_messages(database, &mut background).await?;
+    hydrate_agent_message_groups(
+        database,
+        &mut [
+            std::slice::from_mut(&mut root),
+            &mut replies,
+            &mut background,
+        ],
+    )
+    .await?;
     Ok(serde_json::json!({
         "address": address,
         "channel_id": channel_id,
@@ -1291,7 +1298,7 @@ async fn agent_message_json_pool(
     message_id: Uuid,
     address: &str,
 ) -> Result<serde_json::Value, ApiError> {
-    let message: serde_json::Value = sqlx::query_scalar(
+    sqlx::query_scalar(
         "SELECT jsonb_build_object( \
             'id', messages.id, 'channel_id', messages.channel_id, 'seq', messages.channel_seq, \
             'address', $2::text, 'author', jsonb_build_object('id', members.id, \
@@ -1306,38 +1313,28 @@ async fn agent_message_json_pool(
     .bind(address)
     .fetch_one(database)
     .await
-    .map_err(ApiError::database)?;
-    let mut messages = vec![message];
-    enrich_agent_messages(database, &mut messages).await?;
-    messages.pop().ok_or(ApiError::Internal)
+    .map_err(ApiError::database)
 }
 
-async fn enrich_agent_messages(
+async fn hydrate_agent_message_groups(
     database: &sqlx::PgPool,
-    messages: &mut [serde_json::Value],
+    groups: &mut [&mut [serde_json::Value]],
 ) -> Result<(), ApiError> {
-    for message in messages {
-        let message_id = message
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-            .ok_or(ApiError::Internal)?;
-        let attachments = attachment::attachments_for_message_pool(database, message_id).await?;
-        let mentions: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT member_id FROM message_mentions WHERE message_id = $1 ORDER BY member_id",
-        )
-        .bind(message_id)
-        .fetch_all(database)
-        .await
-        .map_err(ApiError::database)?;
-        message.as_object_mut().ok_or(ApiError::Internal)?.insert(
-            "attachments".to_owned(),
-            serde_json::to_value(attachments).map_err(|_| ApiError::Internal)?,
-        );
-        message.as_object_mut().ok_or(ApiError::Internal)?.insert(
-            "mentions".to_owned(),
-            serde_json::to_value(mentions).map_err(|_| ApiError::Internal)?,
-        );
+    let mut message_ids = Vec::new();
+    for messages in groups.iter() {
+        for message in messages.iter() {
+            message_ids.push(
+                message
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .ok_or(ApiError::Internal)?,
+            );
+        }
+    }
+    let hydration = MessageHydration::load(database, message_ids).await?;
+    for messages in groups {
+        hydration.apply_to_agent_messages(messages)?;
     }
     Ok(())
 }

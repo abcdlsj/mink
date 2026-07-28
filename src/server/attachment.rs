@@ -35,16 +35,16 @@ pub struct AttachmentResponse {
 }
 
 #[derive(FromRow)]
-struct AttachmentRow {
-    id: Uuid,
-    space_id: Uuid,
-    uploader_member_id: Uuid,
-    original_name: String,
-    media_type: String,
-    size: Option<i64>,
-    sha256: Option<Vec<u8>>,
-    status: String,
-    created_at: OffsetDateTime,
+pub(super) struct AttachmentRow {
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) uploader_member_id: Uuid,
+    pub(super) original_name: String,
+    pub(super) media_type: String,
+    pub(super) size: Option<i64>,
+    pub(super) sha256: Option<Vec<u8>>,
+    pub(super) status: String,
+    pub(super) created_at: OffsetDateTime,
 }
 
 impl From<AttachmentRow> for AttachmentResponse {
@@ -558,25 +558,6 @@ pub(super) async fn attachments_for_message(
     )
     .bind(message_id)
     .fetch_all(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    Ok(rows.into_iter().map(Into::into).collect())
-}
-
-pub(super) async fn attachments_for_message_pool(
-    database: &sqlx::PgPool,
-    message_id: Uuid,
-) -> Result<Vec<AttachmentResponse>, ApiError> {
-    let rows = sqlx::query_as::<_, AttachmentRow>(
-        "SELECT attachments.id, attachments.space_id, attachments.uploader_member_id, \
-                attachments.original_name, attachments.media_type, attachments.size, \
-                attachments.sha256, attachments.status, attachments.created_at \
-         FROM message_attachments \
-         JOIN attachments ON attachments.id = message_attachments.attachment_id \
-         WHERE message_attachments.message_id = $1 ORDER BY message_attachments.position",
-    )
-    .bind(message_id)
-    .fetch_all(database)
     .await
     .map_err(ApiError::database)?;
     Ok(rows.into_iter().map(Into::into).collect())

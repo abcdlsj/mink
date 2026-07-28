@@ -74,6 +74,30 @@ async fn task_flow_is_channel_scoped_and_permissionless() -> Result<()> {
     result
 }
 
+#[tokio::test]
+async fn message_hydration_query_count_is_independent_of_message_count() -> Result<()> {
+    let test_database = TestDatabase::create().await?;
+    let database = database::connect_postgres(&test_database.url).await?;
+
+    let (single, single_query_count) = super::message_hydration::observe_query_count(
+        super::message_hydration::MessageHydration::load(&database, [Uuid::now_v7()]),
+    )
+    .await;
+    ensure!(single.is_ok());
+    let message_ids = (0..100).map(|_| Uuid::now_v7()).collect::<Vec<_>>();
+    let (page, page_query_count) = super::message_hydration::observe_query_count(
+        super::message_hydration::MessageHydration::load(&database, message_ids),
+    )
+    .await;
+    ensure!(page.is_ok());
+
+    ensure!(single_query_count == 1);
+    ensure!(page_query_count == single_query_count);
+    database.close().await;
+    test_database.drop().await?;
+    Ok(())
+}
+
 fn json_request(
     uri: &str,
     key: Uuid,

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -11,7 +9,10 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, attachment, auth, idempotency, member};
+use super::{
+    AppState, api_error::ApiError, attachment, auth, idempotency, member,
+    message_hydration::MessageHydration,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MessageAuthor {
@@ -277,10 +278,7 @@ pub async fn list(
         "SELECT messages.id, messages.channel_id, messages.channel_seq AS seq, \
                 members.id AS author_id, members.kind AS author_kind, \
                 members.display_name AS author_display_name, members.handle AS author_handle, \
-                messages.body_markdown, \
-                COALESCE((SELECT array_agg(member_id ORDER BY member_id) FROM message_mentions \
-                          WHERE message_mentions.message_id = messages.id), \
-                         ARRAY[]::uuid[]) AS mentions, \
+                messages.body_markdown, ARRAY[]::uuid[] AS mentions, \
                 messages.created_at, messages.edited_at, messages.deleted_at \
                 , threads.thread_id, COALESCE((SELECT count(*) FROM messages replies \
                     WHERE replies.channel_id = messages.channel_id \
@@ -305,11 +303,9 @@ pub async fn list(
         .map(MessageResponse::from)
         .collect::<Vec<_>>();
     messages.reverse();
-    for message in &mut messages {
-        message.attachments =
-            attachment::attachments_for_message_pool(&state.database, message.id).await?;
-    }
-    hydrate_task_summaries_pool(&state.database, &mut messages).await?;
+    let hydration =
+        MessageHydration::load(&state.database, messages.iter().map(|message| message.id)).await?;
+    hydration.apply_to_responses(&mut messages);
     let has_more_after = query
         .before
         .is_some_and(|cursor| cursor <= snapshot_channel_seq);
@@ -480,56 +476,6 @@ pub(super) async fn message_by_id(
     .await
     .map_err(ApiError::database)?;
     Ok(response)
-}
-
-pub(super) async fn hydrate_task_summaries_pool(
-    database: &sqlx::PgPool,
-    messages: &mut [MessageResponse],
-) -> Result<(), ApiError> {
-    if messages.is_empty() {
-        return Ok(());
-    }
-    #[derive(sqlx::FromRow)]
-    struct TaskProjectionRow {
-        source_message_id: Uuid,
-        id: Uuid,
-        title: String,
-        status: String,
-        assigned_agent_member_id: Option<Uuid>,
-        assignee_name: Option<String>,
-    }
-    let message_ids = messages
-        .iter()
-        .map(|message| message.id)
-        .collect::<Vec<_>>();
-    let summaries = sqlx::query_as::<_, TaskProjectionRow>(
-        "SELECT tasks.source_message_id, tasks.id, tasks.title, tasks.status, \
-                tasks.assigned_agent_member_id, assignees.display_name AS assignee_name \
-         FROM tasks LEFT JOIN members assignees ON assignees.id = tasks.assigned_agent_member_id \
-         WHERE tasks.source_message_id = ANY($1)",
-    )
-    .bind(&message_ids)
-    .fetch_all(database)
-    .await
-    .map_err(ApiError::database)?
-    .into_iter()
-    .map(|row| {
-        (
-            row.source_message_id,
-            MessageTaskSummary {
-                id: row.id,
-                title: row.title,
-                status: row.status,
-                assigned_agent_member_id: row.assigned_agent_member_id,
-                assignee_name: row.assignee_name,
-            },
-        )
-    })
-    .collect::<HashMap<_, _>>();
-    for message in messages {
-        message.task = summaries.get(&message.id).cloned();
-    }
-    Ok(())
 }
 
 #[cfg(test)]

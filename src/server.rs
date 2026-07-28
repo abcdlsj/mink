@@ -39,6 +39,7 @@ mod idempotency;
 mod inbox;
 mod member;
 mod message;
+mod message_hydration;
 mod message_publish;
 mod outbox;
 mod rate_limit;
