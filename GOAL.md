@@ -40,9 +40,9 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 
 ### 2. DM WebUI
 
-- [ ] 从导航创建和打开 DM。
-- [ ] 复用 Channel 的 Message、Thread 和 Agent 注意力模型。
-- [ ] 通过 Web 单元测试、lint、build 和三视口浏览器验证。
+- [x] 从导航创建和打开 DM。
+- [x] 复用 Channel 的 Message、Thread 和 Agent 注意力模型。
+- [x] 通过 Web 单元测试、lint、build 和三视口浏览器验证。
 
 ## 验证命令
 
@@ -69,6 +69,10 @@ pnpm --dir web build
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
 - `cargo test --all-features`：通过；71 个单元测试和 21 个进程与数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `pnpm --dir web test`：通过；9 个测试文件、23 个测试通过。
+- `pnpm --dir web lint`：通过。
+- `pnpm --dir web build`：通过。
+- `node web/e2e/dm-verify.mjs`：通过；1440x900、1024x768、390x844 均可从导航打开 DM 选择器并进入 DM，无横向溢出、page error 或 console error。
 
 ## 完成条件
 

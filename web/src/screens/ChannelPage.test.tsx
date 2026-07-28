@@ -110,6 +110,58 @@ describe("ChannelPage", () => {
     });
   });
 
+  it("creates and opens a DM from conversation navigation", async () => {
+    const spaceId = "019c0000-0000-7000-8000-000000000101";
+    const ownerId = "019c0000-0000-7000-8000-000000000102";
+    const channelId = "019c0000-0000-7000-8000-000000000103";
+    const graceId = "019c0000-0000-7000-8000-000000000104";
+    const linId = "019c0000-0000-7000-8000-000000000105";
+    const dmChannelId = "019c0000-0000-7000-8000-000000000106";
+    const owner = { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] };
+    const grace = { id: graceId, kind: "human", display_name: "Grace Hopper", handle: "grace-hopper", access_level: "member", permissions: [] };
+    const lin = { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] };
+    const createdDirectMessage = { channel_id: dmChannelId, space_id: spaceId, other_member: grace, created_at: "2026-07-28T00:00:00Z" };
+    let directMessageCreated = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", name: "general", slug: "general", created_by_member_id: ownerId, joined: true }] });
+      if (path.endsWith("/dms") && !init?.method) return json(directMessageCreated ? [createdDirectMessage] : []);
+      if (path.endsWith("/dms") && init?.method === "POST") {
+        directMessageCreated = true;
+        return json(createdDirectMessage, 201);
+      }
+      if (path.endsWith("/agents") && !init?.method) return json([{ member_id: linId, activity_status: "idle" }]);
+      if (path.endsWith("/computers") && !init?.method) return json([]);
+      if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) return json({ members: [owner, grace, lin], can_manage: true });
+      if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) return json({ channel_id: channelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      if (path.endsWith(`/channels/${dmChannelId}/members`) && !init?.method) return json({ members: [owner, grace], can_manage: false });
+      if (path.endsWith(`/channels/${dmChannelId}/messages`) && !init?.method) return json({ channel_id: dmChannelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      if (path.endsWith("/members") && !init?.method) return json([owner, grace, lin]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/channels/general");
+
+    expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Start DM" }));
+    const dialog = screen.getByRole("dialog", { name: "Start DM" });
+    expect(within(dialog).queryByText("@ada")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Find a Member"), { target: { value: "grace" } });
+    expect(within(dialog).queryByText("@lin")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Grace Hopper.*@grace-hopper.*Start/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/spaces/${spaceId}/dms`),
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ member_id: graceId }) }),
+      );
+    });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Grace Hopper" })).toBeVisible());
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Message @grace-hopper");
+  });
+
   it("renders API Messages and sends structured mentions", async () => {
     const channelId = "019c0000-0000-7000-8000-000000000003";
     const linId = "019c0000-0000-7000-8000-000000000020";

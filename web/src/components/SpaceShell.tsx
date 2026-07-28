@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ApiRequestError,
   createChannel,
+  createDirectMessage,
   currentUser,
   getSpaceBySlug,
   joinChannel,
@@ -70,6 +71,7 @@ export function SpaceShell({
   const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
+  const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
   function closeNavigation() {
@@ -137,6 +139,27 @@ export function SpaceShell({
       void navigate({
         to: "/s/$spaceSlug/channels/$channelSlug",
         params: { spaceSlug: space.data!.slug, channelSlug: channel.slug },
+      });
+    },
+  });
+  const directMessageCreation = useMutation({
+    mutationFn: (memberId: string) => createDirectMessage(space.data!.id, memberId),
+    onSuccess: (directMessage) => {
+      queryClient.setQueryData<DirectMessage[]>(
+        ["direct-messages", space.data!.id],
+        (current = []) => [
+          ...current.filter((candidate) => candidate.channel_id !== directMessage.channel_id),
+          directMessage,
+        ],
+      );
+      setDirectMessageFormOpen(false);
+      setNavigationOpen(false);
+      void navigate({
+        to: "/s/$spaceSlug/dm/$memberId",
+        params: {
+          spaceSlug: space.data!.slug,
+          memberId: directMessage.other_member.id,
+        },
       });
     },
   });
@@ -410,11 +433,24 @@ export function SpaceShell({
                 ))}
             </>
           ) : null}
-          <p className="nav-label nav-label--section"><ChevronDown aria-hidden="true" /> DMS <span>{availableDirectMessages.length}</span></p>
+          <div className="nav-section-heading nav-section-heading--dms">
+            <p className="nav-label nav-label--section"><ChevronDown aria-hidden="true" /> DMS <span>{availableDirectMessages.length}</span></p>
+            <button
+              type="button"
+              aria-label="Start DM"
+              title="Start DM"
+              onClick={() => {
+                setDirectMessageFormOpen(true);
+                directMessageCreation.reset();
+              }}
+            >
+              <Plus />
+            </button>
+          </div>
           {directMessages.error ? (
             <span className="nav-empty">DMs unavailable</span>
           ) : availableDirectMessages.length === 0 ? (
-            <span className="nav-empty">Start from Members</span>
+            <span className="nav-empty">No DMs yet</span>
           ) : null}
           {availableDirectMessages.map((dm) => (
             <DirectMessageNavigationItem
@@ -440,6 +476,18 @@ export function SpaceShell({
           error={channelCreation.error?.message}
           close={() => setChannelFormOpen(false)}
           onSubmit={(input) => channelCreation.mutate(input)}
+        />
+      ) : null}
+
+      {directMessageFormOpen ? (
+        <DirectMessageDialog
+          members={members.data.filter((member) => member.id !== currentMember.id)}
+          activityByMemberId={activityByMemberId}
+          existingMemberIds={new Set(availableDirectMessages.map((dm) => dm.other_member.id))}
+          pendingMemberId={directMessageCreation.isPending ? directMessageCreation.variables : undefined}
+          error={directMessageCreation.error?.message}
+          close={() => setDirectMessageFormOpen(false)}
+          onSelect={(memberId) => directMessageCreation.mutate(memberId)}
         />
       ) : null}
 
@@ -599,6 +647,60 @@ function ChannelDialog({
             <button className="command-button command-button--accent" type="submit" disabled={pending}>{pending ? "Creating…" : "Create Channel"}</button>
           </footer>
         </form>
+    </DialogFrame>
+  );
+}
+
+function DirectMessageDialog({
+  members,
+  activityByMemberId,
+  existingMemberIds,
+  pendingMemberId,
+  error,
+  close,
+  onSelect,
+}: {
+  members: Member[];
+  activityByMemberId: Map<string, Agent["activity_status"]>;
+  existingMemberIds: Set<string>;
+  pendingMemberId?: string;
+  error?: string;
+  close: () => void;
+  onSelect: (memberId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredMembers = members.filter((member) =>
+    !normalizedQuery ||
+    member.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
+    member.handle.toLocaleLowerCase().includes(normalizedQuery),
+  );
+
+  return (
+    <DialogFrame className="dm-dialog" close={close} labelId="start-dm-title">
+      <header>
+        <div><p className="section-kicker">DIRECT MESSAGE</p><h2 id="start-dm-title">Start DM</h2></div>
+        <button className="icon-button" type="button" aria-label="Close Start DM" onClick={close}><X /></button>
+      </header>
+      <div className="dm-picker">
+        <label className="dm-search">Find a Member<input data-dialog-initial-focus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or @handle" /></label>
+        <ul className="dm-member-list" aria-label="Members available for DM">
+          {filteredMembers.length ? filteredMembers.map((member) => {
+            const pending = pendingMemberId === member.id;
+            const activityStatus = activityByMemberId.get(member.id);
+            return (
+              <li key={member.id}>
+                <button type="button" disabled={Boolean(pendingMemberId)} onClick={() => onSelect(member.id)}>
+                  <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
+                  <span><strong>{member.display_name}</strong><small>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityStatus)}` : ""}</small></span>
+                  <b>{pending ? "Opening…" : existingMemberIds.has(member.id) ? "Open" : "Start"}</b>
+                </button>
+              </li>
+            );
+          }) : <li className="nav-empty">No matching Members</li>}
+        </ul>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+      </div>
     </DialogFrame>
   );
 }
