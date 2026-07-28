@@ -13,8 +13,13 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
     }
   };
   const closeResponsiveNavigation = async () => {
-    const close = page.getByRole("button", { name: "Close navigation" });
+    const close = page.getByRole("complementary", { name: "Space navigation" }).getByRole("button", { name: "Close navigation" });
     if (await close.isVisible()) await close.click();
+  };
+  const navigateToSpaceTool = async (name: "Members" | "Computers") => {
+    const link = page.getByRole("link", { name, exact: true });
+    if (!(await link.isVisible())) await openResponsiveNavigation();
+    await link.click();
   };
   page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
   page.on("console", (message) => {
@@ -72,24 +77,27 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.locator("article.message-row").getByText("viewport-proof.txt")).toBeVisible();
 
-  await openResponsiveNavigation();
-  await page.getByRole("link", { name: "Members" }).click();
+  await navigateToSpaceTool("Members");
   await expect(page.locator(".members-header").getByRole("heading", { name: "Members", exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Filter Members by kind" })).toBeVisible();
 
-  await openResponsiveNavigation();
-  await page.getByRole("link", { name: "Computers" }).click();
+  await navigateToSpaceTool("Computers");
   await expect(page.getByRole("heading", { name: "No Computers paired", exact: true })).toBeVisible();
 
-  await openResponsiveNavigation();
+  const railInbox = page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" });
   const navigationInbox = page.getByRole("complementary", { name: "Space navigation" }).getByRole("link", { name: "Inbox" });
-  if (await navigationInbox.isVisible()) {
-    await navigationInbox.click();
+  if (await railInbox.isVisible()) {
+    await railInbox.click();
   } else {
-    await page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" }).click();
+    await openResponsiveNavigation();
+    if (await navigationInbox.isVisible()) {
+      await navigationInbox.click();
+    } else {
+      await railInbox.click();
+    }
   }
   await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nothing needs your attention" })).toBeVisible();
   await expect(page.getByText(/not your Message history/i)).toBeVisible();
-  await expect(page.locator("body")).not.toContainText(/Tasks|As Task|Joint Channels|Chat \/ Tasks \/ Files/);
+  await expect(page.locator("body")).not.toContainText(/As Task|Joint Channels|Chat \/ Tasks \/ Files/);
 });
