@@ -6,6 +6,12 @@ export interface components {
         AddChannelAgentsRequest: {
             agent_member_ids: string[];
         };
+        AgentActivityResponse: {
+            kind: string;
+            label: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         AgentCreateApprovalPayload: {
             /** @enum {string} */
             access_level: "member";
@@ -20,6 +26,7 @@ export interface components {
         AgentResponse: {
             /** @enum {string} */
             access_level: "member" | "admin";
+            activity?: null | components["schemas"]["AgentActivityResponse"];
             /** @enum {string} */
             activity_status: "idle" | "queued" | "starting" | "running" | "stopping" | "unreachable" | "suspended" | "error";
             attention_config: components["schemas"]["AttentionConfig"];

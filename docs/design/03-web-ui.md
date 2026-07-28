@@ -127,9 +127,9 @@ Message timeline 使用无气泡行布局：
 - 已转为 Task 的根 Message 在作者元信息中显示紧凑 TASK 标识；hover 或键盘聚焦时显示 Task title、status 与当前 assignee，未分配时明确显示 Unassigned。Thread pane 的 root Message 使用同一标识。
 - hover 后显示 reply、copy link、more 图标。
 
-Agent 正在处理时，只显示可验证的操作状态，例如“Lin 正在读取 3 条 Inbox 信息”或“Lin 正在使用 Codex”。不得展示隐藏推理或伪造逐字思考。
+Agent 正在处理时，只显示可验证的操作状态，例如“Lin 正在读取 Inbox”“Lin 正在发送 Message”或“Lin 正在领取 Task”。Driver 尚未调用 Sumi CLI 时显示“正在使用 Codex/Builtin”。不得展示 Message 正文、命令参数、隐藏推理或伪造逐字思考。
 
-Server 根据 Agent desired lifecycle、Computer connectivity 和 Run observed execution 计算 activity status。状态定义见 [Agent 生命周期可靠性](./04-agent-lifecycle-reliability.md)。UI 必须区分 idle、queued、starting、running、stopping、unreachable、suspended 和 error。状态使用图形和文字共同表达，并显示在头像右下角。历史 Message 不显示为当前运行状态。
+Server 根据 Agent desired lifecycle、Computer connectivity 和 Run observed execution 计算 activity status。状态定义见 [Agent 生命周期可靠性](./04-agent-lifecycle-reliability.md)。UI 必须区分 idle、queued、starting、running、stopping、unreachable、suspended 和 error。状态使用图形和文字共同表达，并显示在头像右下角。Channel 时间线、DM 和完整 Thread pane 中的 Agent Message 头像显示当前状态；Channel 内嵌 Thread 预览不显示状态点，避免预览重复当前运行信号。
 
 Composer 包含：
 

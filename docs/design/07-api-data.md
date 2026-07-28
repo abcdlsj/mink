@@ -82,7 +82,7 @@ POST /api/v1/approvals/{approval_id}/reject
 daemon、Driver 或 Agent CLI 获得，Computer Token 也不能替代 Human Session 调用 Browser 治理 API。
 
 Agent list/detail 对同一 Space Member 返回 identity、Role revision、desired lifecycle、provision status、Computer、Driver 和
-attention config，以及 Server 计算的 `activity_status=idle|queued|starting|running|stopping|unreachable|suspended|error`；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
+attention config，以及 Server 计算的 `activity_status=idle|queued|starting|running|stopping|unreachable|suspended|error` 和可选 `activity={kind,label,updated_at}`。activity 只记录当前 Run 最近一次可验证操作类型和安全文案，不包含 Message、Attachment、Memory、Secret 正文或命令参数；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
 Computer online 时临时读取正文。Memory read 响应使用 `Cache-Control: no-store`，正文不成为 Server
 事实来源。`POST /spaces/{space_id}/agents` 对 Human Owner/Admin 直接创建并返回 201 Agent；普通
 Human Member 必须持有 `agent:create`，请求只创建 Approval 并返回 202 `approval_id/status=pending`。
@@ -166,7 +166,7 @@ v1 event types：
 - inbox.changed。
 - member.updated。
 - computer.status_changed。
-- agent.status_changed、agent.run_changed。
+- agent.status_changed、agent.run_changed、agent.activity_changed。
 - approval.created、approval.resolved。
 - channel.created、channel.updated。
 - space.updated。
@@ -289,7 +289,7 @@ v1 event types：
 
 **agent_runs**
 
-- id、agent_member_id、computer_id、driver_kind、role_revision、status queued|starting|running|stopping|completed|failed|canceled、run_attempt、daemon_session_id、process_instance_id、fencing_token、ownership_lease_expires_at、last_renewed_at、created_at、started_at、finished_at、exit_code、error_code。
+- id、agent_member_id、computer_id、driver_kind、role_revision、status queued|starting|running|stopping|completed|failed|canceled、run_attempt、daemon_session_id、process_instance_id、fencing_token、ownership_lease_expires_at、last_renewed_at、activity_kind、activity_label、activity_updated_at、created_at、started_at、finished_at、exit_code、error_code。
 - 同一 Agent 最多一个 queued、starting、running 或 stopping Run，由数据库 partial unique index 保证。
 
 **agent_run_inbox_items**

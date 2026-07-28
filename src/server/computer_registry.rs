@@ -5,7 +5,6 @@ use axum::{
     response::Response,
 };
 use axum_extra::extract::CookieJar;
-use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -14,8 +13,9 @@ use super::{AppState, api_error::ApiError, auth, idempotency, member};
 use super::computer_pairing::ComputerResponse;
 use crate::{
     computer_protocol::{
-        AgentRunCommand, CommandResult, ComputerCommand, ComputerFrame, RunResultStatus,
-        ServerFrame,
+        AgentClaimResponse, AgentLeaseRequest, AgentLeaseResponse, AgentReleaseRequest,
+        AgentReleaseResponse, AgentRunCommand, CommandResult, ComputerCommand, ComputerFrame,
+        HostedAgent, RunResultStatus, ServerFrame,
     },
     prompt::{self, PromptContext},
 };
@@ -172,18 +172,11 @@ pub async fn connect(
     Ok(upgrade.on_upgrade(move |socket| computer_socket(state, computer_id, socket)))
 }
 
-#[derive(Serialize)]
-pub struct HostedAgentResponse {
-    member_id: Uuid,
-    desired_lifecycle: String,
-    provision_status: String,
-}
-
 pub async fn list_hosted_agents(
     State(state): State<std::sync::Arc<AppState>>,
     headers: HeaderMap,
     Path(computer_id): Path<Uuid>,
-) -> Result<Json<Vec<HostedAgentResponse>>, ApiError> {
+) -> Result<Json<Vec<HostedAgent>>, ApiError> {
     super::computer_auth::require_computer(&state, &headers, computer_id).await?;
     let agents: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT member_id, desired_lifecycle, provision_status FROM agents \
@@ -198,7 +191,7 @@ pub async fn list_hosted_agents(
         agents
             .into_iter()
             .map(
-                |(member_id, desired_lifecycle, provision_status)| HostedAgentResponse {
+                |(member_id, desired_lifecycle, provision_status)| HostedAgent {
                     member_id,
                     desired_lifecycle,
                     provision_status,
@@ -206,42 +199,6 @@ pub async fn list_hosted_agents(
             )
             .collect(),
     ))
-}
-
-#[derive(Serialize)]
-pub struct AgentClaimResponse {
-    claimed: bool,
-    run_id: Option<Uuid>,
-    inbox_item_ids: Vec<Uuid>,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct AgentLeaseRequest {
-    run_id: Uuid,
-    fencing_token: String,
-}
-
-#[derive(Serialize)]
-pub struct AgentLeaseResponse {
-    renewed_items: u64,
-    #[serde(with = "time::serde::rfc3339")]
-    lease_expires_at: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    ownership_lease_expires_at: OffsetDateTime,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct AgentReleaseRequest {
-    run_id: Uuid,
-    fencing_token: String,
-    error_code: String,
-}
-
-#[derive(Serialize)]
-pub struct AgentReleaseResponse {
-    released: bool,
-    retry_items: u64,
-    dead_items: u64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -662,7 +619,7 @@ async fn run_computer_socket(
     )
     .await?;
     replay_commands(state, computer_id, socket, true).await?;
-    let mut command_poll = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut command_poll = tokio::time::interval(std::time::Duration::from_millis(250));
     command_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     command_poll.tick().await;
 

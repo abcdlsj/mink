@@ -28,8 +28,9 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "member.updated") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       }
-      if (payload.type === "agent.status_changed" || payload.type === "agent.run_changed") {
+      if (payload.type === "agent.status_changed" || payload.type === "agent.run_changed" || payload.type === "agent.activity_changed") {
         void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["agent"] });
       }
       if (payload.type.startsWith("approval.")) {
         void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
@@ -51,6 +52,7 @@ export function useSpaceEvents(spaceId?: string) {
       "member.updated",
       "agent.status_changed",
       "agent.run_changed",
+      "agent.activity_changed",
       "approval.created",
       "approval.resolved",
       "task.created",

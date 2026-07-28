@@ -41,6 +41,7 @@ pub struct AgentResponse {
     pub desired_lifecycle: String,
     pub provision_status: String,
     pub activity_status: String,
+    pub activity: Option<AgentActivityResponse>,
     pub driver_kind: String,
     pub attention_config: AttentionConfig,
     #[serde(with = "time::serde::rfc3339")]
@@ -51,6 +52,14 @@ pub struct AgentResponse {
     pub retired_at: Option<OffsetDateTime>,
     pub last_error_code: Option<String>,
     pub memory_files: Vec<MemoryFileResponse>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct AgentActivityResponse {
+    pub kind: String,
+    pub label: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Serialize)]
@@ -98,6 +107,10 @@ struct AgentRow {
     provision_status: String,
     computer_status: String,
     run_status: Option<String>,
+    activity_kind: Option<String>,
+    activity_label: Option<String>,
+    activity_updated_at: Option<OffsetDateTime>,
+    run_created_at: Option<OffsetDateTime>,
     driver_kind: String,
     attention_config_json: serde_json::Value,
     driver_config_json: serde_json::Value,
@@ -185,132 +198,7 @@ pub async fn update(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(Json(response));
     }
-    authorize_transition(
-        &current.desired_lifecycle,
-        &current.provision_status,
-        request.lifecycle.as_ref(),
-    )?;
-    let now = OffsetDateTime::now_utc();
-    let next_role = request.role_text.as_deref().unwrap_or(&current.role_text);
-    let role_changed = next_role != current.role_text;
-    let next_revision = current.role_revision + i64::from(role_changed);
-    let current_attention: AttentionConfig =
-        serde_json::from_value(current.attention_config_json.clone())
-            .map_err(|_| ApiError::Internal)?;
-    let next_attention = request
-        .attention_config
-        .clone()
-        .unwrap_or(current_attention);
-    let (next_lifecycle, next_provision_status, retired_at) = match request.lifecycle.as_ref() {
-        Some(LifecycleAction::Suspend { .. }) => {
-            ("suspended", current.provision_status.as_str(), None)
-        }
-        Some(LifecycleAction::Resume) => ("active", current.provision_status.as_str(), None),
-        Some(LifecycleAction::Retry) => ("active", "provisioning", None),
-        Some(LifecycleAction::Retire) => ("retired", current.provision_status.as_str(), Some(now)),
-        None => (
-            current.desired_lifecycle.as_str(),
-            current.provision_status.as_str(),
-            current.retired_at,
-        ),
-    };
-    sqlx::query(
-        "UPDATE agents SET role_text = $2, role_revision = $3, attention_config_json = $4, \
-         desired_lifecycle = $5, provision_status = $6, updated_at = $7, \
-         retired_at = $8, last_error_code = NULL \
-         WHERE member_id = $1",
-    )
-    .bind(agent_id)
-    .bind(next_role)
-    .bind(next_revision)
-    .bind(serde_json::to_value(&next_attention).map_err(|_| ApiError::Internal)?)
-    .bind(next_lifecycle)
-    .bind(next_provision_status)
-    .bind(now)
-    .bind(retired_at)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    if matches!(request.lifecycle, Some(LifecycleAction::Retire)) {
-        sqlx::query("UPDATE members SET retired_at = $2 WHERE id = $1")
-            .bind(agent_id)
-            .bind(now)
-            .execute(&mut *transaction)
-            .await
-            .map_err(ApiError::database)?;
-    }
-    let configuration = AgentConfiguration {
-        agent_id,
-        space_id: current.space_id,
-        name: current.name,
-        handle: current.handle,
-        role_text: next_role.to_owned(),
-        role_revision: next_revision,
-        driver_kind: current.driver_kind,
-        driver_config: serde_json::from_value(current.driver_config_json)
-            .map_err(|_| ApiError::Internal)?,
-        attention_config: next_attention,
-        mode: request.lifecycle.as_ref().and_then(|action| match action {
-            LifecycleAction::Suspend {
-                mode: SuspendMode::StopAfterCurrent,
-            } => Some(SuspendMode::StopAfterCurrent),
-            LifecycleAction::Suspend {
-                mode: SuspendMode::CancelNow,
-            } => Some(SuspendMode::CancelNow),
-            _ => None,
-        }),
-    };
-    let command = match request.lifecycle.as_ref() {
-        Some(LifecycleAction::Suspend { .. }) => ComputerCommand::Suspend(configuration),
-        Some(LifecycleAction::Resume) => ComputerCommand::Resume(configuration),
-        Some(LifecycleAction::Retry) => ComputerCommand::Provision(configuration),
-        Some(LifecycleAction::Retire) => ComputerCommand::Retire(configuration),
-        None => ComputerCommand::Configure(configuration),
-    };
-    let command_id = allocate_command(&mut transaction, current.computer_id, &command, now).await?;
-    let action = if role_changed || request.attention_config.is_some() {
-        "agent.configured"
-    } else {
-        match request.lifecycle {
-            Some(LifecycleAction::Suspend { .. }) => "agent.suspended",
-            Some(LifecycleAction::Resume) => "agent.resumed",
-            Some(LifecycleAction::Retry) => "agent.provision_retried",
-            Some(LifecycleAction::Retire) => "agent.retired",
-            None => return Err(ApiError::Internal),
-        }
-    };
-    super::audit::record(
-        &mut transaction,
-        super::audit::Event {
-            space_id: current.space_id,
-            actor_id: Some(actor.id),
-            action,
-            subject_type: "agent",
-            subject_id: agent_id,
-            metadata: Some(serde_json::json!({
-                "command_id": command_id,
-                "previous_role": role_summary(&current.role_text),
-                "next_role": role_summary(next_role),
-                "previous_desired_lifecycle": current.desired_lifecycle,
-                "next_desired_lifecycle": next_lifecycle,
-                "previous_provision_status": current.provision_status,
-                "next_provision_status": next_provision_status,
-            })),
-            occurred_at: now,
-        },
-    )
-    .await?;
-    publish_agent_status(
-        &mut transaction,
-        current.space_id,
-        agent_id,
-        next_lifecycle,
-        next_provision_status,
-        now,
-    )
-    .await?;
-    let updated = find_agent_tx(&mut transaction, agent_id).await?;
-    let response = agent_response_tx(&mut transaction, updated, true).await?;
+    let response = apply_agent_update(&mut transaction, current, request, actor.id).await?;
     idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(Json(response))
@@ -465,11 +353,6 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         Some(mode) => LifecycleAction::Suspend { mode },
         None => LifecycleAction::Resume,
     };
-    authorize_transition(
-        &current.desired_lifecycle,
-        &current.provision_status,
-        Some(&lifecycle),
-    )?;
     let request = serde_json::json!({
         "lifecycle": &lifecycle,
         "target_agent_id": target_agent_id,
@@ -483,36 +366,96 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    let (next_lifecycle, action) = match lifecycle {
-        LifecycleAction::Suspend { .. } => ("suspended", "agent.suspended"),
-        LifecycleAction::Resume => ("active", "agent.resumed"),
-        _ => return Err(ApiError::Internal),
-    };
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "UPDATE agents SET desired_lifecycle = $2, updated_at = $3, last_error_code = NULL \
-         WHERE member_id = $1",
+    let response = apply_agent_update(
+        &mut transaction,
+        current,
+        UpdateAgentRequest {
+            role_text: None,
+            attention_config: None,
+            lifecycle: Some(lifecycle),
+        },
+        actor_agent_id,
     )
-    .bind(target_agent_id)
+    .await?;
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
+}
+
+async fn apply_agent_update(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    current: AgentRow,
+    request: UpdateAgentRequest,
+    actor_id: Uuid,
+) -> Result<AgentResponse, ApiError> {
+    authorize_transition(
+        &current.desired_lifecycle,
+        &current.provision_status,
+        request.lifecycle.as_ref(),
+    )?;
+    let now = OffsetDateTime::now_utc();
+    let next_role = request
+        .role_text
+        .clone()
+        .unwrap_or_else(|| current.role_text.clone());
+    let role_changed = next_role != current.role_text;
+    let next_revision = current.role_revision + i64::from(role_changed);
+    let current_attention: AttentionConfig =
+        serde_json::from_value(current.attention_config_json.clone())
+            .map_err(|_| ApiError::Internal)?;
+    let next_attention = request
+        .attention_config
+        .clone()
+        .unwrap_or(current_attention);
+    let (next_lifecycle, next_provision_status, retired_at) = match request.lifecycle.as_ref() {
+        Some(LifecycleAction::Suspend { .. }) => {
+            ("suspended", current.provision_status.as_str(), None)
+        }
+        Some(LifecycleAction::Resume) => ("active", current.provision_status.as_str(), None),
+        Some(LifecycleAction::Retry) => ("active", "provisioning", None),
+        Some(LifecycleAction::Retire) => ("retired", current.provision_status.as_str(), Some(now)),
+        None => (
+            current.desired_lifecycle.as_str(),
+            current.provision_status.as_str(),
+            current.retired_at,
+        ),
+    };
+    sqlx::query(
+        "UPDATE agents SET role_text = $2, role_revision = $3, attention_config_json = $4, \
+         desired_lifecycle = $5, provision_status = $6, updated_at = $7, \
+         retired_at = $8, last_error_code = NULL WHERE member_id = $1",
+    )
+    .bind(current.member_id)
+    .bind(&next_role)
+    .bind(next_revision)
+    .bind(serde_json::to_value(&next_attention).map_err(|_| ApiError::Internal)?)
     .bind(next_lifecycle)
+    .bind(next_provision_status)
     .bind(now)
-    .execute(&mut *transaction)
+    .bind(retired_at)
+    .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
-    let attention: AttentionConfig = serde_json::from_value(current.attention_config_json.clone())
-        .map_err(|_| ApiError::Internal)?;
+    if matches!(request.lifecycle, Some(LifecycleAction::Retire)) {
+        sqlx::query("UPDATE members SET retired_at = $2 WHERE id = $1")
+            .bind(current.member_id)
+            .bind(now)
+            .execute(&mut **transaction)
+            .await
+            .map_err(ApiError::database)?;
+    }
     let configuration = AgentConfiguration {
-        agent_id: target_agent_id,
+        agent_id: current.member_id,
         space_id: current.space_id,
-        name: current.name,
-        handle: current.handle,
-        role_text: current.role_text,
-        role_revision: current.role_revision,
-        driver_kind: current.driver_kind,
-        driver_config: serde_json::from_value(current.driver_config_json)
+        name: current.name.clone(),
+        handle: current.handle.clone(),
+        role_text: next_role.clone(),
+        role_revision: next_revision,
+        driver_kind: current.driver_kind.clone(),
+        driver_config: serde_json::from_value(current.driver_config_json.clone())
             .map_err(|_| ApiError::Internal)?,
-        attention_config: attention,
-        mode: match lifecycle {
+        attention_config: next_attention,
+        mode: request.lifecycle.as_ref().and_then(|action| match action {
             LifecycleAction::Suspend {
                 mode: SuspendMode::StopAfterCurrent,
             } => Some(SuspendMode::StopAfterCurrent),
@@ -520,56 +463,76 @@ pub(super) async fn update_lifecycle_for_agent_admin(
                 mode: SuspendMode::CancelNow,
             } => Some(SuspendMode::CancelNow),
             _ => None,
-        },
+        }),
     };
-    let command = match lifecycle {
-        LifecycleAction::Suspend { .. } => ComputerCommand::Suspend(configuration),
-        LifecycleAction::Resume => ComputerCommand::Resume(configuration),
-        _ => return Err(ApiError::Internal),
+    let command = match request.lifecycle.as_ref() {
+        Some(LifecycleAction::Suspend { .. }) => ComputerCommand::Suspend(configuration),
+        Some(LifecycleAction::Resume) => ComputerCommand::Resume(configuration),
+        Some(LifecycleAction::Retry) => ComputerCommand::Provision(configuration),
+        Some(LifecycleAction::Retire) => ComputerCommand::Retire(configuration),
+        None => ComputerCommand::Configure(configuration),
     };
-    let command_id = allocate_command(&mut transaction, current.computer_id, &command, now).await?;
+    let command_id = allocate_command(transaction, current.computer_id, &command, now).await?;
+    let action = if role_changed || request.attention_config.is_some() {
+        "agent.configured"
+    } else {
+        match request.lifecycle.as_ref() {
+            Some(LifecycleAction::Suspend { .. }) => "agent.suspended",
+            Some(LifecycleAction::Resume) => "agent.resumed",
+            Some(LifecycleAction::Retry) => "agent.provision_retried",
+            Some(LifecycleAction::Retire) => "agent.retired",
+            None => return Err(ApiError::Internal),
+        }
+    };
     super::audit::record(
-        &mut transaction,
+        transaction,
         super::audit::Event {
             space_id: current.space_id,
-            actor_id: Some(actor_agent_id),
+            actor_id: Some(actor_id),
             action,
             subject_type: "agent",
-            subject_id: target_agent_id,
-            metadata: Some(serde_json::json!({ "command_id": command_id })),
+            subject_id: current.member_id,
+            metadata: Some(serde_json::json!({
+                "command_id": command_id,
+                "previous_role": role_summary(&current.role_text),
+                "next_role": role_summary(&next_role),
+                "previous_desired_lifecycle": current.desired_lifecycle,
+                "next_desired_lifecycle": next_lifecycle,
+                "previous_provision_status": current.provision_status,
+                "next_provision_status": next_provision_status,
+            })),
             occurred_at: now,
         },
     )
     .await?;
     publish_agent_status(
-        &mut transaction,
+        transaction,
         current.space_id,
-        target_agent_id,
+        current.member_id,
         next_lifecycle,
-        &current.provision_status,
+        next_provision_status,
         now,
     )
     .await?;
-    let updated = find_agent_tx(&mut transaction, target_agent_id).await?;
-    let response = agent_response_tx(&mut transaction, updated, true).await?;
-    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok(response)
+    let updated = find_agent_tx(transaction, current.member_id).await?;
+    agent_response_tx(transaction, updated, true).await
 }
 
 const AGENT_SELECT: &str = "SELECT agents.member_id, agents.space_id, agents.computer_id, \
     members.display_name AS name, members.handle, members.access_level, agents.role_text, \
     agents.role_revision, agents.desired_lifecycle, agents.provision_status, \
     computers.status AS computer_status, \
-    (SELECT agent_runs.status FROM agent_runs \
-        WHERE agent_runs.agent_member_id = agents.member_id \
-          AND agent_runs.status IN ('queued', 'starting', 'running', 'stopping') \
-        ORDER BY agent_runs.created_at DESC LIMIT 1) AS run_status, \
+    active_run.status AS run_status, active_run.activity_kind, active_run.activity_label, \
+    active_run.activity_updated_at, active_run.created_at AS run_created_at, \
     agents.driver_kind, agents.attention_config_json, \
     agents.driver_config_json, agents.created_at, agents.updated_at, agents.retired_at, \
     agents.last_error_code FROM agents \
     JOIN members ON members.id = agents.member_id \
-    JOIN computers ON computers.id = agents.computer_id";
+    JOIN computers ON computers.id = agents.computer_id \
+    LEFT JOIN LATERAL (SELECT status, activity_kind, activity_label, activity_updated_at, created_at \
+        FROM agent_runs WHERE agent_runs.agent_member_id = agents.member_id \
+          AND agent_runs.status IN ('queued', 'starting', 'running', 'stopping') \
+        ORDER BY agent_runs.created_at DESC LIMIT 1) active_run ON true";
 
 pub async fn create(
     State(state): State<std::sync::Arc<AppState>>,
@@ -761,6 +724,7 @@ pub(super) async fn provision_agent_tx(
         desired_lifecycle: "active".to_owned(),
         provision_status: "provisioning".to_owned(),
         activity_status: "idle".to_owned(),
+        activity: None,
         driver_kind: request.driver_kind,
         attention_config,
         created_at: now,
@@ -1034,6 +998,23 @@ impl AgentRow {
             self.run_status.as_deref(),
         )
         .to_owned();
+        let activity = match (
+            self.activity_kind,
+            self.activity_label,
+            self.activity_updated_at,
+        ) {
+            (Some(kind), Some(label), Some(updated_at)) => Some(AgentActivityResponse {
+                kind,
+                label,
+                updated_at,
+            }),
+            _ if self.run_status.as_deref() == Some("running") => Some(AgentActivityResponse {
+                kind: "driver.run".to_owned(),
+                label: format!("Using {}", capitalize_driver(&self.driver_kind)),
+                updated_at: self.run_created_at.unwrap_or(self.updated_at),
+            }),
+            _ => None,
+        };
         Ok(AgentResponse {
             member_id: self.member_id,
             space_id: self.space_id,
@@ -1046,6 +1027,7 @@ impl AgentRow {
             desired_lifecycle: self.desired_lifecycle,
             provision_status: self.provision_status,
             activity_status,
+            activity,
             driver_kind: self.driver_kind,
             attention_config,
             created_at: self.created_at,
@@ -1055,6 +1037,14 @@ impl AgentRow {
             memory_files,
         })
     }
+}
+
+fn capitalize_driver(driver_kind: &str) -> String {
+    let mut chars = driver_kind.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
 }
 
 fn agent_activity_status(

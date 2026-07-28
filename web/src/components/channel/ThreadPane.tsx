@@ -7,6 +7,7 @@ import {
   readThread,
   setThreadSubscription,
   type Member,
+  type Agent,
   type Message,
   type ThreadRead,
 } from "../../api/client";
@@ -27,6 +28,7 @@ export function ThreadPane({
   resizeWithKeyboard,
   close,
   showLatestChannelMessages,
+  activityByMemberId,
 }: {
   channelId: string;
   spaceId: string;
@@ -41,6 +43,7 @@ export function ThreadPane({
   resizeWithKeyboard: (event: KeyboardEvent<HTMLDivElement>) => void;
   close: () => void;
   showLatestChannelMessages: () => void;
+  activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
 }) {
   const queryClient = useQueryClient();
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -132,9 +135,9 @@ export function ThreadPane({
         {thread.data ? (
           <>
             <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} />
+            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} />
             <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} />)}
+            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} />)}
           </>
         ) : null}
       </div>

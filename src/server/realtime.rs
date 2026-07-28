@@ -113,7 +113,7 @@ pub async fn events(
                         rows.reverse();
                         state.pending = rows;
                     }
-                    Ok(_) => tokio::time::sleep(Duration::from_millis(400)).await,
+                    Ok(_) => tokio::time::sleep(Duration::from_millis(150)).await,
                     Err(error) => {
                         tracing::error!(error = %error, "failed to poll Browser outbox");
                         tokio::time::sleep(Duration::from_secs(1)).await;

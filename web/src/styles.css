@@ -1143,6 +1143,21 @@ h1 {
   background: var(--space-accent);
 }
 
+.thread-message > .presence-identity {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+}
+
+@media (pointer: fine) {
+  .thread-action {
+    width: 30px;
+    min-height: 30px;
+    justify-content: center;
+    padding: 0;
+  }
+}
+
 .thread-message header {
   display: flex;
   align-items: baseline;
@@ -3719,7 +3734,13 @@ h1 {
 }
 
 .presence-dot--idle { background: var(--green); }
-.presence-dot--busy { background: var(--yellow); }
+.presence-dot--busy,
+.presence-dot--queued,
+.presence-dot--starting,
+.presence-dot--running,
+.presence-dot--stopping { background: var(--yellow); }
+.presence-dot--unreachable,
+.presence-dot--suspended { background: var(--stone); }
 .presence-dot--error { background: var(--red); }
 
 .dm-nav-item {
@@ -3766,7 +3787,10 @@ h1 {
 .agent-state--offline i { background: var(--status-offline); }
 
 @media (prefers-reduced-motion: no-preference) {
-  .presence-dot--busy {
+  .presence-dot--busy,
+  .presence-dot--starting,
+  .presence-dot--running,
+  .presence-dot--stopping {
     animation: busy-pulse 1.4s steps(2, end) infinite;
   }
 
@@ -4805,6 +4829,12 @@ h1 {
   flex-basis: 36px;
 }
 
+.message-row > .presence-identity {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+}
+
 .message-row:hover,
 .message-row--has-thread:hover {
   background: rgb(20 17 17 / 3%);
@@ -5278,6 +5308,36 @@ h1 {
 
 .agent-lifecycle {
   background: var(--panel);
+}
+
+/* Agent management actions use the shared default control geometry. */
+.agent-workspace .agent-message-action,
+.agent-workspace .agent-settings > .command-button,
+.agent-workspace .agent-lifecycle > .command-button,
+.agent-workspace .agent-lifecycle > .danger-button {
+  width: auto;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  gap: 7px;
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-size: 13px;
+}
+
+.agent-workspace .agent-message-action {
+  width: 36px;
+  flex-basis: 36px;
+  padding: 0;
+}
+
+.agent-workspace .agent-settings > .command-button svg,
+.agent-workspace .agent-lifecycle > .command-button svg,
+.agent-workspace .agent-lifecycle > .danger-button svg,
+.agent-workspace .agent-message-action svg {
+  width: 16px;
+  height: 16px;
 }
 
 @media (max-width: 1200px) {
@@ -5939,5 +5999,14 @@ h1 {
   .dialog-surface form > footer > button,
   .dialog-surface > footer > button {
     flex: 1 1 auto;
+  }
+}
+
+@media (pointer: fine) {
+  .message-row .thread-action {
+    width: 30px;
+    min-height: 30px;
+    justify-content: center;
+    padding: 0;
   }
 }

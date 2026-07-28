@@ -345,6 +345,7 @@ export function MessageWorkspace({
           threadCreation.mutate(messageId);
         }}
         openThread={openThread}
+        activityByMemberId={activityByMemberId}
       />
       <MessageComposer
         spaceId={spaceId}
@@ -375,6 +376,7 @@ export function MessageWorkspace({
           resizeWithKeyboard={resizeThreadPaneWithKeyboard}
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
+          activityByMemberId={activityByMemberId}
         />
       ) : null}
       {agentPickerOpen ? (

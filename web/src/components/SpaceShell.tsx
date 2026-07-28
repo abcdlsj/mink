@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
-  ChevronDown,
   Hash,
   Inbox,
   LockKeyhole,
@@ -315,7 +314,6 @@ export function SpaceShell({
             <span className="space-name-eyebrow" title={space.data.name}>{space.data.name}</span>
             <h2>{active === "channel" || active === "dm" ? "Conversations" : capitalize(active)}</h2>
           </div>
-          <ChevronDown className="desktop-only" aria-hidden="true" />
           <button
             className="navigation-close icon-button"
             type="button"
@@ -382,7 +380,7 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/inbox`}
           />
           <div className="nav-section-heading">
-            <p className="nav-label"><ChevronDown aria-hidden="true" /> CHANNELS <span>{channels.data.channels.filter((channel) => channel.joined).length}</span></p>
+            <p className="nav-label">CHANNELS <span>{channels.data.channels.filter((channel) => channel.joined).length}</span></p>
             {channels.data.can_create ? (
               <button
                 type="button"
@@ -434,7 +432,7 @@ export function SpaceShell({
             </>
           ) : null}
           <div className="nav-section-heading nav-section-heading--dms">
-            <p className="nav-label nav-label--section"><ChevronDown aria-hidden="true" /> DMS <span>{availableDirectMessages.length}</span></p>
+            <p className="nav-label nav-label--section">DMS <span>{availableDirectMessages.length}</span></p>
             <button
               type="button"
               aria-label="Start DM"

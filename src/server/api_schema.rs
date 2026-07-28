@@ -26,6 +26,7 @@ use super::{
         computer_pairing::PairingDetailsResponse,
         agent_registry::CreateAgentRequest,
         agent_registry::AgentResponse,
+        agent_registry::AgentActivityResponse,
         AttentionConfig,
         agent_registry::MemoryFileResponse,
         agent_registry::ReadMemoryRequest,

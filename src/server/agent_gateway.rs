@@ -34,6 +34,15 @@ pub async fn agent_action(
         request.run_id,
     )
     .await?;
+    let activity_kind = request.action.name();
+    record_agent_activity(
+        &state.database,
+        request.agent_member_id,
+        request.run_id,
+        activity_kind,
+        activity_label(activity_kind),
+    )
+    .await?;
     let data = match request.action {
         AgentAction::MemberList { query } => {
             agent_member_list(&state.database, request.agent_member_id, query.as_deref()).await?
@@ -371,6 +380,74 @@ pub async fn agent_action(
         }
     };
     Ok(Json(data))
+}
+
+fn activity_label(kind: &str) -> &'static str {
+    match kind {
+        "member.list" => "Listing Members",
+        "channel.list" => "Listing Channels",
+        "inbox.current" | "inbox.show" => "Reading Inbox",
+        "channel.read" => "Reading a Channel",
+        "thread.read" => "Reading a Thread",
+        "message.send" => "Sending a Message",
+        "inbox.ack" => "Acknowledging Inbox",
+        "inbox.defer" => "Deferring Inbox",
+        "task.list" => "Listing Tasks",
+        "task.convert" | "task.create" => "Creating a Task",
+        "task.claim" => "Claiming a Task",
+        "task.assign" => "Assigning a Task",
+        "task.status" => "Updating a Task",
+        "attachment.upload" => "Uploading an Attachment",
+        "attachment.download" | "attachment.info" => "Reading an Attachment",
+        "channel.create" => "Creating a Channel",
+        "channel.member.add" | "channel.member.remove" => "Updating Channel Members",
+        "channel.archive" => "Archiving a Channel",
+        "agent.create" => "Requesting an Agent",
+        "agent.suspend" | "agent.resume" => "Updating an Agent",
+        "space.update" => "Updating the Space",
+        "audit.list" => "Reading Audit Events",
+        _ => "Working",
+    }
+}
+
+async fn record_agent_activity(
+    database: &sqlx::PgPool,
+    agent_member_id: Uuid,
+    run_id: Uuid,
+    kind: &str,
+    label: &str,
+) -> Result<(), ApiError> {
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let now = OffsetDateTime::now_utc();
+    let space_id: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE agent_runs SET activity_kind = $3, activity_label = $4, activity_updated_at = $5 \
+         WHERE id = $1 AND agent_member_id = $2 AND status = 'running' \
+         RETURNING (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id)",
+    )
+    .bind(run_id)
+    .bind(agent_member_id)
+    .bind(kind)
+    .bind(label)
+    .bind(now)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    if let Some(space_id) = space_id {
+        super::outbox::publish(
+            &mut transaction,
+            "agent.activity_changed",
+            agent_member_id,
+            serde_json::json!({
+                "space_id": space_id,
+                "agent_member_id": agent_member_id,
+                "run_id": run_id,
+                "activity": { "kind": kind, "label": label, "updated_at": now },
+            }),
+            now,
+        )
+        .await?;
+    }
+    transaction.commit().await.map_err(ApiError::database)
 }
 
 async fn agent_member_list(

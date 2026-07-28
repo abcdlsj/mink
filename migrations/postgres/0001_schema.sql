@@ -522,6 +522,9 @@ CREATE TABLE agent_runs (
     fencing_token TEXT,
     ownership_lease_expires_at TIMESTAMPTZ,
     last_renewed_at TIMESTAMPTZ,
+    activity_kind TEXT CHECK (activity_kind IS NULL OR char_length(activity_kind) BETWEEN 1 AND 64),
+    activity_label TEXT CHECK (activity_label IS NULL OR char_length(activity_label) BETWEEN 1 AND 120),
+    activity_updated_at TIMESTAMPTZ,
     FOREIGN KEY (agent_member_id, computer_id)
         REFERENCES agents(member_id, computer_id),
     CHECK (
@@ -537,6 +540,10 @@ CREATE TABLE agent_runs (
             AND ownership_lease_expires_at IS NOT NULL
             AND last_renewed_at IS NOT NULL
         )
+    ),
+    CONSTRAINT agent_runs_activity_check CHECK (
+        (activity_kind IS NULL AND activity_label IS NULL AND activity_updated_at IS NULL)
+        OR (activity_kind IS NOT NULL AND activity_label IS NOT NULL AND activity_updated_at IS NOT NULL)
     )
 );
 

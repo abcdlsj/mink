@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Hash, ListTodo, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject } from "react";
 
-import { readThread, type Attachment, type Message, type MessagePage } from "../../api/client";
+import { readThread, type Agent, type Attachment, type Message, type MessagePage } from "../../api/client";
 import { formatBytes } from "../../format";
-import { PixelIdentity } from "../SpaceShell";
+import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
 
 export function MessageTimeline({
   timelineRef,
@@ -18,6 +18,7 @@ export function MessageTimeline({
   creatingThread,
   createThread,
   openThread,
+  activityByMemberId,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
   header?: ReactNode;
@@ -30,6 +31,7 @@ export function MessageTimeline({
   creatingThread: boolean;
   createThread: (messageId: string, trigger: HTMLButtonElement) => void;
   openThread: (threadId: number, trigger: HTMLButtonElement) => void;
+  activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
 }) {
   return (
       <div ref={timelineRef} className="message-timeline" aria-live="polite">
@@ -67,7 +69,7 @@ export function MessageTimeline({
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
-                  <PixelIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} />
+                  <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityByMemberId.get(message.author.id)} />
                 )}
                 <div className="message-content">
                   {grouped ? null : (
@@ -87,6 +89,7 @@ export function MessageTimeline({
                     <button
                       className="thread-action"
                       type="button"
+                      title="Reply in Thread"
                       disabled={creatingThread}
                       onClick={(event) => {
                         if (message.thread_id) openThread(message.thread_id, event.currentTarget);
@@ -94,7 +97,7 @@ export function MessageTimeline({
                       }}
                     >
                       <MessageSquareReply aria-hidden="true" />
-                      Reply in Thread
+                      <span className="visually-hidden">Reply in Thread</span>
                     </button>
                   ) : null}
                   {!message.deleted_at && message.thread_id && message.reply_count > 0 ? (
@@ -114,10 +117,10 @@ export function MessageTimeline({
   );
 }
 
-export function CompactMessage({ message }: { message: Message }) {
+export function CompactMessage({ message, activityStatus }: { message: Message; activityStatus?: Agent["activity_status"] }) {
   return (
     <article className="thread-message">
-      <PixelIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} />
+      <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityStatus} />
       <div>
         <header>
           <strong>{message.author.display_name}</strong>

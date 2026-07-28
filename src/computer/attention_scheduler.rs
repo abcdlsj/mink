@@ -1,29 +1,16 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 use uuid::Uuid;
 
 use super::ConnectionTaskExit;
+use crate::computer_protocol::{AgentClaimResponse, HostedAgent};
 
 pub(super) const ATTENTION_PREFETCH_RUNS: usize = 1;
-
-#[derive(Deserialize)]
-pub(super) struct HostedAgent {
-    member_id: Uuid,
-    desired_lifecycle: String,
-    provision_status: String,
-}
-
-#[derive(Deserialize)]
-pub(super) struct AgentClaimResponse {
-    claimed: bool,
-    run_id: Option<Uuid>,
-    inbox_item_ids: Vec<Uuid>,
-}
+const ATTENTION_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 pub(super) async fn attention_scheduler_task(
     client: reqwest::Client,
@@ -34,7 +21,7 @@ pub(super) async fn attention_scheduler_task(
     max_claimed_runs: usize,
     cancellation: CancellationToken,
 ) -> Result<ConnectionTaskExit> {
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut interval = tokio::time::interval(ATTENTION_POLL_INTERVAL);
     let mut scheduler = AttentionSchedulerState {
         database,
         max_claimed_runs,
