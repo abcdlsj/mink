@@ -4438,8 +4438,16 @@ h1 {
   height: 40px;
   border-color: var(--ink);
   background: var(--ink);
-  color: var(--rail);
+  color: var(--red);
   box-shadow: 2px 2px 0 var(--paper);
+}
+
+.space-brand-mark {
+  display: block;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1;
+  transform: rotate(-2deg);
 }
 
 .rail-tools {

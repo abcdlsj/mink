@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
-  Asterisk,
   ChevronDown,
   Hash,
   Inbox,
@@ -207,9 +206,10 @@ export function SpaceShell({
           className="space-badge"
           to="/s/$spaceSlug"
           params={{ spaceSlug: space.data.slug }}
-          aria-label={space.data.name}
+          aria-label="Sumi home"
+          title="Sumi home"
         >
-          <Asterisk strokeWidth={3} />
+          <span className="space-brand-mark" aria-hidden="true">S</span>
         </Link>
         <nav className="rail-tools" aria-label="Space management">
           <RailItem

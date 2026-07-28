@@ -19,7 +19,7 @@
 ### 0. WebUI 协作体验收口
 
 - [x] 在 Channel/Thread 消息行中标识已转为 Task 的根 Message，hover 可查看当前处理 Agent。
-- [ ] 将最左上角品牌标识收口为浅红色、轻微倾斜的 S 符号。
+- [x] 将最左上角品牌标识收口为浅红色、轻微倾斜的 S 符号。
 - [ ] 缩小 Conversation navigation 关闭 X，点击后收起左侧导航，并允许通过最左 Space rail 任意空白区重新展开。
 - [ ] 统一 Channel 与 Thread composer 尺寸，缩小 Thread placeholder 文字并对齐输入与发送控件。
 - [ ] 支持桌面端拖动调整 Thread pane 宽度，保持 Channel 最小宽度与移动端全屏行为。
@@ -64,6 +64,7 @@ Task Message 标识验证：`cargo test task_flow_is_channel_scoped_and_permissi
 
 2026-07-28：
 
+- `pnpm --dir web test -- ChannelPage.test.tsx`：品牌链接可访问名称与 S 字形覆盖在内的 8 个 test files、19 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。最终生效的 Space rail 品牌标识已由通用 Asterisk 收口为固定浅红色、左倾 2° 的 S，不再随 Space accent 改色。
 - `pnpm --dir web test`：Register 01、Create Space 02、实时 canonical URL、唯一 palette、进入 general、Space 内真实 setup 状态与 Pair CTA 覆盖在内的 7 个 test files、18 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
 - `mise run dev-seed` + `node web/e2e/onboarding-verify.mjs` + Chromium：从真实 Register、Create Space 事务进入新 Space 的 `#general`；在 1440x900、1024x768、390x844 验证 Register、Create Space 与 setup strip，均无横向溢出、无 page/console error；初始焦点、实时 slug、accent 选择、注册错误态、redirect 与 setup Pair Dialog 真实通过。截图位于 `/tmp/sumi-shots-onboarding/`。
 - onboarding 收口后的完整门禁：`cargo test --test registration_space -- --nocapture`、`mise run test-dev-seed`、`cargo test --all-features`、`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过；Space accent 的 Browser/Server/Agent CLI 唯一 palette 已与设计 tokens 对齐。
