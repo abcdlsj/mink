@@ -62,6 +62,8 @@ pub enum AgentAction {
     MessageSend {
         address: String,
         body_markdown: String,
+        #[serde(default)]
+        mention_handles: Vec<String>,
         based_on: Option<i64>,
         handle_inbox_item_id: Option<Uuid>,
         #[serde(default)]

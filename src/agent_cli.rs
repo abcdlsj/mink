@@ -288,6 +288,7 @@ async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
                 (
                     Some(AgentAction::MessageSend {
                         address: args.address,
+                        mention_handles: mention_handles(&body_markdown),
                         body_markdown,
                         based_on: args.based_on,
                         handle_inbox_item_id: args.handle,
@@ -417,6 +418,29 @@ async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
         None => LocalRequest::Whoami { run_token },
     };
     Ok((call_daemon(request).await?, json))
+}
+
+fn mention_handles(body: &str) -> Vec<String> {
+    let mut handles = body
+        .split_whitespace()
+        .filter_map(|word| word.strip_prefix('@'))
+        .filter_map(|word| {
+            let handle = word
+                .chars()
+                .take_while(|character| character.is_ascii_alphanumeric() || *character == '-')
+                .collect::<String>()
+                .to_ascii_lowercase();
+            (!handle.is_empty()
+                && handle.len() <= 32
+                && !handle.starts_with('-')
+                && !handle.ends_with('-')
+                && !handle.contains("--"))
+            .then_some(handle)
+        })
+        .collect::<Vec<_>>();
+    handles.sort();
+    handles.dedup();
+    handles
 }
 
 fn uses_json_output(args: &AgentArgs) -> bool {
@@ -571,4 +595,19 @@ async fn call_daemon(request: LocalRequest) -> Result<LocalResponse> {
             false,
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mention_handles;
+
+    #[test]
+    fn message_mentions_are_parsed_normalized_and_deduplicated() {
+        assert_eq!(
+            mention_handles(
+                "@Lin review this with @ada-lovelace, not email@example.com or @bad--handle"
+            ),
+            vec!["ada-lovelace", "lin"]
+        );
+    }
 }

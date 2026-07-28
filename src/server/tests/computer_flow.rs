@@ -2682,6 +2682,38 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         )?)
         .await?;
     ensure!(fresh_thread_send.status() == StatusCode::OK);
+    let agent_mention = app
+        .clone()
+        .oneshot(computer_agent_action_request(
+            computer.id,
+            &token,
+            agent.member_id,
+            thread_run_id,
+            serde_json::json!({
+                "action": "message_send",
+                "address": "#general",
+                "body_markdown": "@owner this Agent mention is structured.",
+                "mention_handles": ["owner", "unknown-member"],
+                "idempotency_key": Uuid::now_v7()
+            }),
+        )?)
+        .await?;
+    ensure!(agent_mention.status() == StatusCode::OK);
+    let agent_mention: serde_json::Value = decode_json(agent_mention).await?;
+    ensure!(agent_mention["mentions"] == serde_json::json!([space.owner_member_id]));
+    let owner_mention_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM inbox_items WHERE member_id = $1 AND message_id = $2 \
+         AND kind = 'mention' AND priority = 'hard'",
+    )
+    .bind(space.owner_member_id)
+    .bind(Uuid::parse_str(
+        agent_mention["id"]
+            .as_str()
+            .context("Agent mention Message id missing")?,
+    )?)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(owner_mention_count == 1);
     let lease_before: time::OffsetDateTime =
         sqlx::query_scalar("SELECT lease_expires_at FROM inbox_items WHERE id = $1")
             .bind(thread_ambient.0)

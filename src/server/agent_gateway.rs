@@ -153,6 +153,7 @@ pub async fn agent_action(
         AgentAction::MessageSend {
             address,
             body_markdown,
+            mention_handles,
             based_on,
             handle_inbox_item_id,
             attachment_ids,
@@ -165,6 +166,7 @@ pub async fn agent_action(
                 AgentMessageSend {
                     address,
                     body_markdown,
+                    mention_handles,
                     based_on,
                     handle_inbox_item_id,
                     attachment_ids,
@@ -800,6 +802,7 @@ async fn resolve_agent_address(
 struct AgentMessageSend {
     address: String,
     body_markdown: String,
+    mention_handles: Vec<String>,
     based_on: Option<i64>,
     handle_inbox_item_id: Option<Uuid>,
     attachment_ids: Vec<Uuid>,
@@ -815,12 +818,28 @@ async fn agent_message_send(
     let AgentMessageSend {
         address,
         body_markdown,
+        mut mention_handles,
         based_on,
         handle_inbox_item_id: handle_item_id,
         attachment_ids,
         idempotency_key,
     } = request;
     let body_markdown = body_markdown.trim();
+    for handle in &mut mention_handles {
+        handle.make_ascii_lowercase();
+    }
+    mention_handles.sort();
+    mention_handles.dedup();
+    if mention_handles.len() > 100
+        || mention_handles
+            .iter()
+            .any(|handle| !super::validation::is_slug(handle, 1, 32))
+    {
+        return Err(ApiError::validation(
+            "invalid_mentions",
+            "Mention handles are invalid",
+        ));
+    }
     if !(1..=20_000).contains(&body_markdown.chars().count()) {
         return Err(ApiError::validation(
             "invalid_message_body",
@@ -839,6 +858,7 @@ async fn agent_message_send(
         "run_id": run_id,
         "address": &address,
         "body_markdown": body_markdown,
+        "mention_handles": &mention_handles,
         "based_on": based_on,
         "handle_inbox_item_id": handle_item_id,
         "attachment_ids": &attachment_ids,
@@ -919,6 +939,21 @@ async fn agent_message_send(
             details,
         ));
     }
+    let mentions: Vec<Uuid> = if mention_handles.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_scalar(
+            "SELECT members.id FROM members \
+             JOIN channel_members ON channel_members.member_id = members.id \
+             WHERE channel_members.channel_id = $1 AND lower(members.handle) = ANY($2) \
+             ORDER BY members.id",
+        )
+        .bind(channel_id)
+        .bind(&mention_handles)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?
+    };
     let seq: i64 = sqlx::query_scalar(
         "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
     )
@@ -952,6 +987,19 @@ async fn agent_message_send(
         &attachment_ids,
     )
     .await?;
+    for mentioned_member_id in &mentions {
+        sqlx::query(
+            "INSERT INTO message_mentions \
+             (message_id, channel_id, space_id, member_id) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(message_id)
+        .bind(channel_id)
+        .bind(space_id)
+        .bind(mentioned_member_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
     let mut thread_inbox_changed = false;
     if let Some(thread_id) = thread_id {
         sqlx::query(
@@ -977,12 +1025,34 @@ async fn agent_message_send(
                     actor_id: agent_id,
                     seq,
                     reply_to_message_id: None,
-                    mentions: &[],
+                    mentions: &mentions,
                     channel_kind: &channel_kind,
                     now,
                 },
             )
             .await?;
+        }
+    }
+    let mut mention_inbox_changed = false;
+    if channel_kind != "direct" && thread_id.is_none() {
+        for mentioned_member_id in mentions.iter().filter(|member_id| **member_id != agent_id) {
+            sqlx::query(
+                "INSERT INTO inbox_items \
+                 (id, member_id, kind, priority, channel_id, message_id, first_seq, last_seq, \
+                  available_at, created_at, space_id) \
+                 VALUES ($1, $2, 'mention', 'hard', $3, $4, $5, $5, $6, $6, $7)",
+            )
+            .bind(Uuid::now_v7())
+            .bind(mentioned_member_id)
+            .bind(channel_id)
+            .bind(message_id)
+            .bind(seq)
+            .bind(now)
+            .bind(space_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ApiError::database)?;
+            mention_inbox_changed = true;
         }
     }
     if let Some(item_id) = handle_item_id {
@@ -1054,7 +1124,7 @@ async fn agent_message_send(
         )
         .await?;
     }
-    if channel_kind != "direct"
+    let ambient_inbox_changed = channel_kind != "direct"
         && thread_id.is_none()
         && message::insert_channel_ambient_inbox(
             &mut transaction,
@@ -1064,12 +1134,12 @@ async fn agent_message_send(
                 message_id,
                 actor_id: agent_id,
                 seq,
-                hard_recipients: &[],
+                hard_recipients: &mentions,
                 now,
             },
         )
-        .await?
-    {
+        .await?;
+    if mention_inbox_changed || ambient_inbox_changed {
         super::outbox::publish(
             &mut transaction,
             "inbox.changed",
@@ -1364,7 +1434,9 @@ async fn agent_message_json(
             'id', messages.id, 'channel_id', messages.channel_id, 'seq', messages.channel_seq, \
             'address', $2::text, 'author', jsonb_build_object('id', members.id, \
                 'kind', members.kind, 'display_name', members.display_name, 'handle', members.handle), \
-            'body_markdown', messages.body_markdown, 'mentions', '[]'::jsonb, \
+            'body_markdown', messages.body_markdown, \
+            'mentions', COALESCE((SELECT jsonb_agg(member_id ORDER BY member_id) \
+                FROM message_mentions WHERE message_id = messages.id), '[]'::jsonb), \
             'created_at', messages.created_at, \
             'edited_at', messages.edited_at) \
          FROM messages JOIN members ON members.id = messages.author_member_id \
