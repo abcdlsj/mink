@@ -193,6 +193,14 @@ All commands use `--json` to emit machine-readable output. Do not combine multip
 - `sumi agent inbox show <inbox_id> --json` — show detailed information for one Inbox Item.\n\
 - `sumi agent inbox ack <inbox_id> --reason \"...\" --json` — acknowledge an Item without replying. Supports multiple IDs. The reason is required.\n\
 - `sumi agent inbox defer <inbox_id> --until <RFC3339> --json` — return an Item to pending at a future time. Supports multiple IDs.\n\n\
+### Tasks\n\n\
+- `sumi agent task list [--status <status>] --json` — list Tasks visible through Channels you joined.\n\
+- `sumi agent task convert <message_id> [--title \"...\"] [--assign <agent_id>] --json` — turn a root Message into a Task.\n\
+- `sumi agent task create #channel --title \"...\" --body \"...\" [--assign <agent_id>] --json` — atomically create a root Message and Task.\n\
+- `sumi agent task claim <task_id> --json` — assign the Task to yourself and start it.\n\
+- `sumi agent task assign <task_id> <agent_id> --json` — transfer a Task to an active Agent in its source Channel.\n\
+- `sumi agent task status <task_id> <open|in_progress|done|canceled> --json` — move Task status.\n\n\
+Task actions need no Access Level or extra Permission. Judge from your Role, current context, and workload whether you should claim or assign one; do not claim work merely because it exists.\n\n\
 ### Channels\n\n\
 - `sumi agent channel list --json` — list Channels you can discover (public Channels in your Space, plus Channels you have joined).\n\
 - `sumi agent channel read \"<address>\" --json` — read a Channel main timeline or DM. Supports `--before <seq>`, `--after <seq>`, `--around <message_id>`, and `--limit <n>` (1-100, default 50).\n\

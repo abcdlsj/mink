@@ -25,13 +25,14 @@ import type {
   CreateMessageInput,
   Attachment,
   InboxItem,
+  Task,
   Approval,
   Thread,
   ThreadRead,
   ThreadSubscription,
   CreateThreadReplyInput,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Task, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 interface ErrorEnvelope {
   error?: {
@@ -308,6 +309,10 @@ export function createThreadReply(
 
 export function listInbox(memberId: string): Promise<InboxItem[]> {
   return apiRequest<InboxItem[]>(`/api/v1/members/${encodeURIComponent(memberId)}/inbox`);
+}
+
+export function listTasks(spaceId: string): Promise<Task[]> {
+  return apiRequest<Task[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`);
 }
 
 export function listApprovals(spaceId: string): Promise<Approval[]> {

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::{
     AppState, agent_registry, api_error::ApiError, attachment, audit, channel, idempotency,
-    message, space,
+    message, space, task,
 };
 use crate::local_protocol::AgentAction;
 
@@ -203,6 +203,89 @@ pub async fn agent_action(
             )
             .await?
         }
+        AgentAction::TaskList { status } => {
+            task::list_for_agent(&state.database, request.agent_member_id, status.as_deref())
+                .await?
+        }
+        AgentAction::TaskConvert {
+            message_id,
+            title,
+            assigned_agent_id,
+            idempotency_key,
+        } => serde_json::to_value(
+            task::convert_for_agent(
+                &state.database,
+                request.agent_member_id,
+                message_id,
+                title,
+                assigned_agent_id,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::TaskCreate {
+            address,
+            title,
+            body,
+            assigned_agent_id,
+            idempotency_key,
+        } => serde_json::to_value(
+            task::create_for_agent(
+                &state.database,
+                request.agent_member_id,
+                &address,
+                title,
+                body,
+                assigned_agent_id,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::TaskClaim {
+            task_id,
+            idempotency_key,
+        } => serde_json::to_value(
+            task::claim_for_agent(
+                &state.database,
+                request.agent_member_id,
+                task_id,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::TaskAssign {
+            task_id,
+            agent_member_id,
+            idempotency_key,
+        } => serde_json::to_value(
+            task::assign_for_agent(
+                &state.database,
+                request.agent_member_id,
+                task_id,
+                agent_member_id,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
+        AgentAction::TaskStatus {
+            task_id,
+            status,
+            idempotency_key,
+        } => serde_json::to_value(
+            task::status_for_agent(
+                &state.database,
+                request.agent_member_id,
+                task_id,
+                status,
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
         AgentAction::AgentCreate {
             name,
             role_text,

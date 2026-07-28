@@ -236,6 +236,23 @@ export interface InboxItem {
   created_at: string;
 }
 
+export interface Task {
+  id: string;
+  space_id: string;
+  source_message_id: string;
+  channel_id: string;
+  channel_slug: string;
+  source_seq: number;
+  title: string;
+  status: "open" | "in_progress" | "done" | "canceled";
+  created_by_member_id: string;
+  creator_name: string;
+  assigned_agent_member_id?: string;
+  assignee_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Approval {
   id: string;
   space_id: string;

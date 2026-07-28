@@ -52,6 +52,8 @@ pub enum AgentCommand {
     Member(AgentMemberArgs),
     /// Read and handle the current Agent Inbox.
     Inbox(AgentInboxArgs),
+    /// Create, claim, assign, and move lightweight Tasks.
+    Task(AgentTaskArgs),
     /// Read Channels available to the current Agent.
     Channel(AgentChannelArgs),
     /// Read a Thread and its Channel background.
@@ -169,6 +171,84 @@ pub struct JsonOutputArgs {
 pub struct AgentInboxArgs {
     #[command(subcommand)]
     pub command: AgentInboxCommand,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskArgs {
+    #[command(subcommand)]
+    pub command: AgentTaskCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentTaskCommand {
+    /// List Tasks visible through joined Channels.
+    List(AgentTaskListArgs),
+    /// Convert an existing root Message into a Task.
+    Convert(AgentTaskConvertArgs),
+    /// Atomically create a root Message and Task.
+    Create(AgentTaskCreateArgs),
+    /// Claim a Task for the current Agent.
+    Claim(AgentTaskIdArgs),
+    /// Assign a Task to another active Agent in the source Channel.
+    Assign(AgentTaskAssignArgs),
+    /// Move a Task to a new status.
+    Status(AgentTaskStatusArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskListArgs {
+    #[arg(long, value_parser = ["open", "in_progress", "done", "canceled"])]
+    pub status: Option<String>,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskConvertArgs {
+    pub message_id: uuid::Uuid,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long = "assign")]
+    pub assigned_agent_id: Option<uuid::Uuid>,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskCreateArgs {
+    pub address: String,
+    #[arg(long)]
+    pub title: String,
+    #[arg(long)]
+    pub body: String,
+    #[arg(long = "assign")]
+    pub assigned_agent_id: Option<uuid::Uuid>,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskIdArgs {
+    pub task_id: uuid::Uuid,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskAssignArgs {
+    pub task_id: uuid::Uuid,
+    pub agent_member_id: uuid::Uuid,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentTaskStatusArgs {
+    pub task_id: uuid::Uuid,
+    #[arg(value_parser = ["open", "in_progress", "done", "canceled"])]
+    pub status: String,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
 }
 
 #[derive(Debug, Subcommand)]

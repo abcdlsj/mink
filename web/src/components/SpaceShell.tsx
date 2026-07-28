@@ -6,6 +6,7 @@ import {
   Hash,
   Inbox,
   LockKeyhole,
+  ListTodo,
   MessageCircle,
   Monitor,
   Plus,
@@ -56,7 +57,7 @@ export function SpaceShell({
   children,
 }: {
   spaceSlug: string;
-  active: "channel" | "dm" | "members" | "inbox" | "computers";
+  active: "channel" | "dm" | "members" | "inbox" | "tasks" | "computers";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -224,6 +225,12 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/inbox`}
           />
           <RailItem
+            icon={ListTodo}
+            label="Tasks"
+            active={active === "tasks"}
+            href={`/s/${space.data.slug}/tasks`}
+          />
+          <RailItem
             icon={Users}
             label="Members"
             active={active === "members"}
@@ -287,6 +294,12 @@ export function SpaceShell({
               href={`/s/${space.data.slug}/members`}
             />
             <NavigationItem
+              icon={ListTodo}
+              label="Tasks"
+              active={active === "tasks"}
+              href={`/s/${space.data.slug}/tasks`}
+            />
+            <NavigationItem
               icon={Monitor}
               label="Computers"
               active={active === "computers"}
@@ -312,6 +325,8 @@ export function SpaceShell({
             />
           ) : active === "inbox" ? (
             <InboxNavigation />
+          ) : active === "tasks" ? (
+            <TasksNavigation />
           ) : (
             <>
           <NavigationItem
@@ -474,6 +489,10 @@ function ComputersNavigation({ computers, spaceSlug, activeHash, canManage }: { 
 
 function InboxNavigation() {
   return <div className="context-groups" aria-label="Inbox groups"><span><strong>01</strong> Approvals</span><span><strong>02</strong> DM &amp; mentions</span><span><strong>03</strong> Replies</span><span><strong>04</strong> Channel activity</span></div>;
+}
+
+function TasksNavigation() {
+  return <div className="context-groups" aria-label="Task status groups"><span><strong>01</strong> Open</span><span><strong>02</strong> In progress</span><span><strong>03</strong> Done</span><span><strong>04</strong> Canceled</span></div>;
 }
 
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }

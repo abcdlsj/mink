@@ -44,11 +44,29 @@ async fn run_migration_assertions(admin_url: &str, database_name: &str) -> Resul
           'direct_channels', 'attachments', 'message_attachments', \
           'audit_events', 'outbox_events', 'idempotency_records',
           'computers', 'computer_pairings', 'computer_commands', 'agents',
-          'agent_memory_files', 'agent_runs', 'agent_run_inbox_items')",
+          'agent_memory_files', 'agent_runs', 'agent_run_inbox_items', 'tasks')",
     )
     .fetch_one(&pool)
     .await?;
-    assert_eq!(table_count, 27);
+    assert_eq!(table_count, 28);
+
+    let task_source_is_message_scoped: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = 'tasks'::regclass \
+         AND confrelid = 'messages'::regclass AND array_length(conkey, 1) = 3)",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(task_source_is_message_scoped);
+
+    let task_assignee_is_space_scoped: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = 'tasks'::regclass \
+         AND confrelid = 'members'::regclass AND array_length(conkey, 1) = 2 \
+         AND conkey[1] = (SELECT attnum FROM pg_attribute WHERE attrelid = 'tasks'::regclass \
+                          AND attname = 'assigned_agent_member_id'))",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(task_assignee_is_space_scoped);
 
     let owner_constraint_is_deferred: bool = sqlx::query_scalar(
         "SELECT condeferrable AND condeferred FROM pg_constraint \

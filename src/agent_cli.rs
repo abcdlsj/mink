@@ -6,7 +6,8 @@ use crate::{
     cli::{
         AgentArgs, AgentAttachmentCommand, AgentAuditCommand, AgentChannelCommand,
         AgentChannelMemberCommand, AgentCommand, AgentInboxCommand, AgentLifecycleCommand,
-        AgentMemberCommand, AgentMessageCommand, AgentSpaceCommand, AgentThreadCommand,
+        AgentMemberCommand, AgentMessageCommand, AgentSpaceCommand, AgentTaskCommand,
+        AgentThreadCommand,
     },
     local_protocol::{AgentAction, LocalRequest, LocalResponse},
 };
@@ -140,6 +141,56 @@ async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
                     args.output.json,
                 )
             }
+        },
+        AgentCommand::Task(args) => match args.command {
+            AgentTaskCommand::List(args) => (
+                Some(AgentAction::TaskList {
+                    status: args.status,
+                }),
+                args.output.json,
+            ),
+            AgentTaskCommand::Convert(args) => (
+                Some(AgentAction::TaskConvert {
+                    message_id: args.message_id,
+                    title: args.title,
+                    assigned_agent_id: args.assigned_agent_id,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+            AgentTaskCommand::Create(args) => (
+                Some(AgentAction::TaskCreate {
+                    address: args.address,
+                    title: args.title,
+                    body: args.body,
+                    assigned_agent_id: args.assigned_agent_id,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+            AgentTaskCommand::Claim(args) => (
+                Some(AgentAction::TaskClaim {
+                    task_id: args.task_id,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+            AgentTaskCommand::Assign(args) => (
+                Some(AgentAction::TaskAssign {
+                    task_id: args.task_id,
+                    agent_member_id: args.agent_member_id,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
+            AgentTaskCommand::Status(args) => (
+                Some(AgentAction::TaskStatus {
+                    task_id: args.task_id,
+                    status: args.status,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
         },
         AgentCommand::Channel(args) => match args.command {
             AgentChannelCommand::List(output) => (Some(AgentAction::ChannelList), output.json),
@@ -379,6 +430,14 @@ fn uses_json_output(args: &AgentArgs) -> bool {
             AgentInboxCommand::Show(args) => args.output.json,
             AgentInboxCommand::Ack(args) => args.output.json,
             AgentInboxCommand::Defer(args) => args.output.json,
+        },
+        AgentCommand::Task(args) => match &args.command {
+            AgentTaskCommand::List(args) => args.output.json,
+            AgentTaskCommand::Convert(args) => args.output.json,
+            AgentTaskCommand::Create(args) => args.output.json,
+            AgentTaskCommand::Claim(args) => args.output.json,
+            AgentTaskCommand::Assign(args) => args.output.json,
+            AgentTaskCommand::Status(args) => args.output.json,
         },
         AgentCommand::Channel(args) => match &args.command {
             AgentChannelCommand::List(output) => output.json,

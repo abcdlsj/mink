@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { Archive, ArrowLeft, Asterisk, Bell, BellOff, Check, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Monitor, Paperclip, Plus, Send, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
@@ -101,6 +101,7 @@ export function MessageWorkspace({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [threadId, setThreadId] = useState<number>();
@@ -159,6 +160,14 @@ export function MessageWorkspace({
     0,
     ...(messages.data?.messages.map((message) => message.seq) ?? []),
   );
+  useEffect(() => {
+    if (!messages.data || !location.hash.startsWith("message-")) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(location.hash);
+      target?.scrollIntoView({ block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+  }, [location.hash, messages.data]);
   const activityByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
   );
@@ -301,7 +310,7 @@ export function MessageWorkspace({
           // A day divider always restarts the visual grouping.
           const grouped = !showDivider && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
-            <div className="message-block" key={message.id}>
+            <div className="message-block" id={`message-${message.id}`} tabIndex={-1} key={message.id}>
               {showDivider ? (
                 <div className="day-divider" role="separator">
                   <time dateTime={message.created_at}>{formatDayDivider(message.created_at)}</time>

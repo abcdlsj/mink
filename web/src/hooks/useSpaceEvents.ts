@@ -35,6 +35,9 @@ export function useSpaceEvents(spaceId?: string) {
         void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
       }
+      if (payload.type.startsWith("task.")) {
+        void queryClient.invalidateQueries({ queryKey: ["tasks", spaceId] });
+      }
     };
     const eventTypes = [
       "message.created",
@@ -48,6 +51,8 @@ export function useSpaceEvents(spaceId?: string) {
       "agent.run_changed",
       "approval.created",
       "approval.resolved",
+      "task.created",
+      "task.updated",
     ];
     for (const type of eventTypes) source.addEventListener(type, invalidate as EventListener);
     return () => source.close();

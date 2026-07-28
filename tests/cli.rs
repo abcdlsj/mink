@@ -29,6 +29,7 @@ fn agent_commands_reject_unscoped_processes() {
     for args in [
         vec!["agent", "inbox", "current", "--json"],
         vec!["agent", "channel", "read", "#general", "--json"],
+        vec!["agent", "task", "list", "--json"],
         vec![
             "agent", "message", "send", "#general", "--body", "hello", "--json",
         ],

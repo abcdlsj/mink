@@ -16,6 +16,12 @@
 
 ## 剩余工作
 
+### 0. Task 原型
+
+- [x] 交付以根 Message 为来源的最小 Task 闭环：Agent CLI 可从已有根 Message 转换或创建新 Message + Task，可无额外权限地 claim、assign 和流转 `open / in_progress / done / canceled`；WebUI 提供集中列表并可跳回来源 Message。
+
+验证：`cargo test task_flow_is_channel_scoped_and_permissionless -- --nocapture`；`cargo test --all-features`；`pnpm --dir web test`；`pnpm --dir web lint`；`pnpm --dir web build`；`cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`。真实 `sumi-dev` 在 1440x900 验证四状态看板无溢出、无 page/console error；390x844 验证来源链接跳转并聚焦根 Message，截图 `/tmp/sumi-task-prototype.png`。
+
 ### 1. Reference-directed WebUI 收口
 
 - [x] 将 `references/reference_style.md` 提炼为唯一设计语言，并完成全局 tokens、Space shell、Channel timeline 与 composer 的首个真实纵向改造；保留 Sumi 的领域结构，不引入参考产品的品牌或范围外入口。
@@ -89,4 +95,4 @@
 - 业务 metrics、metrics dashboard/export、性能基准、压力测试和 p95 性能门槛。
 - 额外安全与治理收口：全量日志 redaction 审计、敏感操作 audit 补齐、rate limit、prompt injection 专项以及删除/保留策略。
 - 平台与最终验收专项：macOS/Linux 构建和 sandbox 矩阵、`docs/design.md` §22 全量 E2E、Playwright 多视口与无障碍验收、统一全仓门禁复跑及占位/TODO/过期入口清扫。
-- Work/Task、其他具体 Driver、微服务、工作流/DAG、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移。
+- Work、复杂 Task 工作流/DAG、其他具体 Driver、微服务、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移。

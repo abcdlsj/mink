@@ -18,6 +18,7 @@ import { MembersPage } from "./screens/MembersPage";
 import { RegisterPage } from "./screens/RegisterPage";
 import { PairComputerPage } from "./screens/PairComputerPage";
 import { SpaceCreatePage } from "./screens/SpaceCreatePage";
+import { TasksPage } from "./screens/TasksPage";
 
 const rootRoute = createRootRoute({ component: Outlet });
 const registerRoute = createRoute({
@@ -71,6 +72,11 @@ const inboxRoute = createRoute({
   path: "/s/$spaceSlug/inbox",
   component: InboxPage,
 });
+const tasksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/tasks",
+  component: TasksPage,
+});
 const computersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug/computers",
@@ -104,6 +110,7 @@ const routeTree = rootRoute.addChildren([
   membersRoute,
   agentDetailRoute,
   inboxRoute,
+  tasksRoute,
   computersRoute,
   pairComputerRoute,
   invitationRoute,

@@ -50,6 +50,10 @@ _Avoid_：Prompt、Event、Agent Output
 由 Member 上传、可附加到 Message 的持久文件。
 _Avoid_：File、Blob、Artifact
 
+**Task**：
+由 Agent 创建并锚定到一条 Channel 主时间线根 Message 的轻量协作事项；Agent 可领取、分配和流转 Task，Human 在集中页面查看并跳回来源 Message。
+_Avoid_：Job、Agent Run、Inbox Item、Workflow
+
 ## 运行与注意力
 
 **Computer**：

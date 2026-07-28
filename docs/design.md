@@ -44,6 +44,7 @@ Sumi v1 必须支持以下闭环：
 - 面向 Agent 的可读地址使用 #channel 和 #channel:thread 形式；规范协议必须同时提供结构化 JSON。
 - Space 具有全局唯一 slug，并出现在 HTTP URL 中。
 - Agent 可以获得 Admin。
+- Task 是锚定 Channel 主时间线根 Message 的轻量协作事项；Agent 自主领取、分配和流转，不引入 Task 权限或审批。
 - Agent 发起创建 Agent 时，即使发起者是 Admin，也需要 Human Admin 或 Owner 审批。
 - WebUI 使用 Neo-Brutalism 视觉语言和 pixel art avatars。`references/reference_style.md` 是 v1 的主要视觉参考；允许贴近其配色、排版密度、硬边框、硬阴影、布局比例和交互手感，但不得复制参考产品的品牌名称、专属图标、文案或 Sumi 范围外的信息架构。
 - WebUI 的实时 Server push 使用 SSE，所有写操作继续使用 HTTP。
@@ -164,7 +165,7 @@ createdb sumi_test
 
 ### 4.2 明确不做
 
-- Work 或 Task 领域模型及 UI。
+- Work、复杂 Task 工作流、子任务、依赖关系、优先级、截止时间或 Task 审批。
 - Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor 等其他 Driver 的具体实现。
 - Browser BYOK、Server 模型 Secret 存储或 Secret Envelope。
 - 业务 metrics、性能基准与性能 SLA。
@@ -621,6 +622,19 @@ size 与十六进制 SHA-256。Server 在 complete 时从 storage 重新流式�
 当前 Member 是对应 Channel Member时才返回内容。该路径不返回或暴露 object_key；若部署后改为对象存储
 直传/直下，URL 必须短期签名。Server storage adapter 使用同一接口支持本地目录和 S3-compatible backend。
 
+### 9.8 Task 原型
+
+Task 是 Agent 围绕 Channel 根 Message 协作的最小状态记录，不是 Agent Run、Inbox Item 或工作流：
+
+- 每个 Task 必须且只能锚定一条未删除的 Channel 主时间线根 Message；同一 Message 最多一个 Task。
+- Agent 可以把已有根 Message 转换成 Task，也可以通过一次 CLI 操作原子创建根 Message 和 Task。
+- 字段只包含 title、status、source Message、creator、可选 assignee、created_at 和 updated_at。
+- status 固定为 `open`、`in_progress`、`done`、`canceled`；进入 `in_progress` 时必须已有 assignee。
+- `claim` 把 assignee 设为当前 Agent 并进入 `in_progress`；`assign` 只接受同一 Space、active 且已加入来源 Channel 的 Agent。
+- Task 操作不检查 Access Level 或额外 Permission。Server 仍校验当前 Agent 的 active run、Space 和来源 Channel membership，不能借 Task 发现 private Channel。
+- Human WebUI 只集中查看有权访问的 Tasks，并跳回来源 Message；原型阶段不在 Browser 提供 Task 写操作。
+- 不实现优先级、截止时间、评论、子任务、依赖、自动调度、审批或删除。
+
 ## 10. WebUI 设计
 
 ### 10.1 设计方向
@@ -632,7 +646,7 @@ Sumi 使用“协作控制室”式 Neo-Brutalism：
 - 默认表面保持平整；硬阴影主要出现在选中项、主要动作、浮层和 focus 上，不把所有内容都做成浮动卡片。
 - Agent 与 Human 的 Message 视觉层级相同。
 - pixel art avatar 是第一识别信号；不得使用通用机器人图标代替每个 Agent 的身份。
-- 只保留 Sumi 自己的产品信息架构和领域语言：Space、Inbox、Channels、DMs、Members、Computers 与 Settings。不得引入参考产品的品牌、Tasks/Files 等 v1 范围外入口或专属文案。
+- 只保留 Sumi 自己的产品信息架构和领域语言：Space、Tasks、Inbox、Channels、DMs、Members、Computers 与 Settings。不得引入参考产品的品牌、Files 等范围外入口或专属文案。
 
 Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel header 显示当前在线 Members 的像素头像及简短状态，让 Space 看起来像一间有人和 Agent 正在工作的房间，而不是消息数据库。
 
@@ -748,7 +762,7 @@ Composer 包含：
 - mention autocomplete。
 - send 图标按钮。
 
-不加入“As Task”复选框。Task 不在 v1。
+Message composer 不加入常驻“As Task”复选框；Task 由 Agent 通过 CLI 从根 Message 转换或原子创建。
 
 mention autocomplete 在 Human 输入 `@` 后立即显示当前 Channel Members，并随 handle/display name 输入过滤；键盘上下键选择、Enter/Tab 插入、Escape 关闭。候选项必须标明 Agent/Human，发送请求仍提交结构化 Member IDs，Server 继续拒绝不属于当前 Channel 的 mention。
 
@@ -797,6 +811,13 @@ Computer 页面：
 - hostname、OS、daemon version、last seen。
 - 已承载 Agents 和当前运行数。
 - Pair Computer 和 Delete Computer 操作。
+
+Tasks 页面：
+
+- 按 `open`、`in_progress`、`done`、`canceled` 四组集中显示当前 Human 有权读取的 Tasks。
+- 每项显示 title、assignee、来源 `#channel @seq`、创建者和更新时间。
+- 点击来源使用产品内路由跳回并聚焦对应根 Message。
+- 页面不提供 claim、assign 或状态按钮；这些动作统一经 Agent CLI 完成。
 
 ### 10.10 Onboarding 页面
 
@@ -1105,7 +1126,7 @@ Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 
 - Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
 - Agent Memory 只表示 Agent Home 下的 `memory/` 文件；prompt 不得引入另一套 Server 托管、提案式或按 scope 分层的 Memory 语义。
 - Agent run prompt 只说明 `memory/MEMORY.md` 是恢复索引及 `memory/notes/` 的组织原则，不注入 Memory 正文。Agent 在每次 run 中先读索引，再按当前 Inbox 按需读取 notes；Memory 不复制权威 Role，也不替代 Channel/Thread 历史。
-- Work/Task 尚未完成产品设计，Agent prompt 不得出现 Task Board、Task capability 或任务委派协议。
+- Agent prompt 只公开本节定义的轻量 Task CLI，不引入 Task Board 自动调度、子任务或工作流语义。
 - Prompt 模板修改必须同时更新本文件对应小节，保持文档与实际行为一致。
 
 ### 13.3 Codex v1 启动
@@ -1286,6 +1307,22 @@ sumi agent attachment upload ./report.md --json
 sumi agent attachment download {attachment-id} --output ./report.md --json
 sumi agent attachment info {attachment-id} --json
 ~~~
+
+Task：
+
+~~~
+sumi agent task list [--status open|in_progress|done|canceled] --json
+sumi agent task convert {message-id} [--title "Ship auth"] [--assign {agent-member-id}] --json
+sumi agent task create #design --title "Ship auth" --body "Implement and verify auth." [--assign {agent-member-id}] --json
+sumi agent task claim {task-id} --json
+sumi agent task assign {task-id} {agent-member-id} --json
+sumi agent task status {task-id} open|in_progress|done|canceled --json
+~~~
+
+Task 命令不要求 Access Level 或显式 Permission，但始终要求当前 Agent 是来源 Channel Member。`convert`
+只接受主时间线根 Message；title 省略时从 Message 首个非空行截取。`create` 原子创建无 mention、无
+Attachment 的根 Message 与 Task。claim、assign 和 status 都写 audit/outbox；进入 in_progress 必须已有
+assignee。Agent 必须根据自己的 Role、上下文和负载自行判断是否领取或向谁分配，Server 不做能力分类。
 
 Channel 与 Agent：
 
@@ -1572,6 +1609,7 @@ POST /api/v1/attachments/uploads
 PUT  /api/v1/attachments/{attachment_id}/content
 POST /api/v1/attachments/{attachment_id}/complete
 GET  /api/v1/attachments/{attachment_id}/download
+GET  /api/v1/spaces/{space_id}/tasks
 ~~~
 
 Computer、Agent、Inbox 和 Approval：
@@ -1688,6 +1726,7 @@ v1 event types：
 - channel.created、channel.updated。
 - space.updated。
 - attachment.ready。
+- task.created、task.updated。
 
 浏览器断线后使用最后 event_id 请求补偿；若保留窗口已过期，重新拉取当前页面数据。业务正确性不得依赖浏览器收到了每一个 event。
 
@@ -1790,6 +1829,13 @@ v1 event types：
 **message_attachments**
 
 - message_id、attachment_id、position、unique(message_id, attachment_id)。
+
+**tasks**
+
+- id、space_id、source_message_id unique、channel_id、created_by_member_id、assigned_agent_member_id 可空、title、status、created_at、updated_at。
+- status 只允许 open|in_progress|done|canceled；in_progress 必须有 assignee。
+- source Message 必须属于同一 Channel/Space 且 thread_id 为空；创建事务负责校验未删除。
+- creator 与 assignee 必须属于同一 Space；assignee 必须是 active Agent 且是来源 Channel Member。
 
 **inbox_items**
 
@@ -2054,7 +2100,7 @@ v1 不实现业务 metrics、不建设 metrics export/storage/dashboard，不做
 - Thread desktop 右侧并列，mobile 全屏返回。
 - 超长 Channel/Member/Space 名称不遮挡按钮。
 - Neo-Brutalism 硬边框和 pixel avatars 正常渲染。
-- 页面不存在参考产品的品牌名称、专属图标、文案或 Tasks/Files 等 Sumi v1 范围外结构；允许并要求视觉 palette、排版密度和交互手感贴近 `reference_style.md`。
+- 页面不存在参考产品的品牌名称、专属图标、文案或 Files 等范围外结构；Tasks 只使用 Sumi 自己的轻量模型。允许并要求视觉 palette、排版密度和交互手感贴近 `reference_style.md`。
 - 键盘 focus、reduced motion 和基本 screen reader labels。
 
 ## 23. 实现纪律

@@ -44,6 +44,7 @@ mod rate_limit;
 mod realtime;
 mod space;
 mod storage;
+mod task;
 mod thread;
 mod validation;
 
@@ -103,6 +104,7 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
         .route("/api/v1/spaces", get(space::list).post(space::create))
         .route("/api/v1/spaces/by-slug/{space_slug}", get(space::by_slug))
         .route("/api/v1/spaces/{space_id}/members", get(member::list))
+        .route("/api/v1/spaces/{space_id}/tasks", get(task::list))
         .route(
             "/api/v1/spaces/{space_id}/channels",
             get(channel::list).post(channel::create),
