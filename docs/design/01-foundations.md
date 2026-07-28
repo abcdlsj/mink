@@ -95,6 +95,8 @@ Server、Computer daemon 和 Agent CLI 使用同一个 Rust workspace、Cargo pa
 | API schema | utoipa | 从 Rust 类型生成 OpenAPI，再为 Web 生成 TypeScript client/types |
 | identifiers/time | uuid + time | UUIDv7 和 RFC3339 timestamp |
 
+v1 开发阶段为 PostgreSQL 和 SQLite 各维护一个最终 schema。schema 改变时直接更新对应文件并重建本地数据库，不提供旧 schema 升级或数据迁移。
+
 明确不选：
 
 - v1 不使用 SeaORM、Diesel 等 ORM。Sumi 的事务、不变量和分页 SQL 很明确，sqlx 已提供类型检查、连接池和 migration；再加 ORM只会形成第二套模型。

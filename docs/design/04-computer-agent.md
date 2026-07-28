@@ -74,26 +74,30 @@ daemon 默认尝试打开配对页；无人值守、本地自动化和测试配�
 ~~~
 ~/.sumi/
   computer/
-    daemon.db
-    secrets.json
-    logs/
-    agents/
-      {agent-id}/
-        profile.json
-        memory/
-        workspace/
-        drivers/
-          codex/
-          builtin/
-        runs/
+    {space-id}/
+      {computer-id}/
+        daemon.db
+        secrets.json
         logs/
+        agents/
+          {agent-id}/
+            profile.json
+            memory/
+            workspace/
+            drivers/
+              codex/
+              builtin/
+            runs/
+            logs/
   runtime/
-    daemon.sock
+    {computer-id}/
+      daemon.sock
 ~~~
 
 - daemon.db 使用 SQLite，保存 Computer 本地状态、Server command 结果、Agent 运行状态和本地重试队列。
 - secrets.json 保存 Computer Token 与本机 Driver 认证。它不得进入 daemon.db、日志、Agent Home 或备份导出。
 - `~/.sumi` 是本机 Sumi 文件的唯一根目录；`computer/` 只保存持久状态和 Agent Home，`runtime/` 只保存 UDS socket 与运行时临时文件。
+- Computer 持久目录只使用不可变的 Space ID 和 Computer ID，不使用 slug、name、handle 或时间戳归档名。数据库重建或重新配对后，旧 Computer 状态保留在原 ID 目录。配对完成前的临时目录位于 `computer/pending/{local-id}`，确认后原子移动到最终 ID 目录。
 - `computer/` 和 `runtime/` 目录权限必须为 0700，secrets.json 必须为 0600。daemon 使用同目录临时文件、fsync 和 rename 原子更新；发现 group/other 权限时拒绝启动并给出修复命令。
 - profile.json 是 Server Agent 配置的缓存，不是事实来源。
 - memory/ 和 workspace/ 属于 Agent，不属于 Driver。

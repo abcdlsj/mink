@@ -10,10 +10,10 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import readline from "node:readline";
 
@@ -24,7 +24,7 @@ const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery 
 const SEED_MARKER = "[dev-seed]";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
-export const DEV_COMPUTER_STATE = process.env.SUMI_SEED_STATE_DIR ?? join(homedir(), ".sumi", "computer", "dev-seed");
+export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi", "computer");
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([
@@ -49,11 +49,15 @@ export const AGENT_PROFILES = Object.freeze([
 ]);
 
 export function prepareComputerStateDirectory(stateDir) {
-  const socketPath = join(stateDir, "daemon.sock");
+  const computerRoot = dirname(dirname(stateDir));
+  const runtimeDir = basename(computerRoot) === "computer"
+    ? join(dirname(computerRoot), "runtime", basename(stateDir))
+    : join(dirname(stateDir), "runtime");
+  const socketPath = join(runtimeDir, "daemon.sock");
   const socketPathBytes = Buffer.byteLength(socketPath);
   if (process.platform === "darwin" && socketPathBytes > MACOS_UNIX_SOCKET_PATH_MAX_BYTES) {
     throw new Error(
-      `Computer state path is too long for a macOS Unix socket (${socketPathBytes} bytes): ${socketPath}. Set SUMI_SEED_STATE_DIR to a shorter persistent path.`,
+      `Computer runtime path is too long for a macOS Unix socket (${socketPathBytes} bytes): ${socketPath}. Set SUMI_SEED_COMPUTER_ROOT to a shorter persistent path.`,
     );
   }
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
@@ -217,7 +221,10 @@ function spawnCodexDaemon(stateDir, expectPairing) {
     "cargo",
     ["run", "--quiet", "--", "computer", "--config", configPath],
     {
-      env: process.env,
+      env: {
+        ...process.env,
+        RUST_LOG: "sumi=warn,sumi::computer=info,tower_http=warn",
+      },
       stdio: ["ignore", "inherit", "pipe"],
     },
   );
@@ -285,19 +292,37 @@ function pairedComputerIdentity(stateDir) {
   return { computerId: secrets.computer_id, spaceId: secrets.space_id };
 }
 
-export function prepareComputerStateForSpace(stateDir, spaceId, timestamp = Date.now()) {
-  prepareComputerStateDirectory(stateDir);
-  const pairedIdentity = pairedComputerIdentity(stateDir);
-  if (!pairedIdentity || pairedIdentity.spaceId === spaceId) return { pairedIdentity };
+export function computerStateDirectory(computerRoot, spaceId, computerId) {
+  return join(computerRoot, spaceId, computerId);
+}
 
-  const archivePrefix = `${stateDir}.stale-${timestamp}`;
-  let archivedStateDir = archivePrefix;
-  for (let suffix = 1; existsSync(archivedStateDir); suffix += 1) {
-    archivedStateDir = `${archivePrefix}-${suffix}`;
+export function findComputerStateForSpace(computerRoot, spaceId) {
+  const spaceDirectory = join(computerRoot, spaceId);
+  if (!existsSync(spaceDirectory)) return undefined;
+  const matches = [];
+  for (const entry of readdirSync(spaceDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const stateDir = join(spaceDirectory, entry.name);
+    const identity = pairedComputerIdentity(stateDir);
+    if (identity?.spaceId === spaceId && identity.computerId === entry.name) {
+      matches.push({ stateDir, pairedIdentity: identity });
+    }
   }
-  renameSync(stateDir, archivedStateDir);
-  prepareComputerStateDirectory(stateDir);
-  return { pairedIdentity: undefined, archivedStateDir };
+  if (matches.length > 1) throw new Error(`multiple Dev Computers exist for Space ${spaceId}`);
+  return matches[0];
+}
+
+async function stopDaemon(child) {
+  if (child.exitCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGINT");
+  await Promise.race([
+    exited,
+    sleep(5_000).then(() => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      return exited;
+    }),
+  ]);
 }
 
 async function createAgent(cookie, spaceId, computerId, profile) {
@@ -374,23 +399,35 @@ async function main() {
   const cookie = await ensureOwner();
   const space = await ensureSpace(cookie);
 
-  const stateDir = DEV_COMPUTER_STATE;
-  const { pairedIdentity, archivedStateDir } = prepareComputerStateForSpace(stateDir, space.id);
-  if (archivedStateDir) log(`archived stale Dev Computer state at ${archivedStateDir}`);
+  const existingState = findComputerStateForSpace(DEV_COMPUTER_ROOT, space.id);
+  const pairedIdentity = existingState?.pairedIdentity;
+  let stateDir = existingState?.stateDir ?? join(DEV_COMPUTER_ROOT, "pending", uuidv7());
+  prepareComputerStateDirectory(stateDir);
   log(`spawning codex Computer daemon (state: ${stateDir})`);
-  const { child, pairingUrl } = spawnCodexDaemon(stateDir, !pairedIdentity);
+  let { child, pairingUrl } = spawnCodexDaemon(stateDir, !pairedIdentity);
   process.on("exit", () => child.kill("SIGINT"));
 
   let computer;
+  let online;
   if (pairedIdentity) {
     log("reusing paired Dev Computer identity");
     computer = { id: pairedIdentity.computerId };
+    online = await waitForComputerOnline(cookie, space.id, computer.id);
   } else {
     const resolvedPairingUrl = await pairingUrl;
     log("pairing URL captured — confirming");
     computer = await confirmPairing(cookie, space.id, resolvedPairingUrl);
+    online = await waitForComputerOnline(cookie, space.id, computer.id);
+    await stopDaemon(child);
+    const finalStateDir = computerStateDirectory(DEV_COMPUTER_ROOT, space.id, computer.id);
+    prepareComputerStateDirectory(join(DEV_COMPUTER_ROOT, space.id));
+    if (existsSync(finalStateDir)) throw new Error(`Computer state already exists: ${finalStateDir}`);
+    renameSync(stateDir, finalStateDir);
+    stateDir = finalStateDir;
+    ({ child } = spawnCodexDaemon(stateDir, false));
+    online = await waitForComputerOnline(cookie, space.id, computer.id);
+    log(`stored Computer state at ${stateDir}`);
   }
-  const online = await waitForComputerOnline(cookie, space.id, computer.id);
   log(`Computer "${online.name ?? "Dev Computer"}" is online`);
 
   const agents = await ensureAgents(cookie, space.id, computer.id);

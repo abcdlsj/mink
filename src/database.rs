@@ -60,6 +60,12 @@ mod tests {
             .await
             .unwrap();
 
+        let migration_count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&database)
+            .await
+            .unwrap();
+        assert_eq!(migration_count, 1);
+
         let table_count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
              ('daemon_metadata', 'server_commands', 'local_agent_runs', 'run_result_outbox', \
