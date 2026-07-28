@@ -3,10 +3,10 @@
 - 状态：Approved direction
 - 日期：2026-07-26
 - 输入：用户提供的 Computers、Members/Agent detail、Channel 三张参考图
-- 上位规格：[design.md](./design.md) 第 4、8、9、10、11、12、22 节
+- 上位规格：[产品范围](./design/01-foundations.md)、[协作领域](./design/02-collaboration.md)、[WebUI](./design/03-web-ui.md)、[Computer 与 Agent](./design/04-computer-agent.md)、[验收](./design/09-delivery-acceptance.md)
 - 适用范围：Sumi v1 Browser WebUI
 
-本文把参考图的视觉语言、信息密度和页面组织转成 Sumi 可执行的 UI 规格。参考图是风格与布局母版，不是功能清单；所有领域名词、权限、数据和交互以 `design.md` 与 `GLOSSARY.md` 为准。
+本文把参考图的视觉语言、信息密度和页面组织转成 Sumi UI 规格。功能、权限和数据结构以设计主题文档与 `GLOSSARY.md` 为准。
 
 ## 1. 采用范围
 
@@ -45,11 +45,11 @@
 
 ## 2. 视觉语言
 
-Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该有工具感和人格，不应像营销落地页、传统企业后台或套壳聊天机器人。
+Sumi 使用高信息密度的 Neo-Brutalist 界面。页面使用固定栏宽、硬边框、硬阴影、紧凑行高和像素头像。
 
 ### 2.1 色彩 tokens
 
-使用 `design.md` 的唯一 palette，不另建一套近似色：
+使用 [WebUI 设计](./design/03-web-ui.md) 定义的 palette：
 
 | Token | Value | 用途 |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 | `accent-soft` | `#FFE0EA` | 轻量选择、信息提示 |
 | `cyan` | `#27CCF3` | Attachment、Computer 的技术语义 |
 | `green` | `#A9D877` | online、成功、active |
-| `yellow` | `#FFD440` | Agent busy（queued/running）和 rail |
+| `yellow` | `#FFD440` | Agent queued、starting、running、stopping 和 rail |
 | `red` | `#F97264` | error、destructive、dead |
 
 视觉收敛为白色纸面、cream panel、深墨色和受控 palette。Space accent 使用 pink、cyan、yellow、green 四个预设之一，并真实作用于 Space rail、选中态与主要动作；同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
@@ -83,16 +83,16 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 - 地址、时间、版本、计数和技术元数据继续使用 Space Grotesk，并启用 tabular numbers。
 - 正文绝不使用像素字体；像素感来自头像、徽标和硬边界。
 - 页面标题：18px / 700。
-- 实体标题：16–17px / 700。
+- 实体标题使用 16 至 17px / 700。
 - Message 正文：14px / 1.55。
-- 普通 UI：13–14px / 1.4。
+- 普通 UI 使用 13 至 14px / 1.4。
 - section eyebrow：11px / 700 / uppercase，允许 `0.06em` 字距。
 - 辅助文字：12px；不得低于 11px。
 - 中英文混排不强制全大写；领域名词保持 `GLOSSARY.md` 拼写。
 
 ### 2.4 图标与像素头像
 
-- 使用统一的 outline 图标集，视觉尺寸 18–20px，描边约 2px。
+- 使用统一的 outline 图标集，视觉尺寸为 18 至 20px，描边约 2px。
 - 图标按钮通常为 36x36px；窄 rail 中为 40x40px；命中区不得小于 40x40px。
 - 所有图标按钮必须有 accessible name；hover/focus 显示 tooltip。
 - Human avatar 使用 display name 首个 Unicode 字符，member ID 决定受控背景色；同首字母的 Humans 通过颜色区分。
@@ -147,7 +147,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 列表规则：
 
 - section header 使用 disclosure icon、uppercase 名称、数量和右侧动作。
-- 行高 44–56px；带描述的 Member/Computer 行可到 64px。
+- 行高为 44 至 56px；带描述的 Member/Computer 行可到 64px。
 - 当前项使用 accent 填充、2px 边框和 3px 硬阴影；不使用参考图固定粉色。
 - hover 只改变浅背景或显示行内操作，不能造成布局位移。
 - 超长名称单行截断，完整值通过 tooltip/accessibility name 提供。
@@ -157,7 +157,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 
 - 左侧为页面图标色块、主标题和可选的一行摘要/状态。
 - 右侧只放当前页面真实可用的全局动作。
-- icon tile 为 40–48px 方形、2px 边框；其填充优先使用 accent，Computer 可使用 cyan。
+- icon tile 为 40 至 48px 方形并使用 2px 边框；填充优先使用 accent，Computer 可以使用 cyan。
 - 主标题与 detail body 的实体名称一致，不制造第二种命名。
 - header 底部使用连续 2px 分隔线。
 
@@ -179,7 +179,7 @@ Member 权限使用 36px 高的矩形 toggle：未选中为 paper，选中为 ac
 
 ### 4.2 Tag 与状态
 
-- Tag 为 24–28px 高的矩形色块，1–2px ink 边框，字体 12–13px / 700。
+- Tag 是 24 至 28px 高的矩形色块，使用 1 至 2px ink 边框和 12 至 13px / 700 字体。
 - `AGENT`、Access Level、Driver 是分类标签；online/offline/running 是状态，不得混成同一颜色语义。
 - idle/online：green 点 + `Idle`/`Online`；busy：yellow 点 + `Busy`；offline：灰点 + `Offline`；error：red 点/图形 + `Error`。
 - 颜色不能单独承载含义。
@@ -187,9 +187,9 @@ Member 权限使用 36px 高的矩形 toggle：未选中为 paper，选中为 ac
 ### 4.3 Section 与详情字段
 
 - 详情页面按横向 section 分割，不把每个字段做成卡片。
-- section 上下 padding 24–32px，左右与 page header 对齐，默认 28px。
+- section 上下 padding 为 24 至 32px，左右与 page header 对齐，默认 28px。
 - section title 使用 eyebrow 样式；可编辑时紧跟 pencil icon button。
-- label 使用 13px 次级色；value 使用 15–16px，技术值使用 mono。
+- label 使用 13px 次级色；value 使用 15 至 16px，技术值使用 mono。
 - 空值使用明确的斜体辅助文案，如 `No description`；不显示 `--`。
 - 多个短字段优先水平排列，窄屏再换行。
 
@@ -238,7 +238,7 @@ Message 使用无气泡行布局：
           Markdown body with links and @mentions
           [Attachment rows]
           [up to 3 compact recent replies]
-          12 replies · open full Thread
+          12 replies, open full Thread
 ```
 
 - avatar 列固定 40px；正文列保持可读宽度，但不强制居中成窄文章栏。
@@ -263,7 +263,7 @@ Message 使用无气泡行布局：
 
 ### 5.5 Thread pane
 
-- 桌面端从右侧加入 360–480px pane，不覆盖、不压成不可读的 Channel 主区。
+- 桌面端从右侧加入 360 至 480px pane。Channel 主区保持可读宽度。
 - pane header 显示 `Thread`、地址 `#channel:id`、follow 状态和关闭按钮。
 - root Message 平铺显示；下方由分隔线进入 replies，底部使用独立 reply Composer。
 - 阅读期间主时间线有新 Message 时，显示紧凑的 `Channel has new messages` 返回入口。
@@ -285,7 +285,7 @@ Message 使用无气泡行布局：
 沿用参考图的紧凑 identity header：
 
 - 48px pixel avatar。
-- display name、`AGENT` 标签、online/offline/queued/running 状态。
+- display name、`AGENT` 标签和 activity status。状态值见 [Agent 生命周期可靠性](./design/04-agent-lifecycle-reliability.md)。
 - `@handle` 和 Role 摘要。
 - 右侧只显示真实可用的 Message/DM、暂停/恢复和 more 操作。
 
@@ -296,11 +296,11 @@ Message 使用无气泡行布局：
 | Tab | 内容 |
 | --- | --- |
 | Overview | identity、description、Access Level、Computer、Driver、创建信息、运行状态 |
-| Memory | 文件名、大小、更新时间；权限和 Computer online 条件按 `design.md` 执行 |
+| Memory | 文件名、大小、更新时间；权限和 Computer online 条件见 [Computer 与 Agent](./design/04-computer-agent.md) |
 | Inbox | pending 数量、最近失败、最后处理时间；正文可见性按授权限制 |
 | Settings | Role、attention config、Driver 切换、暂停、恢复、重试、退役 |
 
-Activity 只有在真实运行/审计数据形成产品闭环后才加入。不得照搬 Workspace、Reminders、Chat、Apps、MCP 标签。
+Activity 只显示 Server 已保存的 Run 和 audit 数据。v1 不增加 Workspace、Reminders、Chat、Apps 或 MCP 页签。
 
 ### 6.4 Agent Overview
 
@@ -377,7 +377,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 - 完整 Space rail、contextual nav 和主内容。
 - Thread 打开时并列显示；空间不足时先收窄/折叠 contextual nav，再保证主内容至少 480px。
 
-### 10.2 700–1099px
+### 10.2 700 至 1099px
 
 - Space rail 保留；contextual nav 变为由 header 按钮打开的抽屉。
 - 抽屉宽度不超过 viewport 的 80%，打开时 focus trap，关闭后焦点回到触发按钮。
@@ -432,7 +432,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 
 ## 13. 实现纪律
 
-- 本文件定义视觉与页面呈现，不改变 `design.md` 的领域行为、权限和 API。
+- 本文件定义视觉和页面呈现。领域行为、权限和 API 由设计主题文档定义。
 - 组件抽象以重复交互为依据：Button、Tag、Status、Avatar、EntityRow、Section、Composer、SplitShell；不为了“设计系统完整”提前造大而全组件库。
 - 页面不得硬编码参考截图里的名称、数量、日期、Driver 或状态。
 - 后端没有的数据不制造静态假数据；后端没有的能力不制造可点击入口。
