@@ -4449,9 +4449,10 @@ h1 {
   width: 40px;
   height: 40px;
   border-color: var(--ink);
-  background: var(--ink);
-  color: var(--red);
+  background: var(--accent-soft);
+  color: var(--ink);
   box-shadow: 2px 2px 0 var(--paper);
+  transform: rotate(-2deg);
 }
 
 .space-brand-mark {
@@ -4459,7 +4460,6 @@ h1 {
   font-size: 27px;
   font-weight: 700;
   line-height: 1;
-  transform: rotate(-2deg);
 }
 
 .rail-tools {
