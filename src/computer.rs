@@ -108,6 +108,13 @@ enum ComputerFrame {
         ok: bool,
         result: serde_json::Value,
     },
+    RunResult {
+        event_id: String,
+        command_id: Uuid,
+        computer_seq: i64,
+        ok: bool,
+        result: serde_json::Value,
+    },
 }
 
 #[derive(Deserialize)]
@@ -121,6 +128,9 @@ enum ServerFrame {
         computer_seq: i64,
         kind: String,
         payload: serde_json::Value,
+    },
+    ResultReceipt {
+        event_id: String,
     },
     Shutdown {
         reason: String,
@@ -378,7 +388,10 @@ async fn connect_once(
     let mut lease_renewal = tokio::time::interval(std::time::Duration::from_secs(60));
     lease_renewal.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     lease_renewal.tick().await;
-    let (completion_tx, mut completion_rx) = tokio::sync::mpsc::channel::<CommandCompletion>(64);
+    let mut result_retry = tokio::time::interval(std::time::Duration::from_secs(1));
+    result_retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    result_retry.tick().await;
+    let (completion_tx, mut completion_rx) = tokio::sync::mpsc::channel::<()>(64);
     let command_processor = LocalCommandProcessor {
         database: database.clone(),
         state_dir: state_dir.to_owned(),
@@ -415,24 +428,12 @@ async fn connect_once(
                     tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox lease renewal failed");
                 }
             }
+            _ = result_retry.tick() => {
+                send_pending_run_result(&mut writer, database, computer_id).await?;
+            }
             completion = completion_rx.recv() => {
-                let completion = completion.context("Computer command completion channel closed")?;
-                let error_code = command_error_code(&completion.outcome).to_owned();
-                let ok = completion.outcome.ok;
-                send_ws_frame(&mut writer, &ComputerFrame::CommandResult {
-                    command_id: completion.command_id,
-                    computer_seq: completion.computer_seq,
-                    ok,
-                    result: completion.outcome.result,
-                }).await?;
-                tracing::info!(
-                    computer_id = %computer_id,
-                    command_id = %completion.command_id,
-                    computer_seq = completion.computer_seq,
-                    ok,
-                    error_code,
-                    "Computer command result sent"
-                );
+                completion.context("Computer command completion channel closed")?;
+                send_pending_run_result(&mut writer, database, computer_id).await?;
             }
             message = reader.next() => {
                 let Some(message) = message else {
@@ -471,6 +472,9 @@ async fn connect_once(
                                     ConnectionOutcome::Shutdown
                                 });
                             }
+                            ServerFrame::ResultReceipt { event_id } => {
+                                mark_run_result_reported(database, computer_id, &event_id).await?;
+                            }
                             ServerFrame::Welcome { .. } => {}
                         }
                     }
@@ -489,6 +493,75 @@ async fn connect_once(
             }
         }
     }
+}
+
+async fn send_pending_run_result<S>(
+    writer: &mut S,
+    database: &SqlitePool,
+    computer_id: Uuid,
+) -> Result<()>
+where
+    S: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
+{
+    let now = OffsetDateTime::now_utc();
+    let pending: Option<(String, String, i64, String, i64)> = sqlx::query_as(
+        "SELECT event_id, command_id, computer_seq, payload_json, attempt_count \
+         FROM run_result_outbox WHERE reported_at IS NULL AND next_attempt_at <= ?1 \
+         ORDER BY next_attempt_at, event_id LIMIT 1",
+    )
+    .bind(now.to_string())
+    .fetch_optional(database)
+    .await?;
+    let Some((event_id, command_id, computer_seq, payload, attempt_count)) = pending else {
+        return Ok(());
+    };
+    let command_id = Uuid::parse_str(&command_id)?;
+    let result: serde_json::Value = serde_json::from_str(&payload)?;
+    let ok = result.get("status").and_then(serde_json::Value::as_str) == Some("completed");
+    send_ws_frame(
+        writer,
+        &ComputerFrame::RunResult {
+            event_id: event_id.clone(),
+            command_id,
+            computer_seq,
+            ok,
+            result,
+        },
+    )
+    .await?;
+    let retry_seconds = 1_i64 << attempt_count.min(5);
+    sqlx::query(
+        "UPDATE run_result_outbox SET attempt_count = attempt_count + 1, \
+         next_attempt_at = ?2, last_error = NULL \
+         WHERE event_id = ?1 AND reported_at IS NULL",
+    )
+    .bind(&event_id)
+    .bind((now + time::Duration::seconds(retry_seconds)).to_string())
+    .execute(database)
+    .await?;
+    tracing::info!(computer_id = %computer_id, command_id = %command_id, event_id, attempt = attempt_count + 1, "Agent run result sent");
+    Ok(())
+}
+
+async fn mark_run_result_reported(
+    database: &SqlitePool,
+    computer_id: Uuid,
+    event_id: &str,
+) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE run_result_outbox SET reported_at = COALESCE(reported_at, ?2), last_error = NULL \
+         WHERE event_id = ?1",
+    )
+    .bind(event_id)
+    .bind(OffsetDateTime::now_utc().to_string())
+    .execute(database)
+    .await?;
+    ensure!(
+        updated.rows_affected() == 1,
+        "Server receipted an unknown Run result event"
+    );
+    tracing::info!(computer_id = %computer_id, event_id, "Agent run result receipted");
+    Ok(())
 }
 
 async fn poll_agent_inbox(server: &Url, computer_id: Uuid, token: &str) -> Result<()> {
@@ -642,17 +715,11 @@ fn command_error_code(outcome: &LocalCommandOutcome) -> &str {
         .unwrap_or("none")
 }
 
-struct CommandCompletion {
-    command_id: Uuid,
-    computer_seq: i64,
-    outcome: LocalCommandOutcome,
-}
-
 struct LocalCommandProcessor {
     database: SqlitePool,
     state_dir: std::path::PathBuf,
     supervisor: Supervisor,
-    completion_tx: tokio::sync::mpsc::Sender<CommandCompletion>,
+    completion_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 impl LocalCommandProcessor {
@@ -670,6 +737,9 @@ impl LocalCommandProcessor {
                 .await?;
         if matches!(existing.0.as_str(), "completed" | "failed") {
             tracing::info!(command_id = %command_id, computer_seq, kind, replayed = true, status = %existing.0, "Computer command replayed from local result");
+            if kind == "agent.run" {
+                return Ok(None);
+            }
             return Ok(Some(LocalCommandOutcome {
                 ok: existing.0 == "completed",
                 result: serde_json::from_str(existing.1.as_deref().unwrap_or("{}"))?,
@@ -723,21 +793,13 @@ impl LocalCommandProcessor {
                 Ok(receiver) => {
                     let completion_tx = self.completion_tx.clone();
                     tokio::spawn(async move {
-                        let result = receiver.await.unwrap_or(RunResult {
+                        let _result = receiver.await.unwrap_or(RunResult {
                             run_id: Uuid::nil(),
                             status: "failed".to_owned(),
                             error_code: Some("supervisor_stopped".to_owned()),
                             memory_files: Vec::new(),
                         });
-                        let outcome = command_outcome_for_run(&result);
-                        completion_tx
-                            .send(CommandCompletion {
-                                command_id,
-                                computer_seq,
-                                outcome,
-                            })
-                            .await
-                            .ok();
+                        completion_tx.send(()).await.ok();
                     });
                     return Ok(None);
                 }
@@ -787,19 +849,6 @@ impl LocalCommandProcessor {
         };
         finish_local_command(&self.database, command_id, &outcome).await?;
         Ok(Some(outcome))
-    }
-}
-
-fn command_outcome_for_run(result: &RunResult) -> LocalCommandOutcome {
-    LocalCommandOutcome {
-        ok: result.status == "completed",
-        result: serde_json::json!({
-            "ok": result.status == "completed",
-            "run_id": result.run_id,
-            "status": result.status,
-            "error_code": result.error_code,
-            "memory_files": result.memory_files,
-        }),
     }
 }
 

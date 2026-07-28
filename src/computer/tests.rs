@@ -390,6 +390,121 @@ async fn daemon_renews_active_leases_and_reports_process_lost_once() {
 }
 
 #[tokio::test]
+async fn run_result_outbox_retries_until_server_receipt() {
+    let root = tempfile::tempdir().unwrap();
+    let database = database::connect_sqlite(&root.path().join("daemon.db"))
+        .await
+        .unwrap();
+    let event_id = Uuid::now_v7().to_string();
+    let command_id = Uuid::now_v7();
+    let run_id = Uuid::now_v7();
+    let agent_id = Uuid::now_v7();
+    let space_id = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc().to_string();
+    sqlx::query(
+        "INSERT INTO server_commands (command_id, computer_seq, request_json, status, \
+         result_json, received_at, completed_at) VALUES (?1, 1, ?2, 'completed', ?3, ?4, ?4)",
+    )
+    .bind(command_id.to_string())
+    .bind(serde_json::json!({ "kind": "agent.run", "payload": { "run_id": run_id } }).to_string())
+    .bind(serde_json::json!({ "ok": true, "run_id": run_id, "status": "completed" }).to_string())
+    .bind(&now)
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+         token_expires_at, status, finished_at, command_id, computer_seq, result_event_id) \
+         VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'completed', ?4, ?5, 1, ?6)",
+    )
+    .bind(run_id.to_string())
+    .bind(agent_id.to_string())
+    .bind(space_id.to_string())
+    .bind(&now)
+    .bind(command_id.to_string())
+    .bind(&event_id)
+    .execute(&database)
+    .await
+    .unwrap();
+    let payload = serde_json::json!({
+        "ok": true,
+        "run_id": run_id,
+        "status": "completed",
+        "memory_files": []
+    });
+    sqlx::query(
+        "INSERT INTO run_result_outbox (event_id, command_id, computer_seq, run_id, \
+         payload_json, next_attempt_at, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5)",
+    )
+    .bind(&event_id)
+    .bind(command_id.to_string())
+    .bind(run_id.to_string())
+    .bind(payload.to_string())
+    .bind(&now)
+    .execute(&database)
+    .await
+    .unwrap();
+
+    let (daemon_io, server_io) = tokio::io::duplex(4096);
+    let mut daemon_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        daemon_io,
+        tungstenite::protocol::Role::Client,
+        None,
+    )
+    .await;
+    let mut server_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        server_io,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+    let computer_id = Uuid::now_v7();
+
+    for attempt in 1..=2 {
+        sqlx::query("UPDATE run_result_outbox SET next_attempt_at = ?2 WHERE event_id = ?1")
+            .bind(&event_id)
+            .bind(OffsetDateTime::now_utc().to_string())
+            .execute(&database)
+            .await
+            .unwrap();
+        send_pending_run_result(&mut daemon_socket, &database, computer_id)
+            .await
+            .unwrap();
+        let frame = server_socket.next().await.unwrap().unwrap();
+        let frame: serde_json::Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+        assert_eq!(frame["type"], "run_result");
+        assert_eq!(frame["event_id"], event_id);
+        assert_eq!(frame["command_id"], command_id.to_string());
+        let stored_attempt: i64 =
+            sqlx::query_scalar("SELECT attempt_count FROM run_result_outbox WHERE event_id = ?1")
+                .bind(&event_id)
+                .fetch_one(&database)
+                .await
+                .unwrap();
+        assert_eq!(stored_attempt, attempt);
+    }
+
+    mark_run_result_reported(&database, computer_id, &event_id)
+        .await
+        .unwrap();
+    send_pending_run_result(&mut daemon_socket, &database, computer_id)
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), server_socket.next())
+            .await
+            .is_err()
+    );
+    let reported_at: Option<String> =
+        sqlx::query_scalar("SELECT reported_at FROM run_result_outbox WHERE event_id = ?1")
+            .bind(&event_id)
+            .fetch_one(&database)
+            .await
+            .unwrap();
+    assert!(reported_at.is_some());
+}
+
+#[tokio::test]
 async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
     let root = tempfile::tempdir().unwrap();
     let state = root.path().join("computer");

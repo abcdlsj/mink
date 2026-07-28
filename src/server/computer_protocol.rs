@@ -25,6 +25,13 @@ pub(super) enum ComputerFrame {
         ok: bool,
         result: serde_json::Value,
     },
+    RunResult {
+        event_id: String,
+        command_id: Uuid,
+        computer_seq: i64,
+        ok: bool,
+        result: serde_json::Value,
+    },
 }
 
 #[derive(Serialize)]
@@ -38,6 +45,9 @@ pub(super) enum ServerFrame {
         computer_seq: i64,
         kind: String,
         payload: serde_json::Value,
+    },
+    ResultReceipt {
+        event_id: String,
     },
     Shutdown {
         reason: String,

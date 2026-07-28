@@ -135,6 +135,8 @@ GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/download
 
 daemon 每 60 秒续租 queued、starting、running 和 stopping Run。启动或重连后，daemon 通过 result outbox 上报 `process_lost`。WebSocket 中的 `run_started`、Run result 和 `result_receipt` 协议见 [Agent 生命周期可靠性](./04-agent-lifecycle-reliability.md)。
 
+PostgreSQL 的 `computer_commands.result_event_id` 保存 Server 已应用的 Run 结果事件 ID，并具有唯一约束。Server 以该字段校验重复 `run_result`，事务提交后才能发送 `result_receipt`。
+
 Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer Token 不能管理 Space 中其他 Computer 的 Agents。
 attention scheduler 使用 Computer Token 获取本机可运行 Agent，并按可用执行槽、prefetch 和 round-robin 结果 claim。claim 在一个事务中租约 Inbox Item、创建 `agent_runs` 和关联行，并分配持久 `agent.run` command。claim 返回空结果或请求失败时，WebSocket 和 heartbeat 继续运行。
 

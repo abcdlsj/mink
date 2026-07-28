@@ -81,6 +81,8 @@ Run 结束时，daemon 在一个 SQLite 事务中完成三次写入：
 
 result sender 扫描没有 `reported_at` 的记录，并在连接可用时发送。Server 在一个 PostgreSQL 事务中更新 command、Run、Inbox 和 Server outbox，然后返回 `result_receipt`。daemon 收到回执后填写 `reported_at`。
 
+daemon 使用 `run_result` 帧上报 Run 结果。该帧包含 `event_id`、`command_id`、`computer_seq`、`ok` 和 `result`。Server 只允许非 Run command 使用 `command_result`。Server 提交结果事务后返回只包含同一 `event_id` 的 `result_receipt`。同一 `event_id` 的重复 `run_result` 必须返回回执，且不得再次更新 Inbox retry count 或发布 Run 状态事件。
+
 ```text
 SQLite Run 终态和 result outbox
   -> result sender 重试

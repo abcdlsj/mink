@@ -660,8 +660,34 @@ async fn run_computer_socket(
                             computer_seq,
                             ok,
                             &result,
+                            None,
                         )
                         .await?;
+                    }
+                    ComputerFrame::RunResult {
+                        event_id,
+                        command_id,
+                        computer_seq,
+                        ok,
+                        result,
+                    } => {
+                        if event_id.is_empty() || event_id.len() > 128 {
+                            return Err(ApiError::validation(
+                                "invalid_result_event_id",
+                                "Run result event id is invalid",
+                            ));
+                        }
+                        apply_command_result(
+                            state,
+                            computer_id,
+                            command_id,
+                            computer_seq,
+                            ok,
+                            &result,
+                            Some(&event_id),
+                        )
+                        .await?;
+                        send_frame(socket, &ServerFrame::ResultReceipt { event_id }).await?;
                     }
                     ComputerFrame::Hello { .. } => {
                         return Err(ApiError::validation(
@@ -739,10 +765,11 @@ async fn apply_command_result(
     computer_seq: i64,
     ok: bool,
     result: &serde_json::Value,
+    result_event_id: Option<&str>,
 ) -> Result<(), ApiError> {
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
-    let command: Option<(String, serde_json::Value, String)> = sqlx::query_as(
-        "SELECT kind, payload_json, status FROM computer_commands \
+    let command: Option<(String, serde_json::Value, String, Option<String>)> = sqlx::query_as(
+        "SELECT kind, payload_json, status, result_event_id FROM computer_commands \
          WHERE id = $1 AND computer_id = $2 AND computer_seq = $3 FOR UPDATE",
     )
     .bind(command_id)
@@ -751,10 +778,36 @@ async fn apply_command_result(
     .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    let Some((kind, payload, command_status)) = command else {
-        return Ok(());
+    let Some((kind, payload, command_status, stored_event_id)) = command else {
+        return Err(ApiError::validation(
+            "unknown_computer_command",
+            "Computer command does not exist",
+        ));
     };
+    if (kind == "agent.run") != result_event_id.is_some() {
+        return Err(ApiError::validation(
+            "invalid_result_frame",
+            "Computer result frame does not match command kind",
+        ));
+    }
     if matches!(command_status.as_str(), "completed" | "failed") {
+        if let Some(event_id) = result_event_id {
+            if let Some(stored_event_id) = stored_event_id {
+                if stored_event_id != event_id {
+                    return Err(ApiError::validation(
+                        "conflicting_result_event",
+                        "Run result event conflicts with the applied result",
+                    ));
+                }
+            } else {
+                sqlx::query("UPDATE computer_commands SET result_event_id = $2 WHERE id = $1")
+                    .bind(command_id)
+                    .bind(event_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(ApiError::database)?;
+            }
+        }
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(());
     }
@@ -769,7 +822,7 @@ async fn apply_command_result(
     };
     sqlx::query(
         "UPDATE computer_commands SET status = $4, result_json = $5, completed_at = now(), \
-         acked_at = COALESCE(acked_at, now()) \
+         acked_at = COALESCE(acked_at, now()), result_event_id = $6 \
          WHERE id = $1 AND computer_id = $2 AND computer_seq = $3",
     )
     .bind(command_id)
@@ -777,6 +830,7 @@ async fn apply_command_result(
     .bind(computer_seq)
     .bind(status)
     .bind(&stored_result)
+    .bind(result_event_id)
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;

@@ -1784,19 +1784,43 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .await?;
     ensure!(atomic_result == ("handled".to_owned(), run_id, 1));
 
-    socket
-        .send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::json!({
-                "type": "command_result",
-                "command_id": run_command["command_id"],
-                "computer_seq": run_command["computer_seq"],
-                "ok": true,
-                "result": { "ok": true, "run_id": run_id, "status": "completed" }
-            })
-            .to_string()
-            .into(),
-        ))
-        .await?;
+    let completed_event_id = Uuid::now_v7().to_string();
+    let completed_frame = serde_json::json!({
+        "type": "run_result",
+        "event_id": completed_event_id,
+        "command_id": run_command["command_id"],
+        "computer_seq": run_command["computer_seq"],
+        "ok": true,
+        "result": { "ok": true, "run_id": run_id, "status": "completed" }
+    });
+    for _ in 0..2 {
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                completed_frame.to_string().into(),
+            ))
+            .await?;
+        let receipt = socket
+            .next()
+            .await
+            .context("Run result receipt missing")??;
+        let receipt: serde_json::Value = serde_json::from_str(receipt.to_text()?)?;
+        ensure!(receipt["type"] == "result_receipt" && receipt["event_id"] == completed_event_id);
+    }
+    let applied_result: (Option<String>, i64) = sqlx::query_as(
+        "SELECT result_event_id, \
+         (SELECT count(*) FROM outbox_events WHERE topic = 'agent.run_changed' \
+          AND aggregate_id = $1 AND payload_json->>'status' = 'completed') \
+         FROM computer_commands WHERE id = $2",
+    )
+    .bind(run_id)
+    .bind(Uuid::parse_str(
+        run_command["command_id"]
+            .as_str()
+            .context("Run command id missing")?,
+    )?)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(applied_result == (Some(completed_event_id.clone()), 1));
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let status: String = sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
@@ -1885,7 +1909,8 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
-                "type": "command_result",
+                "type": "run_result",
+                "event_id": Uuid::now_v7().to_string(),
                 "command_id": retry_command["command_id"],
                 "computer_seq": retry_command["computer_seq"],
                 "ok": false,
@@ -1900,6 +1925,12 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .into(),
         ))
         .await?;
+    let retry_receipt = socket
+        .next()
+        .await
+        .context("Failed Run result receipt missing")??;
+    let retry_receipt: serde_json::Value = serde_json::from_str(retry_receipt.to_text()?)?;
+    ensure!(retry_receipt["type"] == "result_receipt");
     let failed_run_released = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let state: (String, i32) =
@@ -2117,7 +2148,8 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
-                "type": "command_result",
+                "type": "run_result",
+                "event_id": Uuid::now_v7().to_string(),
                 "command_id": ambient_command["command_id"],
                 "computer_seq": ambient_command["computer_seq"],
                 "ok": true,
@@ -2127,6 +2159,12 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .into(),
         ))
         .await?;
+    let ambient_receipt = socket
+        .next()
+        .await
+        .context("Ambient Run result receipt missing")??;
+    let ambient_receipt: serde_json::Value = serde_json::from_str(ambient_receipt.to_text()?)?;
+    ensure!(ambient_receipt["type"] == "result_receipt");
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let status: String = sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
