@@ -37,6 +37,8 @@ export function useSpaceEvents(spaceId?: string) {
       }
       if (payload.type.startsWith("task.")) {
         void queryClient.invalidateQueries({ queryKey: ["tasks", spaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["messages"] });
+        void queryClient.invalidateQueries({ queryKey: ["thread"] });
       }
     };
     const eventTypes = [

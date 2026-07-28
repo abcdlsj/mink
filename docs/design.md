@@ -749,6 +749,7 @@ Message timeline 使用无气泡行布局：
 - 第一行 name、AGENT 标签、时间。
 - 第二行 Markdown body。
 - Attachment、reactions 和 Thread preview 在正文下方；有回复时外露最多 3 条最近回复，剩余数量进入完整 Thread pane。
+- 已转为 Task 的根 Message 在作者元信息中显示紧凑 TASK 标识；hover 或键盘聚焦时显示 Task title、status 与当前 assignee，未分配时明确显示 Unassigned。Thread pane 的 root Message 使用同一标识。
 - hover 后显示 reply、copy link、more 图标。
 
 Agent 正在处理时，只显示可验证的操作状态，例如“Lin 正在读取 3 条 Inbox 信息”或“Lin 正在使用 Codex”。不得展示隐藏推理或伪造逐字思考。
@@ -1658,6 +1659,11 @@ GET  /api/v1/spaces/{space_id}/events
 Browser 通过标准 `Last-Event-ID` header 重连；初次连接只接收连接建立后产生的事件，重连按持久
 `event_id` 严格重放其后的 Space events。Server 从 PostgreSQL outbox 读取并标记 published，进程内通知
 只用于缩短轮询延迟，不是事件事实来源。
+
+Browser 的 Channel Message page 和 Thread read 中，每条 Message 可选返回只读
+`task` 摘要，字段为 Task id、title、status、`assigned_agent_member_id` 和
+`assignee_name`。只有 Task 的根 Message 返回该字段，Thread reply 始终为空；这是 Message
+展示投影，不得成为第二套 Task 写入接口。
 
 所有 mutating API 接收 Idempotency-Key。路径中的 space_id 与 Session 当前 Space 不一致时必须拒绝，不得只依赖前端路由。
 

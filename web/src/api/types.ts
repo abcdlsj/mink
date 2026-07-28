@@ -175,6 +175,14 @@ export interface MessageAuthor {
   handle: string;
 }
 
+export interface MessageTaskSummary {
+  id: string;
+  title: string;
+  status: "open" | "in_progress" | "done" | "canceled";
+  assigned_agent_member_id?: string;
+  assignee_name?: string;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
@@ -188,6 +196,7 @@ export interface Message {
   deleted_at?: string;
   thread_id?: number;
   reply_count: number;
+  task?: MessageTaskSummary;
 }
 
 export interface MessagePage {

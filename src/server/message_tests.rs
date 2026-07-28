@@ -23,6 +23,7 @@ fn message_timestamps_use_rfc3339_wire_format() {
         deleted_at: None,
         thread_id: None,
         reply_count: 0,
+        task: None,
     };
 
     let json = serde_json::to_value(response).expect("Message response serializes");

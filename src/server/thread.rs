@@ -667,6 +667,7 @@ async fn fetch_message(
         .map_err(ApiError::database)?;
     message.attachments =
         super::attachment::attachments_for_message_pool(database, message_id).await?;
+    message::hydrate_task_summaries_pool(database, std::slice::from_mut(&mut message)).await?;
     Ok(message)
 }
 
@@ -752,6 +753,7 @@ impl From<MessageWireRow> for MessageResponse {
             deleted_at: row.deleted_at,
             thread_id: row.thread_id,
             reply_count: row.reply_count,
+            task: None,
         }
     }
 }

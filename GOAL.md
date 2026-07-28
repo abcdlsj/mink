@@ -18,7 +18,7 @@
 
 ### 0. WebUI 协作体验收口
 
-- [ ] 在 Channel/Thread 消息行中标识已转为 Task 的根 Message，hover 可查看当前处理 Agent。
+- [x] 在 Channel/Thread 消息行中标识已转为 Task 的根 Message，hover 可查看当前处理 Agent。
 - [ ] 将最左上角品牌标识收口为浅红色、轻微倾斜的 S 符号。
 - [ ] 缩小 Conversation navigation 关闭 X，点击后收起左侧导航，并允许通过最左 Space rail 任意空白区重新展开。
 - [ ] 统一 Channel 与 Thread composer 尺寸，缩小 Thread placeholder 文字并对齐输入与发送控件。
@@ -27,6 +27,8 @@
 - [ ] 补齐 DM WebUI 闭环：可从导航创建/打开 DM，并沿用 Channel 的 Message、Thread 与 Agent 注意力模型。
 
 验证：每项改动运行最小相关 Web tests；阶段完成后运行 `pnpm --dir web test`、`pnpm --dir web lint`、`pnpm --dir web build`，并在 1440x900、1024x768、390x844 验证 Channel、Thread、侧边栏、Tasks 与 DM 无溢出、无 page/console error。若改动 Rust/协议，额外运行 `cargo fmt --all -- --check`、`cargo clippy --all-targets --all-features -- -D warnings` 与定向集成测试。
+
+Task Message 标识验证：`cargo test task_flow_is_channel_scoped_and_permissionless -- --nocapture`、`pnpm --dir web test -- ChannelPage.test.tsx`、`pnpm --dir web lint`、`pnpm --dir web build`、`cargo fmt --all -- --check` 与 `cargo clippy --all-targets --all-features -- -D warnings` 通过；组件测试同时覆盖 Channel 根 Message、Thread root、TASK 标识和 assignee hover/focus 文本。
 
 ### 1. Task 原型
 

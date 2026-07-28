@@ -202,7 +202,7 @@ describe("ChannelPage", () => {
           snapshot_channel_seq: 1,
           has_more_before: false,
           has_more_after: false,
-          messages: [{ ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1 }],
+          messages: [{ ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1, task: taskSummary() }],
         });
       }
       if (path.endsWith(`/channels/${channelId}/threads/1`) && !init?.method) {
@@ -210,7 +210,7 @@ describe("ChannelPage", () => {
           channel_id: channelId,
           thread_id: 1,
           snapshot_channel_seq: 2,
-          root: { ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1 },
+          root: { ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1, task: taskSummary() },
           replies: [message(channelId, 2, "Existing reply")],
           is_following: false,
         });
@@ -264,6 +264,9 @@ describe("ChannelPage", () => {
     renderRoute("/s/sumi-lab/channels/general");
 
     expect(await screen.findByText("First Message")).toBeVisible();
+    const taskBadge = screen.getByLabelText("Task: Ship message metadata · in progress · Lin");
+    expect(taskBadge).toHaveTextContent("TASK");
+    expect(taskBadge).toHaveAttribute("data-tooltip", "Ship message metadata · in progress · Lin");
     const attachmentFile = new File(["pixel notes"], "notes.txt", { type: "text/plain" });
     Object.defineProperty(attachmentFile, "arrayBuffer", {
       value: async () => new TextEncoder().encode("pixel notes").buffer,
@@ -314,6 +317,7 @@ describe("ChannelPage", () => {
     fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
     const threadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
     expect(within(threadPane).getByText("Existing reply")).toBeVisible();
+    expect(within(threadPane).getByLabelText("Task: Ship message metadata · in progress · Lin")).toBeVisible();
     fireEvent.click(within(threadPane).getByRole("button", { name: "Close Thread" }));
     await waitFor(() => expect(screen.queryByRole("complementary", { name: /Thread #general:1/ })).not.toBeInTheDocument());
     await waitFor(() => expect(within(preview).getByRole("button", { name: "1 reply" })).toHaveFocus());
@@ -421,6 +425,16 @@ function message(channelId: string, seq: number, body: string) {
     attachments: [],
     created_at: "2026-07-25T00:00:00Z",
     reply_count: 0,
+  };
+}
+
+function taskSummary() {
+  return {
+    id: "019c0000-0000-7000-8000-000000000090",
+    title: "Ship message metadata",
+    status: "in_progress",
+    assigned_agent_member_id: "019c0000-0000-7000-8000-000000000020",
+    assignee_name: "Lin",
   };
 }
 

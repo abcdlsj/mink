@@ -99,6 +99,19 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .await
     .map_err(|error| anyhow::anyhow!("{error:?}"))?;
     ensure!(done.status == "done");
+    let mut message_tx = pool.begin().await?;
+    let projected_message =
+        super::super::message::message_by_id(&mut message_tx, source_message_id)
+            .await
+            .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    message_tx.rollback().await?;
+    let task_summary = projected_message
+        .task
+        .context("Task summary is projected onto its root Message")?;
+    ensure!(task_summary.id == converted.id);
+    ensure!(task_summary.status == "done");
+    ensure!(task_summary.assigned_agent_member_id == Some(agent_b));
+    ensure!(task_summary.assignee_name.as_deref() == Some("Agent B"));
 
     let created = super::super::task::create_for_agent(
         &pool,

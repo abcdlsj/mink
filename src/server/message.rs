@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use axum::{
     Json,
@@ -21,6 +21,15 @@ pub struct MessageAuthor {
     pub handle: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
+pub struct MessageTaskSummary {
+    pub id: Uuid,
+    pub title: String,
+    pub status: String,
+    pub assigned_agent_member_id: Option<Uuid>,
+    pub assignee_name: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MessageResponse {
     pub id: Uuid,
@@ -38,6 +47,7 @@ pub struct MessageResponse {
     pub deleted_at: Option<OffsetDateTime>,
     pub thread_id: Option<i64>,
     pub reply_count: i64,
+    pub task: Option<MessageTaskSummary>,
 }
 
 #[derive(FromRow)]
@@ -83,6 +93,7 @@ impl From<MessageRow> for MessageResponse {
             deleted_at: row.deleted_at,
             thread_id: row.thread_id,
             reply_count: row.reply_count,
+            task: None,
         }
     }
 }
@@ -298,6 +309,7 @@ pub async fn list(
         message.attachments =
             attachment::attachments_for_message_pool(&state.database, message.id).await?;
     }
+    hydrate_task_summaries_pool(&state.database, &mut messages).await?;
     let has_more_after = query
         .before
         .is_some_and(|cursor| cursor <= snapshot_channel_seq);
@@ -674,7 +686,67 @@ pub(super) async fn message_by_id(
     .map(Into::into)
     .map_err(ApiError::database)?;
     response.attachments = attachment::attachments_for_message(transaction, message_id).await?;
+    response.task = sqlx::query_as::<_, MessageTaskSummary>(
+        "SELECT tasks.id, tasks.title, tasks.status, tasks.assigned_agent_member_id, \
+                assignees.display_name AS assignee_name \
+         FROM tasks LEFT JOIN members assignees ON assignees.id = tasks.assigned_agent_member_id \
+         WHERE tasks.source_message_id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
     Ok(response)
+}
+
+pub(super) async fn hydrate_task_summaries_pool(
+    database: &sqlx::PgPool,
+    messages: &mut [MessageResponse],
+) -> Result<(), ApiError> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+    #[derive(sqlx::FromRow)]
+    struct TaskProjectionRow {
+        source_message_id: Uuid,
+        id: Uuid,
+        title: String,
+        status: String,
+        assigned_agent_member_id: Option<Uuid>,
+        assignee_name: Option<String>,
+    }
+    let message_ids = messages
+        .iter()
+        .map(|message| message.id)
+        .collect::<Vec<_>>();
+    let summaries = sqlx::query_as::<_, TaskProjectionRow>(
+        "SELECT tasks.source_message_id, tasks.id, tasks.title, tasks.status, \
+                tasks.assigned_agent_member_id, assignees.display_name AS assignee_name \
+         FROM tasks LEFT JOIN members assignees ON assignees.id = tasks.assigned_agent_member_id \
+         WHERE tasks.source_message_id = ANY($1)",
+    )
+    .bind(&message_ids)
+    .fetch_all(database)
+    .await
+    .map_err(ApiError::database)?
+    .into_iter()
+    .map(|row| {
+        (
+            row.source_message_id,
+            MessageTaskSummary {
+                id: row.id,
+                title: row.title,
+                status: row.status,
+                assigned_agent_member_id: row.assigned_agent_member_id,
+                assignee_name: row.assignee_name,
+            },
+        )
+    })
+    .collect::<HashMap<_, _>>();
+    for message in messages {
+        message.task = summaries.get(&message.id).cloned();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

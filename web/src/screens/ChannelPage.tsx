@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, ArrowLeft, Asterisk, Bell, BellOff, Check, Hash, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Monitor, Paperclip, Plus, Send, X } from "lucide-react";
+import { Archive, ArrowLeft, Asterisk, Bell, BellOff, Check, Hash, ListTodo, LoaderCircle, Menu, MessageCircle, MessageSquareReply, Monitor, Paperclip, Plus, Send, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -308,7 +308,7 @@ export function MessageWorkspace({
           const previous = index > 0 ? all[index - 1] : undefined;
           const showDivider = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
           // A day divider always restarts the visual grouping.
-          const grouped = !showDivider && message.reply_count === 0 && !startsNewGroup(message, previous);
+          const grouped = !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
             <div className="message-block" id={`message-${message.id}`} tabIndex={-1} key={message.id}>
               {showDivider ? (
@@ -329,6 +329,7 @@ export function MessageWorkspace({
                     <header>
                       <strong>{message.author.display_name}</strong>
                       {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
+                      {message.task ? <MessageTaskBadge task={message.task} /> : null}
                       <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
                       <span className="message-seq">@{message.seq}</span>
                     </header>
@@ -796,6 +797,7 @@ function CompactMessage({ message }: { message: Message }) {
         <header>
           <strong>{message.author.display_name}</strong>
           {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
+          {message.task ? <MessageTaskBadge task={message.task} /> : null}
           <span className="message-seq">@{message.seq}</span>
         </header>
         <p>{message.deleted_at ? "Message 已删除" : message.body_markdown}</p>
@@ -804,6 +806,23 @@ function CompactMessage({ message }: { message: Message }) {
         ) : null}
       </div>
     </article>
+  );
+}
+
+function MessageTaskBadge({ task }: { task: NonNullable<Message["task"]> }) {
+  const assignee = task.assignee_name ?? "Unassigned";
+  const status = task.status.replace("_", " ");
+  const detail = `${task.title} · ${status} · ${assignee}`;
+  return (
+    <span
+      className={`message-task-badge message-task-badge--${task.status}`}
+      aria-label={`Task: ${detail}`}
+      data-tooltip={detail}
+      tabIndex={0}
+    >
+      <ListTodo aria-hidden="true" />
+      TASK
+    </span>
   );
 }
 

@@ -929,6 +929,53 @@ h1 {
   gap: 8px;
 }
 
+.message-task-badge {
+  position: relative;
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--ink);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 800 9px var(--font-mono);
+  line-height: 1;
+  cursor: help;
+}
+
+.message-task-badge svg { width: 11px; height: 11px; }
+.message-task-badge--in_progress { background: var(--rail); }
+.message-task-badge--done { background: var(--green); }
+.message-task-badge--canceled { background: var(--stone); }
+
+.message-task-badge::after {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  left: 0;
+  width: max-content;
+  max-width: min(320px, 70vw);
+  padding: 7px 9px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+  color: var(--ink);
+  content: attr(data-tooltip);
+  font: 700 11px/1.35 var(--font-display);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 100ms linear, transform 100ms linear;
+  white-space: normal;
+}
+
+.message-task-badge:hover::after,
+.message-task-badge:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .message-content header strong {
   overflow: hidden;
   font-size: 15px;
