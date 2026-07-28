@@ -16,13 +16,25 @@
 
 ## 剩余工作
 
-### 0. Task 原型
+### 0. WebUI 协作体验收口
+
+- [ ] 在 Channel/Thread 消息行中标识已转为 Task 的根 Message，hover 可查看当前处理 Agent。
+- [ ] 将最左上角品牌标识收口为浅红色、轻微倾斜的 S 符号。
+- [ ] 缩小 Conversation navigation 关闭 X，点击后收起左侧导航，并允许通过最左 Space rail 任意空白区重新展开。
+- [ ] 统一 Channel 与 Thread composer 尺寸，缩小 Thread placeholder 文字并对齐输入与发送控件。
+- [ ] 支持桌面端拖动调整 Thread pane 宽度，保持 Channel 最小宽度与移动端全屏行为。
+- [ ] 将 Agent 头像收口为由 Member ID 稳定生成、可区分的 GitHub identicon 风格像素印章。
+- [ ] 补齐 DM WebUI 闭环：可从导航创建/打开 DM，并沿用 Channel 的 Message、Thread 与 Agent 注意力模型。
+
+验证：每项改动运行最小相关 Web tests；阶段完成后运行 `pnpm --dir web test`、`pnpm --dir web lint`、`pnpm --dir web build`，并在 1440x900、1024x768、390x844 验证 Channel、Thread、侧边栏、Tasks 与 DM 无溢出、无 page/console error。若改动 Rust/协议，额外运行 `cargo fmt --all -- --check`、`cargo clippy --all-targets --all-features -- -D warnings` 与定向集成测试。
+
+### 1. Task 原型
 
 - [x] 交付以根 Message 为来源的最小 Task 闭环：Agent CLI 可从已有根 Message 转换或创建新 Message + Task，可无额外权限地 claim、assign 和流转 `open / in_progress / done / canceled`；WebUI 提供集中列表并可跳回来源 Message。
 
 验证：`cargo test task_flow_is_channel_scoped_and_permissionless -- --nocapture`；`cargo test --all-features`；`pnpm --dir web test`；`pnpm --dir web lint`；`pnpm --dir web build`；`cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`。真实 `sumi-dev` 在 1440x900 验证四状态看板无溢出、无 page/console error；390x844 验证来源链接跳转并聚焦根 Message，截图 `/tmp/sumi-task-prototype.png`。
 
-### 1. Reference-directed WebUI 收口
+### 2. Reference-directed WebUI 收口
 
 - [x] 将 `references/reference_style.md` 提炼为唯一设计语言，并完成全局 tokens、Space shell、Channel timeline 与 composer 的首个真实纵向改造；保留 Sumi 的领域结构，不引入参考产品的品牌或范围外入口。
 - [x] 按同一语言收口 Members 与 Agent detail：成员导航按 Agent/Human 分组，统一目录治理控件、Agent 状态、详情页签与 Overview/Memory/Inbox/Settings，并完成真实 seed 多视口验证。
@@ -32,14 +44,14 @@
 - [x] 按同一语言继续收口 Dialog，补齐对应多视口视觉和交互证据。
 - [x] 按同一语言继续收口 onboarding，补齐对应多视口视觉和交互证据。
 
-### 2. Agent Admin 规范与治理闭环
+### 3. Agent Admin 规范与治理闭环
 
 - [x] 先修正 `docs/design.md` §8.2、§14.3、§17 和 §22.2 的冲突：逐项明确 Agent Admin 在 v1 可通过 `sumi agent` 到达的治理动作，以及必须保持 Human-only 的动作。当前缺失入口包括 Space name/accent、Human 邀请/移除、Channel 成员/归档、Agent suspend/resume、audit 读取；不得默认把所有 Browser API 原样暴露给 Agent。
 - [x] 按修正后的唯一规范补齐最小治理协议、权限校验、audit/outbox/idempotency，并用真实 Builtin + `sumi agent` + PostgreSQL 证明 Agent Admin 可执行允许动作、不能执行 Human-only 动作、不能绕过 private Channel membership。
 
 验证：`cargo test --test agent_dm builtin_agent_admin_executes_governance_and_respects_human_private_boundaries -- --nocapture`；`cargo test --test agent_dm -- --nocapture`（11 个真实 Agent 场景）；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`。
 
-### 3. 并发、幂等与 PostgreSQL 不变量
+### 4. 并发、幂等与 PostgreSQL 不变量
 
 - [x] 补齐同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突的并发证据。
 - [x] 用真实 PostgreSQL integration tests 系统验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
