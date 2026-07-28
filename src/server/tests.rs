@@ -88,12 +88,14 @@ fn computer_agent_action_request(
     token: &str,
     agent_member_id: Uuid,
     run_id: Uuid,
+    fencing_token: &str,
     action: serde_json::Value,
 ) -> Result<Request<Body>> {
     Ok(Request::builder()
         .method("POST")
         .uri(format!("/api/v1/computers/{computer_id}/agent-actions"))
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header("x-sumi-fencing-token", fencing_token)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(serde_json::to_vec(&serde_json::json!({
             "agent_member_id": agent_member_id,

@@ -330,11 +330,14 @@ async fn seed_agent_history(
     .await?;
     sqlx::query(
         "INSERT INTO agent_runs (id, agent_member_id, computer_id, driver_kind, role_revision, \
-         status, created_at, started_at) VALUES ($1, $2, $3, 'codex', 1, 'running', now(), now())",
+         status, created_at, started_at, fencing_token, ownership_lease_expires_at, \
+         last_renewed_at) VALUES ($1, $2, $3, 'codex', 1, 'running', now(), now(), $4, \
+         now() + interval '35 minutes', now())",
     )
     .bind(run_id)
     .bind(agent_id)
     .bind(computer_id)
+    .bind(Uuid::now_v7().to_string())
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;

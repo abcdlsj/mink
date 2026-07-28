@@ -194,6 +194,8 @@ pub struct AgentIdentity {
     pub run_id: Uuid,
     pub agent_member_id: Uuid,
     pub space_id: Uuid,
+    #[serde(skip)]
+    pub fencing_token: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

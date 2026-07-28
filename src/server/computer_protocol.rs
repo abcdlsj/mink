@@ -28,6 +28,7 @@ pub(super) enum ComputerFrame {
     RunStarted {
         event_id: String,
         run_id: Uuid,
+        fencing_token: String,
         run_attempt: i32,
         process_instance_id: Uuid,
         #[serde(with = "time::serde::rfc3339")]
@@ -35,6 +36,7 @@ pub(super) enum ComputerFrame {
     },
     RunResult {
         event_id: String,
+        fencing_token: String,
         command_id: Uuid,
         computer_seq: i64,
         ok: bool,

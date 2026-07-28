@@ -45,6 +45,9 @@ pub struct StartRun {
     pub space_id: Uuid,
     pub prompt: AgentRunPrompt,
     pub driver_kind: String,
+    pub fencing_token: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub ownership_lease_expires_at: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -127,8 +130,9 @@ impl Supervisor {
         let result_event_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
-             token_expires_at, status, command_id, computer_seq, result_event_id) \
-             VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued', ?5, ?6, ?7)",
+             token_expires_at, status, command_id, computer_seq, result_event_id, fencing_token, \
+             ownership_lease_expires_at) \
+             VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued', ?5, ?6, ?7, ?8, ?9)",
         )
         .bind(run.run_id.to_string())
         .bind(run.agent_id.to_string())
@@ -137,6 +141,8 @@ impl Supervisor {
         .bind(command.command_id.to_string())
         .bind(command.computer_seq)
         .bind(result_event_id.to_string())
+        .bind(&run.fencing_token)
+        .bind(run.ownership_lease_expires_at.to_string())
         .execute(&self.inner.database)
         .await?;
         tracing::info!(
@@ -929,6 +935,8 @@ mod tests {
             space_id: Uuid::now_v7(),
             prompt: prompt.into(),
             driver_kind: "codex".to_owned(),
+            fencing_token: Uuid::now_v7().to_string(),
+            ownership_lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(35),
         }
     }
 

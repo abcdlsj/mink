@@ -11,6 +11,8 @@ use uuid::Uuid;
 
 use crate::local_protocol::{AgentAction, AgentIdentity, LocalRequest, LocalResponse};
 
+const FENCING_TOKEN_HEADER: &str = "x-sumi-fencing-token";
+
 pub(super) async fn run(
     socket_path: std::path::PathBuf,
     state_dir: std::path::PathBuf,
@@ -181,6 +183,7 @@ async fn proxy_json_agent_action(context: &AgentProxy<'_>, action: AgentAction) 
     let response = match reqwest::Client::new()
         .post(endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .json(&body)
         .send()
         .await
@@ -252,6 +255,7 @@ async fn proxy_attachment_upload(
     let response = match client
         .post(create_endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({
             "original_name": original_name,
@@ -298,6 +302,7 @@ async fn proxy_attachment_upload(
     let response = match client
         .put(content_endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .body(reqwest::Body::wrap_stream(
             tokio_util::io::ReaderStream::new(file),
         ))
@@ -317,6 +322,7 @@ async fn proxy_attachment_upload(
     let response = match client
         .post(complete_endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({ "size": size, "sha256": sha256 }))
         .send()
@@ -343,6 +349,7 @@ async fn proxy_attachment_info(context: &AgentProxy<'_>, attachment_id: Uuid) ->
     let response = match reqwest::Client::new()
         .get(endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .send()
         .await
     {
@@ -383,6 +390,7 @@ async fn proxy_attachment_download(
     let response = match reqwest::Client::new()
         .get(endpoint)
         .bearer_auth(context.computer_token)
+        .header(FENCING_TOKEN_HEADER, &context.identity.fencing_token)
         .send()
         .await
     {
@@ -642,14 +650,14 @@ pub(super) async fn authenticate_run(
     run_token: &str,
 ) -> Result<Option<AgentIdentity>> {
     let token_hash = Sha256::digest(run_token.as_bytes());
-    let rows: Vec<(String, String, String, Vec<u8>)> = sqlx::query_as(
-        "SELECT run_id, agent_member_id, space_id, run_token_hash FROM local_agent_runs \
+    let rows: Vec<(String, String, String, Vec<u8>, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id, space_id, run_token_hash, fencing_token FROM local_agent_runs \
          WHERE status = 'running' AND token_expires_at > ?1",
     )
     .bind(OffsetDateTime::now_utc().to_string())
     .fetch_all(database)
     .await?;
-    for (run_id, agent_member_id, space_id, expected_hash) in rows {
+    for (run_id, agent_member_id, space_id, expected_hash, fencing_token) in rows {
         if expected_hash
             .as_slice()
             .ct_eq(token_hash.as_slice())
@@ -660,6 +668,7 @@ pub(super) async fn authenticate_run(
                 run_id: Uuid::parse_str(&run_id)?,
                 agent_member_id: Uuid::parse_str(&agent_member_id)?,
                 space_id: Uuid::parse_str(&space_id)?,
+                fencing_token,
             }));
         }
     }

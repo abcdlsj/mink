@@ -360,7 +360,14 @@ async fn daemon_renews_active_leases_and_reports_process_lost_once() {
     let app = axum::Router::new()
         .route(
             "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew",
-            axum::routing::post(|| async { axum::Json(serde_json::json!({ "ok": true })) }),
+            axum::routing::post(|| async {
+                axum::Json(serde_json::json!({
+                    "ownership_lease_expires_at": (OffsetDateTime::now_utc()
+                        + time::Duration::minutes(35))
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap()
+                }))
+            }),
         )
         .route(
             "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/release",

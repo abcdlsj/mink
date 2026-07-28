@@ -221,9 +221,7 @@ Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状
 截至 2026-07-28：
 
 - `src/computer.rs` 的 completion channel 属于单次 `connect_once`。running command 重放不会为新连接恢复完成上报。
-- `run_started` 已使用 durable outbox 和 `started_receipt`，但尚未携带 ownership fencing token。offline monitor 也没有处理 active Run。
 - `src/supervisor.rs` 在 Driver cancel 失败后可能从 active map 删除 Run。
 - `src/driver/codex.rs` 没有检查 kill 返回值，SIGKILL 后的 reap 没有第二个 timeout。
-- `migrations/postgres/0009_agents.sql` 约束同一 Agent 只有一个 active Run，但 Server 没有 ownership lease 过期处理。
 
 实施顺序见 [GOAL.md](../../GOAL.md)。

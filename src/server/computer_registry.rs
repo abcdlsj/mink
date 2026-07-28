@@ -202,17 +202,22 @@ pub struct AgentClaimResponse {
 #[derive(Deserialize, Serialize)]
 pub struct AgentLeaseRequest {
     run_id: Uuid,
+    fencing_token: String,
 }
 
 #[derive(Serialize)]
 pub struct AgentLeaseResponse {
     renewed_items: u64,
+    #[serde(with = "time::serde::rfc3339")]
     lease_expires_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    ownership_lease_expires_at: OffsetDateTime,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct AgentReleaseRequest {
     run_id: Uuid,
+    fencing_token: String,
     error_code: String,
 }
 
@@ -229,6 +234,42 @@ struct ClaimableInboxItem {
     priority: String,
     kind: String,
     source_address: Option<String>,
+}
+
+struct RunStartedEvent {
+    event_id: String,
+    run_id: Uuid,
+    fencing_token: String,
+    run_attempt: i32,
+    process_instance_id: Uuid,
+    daemon_observed_at: OffsetDateTime,
+}
+
+#[derive(sqlx::FromRow)]
+struct RunStartedState {
+    started_event_id: Option<String>,
+    status: String,
+    fencing_token: Option<String>,
+    ownership_lease_expires_at: OffsetDateTime,
+    agent_member_id: Uuid,
+    space_id: Uuid,
+}
+
+struct CommandResultEvent<'a> {
+    command_id: Uuid,
+    computer_seq: i64,
+    ok: bool,
+    result: &'a serde_json::Value,
+    result_event_id: Option<&'a str>,
+    fencing_token: Option<&'a str>,
+}
+
+#[derive(sqlx::FromRow)]
+struct LockedRunOwnership {
+    id: Uuid,
+    status: String,
+    fencing_token: Option<String>,
+    ownership_lease_expires_at: Option<OffsetDateTime>,
 }
 
 pub async fn claim_agent_inbox(
@@ -309,6 +350,7 @@ pub async fn claim_agent_inbox(
     }
     let run_id = Uuid::now_v7();
     let lease_id = Uuid::now_v7();
+    let fencing_token = Uuid::now_v7().to_string();
     let now = OffsetDateTime::now_utc();
     let expires_at = now + time::Duration::minutes(35);
     let item_ids = items.iter().map(|item| item.id).collect::<Vec<_>>();
@@ -324,7 +366,8 @@ pub async fn claim_agent_inbox(
     .map_err(ApiError::database)?;
     sqlx::query(
         "INSERT INTO agent_runs (id, agent_member_id, computer_id, driver_kind, role_revision, \
-         status, created_at) VALUES ($1, $2, $3, $4, $5, 'queued', $6)",
+         status, created_at, fencing_token, ownership_lease_expires_at, last_renewed_at) \
+         VALUES ($1, $2, $3, $4, $5, 'queued', $6, $7, $8, $6)",
     )
     .bind(run_id)
     .bind(agent_id)
@@ -332,6 +375,8 @@ pub async fn claim_agent_inbox(
     .bind(&driver_kind)
     .bind(role_revision)
     .bind(now)
+    .bind(&fencing_token)
+    .bind(expires_at)
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
@@ -371,6 +416,10 @@ pub async fn claim_agent_inbox(
         "agent_id": agent_id,
         "space_id": space_id,
         "driver_kind": driver_kind,
+        "fencing_token": fencing_token,
+        "ownership_lease_expires_at": expires_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|_| ApiError::Internal)?,
         "prompt": prompt,
     });
     let command_id = Uuid::now_v7();
@@ -422,24 +471,28 @@ pub async fn renew_agent_inbox(
     Json(request): Json<AgentLeaseRequest>,
 ) -> Result<Json<AgentLeaseResponse>, ApiError> {
     super::computer_auth::require_computer(&state, &headers, computer_id).await?;
-    let valid_run: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM agent_runs \
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let lease_expires_at = OffsetDateTime::now_utc() + Duration::minutes(35);
+    let renewed_run: Option<OffsetDateTime> = sqlx::query_scalar(
+        "UPDATE agent_runs SET ownership_lease_expires_at = $5, last_renewed_at = now() \
          WHERE id = $1 AND agent_member_id = $2 AND computer_id = $3 \
-           AND status IN ('queued', 'running'))",
+           AND fencing_token = $4 AND ownership_lease_expires_at > now() \
+           AND status IN ('queued', 'running') RETURNING ownership_lease_expires_at",
     )
     .bind(request.run_id)
     .bind(agent_id)
     .bind(computer_id)
-    .fetch_one(&state.database)
+    .bind(&request.fencing_token)
+    .bind(lease_expires_at)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    if !valid_run {
+    let Some(ownership_lease_expires_at) = renewed_run else {
         return Err(ApiError::forbidden(
             "permission_denied",
-            "Agent run is not active on this Computer",
+            "Agent run ownership is not active on this Computer",
         ));
-    }
-    let lease_expires_at = OffsetDateTime::now_utc() + Duration::minutes(35);
+    };
     let renewed_items = sqlx::query(
         "UPDATE inbox_items SET lease_expires_at = $2 \
          FROM agent_run_inbox_items run_items \
@@ -448,13 +501,15 @@ pub async fn renew_agent_inbox(
     )
     .bind(request.run_id)
     .bind(lease_expires_at)
-    .execute(&state.database)
+    .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?
     .rows_affected();
+    transaction.commit().await.map_err(ApiError::database)?;
     Ok(Json(AgentLeaseResponse {
         renewed_items,
         lease_expires_at,
+        ownership_lease_expires_at,
     }))
 }
 
@@ -481,13 +536,15 @@ pub async fn release_agent_inbox(
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let run: Option<(Uuid, Uuid)> = sqlx::query_as(
         "UPDATE agent_runs SET status = 'failed', started_at = COALESCE(started_at, created_at), \
-         finished_at = now(), error_code = $4 WHERE id = $1 AND agent_member_id = $2 \
-         AND computer_id = $3 AND status IN ('queued', 'running') RETURNING agent_member_id, \
+         finished_at = now(), error_code = $5 WHERE id = $1 AND agent_member_id = $2 \
+         AND computer_id = $3 AND fencing_token = $4 \
+         AND ownership_lease_expires_at > now() AND status IN ('queued', 'running') RETURNING agent_member_id, \
          (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id)",
     )
     .bind(request.run_id)
     .bind(agent_id)
     .bind(computer_id)
+    .bind(&request.fencing_token)
     .bind(&request.error_code)
     .fetch_optional(&mut *transaction)
     .await
@@ -644,17 +701,21 @@ async fn run_computer_socket(
                         apply_command_result(
                             state,
                             computer_id,
-                            command_id,
-                            computer_seq,
-                            ok,
-                            &result,
-                            None,
+                            CommandResultEvent {
+                                command_id,
+                                computer_seq,
+                                ok,
+                                result: &result,
+                                result_event_id: None,
+                                fencing_token: None,
+                            },
                         )
                         .await?;
                     }
                     ComputerFrame::RunStarted {
                         event_id,
                         run_id,
+                        fencing_token,
                         run_attempt,
                         process_instance_id,
                         daemon_observed_at,
@@ -668,17 +729,21 @@ async fn run_computer_socket(
                         apply_run_started(
                             state,
                             computer_id,
-                            &event_id,
-                            run_id,
-                            run_attempt,
-                            process_instance_id,
-                            daemon_observed_at,
+                            &RunStartedEvent {
+                                event_id: event_id.clone(),
+                                run_id,
+                                fencing_token,
+                                run_attempt,
+                                process_instance_id,
+                                daemon_observed_at,
+                            },
                         )
                         .await?;
                         send_frame(socket, &ServerFrame::StartedReceipt { event_id }).await?;
                     }
                     ComputerFrame::RunResult {
                         event_id,
+                        fencing_token,
                         command_id,
                         computer_seq,
                         ok,
@@ -693,11 +758,14 @@ async fn run_computer_socket(
                         apply_command_result(
                             state,
                             computer_id,
-                            command_id,
-                            computer_seq,
-                            ok,
-                            &result,
-                            Some(&event_id),
+                            CommandResultEvent {
+                                command_id,
+                                computer_seq,
+                                ok,
+                                result: &result,
+                                result_event_id: Some(&event_id),
+                                fencing_token: Some(&fencing_token),
+                            },
                         )
                         .await?;
                         send_frame(socket, &ServerFrame::ResultReceipt { event_id }).await?;
@@ -757,31 +825,28 @@ async fn apply_command_ack(
 async fn apply_run_started(
     state: &AppState,
     computer_id: Uuid,
-    event_id: &str,
-    run_id: Uuid,
-    run_attempt: i32,
-    process_instance_id: Uuid,
-    daemon_observed_at: OffsetDateTime,
+    event: &RunStartedEvent,
 ) -> Result<(), ApiError> {
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
-    let run: Option<(Option<String>, String, Uuid, Uuid)> = sqlx::query_as(
-        "SELECT started_event_id, status, agent_member_id, \
-         (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id) \
+    let run: Option<RunStartedState> = sqlx::query_as(
+        "SELECT started_event_id, status, fencing_token, ownership_lease_expires_at, \
+                agent_member_id, \
+                (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id) AS space_id \
          FROM agent_runs WHERE id = $1 AND computer_id = $2 FOR UPDATE",
     )
-    .bind(run_id)
+    .bind(event.run_id)
     .bind(computer_id)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    let Some((stored_event_id, status, agent_id, space_id)) = run else {
+    let Some(run) = run else {
         return Err(ApiError::validation(
             "unknown_agent_run",
             "Agent Run does not exist",
         ));
     };
-    if let Some(stored_event_id) = stored_event_id {
-        if stored_event_id != event_id {
+    if let Some(stored_event_id) = run.started_event_id {
+        if stored_event_id != event.event_id {
             return Err(ApiError::validation(
                 "conflicting_started_event",
                 "Run started event conflicts with the applied event",
@@ -790,7 +855,16 @@ async fn apply_run_started(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(());
     }
-    if status != "queued" {
+    if run.fencing_token.as_deref() != Some(&event.fencing_token)
+        || run.ownership_lease_expires_at <= OffsetDateTime::now_utc()
+    {
+        tracing::warn!(computer_id = %computer_id, run_id = %event.run_id, event_id = %event.event_id, error_code = "stale_fencing_token", "Stale Agent run started event rejected");
+        return Err(ApiError::forbidden(
+            "stale_fencing_token",
+            "Agent run ownership is no longer valid",
+        ));
+    }
+    if run.status != "queued" {
         return Err(ApiError::validation(
             "invalid_run_state",
             "Agent Run cannot be started from its current state",
@@ -800,15 +874,22 @@ async fn apply_run_started(
         "UPDATE agent_runs SET status = 'running', started_at = $2, run_attempt = $3, \
          process_instance_id = $4, started_event_id = $5 WHERE id = $1 AND status = 'queued'",
     )
-    .bind(run_id)
-    .bind(daemon_observed_at)
-    .bind(run_attempt)
-    .bind(process_instance_id)
-    .bind(event_id)
+    .bind(event.run_id)
+    .bind(event.daemon_observed_at)
+    .bind(event.run_attempt)
+    .bind(event.process_instance_id)
+    .bind(&event.event_id)
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    publish_run_status(&mut transaction, run_id, agent_id, space_id, "running").await?;
+    publish_run_status(
+        &mut transaction,
+        event.run_id,
+        run.agent_member_id,
+        run.space_id,
+        "running",
+    )
+    .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(())
 }
@@ -816,13 +897,37 @@ async fn apply_run_started(
 async fn apply_command_result(
     state: &AppState,
     computer_id: Uuid,
-    command_id: Uuid,
-    computer_seq: i64,
-    ok: bool,
-    result: &serde_json::Value,
-    result_event_id: Option<&str>,
+    event: CommandResultEvent<'_>,
 ) -> Result<(), ApiError> {
+    let CommandResultEvent {
+        command_id,
+        computer_seq,
+        ok,
+        result,
+        result_event_id,
+        fencing_token,
+    } = event;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let locked_run: Option<LockedRunOwnership> = if result_event_id.is_some() {
+        let run_id = result
+            .get("run_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .ok_or_else(|| {
+                ApiError::validation("invalid_run_result", "Run result has no valid Run id")
+            })?;
+        sqlx::query_as(
+            "SELECT id, status, fencing_token, ownership_lease_expires_at \
+                 FROM agent_runs WHERE id = $1 AND computer_id = $2 FOR UPDATE",
+        )
+        .bind(run_id)
+        .bind(computer_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?
+    } else {
+        None
+    };
     let command: Option<(String, serde_json::Value, String, Option<String>)> = sqlx::query_as(
         "SELECT kind, payload_json, status, result_event_id FROM computer_commands \
          WHERE id = $1 AND computer_id = $2 AND computer_seq = $3 FOR UPDATE",
@@ -855,16 +960,31 @@ async fn apply_command_result(
                     ));
                 }
             } else {
-                sqlx::query("UPDATE computer_commands SET result_event_id = $2 WHERE id = $1")
-                    .bind(command_id)
-                    .bind(event_id)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(ApiError::database)?;
+                tracing::warn!(computer_id = %computer_id, command_id = %command_id, event_id, error_code = "stale_fencing_token", "Run result arrived after Server reconciliation");
             }
         }
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(());
+    }
+    if kind == "agent.run" {
+        let command_run_id = payload
+            .get("run_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .ok_or(ApiError::Internal)?;
+        let owns_run = locked_run.as_ref().is_some_and(|run| {
+            run.id == command_run_id
+                && matches!(run.status.as_str(), "queued" | "running")
+                && run.fencing_token.as_deref() == fencing_token
+                && run
+                    .ownership_lease_expires_at
+                    .is_some_and(|expires_at| expires_at > OffsetDateTime::now_utc())
+        });
+        if !owns_run {
+            tracing::warn!(computer_id = %computer_id, run_id = %command_run_id, command_id = %command_id, error_code = "stale_fencing_token", "Stale Agent run result ignored");
+            transaction.commit().await.map_err(ApiError::database)?;
+            return Ok(());
+        }
     }
     let status = if ok { "completed" } else { "failed" };
     let stored_result = if kind == "agent.memory.read" {
@@ -1281,6 +1401,66 @@ async fn mark_stale_offline(
     Ok(())
 }
 
+pub(super) async fn reconcile_expired_run_ownership(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<Vec<Uuid>, ApiError> {
+    let expired: Vec<(Uuid, Uuid, Uuid, Uuid)> = sqlx::query_as(
+        "SELECT runs.id, runs.agent_member_id, runs.computer_id, agents.space_id \
+         FROM agent_runs runs JOIN agents ON agents.member_id = runs.agent_member_id \
+         WHERE runs.status IN ('queued', 'running') \
+           AND runs.ownership_lease_expires_at <= now() \
+         ORDER BY runs.ownership_lease_expires_at, runs.id \
+         FOR UPDATE OF runs SKIP LOCKED",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let mut reconciled = Vec::with_capacity(expired.len());
+    for (run_id, agent_id, computer_id, space_id) in expired {
+        let updated = sqlx::query(
+            "UPDATE agent_runs SET status = 'failed', finished_at = now(), \
+                    error_code = 'ownership_lease_expired', fencing_token = NULL \
+             WHERE id = $1 AND status IN ('queued', 'running') \
+               AND ownership_lease_expires_at <= now()",
+        )
+        .bind(run_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(ApiError::database)?;
+        if updated.rows_affected() == 0 {
+            continue;
+        }
+        sqlx::query(
+            "UPDATE computer_commands SET status = 'failed', result_json = $3, \
+                    acked_at = COALESCE(acked_at, now()), completed_at = now() \
+             WHERE computer_id = $1 AND kind = 'agent.run' \
+               AND payload_json->>'run_id' = $2 AND status NOT IN ('completed', 'failed')",
+        )
+        .bind(computer_id)
+        .bind(run_id.to_string())
+        .bind(serde_json::json!({
+            "ok": false,
+            "run_id": run_id,
+            "status": "failed",
+            "error_code": "ownership_lease_expired",
+        }))
+        .execute(&mut **transaction)
+        .await
+        .map_err(ApiError::database)?;
+        release_run_inbox_items(
+            transaction,
+            run_id,
+            agent_id,
+            space_id,
+            "ownership_lease_expired",
+        )
+        .await?;
+        publish_run_status(transaction, run_id, agent_id, space_id, "failed").await?;
+        reconciled.push(run_id);
+    }
+    Ok(reconciled)
+}
+
 pub async fn monitor_offline(database: sqlx::PgPool) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1289,7 +1469,12 @@ pub async fn monitor_offline(database: sqlx::PgPool) {
         let result = async {
             let mut transaction = database.begin().await.map_err(ApiError::database)?;
             mark_stale_offline(&mut transaction).await?;
-            transaction.commit().await.map_err(ApiError::database)
+            let reconciled = reconcile_expired_run_ownership(&mut transaction).await?;
+            transaction.commit().await.map_err(ApiError::database)?;
+            for run_id in reconciled {
+                tracing::info!(run_id = %run_id, error_code = "ownership_lease_expired", "Expired Agent run ownership reconciled");
+            }
+            Ok::<(), ApiError>(())
         }
         .await;
         if let Err(error) = result {

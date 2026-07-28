@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError};
 
+const FENCING_TOKEN_HEADER: &str = "x-sumi-fencing-token";
+
 pub(super) fn decode_hash(value: &str, code: &'static str) -> Result<[u8; 32], ApiError> {
     URL_SAFE_NO_PAD
         .decode(value)
@@ -58,17 +60,29 @@ pub(super) async fn require_active_run(
     run_id: Uuid,
 ) -> Result<Uuid, ApiError> {
     require_computer(state, headers, computer_id).await?;
+    let fencing_token = headers
+        .get(FENCING_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| {
+            ApiError::forbidden(
+                "stale_fencing_token",
+                "Agent run ownership token is missing",
+            )
+        })?;
     sqlx::query_scalar(
         "SELECT members.space_id FROM agent_runs \
          JOIN agents ON agents.member_id = agent_runs.agent_member_id \
          JOIN members ON members.id = agents.member_id \
          WHERE agent_runs.id = $1 AND agent_runs.agent_member_id = $2 \
            AND agent_runs.computer_id = $3 AND agent_runs.status = 'running' \
+           AND agent_runs.fencing_token = $4 AND agent_runs.ownership_lease_expires_at > now() \
            AND agents.status IN ('active', 'suspended') AND members.retired_at IS NULL",
     )
     .bind(run_id)
     .bind(agent_id)
     .bind(computer_id)
+    .bind(fencing_token)
     .fetch_optional(&state.database)
     .await
     .map_err(ApiError::database)?

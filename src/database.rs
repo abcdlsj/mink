@@ -70,5 +70,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(table_count, 5);
+
+        let ownership_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('local_agent_runs') \
+             WHERE name IN ('fencing_token', 'ownership_lease_expires_at') ORDER BY name",
+        )
+        .fetch_all(&database)
+        .await
+        .unwrap();
+        assert_eq!(
+            ownership_columns,
+            vec![
+                "fencing_token".to_owned(),
+                "ownership_lease_expires_at".to_owned(),
+            ]
+        );
     }
 }

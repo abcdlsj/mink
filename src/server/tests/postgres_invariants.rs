@@ -334,12 +334,15 @@ async fn verify_claim_competition_and_active_run_constraint(
         async move {
             sqlx::query(
                 "INSERT INTO agent_runs (id, agent_member_id, computer_id, driver_kind, \
-                 role_revision, status, created_at) VALUES ($1, $2, $3, 'builtin', 1, 'queued', $4)",
+                 role_revision, status, created_at, fencing_token, ownership_lease_expires_at, \
+                 last_renewed_at) VALUES ($1, $2, $3, 'builtin', 1, 'queued', $4, $5, $6, $4)",
             )
             .bind(run_id)
             .bind(constrained_agent)
             .bind(computer_id)
             .bind(now)
+            .bind(Uuid::now_v7().to_string())
+            .bind(now + time::Duration::minutes(35))
             .execute(&pool)
             .await
         }

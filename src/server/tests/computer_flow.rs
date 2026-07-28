@@ -689,6 +689,22 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let run_command: serde_json::Value = serde_json::from_str(run_command.to_text()?)?;
     ensure!(run_command["kind"] == "agent.run");
     ensure!(run_command["payload"]["driver_kind"] == "builtin");
+    let run_fencing_token = run_command["payload"]["fencing_token"]
+        .as_str()
+        .context("Run fencing token missing")?
+        .to_owned();
+    let active_fencing_token = std::sync::Mutex::new(run_fencing_token.clone());
+    let computer_agent_action_request = |computer_id, token, agent_member_id, run_id, action| {
+        let fencing_token = active_fencing_token.lock().expect("fencing token lock");
+        super::computer_agent_action_request(
+            computer_id,
+            token,
+            agent_member_id,
+            run_id,
+            &fencing_token,
+            action,
+        )
+    };
     let prompt = &run_command["payload"]["prompt"];
     let rendered_prompt = [
         "global_static",
@@ -776,6 +792,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         "type": "run_started",
         "event_id": started_event_id,
         "run_id": run_id,
+        "fencing_token": run_fencing_token,
         "run_attempt": 1,
         "process_instance_id": process_instance_id,
         "daemon_observed_at": time::OffsetDateTime::now_utc()
@@ -1501,6 +1518,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("idempotency-key", Uuid::now_v7().to_string())
                 .body(Body::from(serde_json::to_vec(&serde_json::json!({
@@ -1523,6 +1541,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id, created_attachment.id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .body(Body::from(attachment_bytes.as_slice()))?,
         )
         .await?;
@@ -1538,6 +1557,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id, created_attachment.id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("idempotency-key", Uuid::now_v7().to_string())
                 .body(Body::from(serde_json::to_vec(&serde_json::json!({
@@ -1559,6 +1579,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id, created_attachment.id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .body(Body::empty())?,
         )
         .await?;
@@ -1573,6 +1594,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id, created_attachment.id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .body(Body::empty())?,
         )
         .await?;
@@ -1803,6 +1825,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     computer.id, agent.member_id, created_attachment.id
                 ))
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header("x-sumi-fencing-token", &run_fencing_token)
                 .body(Body::empty())?,
         )
         .await?;
@@ -1829,6 +1852,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let completed_frame = serde_json::json!({
         "type": "run_result",
         "event_id": completed_event_id,
+        "fencing_token": run_fencing_token,
         "command_id": run_command["command_id"],
         "computer_seq": run_command["computer_seq"],
         "ok": true,
@@ -1952,6 +1976,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             serde_json::json!({
                 "type": "run_result",
                 "event_id": Uuid::now_v7().to_string(),
+                "fencing_token": retry_command["payload"]["fencing_token"],
                 "command_id": retry_command["command_id"],
                 "computer_seq": retry_command["computer_seq"],
                 "ok": false,
@@ -2144,6 +2169,11 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await
         .context("Ambient run command missing")??;
     let ambient_command: serde_json::Value = serde_json::from_str(ambient_command.to_text()?)?;
+    let ambient_fencing_token = ambient_command["payload"]["fencing_token"]
+        .as_str()
+        .context("Ambient Run fencing token missing")?
+        .to_owned();
+    *active_fencing_token.lock().expect("fencing token lock") = ambient_fencing_token.clone();
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
@@ -2162,6 +2192,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "type": "run_started",
                 "event_id": ambient_started_event_id,
                 "run_id": ambient_run_id,
+                "fencing_token": ambient_fencing_token,
                 "run_attempt": 1,
                 "process_instance_id": Uuid::now_v7(),
                 "daemon_observed_at": time::OffsetDateTime::now_utc()
@@ -2214,6 +2245,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             serde_json::json!({
                 "type": "run_result",
                 "event_id": Uuid::now_v7().to_string(),
+                "fencing_token": ambient_fencing_token,
                 "command_id": ambient_command["command_id"],
                 "computer_seq": ambient_command["computer_seq"],
                 "ok": true,
@@ -2449,6 +2481,11 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let thread_run_command: serde_json::Value =
         serde_json::from_str(thread_run_command.to_text()?)?;
     ensure!(thread_run_command["kind"] == "agent.run");
+    let thread_fencing_token = thread_run_command["payload"]["fencing_token"]
+        .as_str()
+        .context("Thread Run fencing token missing")?
+        .to_owned();
+    *active_fencing_token.lock().expect("fencing token lock") = thread_fencing_token.clone();
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
@@ -2467,6 +2504,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "type": "run_started",
                 "event_id": thread_started_event_id,
                 "run_id": thread_run_id,
+                "fencing_token": thread_fencing_token,
                 "run_attempt": 1,
                 "process_instance_id": Uuid::now_v7(),
                 "daemon_observed_at": time::OffsetDateTime::now_utc()
@@ -2628,7 +2666,10 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 computer.id, agent.member_id
             ),
             &token,
-            &serde_json::json!({ "run_id": thread_run_id }),
+            &serde_json::json!({
+                "run_id": thread_run_id,
+                "fencing_token": thread_fencing_token
+            }),
         )?)
         .await?;
     ensure!(renewed.status() == StatusCode::OK);
@@ -2652,6 +2693,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &token,
             &serde_json::json!({
                 "run_id": thread_run_id,
+                "fencing_token": thread_fencing_token,
                 "error_code": "process_lost"
             }),
         )?)
@@ -2671,6 +2713,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &token,
             &serde_json::json!({
                 "run_id": thread_run_id,
+                "fencing_token": thread_fencing_token,
                 "error_code": "process_lost"
             }),
         )?)
@@ -2685,6 +2728,137 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .fetch_one(&pool)
     .await?;
     ensure!(system_items == 1);
+
+    let expiry_message = app
+        .clone()
+        .oneshot(json_request(
+            &format!("/api/v1/channels/{}/messages", dm.channel_id),
+            Uuid::now_v7(),
+            &serde_json::json!({
+                "body_markdown": "This Run will lose ownership before execution.",
+                "mentions": [],
+                "attachment_ids": []
+            }),
+            Some(&owner.cookie),
+        )?)
+        .await?;
+    let expiry_message: MessageResponse = decode_json(expiry_message).await?;
+    let expiry_item_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM inbox_items WHERE member_id = $1 AND message_id = $2")
+            .bind(agent.member_id)
+            .bind(expiry_message.id)
+            .fetch_one(&pool)
+            .await?;
+    let expiry_claim = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/computers/{}/agents/{}/inbox/claim",
+                    computer.id, agent.member_id
+                ))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))?,
+        )
+        .await?;
+    let expiry_claim: serde_json::Value = decode_json(expiry_claim).await?;
+    ensure!(expiry_claim["claimed"] == true);
+    let expiry_run_id = Uuid::parse_str(
+        expiry_claim["run_id"]
+            .as_str()
+            .context("Expiry Run id missing")?,
+    )?;
+    let expiry_command = socket
+        .next()
+        .await
+        .context("Expiry Run command missing")??;
+    let expiry_command: serde_json::Value = serde_json::from_str(expiry_command.to_text()?)?;
+    let expiry_fencing_token = expiry_command["payload"]["fencing_token"]
+        .as_str()
+        .context("Expiry Run fencing token missing")?
+        .to_owned();
+    sqlx::query(
+        "UPDATE agent_runs SET ownership_lease_expires_at = now() - interval '1 second' \
+         WHERE id = $1",
+    )
+    .bind(expiry_run_id)
+    .execute(&pool)
+    .await?;
+    let mut reconcile_transaction = pool.begin().await?;
+    let reconciled = crate::server::computer_registry::reconcile_expired_run_ownership(
+        &mut reconcile_transaction,
+    )
+    .await
+    .map_err(|error| anyhow::anyhow!("Run ownership reconciliation failed: {error:?}"))?;
+    reconcile_transaction.commit().await?;
+    ensure!(reconciled == vec![expiry_run_id]);
+    let expired_state: (String, Option<String>, Option<String>, String, i32) = sqlx::query_as(
+        "SELECT runs.status, runs.error_code, runs.fencing_token, items.status, items.retry_count \
+         FROM agent_runs runs JOIN agent_run_inbox_items links ON links.run_id = runs.id \
+         JOIN inbox_items items ON items.id = links.inbox_item_id \
+         WHERE runs.id = $1 AND items.id = $2",
+    )
+    .bind(expiry_run_id)
+    .bind(expiry_item_id)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(
+        expired_state
+            == (
+                "failed".to_owned(),
+                Some("ownership_lease_expired".to_owned()),
+                None,
+                "dead".to_owned(),
+                1,
+            ),
+        "unexpected expired Run state: {expired_state:?}"
+    );
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::json!({
+                "type": "run_result",
+                "event_id": Uuid::now_v7().to_string(),
+                "fencing_token": expiry_fencing_token,
+                "command_id": expiry_command["command_id"],
+                "computer_seq": expiry_command["computer_seq"],
+                "ok": true,
+                "result": { "ok": true, "run_id": expiry_run_id, "status": "completed" }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await?;
+    let stale_receipt = socket
+        .next()
+        .await
+        .context("Stale Run result receipt missing")??;
+    let stale_receipt: serde_json::Value = serde_json::from_str(stale_receipt.to_text()?)?;
+    ensure!(stale_receipt["type"] == "result_receipt");
+    let state_after_stale_result: (String, Option<String>, String, i32, Option<String>) =
+        sqlx::query_as(
+            "SELECT runs.status, runs.error_code, items.status, items.retry_count, \
+                    commands.result_event_id FROM agent_runs runs \
+             JOIN agent_run_inbox_items links ON links.run_id = runs.id \
+             JOIN inbox_items items ON items.id = links.inbox_item_id \
+             JOIN computer_commands commands ON commands.payload_json->>'run_id' = runs.id::text \
+             WHERE runs.id = $1 AND items.id = $2",
+        )
+        .bind(expiry_run_id)
+        .bind(expiry_item_id)
+        .fetch_one(&pool)
+        .await?;
+    ensure!(
+        state_after_stale_result
+            == (
+                "failed".to_owned(),
+                Some("ownership_lease_expired".to_owned()),
+                "dead".to_owned(),
+                1,
+                None,
+            )
+    );
 
     let retired = app
         .clone()

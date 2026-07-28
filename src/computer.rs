@@ -72,6 +72,12 @@ struct AgentClaimResponse {
 }
 
 #[derive(Deserialize)]
+struct AgentLeaseResponse {
+    #[serde(with = "time::serde::rfc3339")]
+    ownership_lease_expires_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum PairingResultResponse {
     Pending,
@@ -111,6 +117,7 @@ enum ComputerFrame {
     RunStarted {
         event_id: String,
         run_id: Uuid,
+        fencing_token: String,
         run_attempt: i64,
         process_instance_id: Uuid,
         #[serde(with = "time::serde::rfc3339")]
@@ -118,6 +125,7 @@ enum ComputerFrame {
     },
     RunResult {
         event_id: String,
+        fencing_token: String,
         command_id: Uuid,
         computer_seq: i64,
         ok: bool,
@@ -535,16 +543,25 @@ where
     S: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
 {
     let now = OffsetDateTime::now_utc();
-    let pending: Option<(String, String, i64, String, String, i64)> = sqlx::query_as(
-        "SELECT event_id, run_id, run_attempt, process_instance_id, daemon_observed_at, attempt_count \
-         FROM run_started_outbox WHERE reported_at IS NULL AND next_attempt_at <= ?1 \
+    let pending: Option<(String, String, String, i64, String, String, i64)> = sqlx::query_as(
+        "SELECT outbox.event_id, outbox.run_id, runs.fencing_token, outbox.run_attempt, \
+                outbox.process_instance_id, outbox.daemon_observed_at, outbox.attempt_count \
+         FROM run_started_outbox outbox JOIN local_agent_runs runs ON runs.run_id = outbox.run_id \
+         WHERE outbox.reported_at IS NULL AND outbox.next_attempt_at <= ?1 \
          ORDER BY next_attempt_at, event_id LIMIT 1",
     )
     .bind(now.to_string())
     .fetch_optional(database)
     .await?;
-    let Some((event_id, run_id, run_attempt, process_instance_id, observed_at, attempt_count)) =
-        pending
+    let Some((
+        event_id,
+        run_id,
+        fencing_token,
+        run_attempt,
+        process_instance_id,
+        observed_at,
+        attempt_count,
+    )) = pending
     else {
         return Ok(false);
     };
@@ -557,6 +574,7 @@ where
         &ComputerFrame::RunStarted {
             event_id: event_id.clone(),
             run_id,
+            fencing_token,
             run_attempt,
             process_instance_id,
             daemon_observed_at,
@@ -585,15 +603,18 @@ where
     S: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
 {
     let now = OffsetDateTime::now_utc();
-    let pending: Option<(String, String, i64, String, i64)> = sqlx::query_as(
-        "SELECT event_id, command_id, computer_seq, payload_json, attempt_count \
-         FROM run_result_outbox WHERE reported_at IS NULL AND next_attempt_at <= ?1 \
+    let pending: Option<(String, String, String, i64, String, i64)> = sqlx::query_as(
+        "SELECT outbox.event_id, runs.fencing_token, outbox.command_id, outbox.computer_seq, \
+                outbox.payload_json, outbox.attempt_count FROM run_result_outbox outbox \
+         JOIN local_agent_runs runs ON runs.run_id = outbox.run_id \
+         WHERE outbox.reported_at IS NULL AND outbox.next_attempt_at <= ?1 \
          ORDER BY next_attempt_at, event_id LIMIT 1",
     )
     .bind(now.to_string())
     .fetch_optional(database)
     .await?;
-    let Some((event_id, command_id, computer_seq, payload, attempt_count)) = pending else {
+    let Some((event_id, fencing_token, command_id, computer_seq, payload, attempt_count)) = pending
+    else {
         return Ok(());
     };
     let command_id = Uuid::parse_str(&command_id)?;
@@ -603,6 +624,7 @@ where
         writer,
         &ComputerFrame::RunResult {
             event_id: event_id.clone(),
+            fencing_token,
             command_id,
             computer_seq,
             ok,
@@ -707,14 +729,14 @@ async fn renew_active_run_leases(
     token: &str,
     database: &SqlitePool,
 ) -> Result<()> {
-    let runs: Vec<(String, String)> = sqlx::query_as(
-        "SELECT run_id, agent_member_id FROM local_agent_runs \
+    let runs: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id, fencing_token FROM local_agent_runs \
          WHERE status IN ('queued', 'running') ORDER BY run_id",
     )
     .fetch_all(database)
     .await?;
     let client = reqwest::Client::new();
-    for (run_id, agent_id) in runs {
+    for (run_id, agent_id, fencing_token) in runs {
         let run_id = Uuid::parse_str(&run_id)?;
         let agent_id = Uuid::parse_str(&agent_id)?;
         let response = client
@@ -722,14 +744,22 @@ async fn renew_active_run_leases(
                 "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew"
             ))?)
             .bearer_auth(token)
-            .json(&serde_json::json!({ "run_id": run_id }))
+            .json(&serde_json::json!({ "run_id": run_id, "fencing_token": fencing_token }))
             .send()
             .await;
-        match response.and_then(reqwest::Response::error_for_status) {
-            Ok(_) => {
-                tracing::debug!(computer_id = %computer_id, agent_member_id = %agent_id, run_id = %run_id, "Agent Inbox lease renewed")
+        match response {
+            Ok(response) if response.status().is_success() => {
+                let response: AgentLeaseResponse = response.json().await?;
+                sqlx::query(
+                    "UPDATE local_agent_runs SET ownership_lease_expires_at = ?2 WHERE run_id = ?1",
+                )
+                .bind(run_id.to_string())
+                .bind(response.ownership_lease_expires_at.to_string())
+                .execute(database)
+                .await?;
+                tracing::info!(computer_id = %computer_id, agent_member_id = %agent_id, run_id = %run_id, "Agent run ownership lease renewed")
             }
-            Err(_) => {
+            Ok(_) | Err(_) => {
                 tracing::warn!(computer_id = %computer_id, agent_member_id = %agent_id, run_id = %run_id, error_code = "lease_renew_failed", "Agent Inbox lease renewal failed")
             }
         }
@@ -743,15 +773,15 @@ async fn release_interrupted_runs(
     token: &str,
     database: &SqlitePool,
 ) -> Result<()> {
-    let runs: Vec<(String, String)> = sqlx::query_as(
-        "SELECT run_id, agent_member_id FROM local_agent_runs \
+    let runs: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id, fencing_token FROM local_agent_runs \
          WHERE status = 'failed' AND last_error_code = 'process_lost' \
            AND server_recovery_reported_at IS NULL ORDER BY run_id",
     )
     .fetch_all(database)
     .await?;
     let client = reqwest::Client::new();
-    for (run_id, agent_id) in runs {
+    for (run_id, agent_id, fencing_token) in runs {
         let run_id = Uuid::parse_str(&run_id)?;
         let agent_id = Uuid::parse_str(&agent_id)?;
         client
@@ -761,6 +791,7 @@ async fn release_interrupted_runs(
             .bearer_auth(token)
             .json(&serde_json::json!({
                 "run_id": run_id,
+                "fencing_token": fencing_token,
                 "error_code": "process_lost",
             }))
             .send()

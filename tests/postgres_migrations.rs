@@ -193,6 +193,30 @@ async fn run_migration_assertions(admin_url: &str, database_name: &str) -> Resul
     .await?;
     assert!(one_active_run_is_enforced);
 
+    let ownership_columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name = 'agent_runs' \
+           AND column_name IN ('fencing_token', 'ownership_lease_expires_at', 'last_renewed_at') \
+         ORDER BY column_name",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(
+        ownership_columns,
+        vec![
+            "fencing_token".to_owned(),
+            "last_renewed_at".to_owned(),
+            "ownership_lease_expires_at".to_owned(),
+        ]
+    );
+    let expired_ownership_is_indexed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes \
+         WHERE indexname = 'agent_runs_expired_ownership_idx')",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(expired_ownership_is_indexed);
+
     let one_pending_thread_ambient_is_enforced: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM pg_indexes \
          WHERE indexname = 'inbox_items_one_pending_thread_ambient_idx')",
