@@ -77,7 +77,7 @@
 
 ### 7. Computer 与前端职责拆分
 
-- 状态：待开始
+- 状态：已完成
 - 按 pairing/credentials、connection、command executor、attention scheduler、lease/recovery 拆分 `src/computer.rs`。
 - 从 `ChannelPage.tsx` 提取 Message composer 状态与 Timeline、ThreadPane、Composer 组件。
 - CSS 只在组件边界稳定后按 feature 拆分。

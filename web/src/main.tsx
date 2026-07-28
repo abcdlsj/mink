@@ -2,6 +2,7 @@ import "@fontsource-variable/space-grotesk";
 import "@fontsource/space-mono/400.css";
 import "@fontsource/space-mono/700.css";
 import "./styles.css";
+import "./components/channel/channel.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
