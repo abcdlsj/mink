@@ -12,7 +12,10 @@ use tokio::{
     process::Command,
 };
 
-use super::{Driver, DriverEnvironment, DriverEvent, DriverOutcome, DriverProcess, DriverRun};
+use super::{
+    Driver, DriverEnvironment, DriverEvent, DriverOutcome, DriverProcess, DriverRun,
+    DriverStopOutcome, ProcessExitEvidence,
+};
 
 pub struct CodexDriver {
     executable: PathBuf,
@@ -240,36 +243,102 @@ impl Driver for CodexDriver {
         })
     }
 
-    async fn cancel(&self, process: &mut DriverProcess, grace_period: Duration) -> Result<()> {
+    async fn cancel(
+        &self,
+        process: &mut DriverProcess,
+        grace_period: Duration,
+    ) -> Result<DriverStopOutcome> {
         let DriverProcess::External { child, .. } = process else {
             anyhow::bail!("Codex driver requires external process");
         };
+        if let Some(status) = child
+            .try_wait()
+            .context("failed to inspect Codex process")?
+        {
+            return Ok(DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence::from_status(status),
+                sigterm_sent: false,
+                sigkill_sent: false,
+            });
+        }
         let Some(process_id) = child.id() else {
-            return Ok(());
+            anyhow::bail!("Codex process has no PID before reap");
         };
         #[cfg(unix)]
-        unsafe {
-            libc::kill(-(process_id as i32), libc::SIGTERM);
+        send_process_group_signal(process_id, libc::SIGTERM)?;
+        tracing::info!(
+            process_id,
+            signal = "SIGTERM",
+            "Sent signal to Driver process group"
+        );
+        if let Ok(status) = tokio::time::timeout(grace_period, child.wait()).await {
+            return Ok(DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence::from_status(
+                    status.context("failed to reap Codex after SIGTERM")?,
+                ),
+                sigterm_sent: true,
+                sigkill_sent: false,
+            });
         }
-        if tokio::time::timeout(grace_period, child.wait())
+        #[cfg(unix)]
+        send_process_group_signal(process_id, libc::SIGKILL)?;
+        tracing::info!(
+            process_id,
+            signal = "SIGKILL",
+            "Sent signal to Driver process group"
+        );
+        match tokio::time::timeout(grace_period, child.wait()).await {
+            Ok(status) => Ok(DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence::from_status(
+                    status.context("failed to reap Codex after SIGKILL")?,
+                ),
+                sigterm_sent: true,
+                sigkill_sent: true,
+            }),
+            Err(_) => Ok(DriverStopOutcome::Orphaned {
+                sigterm_sent: true,
+                sigkill_sent: true,
+            }),
+        }
+    }
+
+    async fn reap(&self, process: &mut DriverProcess) -> Result<ProcessExitEvidence> {
+        let DriverProcess::External { child, .. } = process else {
+            anyhow::bail!("Codex driver requires external process");
+        };
+        let status = child
+            .wait()
             .await
-            .is_err()
-        {
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(-(process_id as i32), libc::SIGKILL);
-            }
-            child
-                .wait()
-                .await
-                .context("failed to reap Codex after forced cancellation")?;
-        }
-        Ok(())
+            .context("failed to reap orphaned Codex process")?;
+        Ok(ProcessExitEvidence::from_status(status))
     }
 
     async fn cleanup(&self, _environment: &DriverEnvironment) -> Result<()> {
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn send_process_group_signal(process_id: u32, signal: i32) -> Result<()> {
+    let result = unsafe { libc::kill(-(process_id as i32), signal) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        tracing::debug!(
+            process_id,
+            signal,
+            "Driver process group exited before signal delivery"
+        );
+        return Ok(());
+    }
+    Err(error).context("failed to signal Driver process group")
+}
+
+#[cfg(not(unix))]
+fn send_process_group_signal(_process_id: u32, _signal: i32) -> Result<()> {
+    bail!("Driver process group signals are unsupported on this platform")
 }
 
 fn normalize_event(event: CodexEvent) -> DriverEvent {
@@ -521,6 +590,72 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     use super::*;
+
+    async fn shell_driver_process(script: &str) -> DriverProcess {
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg(script)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .process_group(0);
+        let mut child = command.spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut ready = String::new();
+        BufReader::new(&mut stdout)
+            .read_line(&mut ready)
+            .await
+            .unwrap();
+        assert_eq!(ready, "ready\n");
+        DriverProcess::External {
+            child,
+            stdout,
+            stdin: None,
+            prompt: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_reaps_process_group_after_sigterm() {
+        let mut process =
+            shell_driver_process("trap 'exit 0' TERM; printf 'ready\\n'; while :; do :; done")
+                .await;
+        let outcome = CodexDriver::new()
+            .cancel(&mut process, Duration::from_millis(200))
+            .await
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            DriverStopOutcome::Reaped {
+                sigkill_sent: false,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancel_escalates_to_sigkill_and_reaps_process_group() {
+        let mut process =
+            shell_driver_process("trap '' TERM; printf 'ready\\n'; while :; do sleep 1; done")
+                .await;
+        let outcome = CodexDriver::new()
+            .cancel(&mut process, Duration::from_millis(100))
+            .await
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence {
+                    exit_signal: Some(libc::SIGKILL),
+                    ..
+                },
+                sigterm_sent: true,
+                sigkill_sent: true,
+            }
+        ));
+    }
 
     #[test]
     fn config_sanitizer_keeps_only_selected_model_provider() {

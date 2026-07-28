@@ -15,7 +15,10 @@ use crate::agent_core::{
 };
 
 use super::codex::{sandboxed_command, validate_sandbox_backend};
-use super::{Driver, DriverEnvironment, DriverEvent, DriverOutcome, DriverProcess, DriverRun};
+use super::{
+    Driver, DriverEnvironment, DriverEvent, DriverOutcome, DriverProcess, DriverRun,
+    DriverStopOutcome, ProcessExitEvidence,
+};
 
 pub struct BuiltinDriver {
     provider_config: Option<ProviderConfig>,
@@ -198,11 +201,27 @@ impl Driver for BuiltinDriver {
         Ok(outcome)
     }
 
-    async fn cancel(&self, process: &mut DriverProcess, _grace_period: Duration) -> Result<()> {
+    async fn cancel(
+        &self,
+        process: &mut DriverProcess,
+        _grace_period: Duration,
+    ) -> Result<DriverStopOutcome> {
         if let DriverProcess::Internal { task, .. } = process {
             task.abort();
+            let _ = task.await;
         }
-        Ok(())
+        Ok(DriverStopOutcome::Reaped {
+            exit: ProcessExitEvidence::INTERNAL_TASK,
+            sigterm_sent: false,
+            sigkill_sent: false,
+        })
+    }
+
+    async fn reap(&self, process: &mut DriverProcess) -> Result<ProcessExitEvidence> {
+        if let DriverProcess::Internal { task, .. } = process {
+            let _ = task.await;
+        }
+        Ok(ProcessExitEvidence::INTERNAL_TASK)
     }
 
     async fn cleanup(&self, _environment: &DriverEnvironment) -> Result<()> {
@@ -610,15 +629,15 @@ mod tests {
             .await
             .unwrap();
 
-        driver.cancel(&mut process, Duration::ZERO).await.unwrap();
-        let DriverProcess::Internal { task, .. } = &mut process else {
-            panic!("Builtin must return an internal process");
-        };
-        let error = tokio::time::timeout(Duration::from_secs(1), task)
-            .await
-            .expect("canceled Builtin task should stop")
-            .expect_err("canceled Builtin task should not complete normally");
-        assert!(error.is_cancelled());
+        let outcome = driver.cancel(&mut process, Duration::ZERO).await.unwrap();
+        assert_eq!(
+            outcome,
+            DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence::INTERNAL_TASK,
+                sigterm_sent: false,
+                sigkill_sent: false,
+            }
+        );
         server.abort();
     }
 }

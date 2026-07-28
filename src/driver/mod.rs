@@ -90,6 +90,50 @@ pub enum DriverOutcome {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProcessExitEvidence {
+    pub exit_code: Option<i32>,
+    pub exit_signal: Option<i32>,
+}
+
+impl ProcessExitEvidence {
+    pub const INTERNAL_TASK: Self = Self {
+        exit_code: None,
+        exit_signal: None,
+    };
+
+    pub fn from_status(status: std::process::ExitStatus) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            Self {
+                exit_code: status.code(),
+                exit_signal: status.signal(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                exit_code: status.code(),
+                exit_signal: None,
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DriverStopOutcome {
+    Reaped {
+        exit: ProcessExitEvidence,
+        sigterm_sent: bool,
+        sigkill_sent: bool,
+    },
+    Orphaned {
+        sigterm_sent: bool,
+        sigkill_sent: bool,
+    },
+}
+
 #[async_trait]
 pub trait Driver: Send + Sync {
     async fn validate(&self, environment: &DriverEnvironment) -> Result<()>;
@@ -99,6 +143,11 @@ pub trait Driver: Send + Sync {
         process: &mut DriverProcess,
         events: &tokio::sync::mpsc::Sender<DriverEvent>,
     ) -> Result<DriverOutcome>;
-    async fn cancel(&self, process: &mut DriverProcess, grace_period: Duration) -> Result<()>;
+    async fn cancel(
+        &self,
+        process: &mut DriverProcess,
+        grace_period: Duration,
+    ) -> Result<DriverStopOutcome>;
+    async fn reap(&self, process: &mut DriverProcess) -> Result<ProcessExitEvidence>;
     async fn cleanup(&self, environment: &DriverEnvironment) -> Result<()>;
 }

@@ -85,5 +85,30 @@ mod tests {
                 "ownership_lease_expires_at".to_owned(),
             ]
         );
+
+        let stop_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('local_agent_runs') \
+             WHERE name IN ('stop_state', 'stop_epoch', 'stop_requested_at', 'sigterm_sent_at', \
+              'sigkill_sent_at', 'orphaned_at', 'reaped_at', 'exit_code', 'exit_signal', \
+              'stop_error_code') ORDER BY cid",
+        )
+        .fetch_all(&database)
+        .await
+        .unwrap();
+        assert_eq!(
+            stop_columns,
+            vec![
+                "stop_state",
+                "stop_epoch",
+                "stop_requested_at",
+                "sigterm_sent_at",
+                "sigkill_sent_at",
+                "orphaned_at",
+                "reaped_at",
+                "exit_code",
+                "exit_signal",
+                "stop_error_code",
+            ]
+        );
     }
 }

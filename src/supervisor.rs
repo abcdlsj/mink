@@ -11,7 +11,10 @@ use uuid::Uuid;
 
 use crate::{
     config::ComputerConfig,
-    driver::{Driver, DriverEnvironment, DriverOutcome, DriverRun},
+    driver::{
+        Driver, DriverEnvironment, DriverOutcome, DriverProcess, DriverRun, DriverStopOutcome,
+        ProcessExitEvidence,
+    },
     prompt::AgentRunPrompt,
 };
 
@@ -36,6 +39,27 @@ struct SupervisorInner {
 struct ActiveRun {
     agent_id: Uuid,
     cancel: Option<oneshot::Sender<()>>,
+    state: ActiveRunState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ActiveRunState {
+    Running,
+    Orphaned,
+}
+
+#[derive(Clone, Copy)]
+struct RunStopContext {
+    run_id: Uuid,
+    agent_id: Uuid,
+    process_instance_id: Uuid,
+    stop_epoch: i64,
+}
+
+#[derive(Clone, Copy)]
+struct DriverSignalEvidence {
+    sigterm_sent: bool,
+    sigkill_sent: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -158,6 +182,7 @@ impl Supervisor {
             ActiveRun {
                 agent_id: run.agent_id,
                 cancel: Some(cancel),
+                state: ActiveRunState::Running,
             },
         );
         drop(active);
@@ -231,14 +256,23 @@ impl Supervisor {
                 }
             }
         }
-        tokio::time::timeout(self.inner.grace_period + Duration::from_secs(2), async {
-            loop {
-                if self.inner.active.lock().await.is_empty() {
-                    return;
+        tokio::time::timeout(
+            self.inner.grace_period.saturating_mul(2) + Duration::from_secs(2),
+            async {
+                loop {
+                    let active = self.inner.active.lock().await;
+                    if active.is_empty()
+                        || active
+                            .values()
+                            .all(|run| run.state == ActiveRunState::Orphaned)
+                    {
+                        return;
+                    }
+                    drop(active);
+                    tokio::time::sleep(Duration::from_millis(25)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
+            },
+        )
         .await
         .context("Agent runs did not stop during daemon shutdown")?;
         Ok(())
@@ -397,8 +431,13 @@ impl Supervisor {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(25)) => {}
                 _ = &mut cancel_rx => {
-                    driver.cancel(&mut process, self.inner.grace_period).await
-                        .map_err(|_| RunFailure::new(run.run_id, "driver_cancel_failed"))?;
+                    self.stop_driver(
+                        driver.as_ref(),
+                        &mut process,
+                        run.run_id,
+                        run.agent_id,
+                        process_instance_id,
+                    ).await?;
                     return self.persist_terminal_result(run.run_id, run.agent_id, command, "canceled", None).await;
                 }
             }
@@ -466,10 +505,17 @@ impl Supervisor {
             }
         };
         if must_cancel {
-            driver
-                .cancel(&mut process, self.inner.grace_period)
-                .await
-                .map_err(|_| RunFailure::new(run.run_id, "driver_cancel_failed"))?;
+            self.stop_driver(
+                driver.as_ref(),
+                &mut process,
+                run.run_id,
+                run.agent_id,
+                process_instance_id,
+            )
+            .await?;
+        } else {
+            self.persist_observed_reap_until_recorded(run.run_id, process_instance_id)
+                .await;
         }
         let final_event = match outcome {
             ("completed", _) => crate::driver::DriverEvent::ProcessCompleted,
@@ -485,6 +531,305 @@ impl Supervisor {
             .map_err(|_| RunFailure::new(run.run_id, "driver_cleanup_failed"))?;
         self.persist_terminal_result(run.run_id, run.agent_id, command, outcome.0, outcome.1)
             .await
+    }
+
+    async fn stop_driver(
+        &self,
+        driver: &dyn Driver,
+        process: &mut DriverProcess,
+        run_id: Uuid,
+        agent_id: Uuid,
+        process_instance_id: Uuid,
+    ) -> std::result::Result<(), RunFailure> {
+        let stop_epoch = loop {
+            match self.persist_stopping(run_id, process_instance_id).await {
+                Ok(stop_epoch) => break stop_epoch,
+                Err(error) => {
+                    tracing::warn!(run_id = %run_id, process_instance_id = %process_instance_id, error = %error, "Failed to persist Driver stopping state; retrying");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        };
+        let context = RunStopContext {
+            run_id,
+            agent_id,
+            process_instance_id,
+            stop_epoch,
+        };
+        tracing::info!(
+            run_id = %run_id,
+            agent_member_id = %agent_id,
+            process_instance_id = %process_instance_id,
+            stop_epoch,
+            "Agent Driver stop persisted"
+        );
+
+        let stop = driver.cancel(process, self.inner.grace_period).await;
+        match stop {
+            Ok(DriverStopOutcome::Reaped {
+                exit,
+                sigterm_sent,
+                sigkill_sent,
+            }) => {
+                self.persist_reaped_until_recorded(
+                    context,
+                    exit,
+                    DriverSignalEvidence {
+                        sigterm_sent,
+                        sigkill_sent,
+                    },
+                )
+                .await;
+                tracing::info!(
+                    run_id = %run_id,
+                    agent_member_id = %agent_id,
+                    process_instance_id = %process_instance_id,
+                    stop_epoch,
+                    exit_code = exit.exit_code,
+                    exit_signal = exit.exit_signal,
+                    "Agent Driver reaped"
+                );
+                Ok(())
+            }
+            Ok(DriverStopOutcome::Orphaned {
+                sigterm_sent,
+                sigkill_sent,
+            }) => {
+                self.persist_orphaned_until_recorded(
+                    context,
+                    DriverSignalEvidence {
+                        sigterm_sent,
+                        sigkill_sent,
+                    },
+                    None,
+                )
+                .await;
+                self.mark_active_orphaned(run_id).await;
+                tracing::warn!(
+                    run_id = %run_id,
+                    agent_member_id = %agent_id,
+                    process_instance_id = %process_instance_id,
+                    stop_epoch,
+                    "Agent Driver is orphaned; background reap continues"
+                );
+                self.reap_orphaned(
+                    driver,
+                    process,
+                    context,
+                    DriverSignalEvidence {
+                        sigterm_sent,
+                        sigkill_sent,
+                    },
+                )
+                .await
+            }
+            Err(error) => {
+                tracing::warn!(
+                    run_id = %run_id,
+                    agent_member_id = %agent_id,
+                    process_instance_id = %process_instance_id,
+                    stop_epoch,
+                    error = %error,
+                    "Agent Driver cancellation failed; background reap continues"
+                );
+                self.persist_orphaned_until_recorded(
+                    context,
+                    DriverSignalEvidence {
+                        sigterm_sent: false,
+                        sigkill_sent: false,
+                    },
+                    Some("driver_cancel_failed"),
+                )
+                .await;
+                self.mark_active_orphaned(run_id).await;
+                self.reap_orphaned(
+                    driver,
+                    process,
+                    context,
+                    DriverSignalEvidence {
+                        sigterm_sent: false,
+                        sigkill_sent: false,
+                    },
+                )
+                .await
+            }
+        }
+    }
+
+    async fn reap_orphaned(
+        &self,
+        driver: &dyn Driver,
+        process: &mut DriverProcess,
+        context: RunStopContext,
+        signals: DriverSignalEvidence,
+    ) -> std::result::Result<(), RunFailure> {
+        let exit = loop {
+            match driver.reap(process).await {
+                Ok(exit) => break exit,
+                Err(error) => {
+                    tracing::warn!(run_id = %context.run_id, process_instance_id = %context.process_instance_id, stop_epoch = context.stop_epoch, error = %error, "Failed to reap orphaned Agent Driver; retrying");
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        };
+        self.persist_reaped_until_recorded(context, exit, signals)
+            .await;
+        tracing::info!(
+            run_id = %context.run_id,
+            agent_member_id = %context.agent_id,
+            process_instance_id = %context.process_instance_id,
+            stop_epoch = context.stop_epoch,
+            exit_code = exit.exit_code,
+            exit_signal = exit.exit_signal,
+            "Orphaned Agent Driver reaped"
+        );
+        Ok(())
+    }
+
+    async fn mark_active_orphaned(&self, run_id: Uuid) {
+        if let Some(active) = self.inner.active.lock().await.get_mut(&run_id) {
+            active.state = ActiveRunState::Orphaned;
+        }
+    }
+
+    async fn persist_orphaned_until_recorded(
+        &self,
+        context: RunStopContext,
+        signals: DriverSignalEvidence,
+        error_code: Option<&str>,
+    ) {
+        loop {
+            match self.persist_orphaned(context, signals, error_code).await {
+                Ok(()) => return,
+                Err(error) => {
+                    tracing::warn!(run_id = %context.run_id, process_instance_id = %context.process_instance_id, stop_epoch = context.stop_epoch, error = %error, "Failed to persist orphaned Driver state; retrying");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    async fn persist_reaped_until_recorded(
+        &self,
+        context: RunStopContext,
+        exit: ProcessExitEvidence,
+        signals: DriverSignalEvidence,
+    ) {
+        loop {
+            match self.persist_reaped(context, exit, signals).await {
+                Ok(()) => return,
+                Err(error) => {
+                    tracing::warn!(run_id = %context.run_id, process_instance_id = %context.process_instance_id, stop_epoch = context.stop_epoch, error = %error, "Failed to persist Driver reap evidence; retrying");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    async fn persist_stopping(&self, run_id: Uuid, process_instance_id: Uuid) -> Result<i64> {
+        let now = OffsetDateTime::now_utc().to_string();
+        let stop_epoch: i64 = sqlx::query_scalar(
+            "UPDATE local_agent_runs SET stop_state = 'stopping', stop_epoch = stop_epoch + 1, \
+             stop_requested_at = ?3, sigterm_sent_at = NULL, \
+             sigkill_sent_at = NULL, orphaned_at = NULL, reaped_at = NULL, exit_code = NULL, \
+             exit_signal = NULL, stop_error_code = NULL \
+             WHERE run_id = ?1 AND process_instance_id = ?2 \
+               AND status IN ('queued', 'running') AND stop_state = 'none' RETURNING stop_epoch",
+        )
+        .bind(run_id.to_string())
+        .bind(process_instance_id.to_string())
+        .bind(now)
+        .fetch_one(&self.inner.database)
+        .await?;
+        Ok(stop_epoch)
+    }
+
+    async fn persist_orphaned(
+        &self,
+        context: RunStopContext,
+        signals: DriverSignalEvidence,
+        error_code: Option<&str>,
+    ) -> Result<()> {
+        let now = OffsetDateTime::now_utc().to_string();
+        let updated = sqlx::query(
+            "UPDATE local_agent_runs SET stop_state = 'orphaned', \
+             sigterm_sent_at = CASE WHEN ?4 THEN ?6 ELSE NULL END, \
+             sigkill_sent_at = CASE WHEN ?5 THEN ?6 ELSE NULL END, \
+             orphaned_at = ?6, stop_error_code = ?7 \
+             WHERE run_id = ?1 AND process_instance_id = ?2 AND stop_epoch = ?3 \
+               AND stop_state = 'stopping'",
+        )
+        .bind(context.run_id.to_string())
+        .bind(context.process_instance_id.to_string())
+        .bind(context.stop_epoch)
+        .bind(signals.sigterm_sent)
+        .bind(signals.sigkill_sent)
+        .bind(now)
+        .bind(error_code)
+        .execute(&self.inner.database)
+        .await?;
+        ensure!(updated.rows_affected() == 1, "stale Driver orphan callback");
+        Ok(())
+    }
+
+    async fn persist_reaped(
+        &self,
+        context: RunStopContext,
+        exit: ProcessExitEvidence,
+        signals: DriverSignalEvidence,
+    ) -> Result<()> {
+        let now = OffsetDateTime::now_utc().to_string();
+        let updated = sqlx::query(
+            "UPDATE local_agent_runs SET stop_state = 'reaped', \
+             sigterm_sent_at = CASE WHEN ?6 THEN COALESCE(sigterm_sent_at, ?4) ELSE sigterm_sent_at END, \
+             sigkill_sent_at = CASE WHEN ?7 THEN COALESCE(sigkill_sent_at, ?4) ELSE sigkill_sent_at END, \
+             reaped_at = ?4, exit_code = ?5, exit_signal = ?8 \
+             WHERE run_id = ?1 AND process_instance_id = ?2 AND stop_epoch = ?3 \
+               AND stop_state IN ('stopping', 'orphaned')",
+        )
+        .bind(context.run_id.to_string())
+        .bind(context.process_instance_id.to_string())
+        .bind(context.stop_epoch)
+        .bind(now)
+        .bind(exit.exit_code)
+        .bind(signals.sigterm_sent)
+        .bind(signals.sigkill_sent)
+        .bind(exit.exit_signal)
+        .execute(&self.inner.database)
+        .await?;
+        ensure!(updated.rows_affected() == 1, "stale Driver reap callback");
+        Ok(())
+    }
+
+    async fn persist_observed_reap(&self, run_id: Uuid, process_instance_id: Uuid) -> Result<()> {
+        let now = OffsetDateTime::now_utc().to_string();
+        let updated = sqlx::query(
+            "UPDATE local_agent_runs SET stop_state = 'reaped', reaped_at = ?3 \
+             WHERE run_id = ?1 AND process_instance_id = ?2 AND status = 'running' \
+               AND stop_state = 'none'",
+        )
+        .bind(run_id.to_string())
+        .bind(process_instance_id.to_string())
+        .bind(now)
+        .execute(&self.inner.database)
+        .await?;
+        ensure!(updated.rows_affected() == 1, "stale Driver exit callback");
+        Ok(())
+    }
+
+    async fn persist_observed_reap_until_recorded(&self, run_id: Uuid, process_instance_id: Uuid) {
+        loop {
+            match self
+                .persist_observed_reap(run_id, process_instance_id)
+                .await
+            {
+                Ok(()) => return,
+                Err(error) => {
+                    tracing::warn!(run_id = %run_id, process_instance_id = %process_instance_id, error = %error, "Failed to persist Driver exit evidence; retrying");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
     }
 
     async fn persist_terminal_result(
@@ -815,11 +1160,11 @@ async fn reconcile_run_result_outbox(database: &SqlitePool) -> Result<()> {
 mod tests {
     use std::sync::{
         Arc,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicI64, AtomicUsize, Ordering},
     };
 
     use async_trait::async_trait;
-    use tokio::sync::mpsc;
+    use tokio::sync::{Notify, mpsc};
 
     use crate::{
         database,
@@ -829,6 +1174,11 @@ mod tests {
     use super::*;
 
     struct TestDriver;
+
+    struct OrphaningDriver {
+        allow_reap: Arc<Notify>,
+        reap_attempts: Arc<AtomicUsize>,
+    }
 
     #[async_trait]
     impl Driver for TestDriver {
@@ -883,13 +1233,96 @@ mod tests {
             Ok(DriverOutcome::Completed)
         }
 
-        async fn cancel(&self, process: &mut DriverProcess, _grace_period: Duration) -> Result<()> {
+        async fn cancel(
+            &self,
+            process: &mut DriverProcess,
+            _grace_period: Duration,
+        ) -> Result<DriverStopOutcome> {
             let DriverProcess::Internal { task, .. } = process else {
                 bail!("Test Driver requires an internal task");
             };
             task.abort();
             let _ = task.await;
+            Ok(DriverStopOutcome::Reaped {
+                exit: ProcessExitEvidence::INTERNAL_TASK,
+                sigterm_sent: false,
+                sigkill_sent: false,
+            })
+        }
+
+        async fn reap(&self, process: &mut DriverProcess) -> Result<ProcessExitEvidence> {
+            let DriverProcess::Internal { task, .. } = process else {
+                bail!("Test Driver requires an internal task");
+            };
+            let _ = task.await;
+            Ok(ProcessExitEvidence::INTERNAL_TASK)
+        }
+
+        async fn cleanup(&self, _environment: &DriverEnvironment) -> Result<()> {
             Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl Driver for OrphaningDriver {
+        async fn validate(&self, _environment: &DriverEnvironment) -> Result<()> {
+            Ok(())
+        }
+
+        async fn start(&self, _run: DriverRun) -> Result<DriverProcess> {
+            let (events_tx, events) = mpsc::channel(1);
+            let (activation_tx, activation_rx) = oneshot::channel();
+            let task = tokio::spawn(async move {
+                if activation_rx.await.is_err() {
+                    return;
+                }
+                let _events_tx = events_tx;
+                std::future::pending::<()>().await;
+            });
+            Ok(DriverProcess::Internal {
+                task,
+                events,
+                activation: Some(activation_tx),
+            })
+        }
+
+        async fn observe(
+            &self,
+            process: &mut DriverProcess,
+            _events: &mpsc::Sender<DriverEvent>,
+        ) -> Result<DriverOutcome> {
+            let DriverProcess::Internal { task, .. } = process else {
+                bail!("Orphaning Driver requires an internal task");
+            };
+            let _ = task.await;
+            Ok(DriverOutcome::Completed)
+        }
+
+        async fn cancel(
+            &self,
+            _process: &mut DriverProcess,
+            _grace_period: Duration,
+        ) -> Result<DriverStopOutcome> {
+            Ok(DriverStopOutcome::Orphaned {
+                sigterm_sent: false,
+                sigkill_sent: false,
+            })
+        }
+
+        async fn reap(&self, process: &mut DriverProcess) -> Result<ProcessExitEvidence> {
+            if self.reap_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                bail!("injected reap failure");
+            }
+            self.allow_reap.notified().await;
+            let DriverProcess::Internal { task, .. } = process else {
+                bail!("Orphaning Driver requires an internal task");
+            };
+            task.abort();
+            let _ = task.await;
+            Ok(ProcessExitEvidence {
+                exit_code: None,
+                exit_signal: Some(libc::SIGKILL),
+            })
         }
 
         async fn cleanup(&self, _environment: &DriverEnvironment) -> Result<()> {
@@ -900,6 +1333,19 @@ mod tests {
     async fn fixture(
         max_runs: usize,
         timeout_seconds: u64,
+    ) -> (tempfile::TempDir, Supervisor, Uuid, Uuid) {
+        fixture_with_driver(
+            max_runs,
+            timeout_seconds,
+            Arc::new(TestDriver) as Arc<dyn Driver>,
+        )
+        .await
+    }
+
+    async fn fixture_with_driver(
+        max_runs: usize,
+        timeout_seconds: u64,
+        driver: Arc<dyn Driver>,
     ) -> (tempfile::TempDir, Supervisor, Uuid, Uuid) {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("computer");
@@ -933,7 +1379,7 @@ mod tests {
             state.clone(),
             state.join("daemon.sock"),
             &config,
-            Arc::new(TestDriver),
+            driver,
             None,
         );
         (root, supervisor, first, second)
@@ -1090,6 +1536,82 @@ mod tests {
         supervisor.shutdown().await.unwrap();
         assert_eq!(first_result.await.unwrap().status, "canceled");
         assert_eq!(second_result.await.unwrap().status, "canceled");
+        assert_eq!(supervisor.counts().await.unwrap().1, 0);
+    }
+
+    #[tokio::test]
+    async fn orphaned_run_stays_non_terminal_until_background_reap_provides_exit_evidence() {
+        let allow_reap = Arc::new(Notify::new());
+        let reap_attempts = Arc::new(AtomicUsize::new(0));
+        let driver = Arc::new(OrphaningDriver {
+            allow_reap: allow_reap.clone(),
+            reap_attempts: reap_attempts.clone(),
+        });
+        let (_root, supervisor, first, _second) = fixture_with_driver(1, 10, driver).await;
+        let orphaned = run(first, "hold");
+        let run_id = orphaned.run_id;
+        let result = start(&supervisor, orphaned).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while status(&supervisor, run_id).await != "running" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), supervisor.shutdown())
+            .await
+            .expect("shutdown did not accept orphaned Run")
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let stop_state: String =
+                    sqlx::query_scalar("SELECT stop_state FROM local_agent_runs WHERE run_id = ?1")
+                        .bind(run_id.to_string())
+                        .fetch_one(&supervisor.inner.database)
+                        .await
+                        .unwrap();
+                if stop_state == "orphaned" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(status(&supervisor, run_id).await, "running");
+        let outbox_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM run_result_outbox WHERE run_id = ?1")
+                .bind(run_id.to_string())
+                .fetch_one(&supervisor.inner.database)
+                .await
+                .unwrap();
+        assert_eq!(outbox_count, 0);
+        assert_eq!(supervisor.counts().await.unwrap().1, 1);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while reap_attempts.load(Ordering::SeqCst) < 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("background reaper did not retry after injected failure");
+
+        allow_reap.notify_one();
+        assert_eq!(result.await.unwrap().status, "canceled");
+        let evidence: (String, i64, Option<String>, Option<String>, Option<i64>) = sqlx::query_as(
+            "SELECT stop_state, stop_epoch, orphaned_at, reaped_at, exit_signal \
+                 FROM local_agent_runs WHERE run_id = ?1",
+        )
+        .bind(run_id.to_string())
+        .fetch_one(&supervisor.inner.database)
+        .await
+        .unwrap();
+        assert_eq!(evidence.0, "reaped");
+        assert_eq!(evidence.1, 1);
+        assert!(evidence.2.is_some());
+        assert!(evidence.3.is_some());
+        assert_eq!(evidence.4, Some(i64::from(libc::SIGKILL)));
         assert_eq!(supervisor.counts().await.unwrap().1, 0);
     }
 

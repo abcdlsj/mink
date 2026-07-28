@@ -650,19 +650,27 @@ pub(super) async fn authenticate_run(
     run_token: &str,
 ) -> Result<Option<AgentIdentity>> {
     let token_hash = Sha256::digest(run_token.as_bytes());
-    let rows: Vec<(String, String, String, Vec<u8>, String)> = sqlx::query_as(
-        "SELECT run_id, agent_member_id, space_id, run_token_hash, fencing_token FROM local_agent_runs \
-         WHERE status = 'running' AND token_expires_at > ?1",
+    let rows: Vec<(String, String, String, Vec<u8>, String, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id, space_id, run_token_hash, fencing_token, token_expires_at \
+         FROM local_agent_runs WHERE status = 'running'",
     )
-    .bind(OffsetDateTime::now_utc().to_string())
     .fetch_all(database)
     .await?;
-    for (run_id, agent_member_id, space_id, expected_hash, fencing_token) in rows {
-        if expected_hash
-            .as_slice()
-            .ct_eq(token_hash.as_slice())
-            .unwrap_u8()
-            == 1
+    let now = OffsetDateTime::now_utc();
+    let database_time_format = time::format_description::parse_borrowed::<2>(
+        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond] \
+         [offset_hour sign:mandatory]:[offset_minute]:[offset_second]",
+    )?;
+    for (run_id, agent_member_id, space_id, expected_hash, fencing_token, token_expires_at) in rows
+    {
+        let token_expires_at = OffsetDateTime::parse(&token_expires_at, &database_time_format)
+            .with_context(|| format!("invalid local Run token expiry: {token_expires_at}"))?;
+        if token_expires_at > now
+            && expected_hash
+                .as_slice()
+                .ct_eq(token_hash.as_slice())
+                .unwrap_u8()
+                == 1
         {
             return Ok(Some(AgentIdentity {
                 run_id: Uuid::parse_str(&run_id)?,

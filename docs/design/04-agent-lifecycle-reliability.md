@@ -216,12 +216,11 @@ Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状
 11. Agent 数量超过本地并发上限。claim 数不超过执行槽加 prefetch，Agent 不因固定顺序长期得不到执行。
 12. daemon shutdown 等待 Run 进入终态或 orphaned，并保留所有待上报结果。
 
-## 当前差距
+## 当前实现
 
-截至 2026-07-28：
-
-- `src/computer.rs` 的 completion channel 属于单次 `connect_once`。running command 重放不会为新连接恢复完成上报。
-- `src/supervisor.rs` 在 Driver cancel 失败后可能从 active map 删除 Run。
-- `src/driver/codex.rs` 没有检查 kill 返回值，SIGKILL 后的 reap 没有第二个 timeout。
+截至 2026-07-28，daemon 已使用独立 result sender 跨连接补报结果，并实现 ownership lease、
+`run_started` 回执和本地停止证据。Supervisor 在发信号前持久化 stop epoch；Codex Driver 检查
+SIGTERM 和 SIGKILL 返回值，两次等待都受 timeout 限制。第二次等待超时后，本地 Run 保持非终态并
+写入 `orphaned`，后台 reaper 取得退出证据后才写终态和 result outbox。
 
 实施顺序见 [GOAL.md](../../GOAL.md)。
