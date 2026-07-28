@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
+use tokio::{sync::mpsc, task::JoinSet};
 use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use uuid::Uuid;
 
@@ -379,8 +381,9 @@ async fn connect_once(
         }
         Err(error) => return Err(error).context("failed to connect Computer WebSocket"),
     };
+    let http = daemon_http_client()?;
     // Release lost runs before command replay can redeliver their persisted agent.run commands.
-    release_interrupted_runs(server, computer_id, secrets.token.expose(), database).await?;
+    release_interrupted_runs(&http, server, computer_id, secrets.token.expose(), database).await?;
     let (mut writer, mut reader) = socket.split();
     let last_acked = last_acked_sequence(database).await?;
     send_ws_frame(
@@ -401,122 +404,440 @@ async fn connect_once(
         _ => bail!("Server did not send a valid Computer welcome"),
     };
     tracing::info!(computer_id = %computer_id, "Computer connected");
-    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(heartbeat_seconds));
-    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    heartbeat.tick().await;
-    let mut attention = tokio::time::interval(std::time::Duration::from_secs(1));
-    attention.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    attention.tick().await;
-    let mut lease_renewal = tokio::time::interval(std::time::Duration::from_secs(60));
-    lease_renewal.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    lease_renewal.tick().await;
-    let mut result_retry = tokio::time::interval(std::time::Duration::from_secs(1));
-    result_retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    result_retry.tick().await;
-    let (completion_tx, mut completion_rx) = tokio::sync::mpsc::channel::<()>(64);
+    let cancellation = CancellationToken::new();
+    let (outgoing_tx, outgoing_rx) = mpsc::channel::<tungstenite::Message>(128);
+    let (command_tx, command_rx) = mpsc::channel::<ReceivedCommand>(64);
+    let (completion_tx, completion_rx) = mpsc::channel::<()>(64);
     let command_processor = LocalCommandProcessor {
         database: database.clone(),
         state_dir: state_dir.to_owned(),
         supervisor,
         completion_tx,
     };
+    let heartbeat_supervisor = command_processor.supervisor.clone();
+    let mut tasks = JoinSet::new();
+    tasks.spawn(websocket_writer_task(
+        writer,
+        outgoing_rx,
+        cancellation.child_token(),
+    ));
+    tasks.spawn(websocket_reader_task(
+        reader,
+        outgoing_tx.clone(),
+        command_tx,
+        database.clone(),
+        computer_id,
+        cancellation.child_token(),
+    ));
+    tasks.spawn(command_processor_task(
+        command_processor,
+        command_rx,
+        outgoing_tx.clone(),
+        computer_id,
+        cancellation.child_token(),
+    ));
+    tasks.spawn(result_sender_task(
+        database.clone(),
+        computer_id,
+        outgoing_tx.clone(),
+        completion_rx,
+        cancellation.child_token(),
+    ));
+    tasks.spawn(attention_scheduler_task(
+        http.clone(),
+        server.clone(),
+        computer_id,
+        secrets.token.expose().to_owned(),
+        cancellation.child_token(),
+    ));
+    tasks.spawn(lease_renewer_task(
+        http,
+        server.clone(),
+        computer_id,
+        secrets.token.expose().to_owned(),
+        database.clone(),
+        cancellation.child_token(),
+    ));
+    tasks.spawn(heartbeat_reporter_task(
+        heartbeat_supervisor,
+        computer_id,
+        heartbeat_seconds,
+        outgoing_tx.clone(),
+        cancellation.child_token(),
+    ));
 
+    let outcome = tokio::select! {
+        joined = wait_for_connection_task(&mut tasks) => joined,
+        signal = tokio::signal::ctrl_c() => {
+            signal.context("failed to install shutdown signal handler")?;
+            Ok(ConnectionOutcome::Shutdown)
+        }
+    };
+    cancellation.cancel();
+    drop(outgoing_tx);
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Err(error)) => {
+                tracing::warn!(computer_id = %computer_id, error = %error, "Computer task failed during shutdown")
+            }
+            Err(error) => {
+                tracing::warn!(computer_id = %computer_id, error = %error, "Computer task panicked during shutdown")
+            }
+            Ok(Ok(_)) => {}
+        }
+    }
+    outcome
+}
+
+#[derive(Debug)]
+struct ReceivedCommand {
+    command_id: Uuid,
+    computer_seq: i64,
+    kind: String,
+    payload: serde_json::Value,
+}
+
+#[derive(Debug)]
+enum ConnectionTaskExit {
+    Disconnected,
+    Shutdown,
+    Deleted,
+    Cancelled,
+}
+
+async fn wait_for_connection_task(
+    tasks: &mut JoinSet<Result<ConnectionTaskExit>>,
+) -> Result<ConnectionOutcome> {
+    loop {
+        let joined = tasks
+            .join_next()
+            .await
+            .context("Computer connection has no running tasks")?;
+        match joined.context("Computer connection task panicked")?? {
+            ConnectionTaskExit::Disconnected => return Ok(ConnectionOutcome::Disconnected),
+            ConnectionTaskExit::Shutdown => return Ok(ConnectionOutcome::Shutdown),
+            ConnectionTaskExit::Deleted => return Ok(ConnectionOutcome::Deleted),
+            ConnectionTaskExit::Cancelled => {}
+        }
+    }
+}
+
+fn daemon_http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .context("failed to build Computer HTTP client")
+}
+
+fn encode_computer_frame(frame: &ComputerFrame) -> Result<tungstenite::Message> {
+    Ok(tungstenite::Message::Text(
+        serde_json::to_string(frame)?.into(),
+    ))
+}
+
+async fn queue_computer_frame(
+    outgoing: &mpsc::Sender<tungstenite::Message>,
+    frame: &ComputerFrame,
+) -> Result<()> {
+    outgoing
+        .send(encode_computer_frame(frame)?)
+        .await
+        .context("Computer WebSocket writer stopped")
+}
+
+async fn websocket_writer_task<W>(
+    mut writer: W,
+    mut outgoing: mpsc::Receiver<tungstenite::Message>,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit>
+where
+    W: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
+{
     loop {
         tokio::select! {
-            _ = heartbeat.tick() => {
-                let (agents_count, active_runs) = command_processor.supervisor.counts().await?;
-                send_ws_frame(&mut writer, &ComputerFrame::Heartbeat {
-                    daemon_version: env!("CARGO_PKG_VERSION"),
-                    os: platform_os()?,
-                    cpu_count: std::thread::available_parallelism().map(usize::from).unwrap_or(1),
-                    memory_total_bytes: None,
-                    agents_count,
-                    active_runs,
-                }).await?;
-                tracing::debug!(computer_id = %computer_id, agents_count, active_runs, "Computer heartbeat sent");
+            _ = cancellation.cancelled() => {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(1),
+                    writer.send(tungstenite::Message::Close(None)),
+                ).await;
+                return Ok(ConnectionTaskExit::Cancelled);
             }
-            _ = attention.tick() => {
-                if let Err(error) = poll_agent_inbox(server, computer_id, secrets.token.expose()).await {
-                    tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox poll failed");
-                }
-            }
-            _ = lease_renewal.tick() => {
-                if let Err(error) = renew_active_run_leases(
-                    server,
-                    computer_id,
-                    secrets.token.expose(),
-                    database,
-                ).await {
-                    tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox lease renewal failed");
-                }
-            }
-            _ = result_retry.tick() => {
-                send_pending_run_event(&mut writer, database, computer_id).await?;
-            }
-            completion = completion_rx.recv() => {
-                completion.context("Computer command completion channel closed")?;
-                send_pending_run_event(&mut writer, database, computer_id).await?;
-            }
-            message = reader.next() => {
+            message = outgoing.recv() => {
                 let Some(message) = message else {
-                    tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "stream_ended", "Computer disconnected");
-                    return Ok(ConnectionOutcome::Disconnected);
+                    return Ok(ConnectionTaskExit::Disconnected);
                 };
-                match message? {
-                    tungstenite::Message::Text(text) => {
-                        match serde_json::from_str(&text).context("Server sent an invalid Computer frame")? {
-                            ServerFrame::Command { command_id, computer_seq, kind, payload } => {
-                                let context = command_log_context(&payload);
-                                tracing::info!(
-                                    computer_id = %computer_id,
-                                    command_id = %command_id,
-                                    computer_seq,
-                                    kind,
-                                    agent_member_id = context.agent_member_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
-                                    run_id = context.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
-                                    "Computer command received"
-                                );
-                                persist_command(database, command_id, computer_seq, &kind, &payload).await?;
-                                send_ws_frame(&mut writer, &ComputerFrame::CommandAck { command_id, computer_seq }).await?;
-                                tracing::info!(computer_id = %computer_id, command_id = %command_id, computer_seq, kind, "Computer command acknowledged");
-                                if let Some(outcome) = command_processor.process(command_id, computer_seq, &kind, &payload).await? {
-                                    let error_code = command_error_code(&outcome).to_owned();
-                                    let ok = outcome.ok;
-                                    send_ws_frame(&mut writer, &ComputerFrame::CommandResult { command_id, computer_seq, ok, result: outcome.result }).await?;
-                                    tracing::info!(computer_id = %computer_id, command_id = %command_id, computer_seq, kind, ok, error_code, "Computer command result sent");
-                                }
-                            }
-                            ServerFrame::Shutdown { reason } => {
-                                tracing::info!(computer_id = %computer_id, reason = %reason, "Server requested Computer shutdown");
-                                return Ok(if reason == "computer_deleted" {
-                                    ConnectionOutcome::Deleted
-                                } else {
-                                    ConnectionOutcome::Shutdown
-                                });
-                            }
-                            ServerFrame::ResultReceipt { event_id } => {
-                                mark_run_result_reported(database, computer_id, &event_id).await?;
-                            }
-                            ServerFrame::StartedReceipt { event_id } => {
-                                mark_run_started_reported(database, computer_id, &event_id).await?;
-                            }
-                            ServerFrame::Welcome { .. } => {}
-                        }
-                    }
-                    tungstenite::Message::Ping(bytes) => writer.send(tungstenite::Message::Pong(bytes)).await?,
-                    tungstenite::Message::Close(_) => {
-                        tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "server_closed", "Computer disconnected");
-                        return Ok(ConnectionOutcome::Disconnected);
-                    }
-                    tungstenite::Message::Binary(_) | tungstenite::Message::Pong(_) | tungstenite::Message::Frame(_) => {}
-                }
-            }
-            signal = tokio::signal::ctrl_c() => {
-                signal.context("failed to install shutdown signal handler")?;
-                let _ = writer.send(tungstenite::Message::Close(None)).await;
-                return Ok(ConnectionOutcome::Shutdown);
+                writer.send(message).await.context("failed to write Computer WebSocket frame")?;
             }
         }
+    }
+}
+
+async fn websocket_reader_task<R>(
+    mut reader: R,
+    outgoing: mpsc::Sender<tungstenite::Message>,
+    commands: mpsc::Sender<ReceivedCommand>,
+    database: SqlitePool,
+    computer_id: Uuid,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit>
+where
+    R: futures_util::Stream<Item = std::result::Result<tungstenite::Message, tungstenite::Error>>
+        + Unpin,
+{
+    loop {
+        let message = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            message = reader.next() => message,
+        };
+        let Some(message) = message else {
+            tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "stream_ended", "Computer disconnected");
+            return Ok(ConnectionTaskExit::Disconnected);
+        };
+        match message? {
+            tungstenite::Message::Text(text) => {
+                match serde_json::from_str(&text)
+                    .context("Server sent an invalid Computer frame")?
+                {
+                    ServerFrame::Command {
+                        command_id,
+                        computer_seq,
+                        kind,
+                        payload,
+                    } => {
+                        let context = command_log_context(&payload);
+                        tracing::info!(
+                            computer_id = %computer_id,
+                            command_id = %command_id,
+                            computer_seq,
+                            kind,
+                            agent_member_id = context.agent_member_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                            run_id = context.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                            "Computer command received"
+                        );
+                        persist_command(&database, command_id, computer_seq, &kind, &payload)
+                            .await?;
+                        queue_computer_frame(
+                            &outgoing,
+                            &ComputerFrame::CommandAck {
+                                command_id,
+                                computer_seq,
+                            },
+                        )
+                        .await?;
+                        tracing::info!(computer_id = %computer_id, command_id = %command_id, computer_seq, kind, "Computer command acknowledged");
+                        commands
+                            .send(ReceivedCommand {
+                                command_id,
+                                computer_seq,
+                                kind,
+                                payload,
+                            })
+                            .await
+                            .context("Computer command processor stopped")?;
+                    }
+                    ServerFrame::Shutdown { reason } => {
+                        tracing::info!(computer_id = %computer_id, reason = %reason, "Server requested Computer shutdown");
+                        return Ok(if reason == "computer_deleted" {
+                            ConnectionTaskExit::Deleted
+                        } else {
+                            ConnectionTaskExit::Shutdown
+                        });
+                    }
+                    ServerFrame::ResultReceipt { event_id } => {
+                        mark_run_result_reported(&database, computer_id, &event_id).await?;
+                    }
+                    ServerFrame::StartedReceipt { event_id } => {
+                        mark_run_started_reported(&database, computer_id, &event_id).await?;
+                    }
+                    ServerFrame::Welcome { .. } => {}
+                }
+            }
+            tungstenite::Message::Ping(bytes) => {
+                outgoing
+                    .send(tungstenite::Message::Pong(bytes))
+                    .await
+                    .context("Computer WebSocket writer stopped")?;
+            }
+            tungstenite::Message::Close(_) => {
+                tracing::info!(computer_id = %computer_id, status = "disconnected", reason = "server_closed", "Computer disconnected");
+                return Ok(ConnectionTaskExit::Disconnected);
+            }
+            tungstenite::Message::Binary(_)
+            | tungstenite::Message::Pong(_)
+            | tungstenite::Message::Frame(_) => {}
+        }
+    }
+}
+
+async fn command_processor_task(
+    processor: LocalCommandProcessor,
+    mut commands: mpsc::Receiver<ReceivedCommand>,
+    outgoing: mpsc::Sender<tungstenite::Message>,
+    computer_id: Uuid,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit> {
+    loop {
+        let command = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            command = commands.recv() => command,
+        };
+        let Some(command) = command else {
+            return Ok(ConnectionTaskExit::Disconnected);
+        };
+        let outcome = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            outcome = processor.process(
+                command.command_id,
+                command.computer_seq,
+                &command.kind,
+                &command.payload,
+            ) => outcome?,
+        };
+        if let Some(outcome) = outcome {
+            let error_code = command_error_code(&outcome).to_owned();
+            let ok = outcome.ok;
+            queue_computer_frame(
+                &outgoing,
+                &ComputerFrame::CommandResult {
+                    command_id: command.command_id,
+                    computer_seq: command.computer_seq,
+                    ok,
+                    result: outcome.result,
+                },
+            )
+            .await?;
+            tracing::info!(
+                computer_id = %computer_id,
+                command_id = %command.command_id,
+                computer_seq = command.computer_seq,
+                kind = command.kind,
+                ok,
+                error_code,
+                "Computer command result sent"
+            );
+        }
+    }
+}
+
+async fn result_sender_task(
+    database: SqlitePool,
+    computer_id: Uuid,
+    outgoing: mpsc::Sender<tungstenite::Message>,
+    mut completions: mpsc::Receiver<()>,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit> {
+    let mut retry = tokio::time::interval(Duration::from_secs(1));
+    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    retry.tick().await;
+    let mut sink = Box::pin(futures_util::sink::unfold(
+        outgoing,
+        |outgoing, message| async move {
+            outgoing
+                .send(message)
+                .await
+                .map_err(|_| tungstenite::Error::ConnectionClosed)?;
+            Ok::<_, tungstenite::Error>(outgoing)
+        },
+    ));
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            _ = retry.tick() => {
+                send_pending_run_event(&mut sink, &database, computer_id).await?;
+            }
+            completion = completions.recv() => {
+                if completion.is_none() {
+                    return Ok(ConnectionTaskExit::Disconnected);
+                }
+                send_pending_run_event(&mut sink, &database, computer_id).await?;
+            }
+        }
+    }
+}
+
+async fn attention_scheduler_task(
+    client: reqwest::Client,
+    server: Url,
+    computer_id: Uuid,
+    token: String,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit> {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            _ = interval.tick() => {}
+        }
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            result = poll_agent_inbox(&client, &server, computer_id, &token) => result,
+        };
+        if let Err(error) = result {
+            tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox poll failed");
+        }
+    }
+}
+
+async fn lease_renewer_task(
+    client: reqwest::Client,
+    server: Url,
+    computer_id: Uuid,
+    token: String,
+    database: SqlitePool,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit> {
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            _ = interval.tick() => {}
+        }
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            result = renew_active_run_leases(&client, &server, computer_id, &token, &database) => result,
+        };
+        if let Err(error) = result {
+            tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox lease renewal failed");
+        }
+    }
+}
+
+async fn heartbeat_reporter_task(
+    supervisor: Supervisor,
+    computer_id: Uuid,
+    heartbeat_seconds: u64,
+    outgoing: mpsc::Sender<tungstenite::Message>,
+    cancellation: CancellationToken,
+) -> Result<ConnectionTaskExit> {
+    let mut interval = tokio::time::interval(Duration::from_secs(heartbeat_seconds));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval.tick().await;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
+            _ = interval.tick() => {}
+        }
+        let (agents_count, active_runs) = supervisor.counts().await?;
+        queue_computer_frame(
+            &outgoing,
+            &ComputerFrame::Heartbeat {
+                daemon_version: env!("CARGO_PKG_VERSION"),
+                os: platform_os()?,
+                cpu_count: std::thread::available_parallelism()
+                    .map(usize::from)
+                    .unwrap_or(1),
+                memory_total_bytes: None,
+                agents_count,
+                active_runs,
+            },
+        )
+        .await?;
+        tracing::debug!(computer_id = %computer_id, agents_count, active_runs, "Computer heartbeat sent");
     }
 }
 
@@ -687,8 +1008,12 @@ async fn mark_run_started_reported(
     Ok(())
 }
 
-async fn poll_agent_inbox(server: &Url, computer_id: Uuid, token: &str) -> Result<()> {
-    let client = reqwest::Client::new();
+async fn poll_agent_inbox(
+    client: &reqwest::Client,
+    server: &Url,
+    computer_id: Uuid,
+    token: &str,
+) -> Result<()> {
     let agents: Vec<HostedAgent> = client
         .get(server.join(&format!("/api/v1/computers/{computer_id}/agents"))?)
         .bearer_auth(token)
@@ -724,6 +1049,7 @@ async fn poll_agent_inbox(server: &Url, computer_id: Uuid, token: &str) -> Resul
 }
 
 async fn renew_active_run_leases(
+    client: &reqwest::Client,
     server: &Url,
     computer_id: Uuid,
     token: &str,
@@ -735,7 +1061,6 @@ async fn renew_active_run_leases(
     )
     .fetch_all(database)
     .await?;
-    let client = reqwest::Client::new();
     for (run_id, agent_id, fencing_token) in runs {
         let run_id = Uuid::parse_str(&run_id)?;
         let agent_id = Uuid::parse_str(&agent_id)?;
@@ -768,6 +1093,7 @@ async fn renew_active_run_leases(
 }
 
 async fn release_interrupted_runs(
+    client: &reqwest::Client,
     server: &Url,
     computer_id: Uuid,
     token: &str,
@@ -780,7 +1106,6 @@ async fn release_interrupted_runs(
     )
     .fetch_all(database)
     .await?;
-    let client = reqwest::Client::new();
     for (run_id, agent_id, fencing_token) in runs {
         let run_id = Uuid::parse_str(&run_id)?;
         let agent_id = Uuid::parse_str(&agent_id)?;

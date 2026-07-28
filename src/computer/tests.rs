@@ -378,10 +378,11 @@ async fn daemon_renews_active_leases_and_reports_process_lost_once() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let server_url = Url::parse(&format!("http://{address}")).unwrap();
 
-    renew_active_run_leases(&server_url, computer_id, "token", &database)
+    let client = daemon_http_client().unwrap();
+    renew_active_run_leases(&client, &server_url, computer_id, "token", &database)
         .await
         .unwrap();
-    release_interrupted_runs(&server_url, computer_id, "token", &database)
+    release_interrupted_runs(&client, &server_url, computer_id, "token", &database)
         .await
         .unwrap();
     let reported_at: Option<String> = sqlx::query_scalar(
@@ -603,6 +604,196 @@ async fn run_started_outbox_retries_until_server_receipt() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn hanging_claim_does_not_block_websocket_results_or_heartbeat() {
+    use axum::extract::State;
+
+    async fn list_agents(agent_id: Uuid) -> axum::Json<serde_json::Value> {
+        axum::Json(serde_json::json!([{
+            "member_id": agent_id,
+            "status": "active"
+        }]))
+    }
+
+    async fn hang_claim(
+        State(started): State<Arc<tokio::sync::Notify>>,
+    ) -> axum::Json<serde_json::Value> {
+        started.notify_one();
+        std::future::pending().await
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let database = database::connect_sqlite(&root.path().join("daemon.db"))
+        .await
+        .unwrap();
+    let computer_id = Uuid::now_v7();
+    let agent_id = Uuid::now_v7();
+    let run_id = Uuid::now_v7();
+    let process_instance_id = Uuid::now_v7();
+    let event_id = Uuid::now_v7().to_string();
+    let now = OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+         token_expires_at, status, process_instance_id, fencing_token) \
+         VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued', ?5, 'fence')",
+    )
+    .bind(run_id.to_string())
+    .bind(agent_id.to_string())
+    .bind(Uuid::now_v7().to_string())
+    .bind(&now)
+    .bind(process_instance_id.to_string())
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO run_started_outbox (event_id, run_id, run_attempt, process_instance_id, \
+         daemon_observed_at, next_attempt_at, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?4, ?4)",
+    )
+    .bind(&event_id)
+    .bind(run_id.to_string())
+    .bind(process_instance_id.to_string())
+    .bind(&now)
+    .execute(&database)
+    .await
+    .unwrap();
+
+    let claim_started = Arc::new(tokio::sync::Notify::new());
+    let app = axum::Router::new()
+        .route(
+            "/api/v1/computers/{computer_id}/agents",
+            axum::routing::get(move || list_agents(agent_id)),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/claim",
+            axum::routing::post(hang_claim),
+        )
+        .with_state(claim_started.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let server_url = Url::parse(&format!("http://{address}")).unwrap();
+
+    let state_dir = root.path().to_owned();
+    prepare_agent_root(&state_dir).await.unwrap();
+    let supervisor = Supervisor::new(
+        database.clone(),
+        state_dir.clone(),
+        state_dir.join("daemon.sock"),
+        &crate::config::ComputerConfig::default(),
+        Arc::new(CodexDriver::new()),
+        None,
+    );
+    let cancellation = CancellationToken::new();
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel(16);
+    let (completion_tx, completion_rx) = mpsc::channel(1);
+    let (command_tx, _command_rx) = mpsc::channel(1);
+    let (daemon_io, server_io) = tokio::io::duplex(4096);
+    let daemon_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        daemon_io,
+        tungstenite::protocol::Role::Client,
+        None,
+    )
+    .await;
+    let (_, daemon_reader) = daemon_socket.split();
+    let mut server_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        server_io,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+
+    let attention = tokio::spawn(attention_scheduler_task(
+        daemon_http_client().unwrap(),
+        server_url,
+        computer_id,
+        "token".to_owned(),
+        cancellation.child_token(),
+    ));
+    let heartbeat = tokio::spawn(heartbeat_reporter_task(
+        supervisor,
+        computer_id,
+        1,
+        outgoing_tx.clone(),
+        cancellation.child_token(),
+    ));
+    let results = tokio::spawn(result_sender_task(
+        database.clone(),
+        computer_id,
+        outgoing_tx.clone(),
+        completion_rx,
+        cancellation.child_token(),
+    ));
+    let reader = tokio::spawn(websocket_reader_task(
+        daemon_reader,
+        outgoing_tx.clone(),
+        command_tx,
+        database.clone(),
+        computer_id,
+        cancellation.child_token(),
+    ));
+
+    tokio::time::timeout(Duration::from_secs(2), claim_started.notified())
+        .await
+        .expect("attention scheduler did not enter the hanging claim");
+    assert!(
+        !results.is_finished(),
+        "result sender stopped before claim hung"
+    );
+    sqlx::query("UPDATE run_started_outbox SET next_attempt_at = ?2 WHERE event_id = ?1")
+        .bind(&event_id)
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&database)
+        .await
+        .unwrap();
+    completion_tx.send(()).await.unwrap();
+    server_socket
+        .send(tungstenite::Message::Ping(vec![1, 2, 3].into()))
+        .await
+        .unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let mut observed = std::collections::BTreeSet::new();
+    while observed.len() < 3 {
+        let Ok(Some(message)) = tokio::time::timeout_at(deadline, outgoing_rx.recv()).await else {
+            break;
+        };
+        match message {
+            tungstenite::Message::Pong(_) => {
+                observed.insert("pong".to_owned());
+            }
+            tungstenite::Message::Text(text) => {
+                let frame: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if let Some(kind) = frame["type"].as_str() {
+                    observed.insert(kind.to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        observed,
+        ["heartbeat", "pong", "run_started"]
+            .map(str::to_owned)
+            .into()
+    );
+
+    cancellation.cancel();
+    for task in [attention, heartbeat, results, reader] {
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ConnectionTaskExit::Cancelled
+        ));
+    }
+    server.abort();
+    let _ = server.await;
 }
 
 #[tokio::test]
