@@ -141,6 +141,7 @@ createdb sumi_test
 - 测试进程为每个 suite 创建唯一 database 或 schema，完成后清理，允许并行运行。
 - 根目录必须提供一个统一 test command，一次运行单元、PostgreSQL integration、CLI 和 Web tests。
 - Attachment storage 在本机测试使用临时目录实现，不要求启动 S3/MinIO；生产实现使用 S3-compatible adapter。
+- 本机默认的 Server Attachment 目录为 `~/.sumi/server/attachments`；Computer 的持久状态为 `~/.sumi/computer`，UDS 和运行时临时文件为 `~/.sumi/runtime`。
 - 测试不得连接共享开发库、生产库或外部收费服务。
 
 ## 4. v1 范围

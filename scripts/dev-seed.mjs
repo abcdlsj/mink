@@ -24,8 +24,7 @@ const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery 
 const SEED_MARKER = "[dev-seed]";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
-const STATE_HOME = process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
-export const DEV_COMPUTER_STATE = process.env.SUMI_SEED_STATE_DIR ?? join(STATE_HOME, "sumi", "dev-seed-computer");
+export const DEV_COMPUTER_STATE = process.env.SUMI_SEED_STATE_DIR ?? join(homedir(), ".sumi", "computer", "dev-seed");
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([

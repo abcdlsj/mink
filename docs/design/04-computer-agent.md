@@ -69,28 +69,32 @@ daemon 默认尝试打开配对页；无人值守、本地自动化和测试配�
 
 ### 11.4 本地目录
 
-默认根目录由平台决定，不得使用当前登录用户随意可写的临时目录：
+默认根目录固定为当前用户的 `~/.sumi`，不得使用当前登录用户随意可写的临时目录：
 
 ~~~
-computer/
-  daemon.db
-  secrets.json
-  logs/
-  agents/
-    {agent-id}/
-      profile.json
-      memory/
-      workspace/
-      drivers/
-        codex/
-        builtin/
-      runs/
-      logs/
+~/.sumi/
+  computer/
+    daemon.db
+    secrets.json
+    logs/
+    agents/
+      {agent-id}/
+        profile.json
+        memory/
+        workspace/
+        drivers/
+          codex/
+          builtin/
+        runs/
+        logs/
+  runtime/
+    daemon.sock
 ~~~
 
 - daemon.db 使用 SQLite，保存 Computer 本地状态、Server command 结果、Agent 运行状态和本地重试队列。
 - secrets.json 保存 Computer Token 与本机 Driver 认证。它不得进入 daemon.db、日志、Agent Home 或备份导出。
-- computer/ 目录权限必须为 0700，secrets.json 必须为 0600。daemon 使用同目录临时文件、fsync 和 rename 原子更新；发现 group/other 权限时拒绝启动并给出修复命令。
+- `~/.sumi` 是本机 Sumi 文件的唯一根目录；`computer/` 只保存持久状态和 Agent Home，`runtime/` 只保存 UDS socket 与运行时临时文件。
+- `computer/` 和 `runtime/` 目录权限必须为 0700，secrets.json 必须为 0600。daemon 使用同目录临时文件、fsync 和 rename 原子更新；发现 group/other 权限时拒绝启动并给出修复命令。
 - profile.json 是 Server Agent 配置的缓存，不是事实来源。
 - memory/ 和 workspace/ 属于 Agent，不属于 Driver。
 - drivers/codex/ 与 drivers/builtin/ 只保存各自 Driver 的私有状态。

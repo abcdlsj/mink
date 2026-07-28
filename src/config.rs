@@ -46,7 +46,7 @@ impl Default for ServerConfig {
                 .expect("valid default bind address"),
             database_url: "postgres://localhost/sumi_dev".to_owned(),
             web_dist: PathBuf::from("web/dist"),
-            attachment_dir: PathBuf::from(".sumi/attachments"),
+            attachment_dir: default_sumi_dir().join("server/attachments"),
             attachment_s3: None,
             attachment_max_bytes: 100 * 1024 * 1024,
             secure_cookies: false,
@@ -162,11 +162,22 @@ fn validate(config: &SumiConfig) -> Result<()> {
 }
 
 fn default_computer_state_dir() -> PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
-        .unwrap_or_else(|| PathBuf::from(".sumi/state"))
-        .join("sumi/computer")
+    default_sumi_dir().join("computer")
+}
+
+/// Sumi 的本机持久化根目录。所有 daemon、Agent 和本地 Server 文件都必须位于此边界内。
+pub(crate) fn default_sumi_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(".sumi"))
+        .unwrap_or_else(|| PathBuf::from(".sumi"))
+}
+
+/// Runtime 与 Computer 状态分离，避免 socket 和临时文件污染持久状态目录。
+pub(crate) fn runtime_dir_for(state_dir: &std::path::Path) -> PathBuf {
+    state_dir
+        .parent()
+        .map(|parent| parent.join("runtime"))
+        .unwrap_or_else(|| state_dir.join("runtime"))
 }
 
 #[cfg(test)]
@@ -218,5 +229,22 @@ mod tests {
         let error = load(Some(&path)).unwrap_err();
 
         assert!(error.to_string().contains("must be configured together"));
+    }
+
+    #[test]
+    fn local_defaults_use_sumi_home_with_separate_boundaries() {
+        let config = SumiConfig::default();
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        if let Some(home) = home {
+            assert_eq!(config.computer.state_dir, home.join(".sumi/computer"));
+            assert_eq!(
+                config.server.attachment_dir,
+                home.join(".sumi/server/attachments")
+            );
+            assert_eq!(
+                runtime_dir_for(&config.computer.state_dir),
+                home.join(".sumi/runtime")
+            );
+        }
     }
 }

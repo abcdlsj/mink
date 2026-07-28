@@ -384,10 +384,10 @@ pub(crate) fn sandboxed_command(
         }
         "linux" => {
             let bubblewrap = find_on_path("bwrap").context("bubblewrap is unavailable")?;
-            let sandbox_home = PathBuf::from("/sumi-agent");
-            let sandbox_socket = PathBuf::from("/sumi-runtime/daemon.sock");
-            let sandbox_driver = PathBuf::from("/sumi-runtime/driver");
-            let sandbox_sumi = PathBuf::from("/sumi-runtime/sumi");
+            let sandbox_home = PathBuf::from("/agent");
+            let sandbox_socket = PathBuf::from("/runtime/daemon.sock");
+            let sandbox_driver = PathBuf::from("/runtime/driver");
+            let sandbox_sumi = PathBuf::from("/runtime/sumi");
             let mut command = Command::new(bubblewrap);
             command.args([
                 "--die-with-parent",
@@ -416,7 +416,7 @@ pub(crate) fn sandboxed_command(
                 .arg("--tmpfs")
                 .arg("/tmp")
                 .arg("--dir")
-                .arg("/sumi-runtime")
+                .arg("/runtime")
                 .arg("--ro-bind")
                 .arg(&resolved_executable)
                 .arg(&sandbox_driver)
@@ -457,7 +457,7 @@ pub(crate) fn sandboxed_command(
                 driver_home: sandbox_home.join("driver"),
                 agent_home: sandbox_home,
                 socket_path: sandbox_socket,
-                path: format!("/sumi-runtime:{}", environment.path),
+                path: format!("/runtime:{}", environment.path),
             })
         }
         other => bail!("unsupported Driver sandbox platform: {other}"),

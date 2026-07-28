@@ -133,6 +133,8 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
         config.computer.server_url = server_url;
     }
     prepare_state_dir(&config.computer.state_dir).await?;
+    let runtime_dir = config::runtime_dir_for(&config.computer.state_dir);
+    prepare_state_dir(&runtime_dir).await?;
     let database_path = config.computer.state_dir.join("daemon.db");
     let database = database::connect_sqlite(&database_path).await?;
     crate::supervisor::recover_interrupted_runs(&database).await?;
@@ -177,7 +179,7 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
         state_dir = %config.computer.state_dir.display(),
         "Computer daemon initialized"
     );
-    let socket_path = config.computer.state_dir.join("daemon.sock");
+    let socket_path = runtime_dir.join("daemon.sock");
     let supervisor = Supervisor::new(
         database.clone(),
         config.computer.state_dir.clone(),
