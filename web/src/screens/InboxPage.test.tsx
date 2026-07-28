@@ -123,7 +123,9 @@ describe("Approval governance", () => {
     const view = within(workspace as HTMLElement);
     const headings = view.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
     expect(headings).toEqual(["DM & mentions", "Replies", "Channel activity"]);
-    expect(view.getAllByRole("img", { name: "Lin avatar" })).toHaveLength(2);
+    const linIdenticons = view.getAllByRole("img", { name: "Lin avatar" });
+    expect(linIdenticons).toHaveLength(2);
+    expect(linIdenticons[0]).toHaveAttribute("data-agent-identicon", linIdenticons[1].getAttribute("data-agent-identicon"));
     expect(view.getByRole("img", { name: "Grace avatar" })).toBeVisible();
     expect(view.getAllByRole("button", { name: "Open #general from Lin" })).toHaveLength(2);
   });

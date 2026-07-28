@@ -3676,7 +3676,7 @@ h1 {
   cursor: not-allowed;
 }
 
-/* Human initials and Agent abstract marks intentionally avoid character portraits. */
+/* Human initials and Agent identicon seals intentionally avoid character portraits. */
 .pixel-identity--human > span:not(.visually-hidden) {
   display: grid;
   width: 100%;

@@ -38,6 +38,9 @@ import {
 import { activityLabel } from "../agentActivity";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
+import { PixelIdentity } from "./PixelIdentity";
+
+export { PixelIdentity } from "./PixelIdentity";
 
 export interface SpaceShellContext {
   space: Space;
@@ -639,7 +642,7 @@ function DirectMessageNavigationItem({ member, activityStatus, active, href }: {
   );
 }
 
-export function PresenceIdentity({ name, kind = "human", seed, activityStatus }: { name: string; kind?: "human" | "agent"; seed?: string; activityStatus?: Agent["activity_status"] }) {
+export function PresenceIdentity({ name, kind = "human", seed, activityStatus }: { name: string; kind?: "human" | "agent"; seed: string; activityStatus?: Agent["activity_status"] }) {
   if (kind !== "agent" || !activityStatus) {
     return <PixelIdentity name={name} kind={kind} seed={seed} />;
   }
@@ -650,53 +653,4 @@ export function PresenceIdentity({ name, kind = "human", seed, activityStatus }:
       <span className={`presence-dot presence-dot--${activityStatus}`} role="img" aria-label={`${name} is ${label}`} title={`${name} · ${label}`} />
     </span>
   );
-}
-
-export function PixelIdentity({ name, kind = "human", seed }: { name: string; kind?: "human" | "agent"; seed?: string }) {
-  const variant = pixelVariant(seed ?? name);
-  const palettes = [
-    { background: "#C9E7E7", foreground: "#173F46", accent: "#FE7DA8" },
-    { background: "#DFE3FF", foreground: "#2E377A", accent: "#D95C55" },
-    { background: "#F5E2A8", foreground: "#5A4312", accent: "#FE7DA8" },
-    { background: "#F2D3BD", foreground: "#63392D", accent: "#315B55" },
-  ] as const;
-  const palette = palettes[variant % palettes.length];
-  const marks = [
-    "M3 0h2v1h2v2h1v2H7v2H5v1H3V7H1V5H0V3h1V1h2zm0 2H2v1H1v2h1v1h1v1h2V6h1V5h1V3H6V2H5V1H3z",
-    "M0 1h3v2H2v2h1v2H0zm5 0h3v6H5V5h1V3H5z",
-    "M3 0h2v2h2v1H5v2h2v2H5v1H3V6H1V5h2V3H1V1h2z",
-    "M1 0h2v2h2V0h2v3H6v2h1v3H5V6H3v2H1V5h1V3H1z",
-  ] as const;
-  const initial = [...name.trim()][0]?.toLocaleUpperCase() ?? "?";
-  return (
-    <span
-      className={`pixel-identity pixel-identity--${kind}`}
-      role="img"
-      aria-label={`${name} avatar`}
-      title={name}
-      style={{ background: palette.background, color: palette.foreground }}
-    >
-      {kind === "human" ? <span aria-hidden="true">{initial}</span> : (
-        <svg viewBox="0 0 8 8" aria-hidden="true" shapeRendering="crispEdges">
-          <rect width="8" height="8" fill={palette.background} />
-          <path d={marks[variant % marks.length]} fill={palette.foreground} />
-          <rect x="3" y="3" width="2" height="2" fill={palette.accent} />
-        </svg>
-      )}
-      <span className="visually-hidden">{initials(name)}</span>
-    </span>
-  );
-}
-
-function pixelVariant(name: string): number {
-  return [...name].reduce((hash, character) => ((hash * 31) + character.codePointAt(0)!) >>> 0, 7);
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
 }

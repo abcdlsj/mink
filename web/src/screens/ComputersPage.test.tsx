@@ -74,6 +74,7 @@ describe("Computer flows", () => {
     expect(screen.getAllByText("online")[0]).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair Computer" })).toBeVisible();
     expect(screen.getAllByRole("heading", { name: "Computers" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "Rin avatar" }).every((avatar) => avatar.hasAttribute("data-agent-identicon"))).toBe(true);
     expect(screen.getByLabelText("Agent name")).toHaveFocus();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });

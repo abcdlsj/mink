@@ -23,7 +23,7 @@
 - [x] 缩小 Conversation navigation 关闭 X，点击后收起左侧导航，并允许通过最左 Space rail 任意空白区重新展开。
 - [x] 统一 Channel 与 Thread composer 尺寸，缩小 Thread placeholder 文字并对齐输入与发送控件。
 - [x] 支持桌面端拖动调整 Thread pane 宽度，保持 Channel 最小宽度与移动端全屏行为。
-- [ ] 将 Agent 头像收口为由 Member ID 稳定生成、可区分的 GitHub identicon 风格像素印章。
+- [x] 将 Agent 头像收口为由 Member ID 稳定生成、可区分的 GitHub identicon 风格像素印章。
 - [ ] 补齐 DM WebUI 闭环：可从导航创建/打开 DM，并沿用 Channel 的 Message、Thread 与 Agent 注意力模型。
 
 验证：每项改动运行最小相关 Web tests；阶段完成后运行 `pnpm --dir web test`、`pnpm --dir web lint`、`pnpm --dir web build`，并在 1440x900、1024x768、390x844 验证 Channel、Thread、侧边栏、Tasks 与 DM 无溢出、无 page/console error。若改动 Rust/协议，额外运行 `cargo fmt --all -- --check`、`cargo clippy --all-targets --all-features -- -D warnings` 与定向集成测试。
@@ -68,6 +68,8 @@ Thread pane resize 验证：`pnpm --dir web test`（8 files、19 tests）、`pnp
 
 2026-07-28：
 
+- Agent identicon 验证：`pnpm --dir web test`（9 files、22 tests）、`pnpm --dir web lint`、`pnpm --dir web build` 与 `node web/e2e/avatar-verify.mjs` 通过；生成测试覆盖 Member ID 稳定性、rename 不变、水平镜像、8x8 边界、Agent 区分与 Human 分流，Channel、Members、Inbox、Computer、Agent detail 组件消费覆盖通过。
+- `mise run dev-seed` + `node web/e2e/avatar-verify.mjs` + Chromium：真实 PM/Coder/Reviewer 在 Channel、Members 与 Computer 三类页面、1440x900 / 1024x768 / 390x844 中均保持 3 个稳定且互不碰撞的 identicon，无横向溢出、无 page/console error；截图位于 `/tmp/sumi-shots-avatar/`。
 - `pnpm --dir web test -- ChannelPage.test.tsx`：桌面 Conversation navigation 折叠与 Space rail 重开展开覆盖在内的 8 个 test files、19 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。
 - `node web/e2e/navigation-verify.mjs` + Chromium：在 1440x900 验证 26px 关闭 X、折叠后 Channel 释放 294px navigation 栏位并由 rail 空白区重开；在 1024x768 验证 rail 打开 x=52 抽屉；在 390x844 验证 header 打开 x=0 抽屉。三视口均无横向溢出、无 page/console error，关闭后焦点回落正确；截图位于 `/tmp/sumi-shots-navigation/`。
 - `pnpm --dir web test -- ChannelPage.test.tsx`：品牌链接可访问名称与 S 字形覆盖在内的 8 个 test files、19 个 Web tests 通过；`pnpm --dir web lint` 与 `pnpm --dir web build` 通过。最终生效的 Space rail 品牌标识已由通用 Asterisk 收口为 paper 品牌砖、轻量深梅色 S、固定粉色硬阴影和左倾 2° 的标识框，不再随 Space accent 改色。

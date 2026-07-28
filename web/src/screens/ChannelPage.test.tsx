@@ -70,6 +70,9 @@ describe("ChannelPage", () => {
     expect(channelComposer).toHaveAttribute("rows", "1");
     expect(channelComposer.closest("form")).toHaveClass("composer");
     expect(screen.getAllByLabelText("Lin is Busy").length).toBeGreaterThanOrEqual(2);
+    const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
+    expect(linIdenticons.every(Boolean)).toBe(true);
+    expect(new Set(linIdenticons)).toHaveLength(1);
     expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Busy.*Lin.*@lin.*Busy/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
     const shell = screen.getByRole("main");

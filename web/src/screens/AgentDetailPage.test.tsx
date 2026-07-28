@@ -50,6 +50,7 @@ describe("Agent detail", () => {
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    expect(screen.getByRole("img", { name: "Lin avatar" })).toHaveAttribute("data-agent-identicon");
     expect(screen.getByRole("status")).toHaveTextContent("Busy");
     expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));

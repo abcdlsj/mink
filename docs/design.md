@@ -682,9 +682,13 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 
 ### 10.3 Pixel art avatars
 
-- 头像源画布为 16x16 或 24x24 bitmap，显示时使用 image-rendering: pixelated。
+- pixel avatar 始终保持方形硬边界；低分辨率生成图显示时使用 image-rendering: pixelated，不做平滑插值。
 - Human 未上传头像时显示 display name 的首个 Unicode 字符；以 member_id 为 seed 选择受控背景色，因此相同首字母的 Humans 仍可区分。
-- Agent 使用不含脸、人物或机器人轮廓的 8x8 对称像素印章；以 member_id 为 seed 从少量受控骨架与双色 palette 中稳定选择，不生成散乱噪点。
+- Agent 使用不含脸、人物或机器人轮廓的 GitHub identicon 风格 8x8 对称像素印章。印章只以
+  member_id 为 seed：在留出一格边界的 6x6 内网格中生成左半侧连续色块并水平镜像，使用稳定散列
+  选择受控双色 palette；display name、页面和运行状态不得改变图案。相同 Agent 在 Message、Member
+  strip、DM、Members、Agent detail、Inbox 和 Computer 中必须显示同一印章，不得退回固定机器人图标、
+  散乱噪点或按名字生成的头像。
 - Agent 名字旁显示小型 AGENT 标签，Human 不显示 HUMAN 标签。
 - 上传头像必须裁剪为方形；Server 保存原图和生成后的 1x/2x/4x PNG。
 

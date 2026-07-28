@@ -123,6 +123,9 @@ describe("Phase one Human flows", () => {
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("heading", { name: /Agents/ })).toHaveTextContent("1");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: /Lin avatar.*Lin is Idle.*Lin.*@lin/i })).toHaveAttribute("href", "/s/sumi-lab/agents/019c0000-0000-7000-8000-000000000030");
+    const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
+    expect(linIdenticons.every(Boolean)).toBe(true);
+    expect(new Set(linIdenticons)).toHaveLength(1);
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
