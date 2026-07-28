@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, attachment, auth, idempotency, member};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MessageAuthor {
     pub id: Uuid,
     pub kind: String,
@@ -21,7 +21,7 @@ pub struct MessageAuthor {
     pub handle: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct MessageTaskSummary {
     pub id: Uuid,
     pub title: String,
@@ -30,7 +30,7 @@ pub struct MessageTaskSummary {
     pub assignee_name: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MessageResponse {
     pub id: Uuid,
     pub channel_id: Uuid,
@@ -235,7 +235,7 @@ pub struct MessagePageQuery {
     limit: Option<i64>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MessagePageResponse {
     pub channel_id: Uuid,
     pub snapshot_channel_seq: i64,
@@ -322,7 +322,7 @@ pub async fn list(
     }))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateMessageRequest {
     pub body_markdown: String,
     #[serde(default)]

@@ -28,7 +28,7 @@ const RESERVED_SLUGS: &[&str] = &[
 ];
 const ACCENTS: &[&str] = &["#FE7DA8", "#27CCF3", "#FFD440", "#A9D877"];
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateSpaceRequest {
     pub name: String,
     pub slug: String,
@@ -41,7 +41,7 @@ pub struct UpdateSpaceRequest {
     pub accent: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct SpaceResponse {
     pub id: Uuid,
     pub name: String,

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, approval, auth, idempotency, member, space};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateAgentRequest {
     pub computer_id: Uuid,
     pub name: String,
@@ -22,7 +22,7 @@ pub struct CreateAgentRequest {
     pub driver_kind: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AgentResponse {
     pub member_id: Uuid,
     pub space_id: Uuid,
@@ -54,7 +54,7 @@ pub enum CreateAgentResponse {
     Approval(approval::PendingApprovalResponse),
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct AttentionConfig {
     pub dm_immediate: bool,
     pub mention_immediate: bool,
@@ -77,7 +77,7 @@ impl Default for AttentionConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MemoryFileResponse {
     pub path: String,
     pub size: i64,
@@ -86,12 +86,12 @@ pub struct MemoryFileResponse {
     pub updated_at: OffsetDateTime,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ReadMemoryRequest {
     pub path: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MemoryContentResponse {
     pub path: String,
     pub content: String,
@@ -124,14 +124,14 @@ struct AgentRow {
     last_error_code: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateAgentRequest {
     pub role_text: Option<String>,
     pub attention_config: Option<AttentionConfig>,
     pub lifecycle: Option<LifecycleAction>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum LifecycleAction {
     Suspend { mode: SuspendMode },
@@ -140,7 +140,7 @@ pub enum LifecycleAction {
     Retire,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SuspendMode {
     StopAfterCurrent,

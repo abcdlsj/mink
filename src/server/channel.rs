@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::{AppState, api_error::ApiError, auth, idempotency, member, validation};
 use crate::database;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ChannelResponse {
     pub id: Uuid,
     pub space_id: Uuid,
@@ -62,7 +62,7 @@ impl From<ChannelMemberRow> for member::MemberResponse {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ChannelMembersResponse {
     pub members: Vec<member::MemberResponse>,
     pub can_manage: bool,
@@ -93,13 +93,13 @@ impl From<ChannelRow> for ChannelResponse {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ChannelListResponse {
     pub channels: Vec<ChannelResponse>,
     pub can_create: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct DirectMessageResponse {
     pub channel_id: Uuid,
     pub space_id: Uuid,
@@ -210,7 +210,7 @@ pub async fn list_direct_messages(
     Ok(Json(rows.into_iter().map(Into::into).collect()))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateDirectMessageRequest {
     pub member_id: Uuid,
 }
@@ -339,7 +339,7 @@ pub async fn create_direct_message(
     Ok((status, Json(response)))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateChannelRequest {
     pub name: String,
     pub slug: String,
@@ -535,7 +535,7 @@ pub async fn list_members(
     }))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AddChannelAgentsRequest {
     pub agent_member_ids: Vec<Uuid>,
 }

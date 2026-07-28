@@ -18,6 +18,21 @@ pub enum Command {
     Computer(ComputerArgs),
     /// Access Sumi as the Agent bound to the current run.
     Agent(AgentArgs),
+    /// Export schemas used by development tooling.
+    #[command(hide = true)]
+    Schema(SchemaArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SchemaArgs {
+    #[command(subcommand)]
+    pub command: SchemaCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SchemaCommand {
+    /// Write the Browser API OpenAPI document to stdout.
+    BrowserOpenapi,
 }
 
 #[derive(Debug, Args)]

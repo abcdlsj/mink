@@ -22,6 +22,14 @@ run = "cargo build"
 description = "Build the WebUI"
 run = "pnpm --dir web build"
 
+[tasks.generate-api-types]
+description = "Generate Browser API TypeScript types from Rust OpenAPI"
+run = "pnpm --dir web generate:api"
+
+[tasks.check-api-types]
+description = "Check Browser API TypeScript types match Rust OpenAPI"
+run = "pnpm --dir web check:api"
+
 [tasks.build]
 description = "Build the server, daemon, CLI, and WebUI"
 depends = ["build-server", "build-web"]
@@ -35,7 +43,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 [tasks.lint-web]
 description = "Typecheck and lint the WebUI"
-run = "pnpm --dir web lint"
+run = '''
+pnpm --dir web check:api
+pnpm --dir web lint
+'''
 
 [tasks.lint]
 description = "Lint Rust and Web code"

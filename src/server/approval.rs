@@ -16,7 +16,7 @@ use super::{
     auth, idempotency, member,
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AgentCreateApprovalPayload {
     pub computer_id: Uuid,
     pub name: String,
@@ -26,7 +26,7 @@ pub struct AgentCreateApprovalPayload {
     pub permissions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, FromRow, utoipa::ToSchema)]
 pub struct ApprovalResponse {
     pub id: Uuid,
     pub space_id: Uuid,
@@ -35,6 +35,7 @@ pub struct ApprovalResponse {
     pub approval_type: String,
     pub requested_by_member_id: Uuid,
     pub requester_name: String,
+    #[schema(value_type = AgentCreateApprovalPayload)]
     pub payload: serde_json::Value,
     pub status: String,
     pub resolved_by_member_id: Option<Uuid>,

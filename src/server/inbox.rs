@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, auth, idempotency};
 
-#[derive(Clone, Deserialize, Serialize, FromRow)]
+#[derive(Clone, Deserialize, Serialize, FromRow, utoipa::ToSchema)]
 pub struct InboxItemResponse {
     pub id: Uuid,
     pub member_id: Uuid,
@@ -74,7 +74,7 @@ pub async fn ack(
     update_item(state, jar, key, item_id, None).await
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct DeferRequest {
     #[serde(with = "time::serde::rfc3339")]
     pub until: OffsetDateTime,

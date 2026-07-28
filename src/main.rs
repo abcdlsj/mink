@@ -13,7 +13,7 @@ mod supervisor;
 use std::process::ExitCode;
 
 use clap::{Parser, error::ErrorKind};
-use cli::{Cli, Command};
+use cli::{Cli, Command, SchemaCommand};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -27,6 +27,12 @@ async fn main() -> ExitCode {
         Command::Server(args) => (server::run(args).await, false),
         Command::Computer(args) => (computer::run(args).await, false),
         Command::Agent(args) => (agent_cli::run(args).await, true),
+        Command::Schema(args) => {
+            let result = match args.command {
+                SchemaCommand::BrowserOpenapi => server::api_schema::write_browser_openapi(),
+            };
+            (result, false)
+        }
     };
 
     match result {

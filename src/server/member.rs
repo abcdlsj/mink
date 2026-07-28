@@ -17,7 +17,7 @@ use crate::database;
 const INVITATION_TTL_DAYS: i64 = 7;
 const PERMISSIONS: &[&str] = &["agent:create", "channel:create"];
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct MemberResponse {
     pub id: Uuid,
     pub kind: String,
@@ -85,7 +85,7 @@ pub async fn list(
     Ok(Json(members.into_iter().map(Into::into).collect()))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateMemberRequest {
     pub access_level: Option<String>,
     pub permissions: Option<Vec<String>>,
@@ -180,7 +180,7 @@ pub async fn update(
     Ok(Json(response))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateInvitationRequest {
     pub email: String,
     pub invite_token: String,
@@ -192,7 +192,7 @@ struct CreateInvitationFingerprint<'a> {
     token_hash: &'a str,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct InvitationResponse {
     pub id: Uuid,
     pub space_id: Uuid,

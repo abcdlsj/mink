@@ -25,6 +25,7 @@ mod agent_gateway;
 mod agent_prompt;
 mod agent_registry;
 mod api_error;
+pub(crate) mod api_schema;
 mod approval;
 mod attachment;
 mod audit;

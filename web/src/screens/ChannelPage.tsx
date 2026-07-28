@@ -958,7 +958,11 @@ function AttachmentList({ attachments }: { attachments: Attachment[] }) {
   return (
     <div className="message-attachments">
       {attachments.map((attachment) => (
-        <a key={attachment.id} href={attachment.download_path} download={attachment.original_name}>
+        <a
+          key={attachment.id}
+          href={attachment.download_path ?? undefined}
+          download={attachment.original_name}
+        >
           <Paperclip aria-hidden="true" />
           <span>
             <strong>{attachment.original_name}</strong>

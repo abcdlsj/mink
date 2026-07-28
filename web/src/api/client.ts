@@ -3,12 +3,16 @@ import { v7 as uuidv7 } from "uuid";
 import type {
   User,
   RegisterInput,
+  RegisterResponse,
   LoginInput,
+  LoginResponse,
   Space,
   CreateSpaceInput,
   Computer,
   PairingDetails,
+  ConfirmPairingInput,
   Agent,
+  CreateAgentInput,
   AgentMemoryContent,
   UpdateAgentInput,
   Member,
@@ -31,15 +35,9 @@ import type {
   ThreadRead,
   ThreadSubscription,
   CreateThreadReplyInput,
+  ErrorEnvelope,
 } from "./types";
 export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Task, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
-
-interface ErrorEnvelope {
-  error?: {
-    code?: string;
-    message?: string;
-  };
-}
 
 export class ApiRequestError extends Error {
   readonly code: string;
@@ -54,7 +52,7 @@ export class ApiRequestError extends Error {
 }
 
 export async function register(input: RegisterInput): Promise<User> {
-  const response = await mutate<{ user: User }>("/api/v1/auth/register", "POST", input);
+  const response = await mutate<RegisterResponse>("/api/v1/auth/register", "POST", input);
   return response.user;
 }
 
@@ -63,7 +61,7 @@ export function currentUser(): Promise<User> {
 }
 
 export async function login(input: LoginInput): Promise<User> {
-  const response = await mutate<{ user: User }>("/api/v1/auth/login", "POST", input);
+  const response = await mutate<LoginResponse>("/api/v1/auth/login", "POST", input);
   return response.user;
 }
 
@@ -94,7 +92,7 @@ export function getPairingDetails(pairingId: string, code: string): Promise<Pair
 
 export function confirmPairing(
   pairingId: string,
-  input: { space_id: string; name: string; code: string },
+  input: ConfirmPairingInput,
 ): Promise<Computer> {
   return mutate<Computer>(
     `/api/v1/computer-pairings/${encodeURIComponent(pairingId)}/confirm`,
@@ -113,14 +111,7 @@ export function deleteComputer(computerId: string): Promise<Computer> {
 
 export function createAgent(
   spaceId: string,
-  input: {
-    computer_id: string;
-    name: string;
-    handle?: string;
-    role_text: string;
-    access_level: "member" | "admin";
-    driver_kind: "codex" | "builtin";
-  },
+  input: CreateAgentInput,
 ): Promise<Agent> {
   return mutate<Agent>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/agents`, "POST", input);
 }

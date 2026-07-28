@@ -83,14 +83,14 @@ pub async fn start(
     ))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ConfirmPairingRequest {
     pub space_id: Uuid,
     pub name: String,
     pub code: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ComputerResponse {
     pub id: Uuid,
     pub space_id: Uuid,
@@ -255,7 +255,7 @@ pub enum PairingResultResponse {
     Confirmed { computer_id: Uuid, space_id: Uuid },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PairingDetailsResponse {
     pub pairing_id: Uuid,
     pub hostname: String,

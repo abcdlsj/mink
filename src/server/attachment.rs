@@ -18,7 +18,7 @@ use super::{AppState, api_error::ApiError, auth, computer_auth, idempotency, mem
 
 const UPLOAD_PART_BYTES: usize = 8 * 1024 * 1024;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct AttachmentResponse {
     pub id: Uuid,
     pub space_id: Uuid,
@@ -66,7 +66,7 @@ impl From<AttachmentRow> for AttachmentResponse {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateUploadRequest {
     pub space_id: Uuid,
     pub original_name: String,
@@ -172,7 +172,7 @@ pub async fn upload_content(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CompleteUploadRequest {
     pub size: u64,
     pub sha256: String,

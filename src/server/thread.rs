@@ -15,12 +15,12 @@ use super::{
     message::{self, MessageResponse},
 };
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateThreadRequest {
     pub root_message_id: Uuid,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct ThreadResponse {
     pub channel_id: Uuid,
     pub thread_id: i64,
@@ -139,7 +139,7 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateThreadMessageRequest {
     pub body_markdown: String,
     #[serde(default)]
@@ -230,7 +230,7 @@ pub async fn reply(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ThreadReadResponse {
     pub channel_id: Uuid,
     pub thread_id: i64,
@@ -281,7 +281,7 @@ pub async fn read(
     }))
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ThreadSubscriptionResponse {
     pub channel_id: Uuid,
     pub thread_id: i64,

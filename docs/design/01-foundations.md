@@ -51,6 +51,7 @@ Sumi v1 必须支持以下流程：
 - WebUI 的实时 Server push 使用 SSE，所有写操作继续使用 HTTP。
 - Server、Computer daemon 和 Agent CLI 均使用 Rust，并编译为同一个 sumi 可执行文件。
 - sumi 以 server、computer 和 agent 三个一级子命令区分运行方式；不发布 sumi-server、sumi-daemon 等独立入口。
+- `sumi schema browser-openapi` 是开发期 schema 导出工具，不是运行方式；它必须从 Rust Browser API DTO 生成 OpenAPI，供 Web 类型生成与一致性检查使用。
 - v1 的 Server 和 Computer 运行平台只支持 macOS 与 Linux；暂不支持 Windows。
 
 ## 3. 本设计默认
@@ -114,6 +115,7 @@ WebUI 使用 React 19、TypeScript、Vite、TanStack Router 和 TanStack Query�
 - TanStack Router 负责 `/s/{space-slug}` 等类型安全路由，TanStack Query 负责 HTTP server state、失效和断线补偿；SSE event 只触发精确 cache update 或 invalidation，不成为第二事实来源。
 - Browser API 类型从 utoipa OpenAPI 生成；禁止长期维护一套手写、与 Rust 并行演化的 wire types。
 - OpenAPI 生成的 Web wire types 输出到 `web/src/api/types.ts`；`client.ts` 只负责传输和领域命名调用，不得重新定义 request/response interface。
+- 根目录必须提供 `mise run generate-api-types` 和 `mise run check-api-types`；后者在 Rust schema 或已提交生成文件不一致时失败。
 - 样式使用普通 CSS 和集中 design tokens，不引入重型组件库，以便精确实现本文件定义的 Neo-Brutalism、响应式和 accessibility 行为。
 - 单元与组件测试使用 Vitest、Testing Library 和 jsdom；最终端到端验收使用 Playwright。
 - Vite development server 将 `/api` 的 HTTP 与 WebSocket upgrade 一并代理到本机 `sumi server`；daemon 在开发环境可以使用浏览器显示的 5173 origin。production build 由 `sumi server` 同源提供，避免额外 CORS 信任面。

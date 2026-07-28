@@ -35,7 +35,7 @@
 
 ### 3. Browser API 类型生成
 
-- 状态：待开始
+- 状态：已完成
 - 使用 Rust API schema 生成 OpenAPI，再生成 `web/src/api/types.ts`。
 - `web/src/api/client.ts` 只保留传输 helper 和领域命名函数。
 - 增加可重复的生成命令和生成结果一致性检查。

@@ -89,13 +89,13 @@ impl ApiError {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorEnvelope {
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ErrorEnvelope {
     error: ErrorBody,
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ErrorBody {
     code: &'static str,
     message: String,
     details: Option<serde_json::Value>,

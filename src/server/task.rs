@@ -12,7 +12,7 @@ use super::{AppState, api_error::ApiError, audit, auth, idempotency, member, out
 
 const STATUSES: &[&str] = &["open", "in_progress", "done", "canceled"];
 
-#[derive(Clone, Debug, Deserialize, Serialize, FromRow)]
+#[derive(Clone, Debug, Deserialize, Serialize, FromRow, utoipa::ToSchema)]
 pub struct TaskResponse {
     pub id: Uuid,
     pub space_id: Uuid,
