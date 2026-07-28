@@ -64,15 +64,22 @@ export function SpaceShell({
   const authenticationRedirect = useRef(location.href);
   const queryClient = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const navigationPanel = useRef<HTMLElement>(null);
+  const railNavigationTrigger = useRef<HTMLButtonElement>(null);
   function closeNavigation() {
     setNavigationOpen(false);
-    window.requestAnimationFrame(() => navigationTrigger?.focus());
+    setNavigationCollapsed(true);
+    window.requestAnimationFrame(() => (navigationTrigger ?? railNavigationTrigger.current)?.focus());
+  }
+  function dismissNavigationDrawer() {
+    setNavigationOpen(false);
   }
   function openNavigation() {
     setNavigationTrigger(document.activeElement as HTMLElement);
+    setNavigationCollapsed(false);
     setNavigationOpen(true);
   }
   const space = useQuery({
@@ -156,10 +163,12 @@ export function SpaceShell({
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (event.key === "Escape") {
         setNavigationOpen(false);
+        setNavigationCollapsed(true);
         window.requestAnimationFrame(() => navigationTrigger?.focus());
         return;
       }
-      if (event.key !== "Tab" || !panel) return;
+      const drawerMode = window.matchMedia?.("(max-width: 1099px)").matches ?? false;
+      if (event.key !== "Tab" || !panel || !drawerMode) return;
       const focusable = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input, select, textarea')];
       if (!focusable.length) return;
       const first = focusable[0];
@@ -198,10 +207,16 @@ export function SpaceShell({
 
   return (
     <main
-      className="space-shell"
+      className={`space-shell${navigationCollapsed ? " space-shell--navigation-collapsed" : ""}`}
       style={{ "--space-accent": space.data.accent } as CSSProperties}
     >
-      <aside className="space-rail" aria-label="Space tools">
+      <aside
+        className="space-rail"
+        aria-label="Space tools"
+        onClick={(event) => {
+          if (!(event.target as HTMLElement).closest("a, button")) openNavigation();
+        }}
+      >
         <Link
           className="space-badge"
           to="/s/$spaceSlug"
@@ -243,7 +258,14 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/computers`}
           />
         </nav>
-        <div className="rail-spacer" />
+        <button
+          ref={railNavigationTrigger}
+          className="rail-spacer"
+          type="button"
+          aria-label="Open navigation"
+          title="Open navigation"
+          onClick={openNavigation}
+        />
         <PixelIdentity name={user.data.display_name} kind="human" seed={currentMember.id} />
       </aside>
 
@@ -260,7 +282,7 @@ export function SpaceShell({
         className={`space-navigation${navigationOpen ? " space-navigation--open" : ""}`}
         aria-label="Space navigation"
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest("a")) closeNavigation();
+          if ((event.target as HTMLElement).closest("a")) dismissNavigationDrawer();
         }}
       >
         <header className="space-name-row">

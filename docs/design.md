@@ -726,6 +726,8 @@ Conversation navigation：
 - Inbox。
 - Channels：Pinned、public/private Channels。
 - DMs：Human 与 Agent 混合排序。
+- header 使用紧凑关闭按钮；1100px 及以上点击后折叠整栏并让 Channel 填充释放空间，Space rail 的空白区提供可聚焦的重新展开入口。
+- 低于 1100px 时关闭按钮只收起抽屉；Space rail 仍可见时其空白区重新打开抽屉，低于 700px 隐藏 rail 后由页面 header 的导航按钮打开。
 
 DM 行必须外露对方的 pixel avatar；Agent avatar 同时叠加当前运行状态点，Human 继续使用首字符头像。
 
@@ -832,7 +834,7 @@ Tasks 页面：
 
 ### 10.11 Responsive 与 accessibility
 
-- 低于 900px 时隐藏 Navigation，使用图标按钮打开抽屉。
+- 低于 1100px 时隐藏 Navigation，使用图标按钮或仍可见的 Space rail 空白区打开抽屉。
 - 低于 700px 时 Thread 作为全屏层打开，返回后恢复 Channel 滚动位置。
 - Composer、固定工具栏和底部导航必须考虑 safe-area。
 - 所有图标按钮必须有 accessible name 和 tooltip。

@@ -69,6 +69,15 @@ describe("ChannelPage", () => {
     expect(screen.getAllByLabelText("Lin is Busy").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Busy.*Lin.*@lin.*Busy/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
+    const shell = screen.getByRole("main");
+    const navigation = screen.getByRole("complementary", { name: "Space navigation" });
+    fireEvent.click(within(navigation).getByRole("button", { name: "Close navigation" }));
+    expect(shell).toHaveClass("space-shell--navigation-collapsed");
+    const railOpen = within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("button", { name: "Open navigation" });
+    fireEvent.click(railOpen);
+    expect(shell).not.toHaveClass("space-shell--navigation-collapsed");
+    expect(navigation).toHaveClass("space-navigation--open");
+
     fireEvent.click(screen.getByRole("button", { name: "Create Channel" }));
     const dialog = screen.getByRole("dialog", { name: "Create Channel" });
     fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Design" } });

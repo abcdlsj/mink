@@ -484,7 +484,11 @@ h1 {
 }
 
 .rail-spacer {
+  width: 100%;
   flex: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .rail-tools {
@@ -4426,6 +4430,14 @@ h1 {
   .space-shell {
     grid-template-columns: 64px 294px minmax(0, 1fr);
   }
+
+  .space-shell--navigation-collapsed {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .space-shell--navigation-collapsed .space-navigation {
+    display: none;
+  }
 }
 
 .space-rail {
@@ -4487,7 +4499,17 @@ h1 {
 }
 
 .navigation-close {
-  display: none;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+  border-width: 1px;
+  box-shadow: none;
+}
+
+.navigation-close svg {
+  width: 14px;
+  height: 14px;
 }
 
 .space-name-row h2 {
@@ -4731,6 +4753,10 @@ h1 {
 @media (max-height: 600px) and (min-width: 700px) {
   .space-shell {
     grid-template-columns: 50px 294px minmax(0, 1fr);
+  }
+
+  .space-shell--navigation-collapsed {
+    grid-template-columns: 50px minmax(0, 1fr);
   }
 
   .rail-tool,
