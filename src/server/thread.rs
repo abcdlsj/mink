@@ -617,7 +617,8 @@ pub(super) async fn insert_thread_attention(
          WHERE subscriptions.channel_id = $1 AND subscriptions.thread_id = $2 \
            AND subscriptions.muted_at IS NULL AND subscriptions.member_id <> $3 \
            AND NOT (subscriptions.member_id = ANY($4)) \
-           AND (agents.member_id IS NULL OR (agents.status IN ('active', 'suspended') \
+           AND (agents.member_id IS NULL OR (agents.desired_lifecycle IN ('active', 'suspended') \
+             AND agents.provision_status = 'ready' \
              AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false)))",
     )
     .bind(channel_id)

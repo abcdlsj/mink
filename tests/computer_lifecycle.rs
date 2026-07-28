@@ -317,9 +317,10 @@ async fn seed_agent_history(
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO agents (member_id, space_id, computer_id, role_text, status, driver_kind, \
+        "INSERT INTO agents (member_id, space_id, computer_id, role_text, desired_lifecycle, \
+         provision_status, driver_kind, \
          driver_config_json, attention_config_json, created_by_member_id, created_at, updated_at) \
-         VALUES ($1, $2, $3, 'Preserve history during Computer deletion', 'active', 'codex', \
+         VALUES ($1, $2, $3, 'Preserve history during Computer deletion', 'active', 'ready', 'codex', \
          '{}'::jsonb, '{}'::jsonb, $4, now(), now())",
     )
     .bind(agent_id)
@@ -446,7 +447,7 @@ async fn assert_deleted_server_state(
             .await?;
     ensure!(computer.0 == "revoked" && computer.1.is_some());
     let agent: (String, Option<time::OffsetDateTime>) =
-        sqlx::query_as("SELECT status, retired_at FROM agents WHERE member_id = $1")
+        sqlx::query_as("SELECT desired_lifecycle, retired_at FROM agents WHERE member_id = $1")
             .bind(agent_id)
             .fetch_one(pool)
             .await?;
@@ -472,11 +473,12 @@ async fn assert_agent_history_retained(
     agent_id: Uuid,
     original_computer_id: Uuid,
 ) -> Result<()> {
-    let agent: (Uuid, String, Option<time::OffsetDateTime>) =
-        sqlx::query_as("SELECT computer_id, status, retired_at FROM agents WHERE member_id = $1")
-            .bind(agent_id)
-            .fetch_one(pool)
-            .await?;
+    let agent: (Uuid, String, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT computer_id, desired_lifecycle, retired_at FROM agents WHERE member_id = $1",
+    )
+    .bind(agent_id)
+    .fetch_one(pool)
+    .await?;
     ensure!(agent.0 == original_computer_id);
     ensure!(agent.1 == "retired" && agent.2.is_some());
     let pairing_count: i64 = sqlx::query_scalar(

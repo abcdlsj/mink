@@ -292,7 +292,8 @@ async fn restart_recovers_runs_and_received_provision_commands() {
     let profile: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(home.join("profile.json")).await.unwrap()).unwrap();
     assert_eq!(profile["agent_id"], agent_id.to_string());
-    assert_eq!(profile["status"], "active");
+    assert_eq!(profile["desired_lifecycle"], "active");
+    assert_eq!(profile["provision_status"], "ready");
     assert!(profile.get("token").is_none());
     assert_eq!(
         tokio::fs::read_to_string(home.join("memory/MEMORY.md"))
@@ -613,7 +614,8 @@ async fn hanging_claim_does_not_block_websocket_results_or_heartbeat() {
     async fn list_agents(agent_id: Uuid) -> axum::Json<serde_json::Value> {
         axum::Json(serde_json::json!([{
             "member_id": agent_id,
-            "status": "active"
+            "desired_lifecycle": "active",
+            "provision_status": "ready"
         }]))
     }
 
@@ -866,7 +868,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
         .join("profile.json");
     let suspended: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(&profile_path).await.unwrap()).unwrap();
-    assert_eq!(suspended["status"], "suspended");
+    assert_eq!(suspended["desired_lifecycle"], "suspended");
     assert_eq!(suspended["role_revision"], 2);
 
     execute_local_command(
@@ -879,7 +881,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
     .unwrap();
     let resumed: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(&profile_path).await.unwrap()).unwrap();
-    assert_eq!(resumed["status"], "active");
+    assert_eq!(resumed["desired_lifecycle"], "active");
 
     execute_local_command(
         &state,
@@ -891,7 +893,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
     .unwrap();
     let retired: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(profile_path).await.unwrap()).unwrap();
-    assert_eq!(retired["status"], "retired");
+    assert_eq!(retired["desired_lifecycle"], "retired");
 }
 
 #[tokio::test]

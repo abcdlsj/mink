@@ -276,7 +276,11 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(agent_created.status() == StatusCode::CREATED);
     let agent: AgentResponse = decode_json(agent_created).await?;
-    ensure!(agent.status == "provisioning" && agent.name == "Lin");
+    ensure!(
+        agent.desired_lifecycle == "active"
+            && agent.provision_status == "provisioning"
+            && agent.name == "Lin"
+    );
     let provision = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await?
         .context("Agent provision command missing")??;
@@ -310,12 +314,13 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     }
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let state: (String, Option<String>) =
-                sqlx::query_as("SELECT status, last_error_code FROM agents WHERE member_id = $1")
-                    .bind(agent.member_id)
-                    .fetch_one(&pool)
-                    .await
-                    .expect("Agent error query must succeed");
+            let state: (String, Option<String>) = sqlx::query_as(
+                "SELECT provision_status, last_error_code FROM agents WHERE member_id = $1",
+            )
+            .bind(agent.member_id)
+            .fetch_one(&pool)
+            .await
+            .expect("Agent error query must succeed");
             if state == ("error".to_owned(), Some("driver_unavailable".to_owned())) {
                 break;
             }
@@ -336,7 +341,11 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(retried.status() == StatusCode::OK);
     let retried: AgentResponse = decode_json(retried).await?;
-    ensure!(retried.status == "provisioning" && retried.last_error_code.is_none());
+    ensure!(
+        retried.desired_lifecycle == "active"
+            && retried.provision_status == "provisioning"
+            && retried.last_error_code.is_none()
+    );
     let provision = socket
         .next()
         .await
@@ -379,12 +388,12 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let provision_applied = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let status: String =
-                sqlx::query_scalar("SELECT status FROM agents WHERE member_id = $1")
+                sqlx::query_scalar("SELECT provision_status FROM agents WHERE member_id = $1")
                     .bind(agent.member_id)
                     .fetch_one(&pool)
                     .await
                     .expect("Agent status query must succeed");
-            if status == "active" {
+            if status == "ready" {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -398,7 +407,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 .fetch_one(&pool)
                 .await?;
         let agent_state: String =
-            sqlx::query_scalar("SELECT status FROM agents WHERE member_id = $1")
+            sqlx::query_scalar("SELECT provision_status FROM agents WHERE member_id = $1")
                 .bind(agent.member_id)
                 .fetch_one(&pool)
                 .await?;
@@ -408,7 +417,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         );
     }
     let agent_invariants: (String, String, i64) = sqlx::query_as(
-        "SELECT agents.status, members.kind, \
+        "SELECT agents.provision_status, members.kind, \
          (SELECT count(*) FROM channel_members cm JOIN channels c ON c.id = cm.channel_id \
           WHERE cm.member_id = agents.member_id AND c.slug = 'general') \
          FROM agents JOIN members ON members.id = agents.member_id WHERE agents.member_id = $1",
@@ -416,7 +425,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .bind(agent.member_id)
     .fetch_one(&pool)
     .await?;
-    ensure!(agent_invariants == ("active".to_owned(), "agent".to_owned(), 1));
+    ensure!(agent_invariants == ("ready".to_owned(), "agent".to_owned(), 1));
 
     let agent_detail = app
         .clone()
@@ -553,7 +562,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(suspended.status() == StatusCode::OK);
     let suspended: AgentResponse = decode_json(suspended).await?;
-    ensure!(suspended.status == "suspended");
+    ensure!(suspended.desired_lifecycle == "suspended");
     let suspend = socket
         .next()
         .await
@@ -587,7 +596,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(resumed.status() == StatusCode::OK);
     let resumed: AgentResponse = decode_json(resumed).await?;
-    ensure!(resumed.status == "active");
+    ensure!(resumed.desired_lifecycle == "active");
     let resume = socket
         .next()
         .await
@@ -609,7 +618,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let lifecycle_state: (String, i64, i64) = sqlx::query_as(
-        "SELECT status, role_revision, \
+        "SELECT desired_lifecycle, role_revision, \
          (SELECT count(*) FROM audit_events WHERE subject_id = agents.member_id \
           AND action IN ('agent.configured', 'agent.suspended', 'agent.resumed')) \
          FROM agents WHERE member_id = $1",
@@ -682,7 +691,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         )
         .await?;
     let busy_agent: AgentResponse = decode_json(busy_agent).await?;
-    ensure!(busy_agent.activity_status == "busy");
+    ensure!(busy_agent.activity_status == "queued");
     let run_command = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
         .await?
         .context("Agent run command missing")??;
@@ -1322,7 +1331,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
           AND display_name = 'Provisioned Child'), \
          (SELECT count(*) FROM agents JOIN members ON members.id = agents.member_id \
           WHERE agents.space_id = $1 AND members.display_name = 'Provisioned Child' \
-            AND agents.status = 'provisioning'), \
+            AND agents.provision_status = 'provisioning'), \
          (SELECT count(*) FROM computer_commands WHERE computer_id = $2 \
           AND kind = 'agent.provision' AND payload_json->>'name' = 'Provisioned Child'), \
          (SELECT count(*) FROM inbox_items WHERE approval_id = $3 AND status = 'handled')",
@@ -2872,7 +2881,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(retired.status() == StatusCode::OK);
     let retired: AgentResponse = decode_json(retired).await?;
-    ensure!(retired.status == "retired" && retired.retired_at.is_some());
+    ensure!(retired.desired_lifecycle == "retired" && retired.retired_at.is_some());
     let retire_command = socket
         .next()
         .await

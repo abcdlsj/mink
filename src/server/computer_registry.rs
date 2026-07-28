@@ -103,8 +103,8 @@ pub async fn delete_computer(
     .await
     .map_err(ApiError::database)?;
     let retired_agents: Vec<Uuid> = sqlx::query_scalar(
-        "UPDATE agents SET status = 'retired', retired_at = COALESCE(retired_at, $2), \
-         updated_at = $2 WHERE computer_id = $1 AND status != 'retired' RETURNING member_id",
+        "UPDATE agents SET desired_lifecycle = 'retired', retired_at = COALESCE(retired_at, $2), \
+         updated_at = $2 WHERE computer_id = $1 AND desired_lifecycle != 'retired' RETURNING member_id",
     )
     .bind(computer_id)
     .bind(now)
@@ -133,7 +133,11 @@ pub async fn delete_computer(
             &mut transaction,
             "agent.status_changed",
             agent_id,
-            serde_json::json!({ "space_id": row.1, "agent_member_id": agent_id, "status": "retired" }),
+            serde_json::json!({
+                "space_id": row.1,
+                "agent_member_id": agent_id,
+                "desired_lifecycle": "retired"
+            }),
             now,
         )
         .await?;
@@ -167,7 +171,8 @@ pub async fn connect(
 #[derive(Serialize)]
 pub struct HostedAgentResponse {
     member_id: Uuid,
-    status: String,
+    desired_lifecycle: String,
+    provision_status: String,
 }
 
 pub async fn list_hosted_agents(
@@ -176,8 +181,9 @@ pub async fn list_hosted_agents(
     Path(computer_id): Path<Uuid>,
 ) -> Result<Json<Vec<HostedAgentResponse>>, ApiError> {
     super::computer_auth::require_computer(&state, &headers, computer_id).await?;
-    let agents: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT member_id, status FROM agents WHERE computer_id = $1 AND status != 'retired' \
+    let agents: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT member_id, desired_lifecycle, provision_status FROM agents \
+         WHERE computer_id = $1 AND desired_lifecycle != 'retired' \
          ORDER BY created_at",
     )
     .bind(computer_id)
@@ -187,7 +193,13 @@ pub async fn list_hosted_agents(
     Ok(Json(
         agents
             .into_iter()
-            .map(|(member_id, status)| HostedAgentResponse { member_id, status })
+            .map(
+                |(member_id, desired_lifecycle, provision_status)| HostedAgentResponse {
+                    member_id,
+                    desired_lifecycle,
+                    provision_status,
+                },
+            )
             .collect(),
     ))
 }
@@ -283,7 +295,9 @@ pub async fn claim_agent_inbox(
         "SELECT agents.space_id, agents.role_revision, agents.driver_kind, agents.role_text, \
                 members.display_name, members.handle \
          FROM agents JOIN members ON members.id = agents.member_id \
-         WHERE agents.member_id = $1 AND agents.computer_id = $2 AND agents.status = 'active' FOR UPDATE OF agents",
+         WHERE agents.member_id = $1 AND agents.computer_id = $2 \
+           AND agents.desired_lifecycle = 'active' AND agents.provision_status = 'ready' \
+         FOR UPDATE OF agents",
     )
     .bind(agent_id)
     .bind(computer_id)
@@ -1023,33 +1037,22 @@ async fn apply_command_result(
     else {
         return Err(ApiError::Internal);
     };
-    let successful_status = match kind.as_str() {
-        "agent.provision" => Some("active"),
-        "agent.suspend" => Some("suspended"),
-        "agent.resume" => Some("active"),
-        "agent.retire" => Some("retired"),
-        "agent.configure" | "agent.run" | "agent.cancel" => None,
-        _ => None,
-    };
-    let new_status = if kind == "agent.retire" {
-        Some("retired")
-    } else if ok {
-        successful_status
-    } else if matches!(
+    let updates_provision = matches!(
         kind.as_str(),
         "agent.provision" | "agent.configure" | "agent.suspend" | "agent.resume" | "agent.retire"
-    ) {
-        Some("error")
+    );
+    let new_provision_status = updates_provision.then_some(if ok || kind == "agent.retire" {
+        "ready"
     } else {
-        None
-    };
-    let space_id: Option<Uuid> = if let Some(new_status) = new_status {
+        "error"
+    });
+    let space_id: Option<Uuid> = if let Some(new_provision_status) = new_provision_status {
         sqlx::query_scalar(
-            "UPDATE agents SET status = $2, updated_at = now(), last_error_code = $4 \
+            "UPDATE agents SET provision_status = $2, updated_at = now(), last_error_code = $4 \
              WHERE member_id = $1 AND computer_id = $3 RETURNING space_id",
         )
         .bind(agent_id)
-        .bind(new_status)
+        .bind(new_provision_status)
         .bind(computer_id)
         .bind(if ok || kind == "agent.retire" {
             None
@@ -1068,14 +1071,21 @@ async fn apply_command_result(
             .map_err(ApiError::database)?
     };
     if let Some(space_id) = space_id {
-        if let Some(new_status) = new_status {
+        if let Some(new_provision_status) = new_provision_status {
+            let desired_lifecycle: String =
+                sqlx::query_scalar("SELECT desired_lifecycle FROM agents WHERE member_id = $1")
+                    .bind(agent_id)
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(ApiError::database)?;
             super::outbox::publish(
                 &mut transaction,
                 "agent.status_changed",
                 agent_id,
                 serde_json::json!({
                     "space_id": space_id, "agent_member_id": agent_id,
-                    "status": new_status,
+                    "desired_lifecycle": desired_lifecycle,
+                    "provision_status": new_provision_status,
                     "error_code": if ok { None } else { result.get("error_code") },
                 }),
                 OffsetDateTime::now_utc(),
@@ -1407,7 +1417,7 @@ pub(super) async fn reconcile_expired_run_ownership(
     let expired: Vec<(Uuid, Uuid, Uuid, Uuid)> = sqlx::query_as(
         "SELECT runs.id, runs.agent_member_id, runs.computer_id, agents.space_id \
          FROM agent_runs runs JOIN agents ON agents.member_id = runs.agent_member_id \
-         WHERE runs.status IN ('queued', 'running') \
+         WHERE runs.status IN ('queued', 'starting', 'running', 'stopping') \
            AND runs.ownership_lease_expires_at <= now() \
          ORDER BY runs.ownership_lease_expires_at, runs.id \
          FOR UPDATE OF runs SKIP LOCKED",
@@ -1420,7 +1430,7 @@ pub(super) async fn reconcile_expired_run_ownership(
         let updated = sqlx::query(
             "UPDATE agent_runs SET status = 'failed', finished_at = now(), \
                     error_code = 'ownership_lease_expired', fencing_token = NULL \
-             WHERE id = $1 AND status IN ('queued', 'running') \
+             WHERE id = $1 AND status IN ('queued', 'starting', 'running', 'stopping') \
                AND ownership_lease_expires_at <= now()",
         )
         .bind(run_id)

@@ -50,6 +50,15 @@ pub struct PendingApprovalResponse {
     pub status: String,
 }
 
+#[derive(FromRow)]
+struct ApprovalRequester {
+    space_id: Uuid,
+    access_level: String,
+    member_kind: String,
+    desired_lifecycle: Option<String>,
+    provision_status: Option<String>,
+}
+
 const APPROVAL_SELECT: &str = "SELECT approvals.id, approvals.space_id, approvals.type, approvals.requested_by_member_id, \
      requesters.display_name AS requester_name, approvals.payload_json AS payload, \
      approvals.status, approvals.resolved_by_member_id, approvals.created_at, approvals.resolved_at \
@@ -116,8 +125,9 @@ async fn request_agent_create_for_member(
     };
     let request_hash = idempotency::request_hash(&payload)?;
     let mut transaction = database.begin().await.map_err(ApiError::database)?;
-    let requester: Option<(Uuid, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT members.space_id, members.access_level, members.kind, agents.status \
+    let requester: Option<ApprovalRequester> = sqlx::query_as(
+        "SELECT members.space_id, members.access_level, members.kind AS member_kind, \
+                agents.desired_lifecycle, agents.provision_status \
          FROM members LEFT JOIN agents ON agents.member_id = members.id \
          WHERE members.id = $1 AND members.retired_at IS NULL FOR UPDATE OF members",
     )
@@ -125,17 +135,19 @@ async fn request_agent_create_for_member(
     .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    let (space_id, access_level, member_kind, agent_status) = requester
+    let requester = requester
         .ok_or_else(|| ApiError::forbidden("permission_denied", "Current Member is not active"))?;
-    if member_kind != requester_kind
-        || (requester_kind == "agent" && agent_status.as_deref() != Some("active"))
+    if requester.member_kind != requester_kind
+        || (requester_kind == "agent"
+            && (requester.desired_lifecycle.as_deref() != Some("active")
+                || requester.provision_status.as_deref() != Some("ready")))
     {
         return Err(ApiError::forbidden(
             "permission_denied",
             format!("Current {requester_kind} is not active"),
         ));
     }
-    let allowed = matches!(access_level.as_str(), "owner" | "admin")
+    let allowed = matches!(requester.access_level.as_str(), "owner" | "admin")
         || sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM member_permissions \
              WHERE member_id = $1 AND permission = 'agent:create')",
@@ -162,6 +174,7 @@ async fn request_agent_create_for_member(
     // Creating an Approval is intentionally independent from Computer
     // availability. The target may go offline while a Human reviews the
     // request; only the approval decision may enqueue provisioning.
+    let space_id = requester.space_id;
     require_computer(&mut transaction, payload.computer_id, space_id).await?;
     let approval_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();

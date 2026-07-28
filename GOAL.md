@@ -33,7 +33,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 - [x] 增加 `run_started`。command ACK 不再把 queued Run 改成 running。
 - [x] 增加 Run ownership lease、fencing token 和 Server reconciler。过期 Run 释放 Inbox 和 active Run 唯一约束。
 - [x] 将 WebSocket、result sender、attention scheduler、lease renewer 和 heartbeat 拆成独立 task。
-- [ ] 分开 Agent desired lifecycle 与 Run observed execution。
+- [x] 分开 Agent desired lifecycle 与 Run observed execution。
 - [ ] 完成 SIGTERM、SIGKILL、reap 和 orphaned 状态处理。
 - [ ] 通过该设计文档列出的 12 个故障注入测试。
 
@@ -67,7 +67,7 @@ pnpm --dir web build
 
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
-- `cargo test --all-features`：通过；67 个单元测试、21 个进程和数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `cargo test --all-features`：通过；68 个单元测试、21 个进程和数据库集成测试通过，1 个手动 provider smoke test 忽略。
 
 ## 完成条件
 

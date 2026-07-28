@@ -47,8 +47,10 @@ CREATE TABLE agents (
     computer_id UUID NOT NULL,
     role_text TEXT NOT NULL CHECK (char_length(role_text) BETWEEN 1 AND 12000),
     role_revision BIGINT NOT NULL DEFAULT 1 CHECK (role_revision > 0),
-    status TEXT NOT NULL DEFAULT 'provisioning'
-        CHECK (status IN ('provisioning', 'active', 'suspended', 'error', 'retired')),
+    desired_lifecycle TEXT NOT NULL DEFAULT 'active'
+        CHECK (desired_lifecycle IN ('active', 'suspended', 'retired')),
+    provision_status TEXT NOT NULL DEFAULT 'provisioning'
+        CHECK (provision_status IN ('provisioning', 'ready', 'error')),
     driver_kind TEXT NOT NULL CHECK (driver_kind IN ('codex', 'builtin')),
     driver_config_json JSONB NOT NULL,
     attention_config_json JSONB NOT NULL,
@@ -61,7 +63,8 @@ CREATE TABLE agents (
     FOREIGN KEY (created_by_member_id, space_id) REFERENCES members(id, space_id)
 );
 
-CREATE INDEX agents_computer_status_idx ON agents (computer_id, status, created_at);
+CREATE INDEX agents_computer_lifecycle_idx
+    ON agents (computer_id, desired_lifecycle, provision_status, created_at);
 
 CREATE TABLE computer_commands (
     id UUID PRIMARY KEY,

@@ -570,7 +570,8 @@ pub(super) async fn insert_channel_ambient_inbox(
                 (agents.attention_config_json->>'ambient_debounce_seconds')::bigint \
          FROM agents JOIN channel_members ON channel_members.member_id = agents.member_id \
          WHERE channel_members.channel_id = $1 AND agents.member_id <> $2 \
-           AND agents.status IN ('active', 'suspended') \
+           AND agents.desired_lifecycle IN ('active', 'suspended') \
+           AND agents.provision_status = 'ready' \
            AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false) \
            AND NOT (agents.member_id = ANY($3))",
     )

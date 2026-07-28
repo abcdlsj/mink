@@ -77,7 +77,8 @@ pub(super) async fn require_active_run(
          WHERE agent_runs.id = $1 AND agent_runs.agent_member_id = $2 \
            AND agent_runs.computer_id = $3 AND agent_runs.status = 'running' \
            AND agent_runs.fencing_token = $4 AND agent_runs.ownership_lease_expires_at > now() \
-           AND agents.status IN ('active', 'suspended') AND members.retired_at IS NULL",
+           AND agents.desired_lifecycle IN ('active', 'suspended') \
+           AND agents.provision_status = 'ready' AND members.retired_at IS NULL",
     )
     .bind(run_id)
     .bind(agent_id)

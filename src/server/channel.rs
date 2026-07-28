@@ -768,7 +768,8 @@ pub(super) async fn change_member_for_agent_admin(
              JOIN members ON members.id = own.member_id \
              JOIN agents ON agents.member_id = members.id \
              WHERE channels.slug = $1 AND own.member_id = $2 \
-               AND members.retired_at IS NULL AND agents.status = 'active' FOR UPDATE OF channels",
+               AND members.retired_at IS NULL AND agents.desired_lifecycle = 'active' \
+               AND agents.provision_status = 'ready' FOR UPDATE OF channels",
         )
         .bind(slug)
         .bind(agent_id)
@@ -909,7 +910,8 @@ pub(super) async fn archive_for_agent_admin(
          JOIN members ON members.id = own.member_id \
          JOIN agents ON agents.member_id = members.id \
          WHERE channels.slug = $1 AND own.member_id = $2 \
-           AND members.retired_at IS NULL AND agents.status = 'active' FOR UPDATE OF channels",
+           AND members.retired_at IS NULL AND agents.desired_lifecycle = 'active' \
+           AND agents.provision_status = 'ready' FOR UPDATE OF channels",
         )
         .bind(slug)
         .bind(agent_id)

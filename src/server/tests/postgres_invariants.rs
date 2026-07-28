@@ -383,9 +383,10 @@ async fn seed_agent(
     .execute(pool)
     .await?;
     sqlx::query(
-        "INSERT INTO agents (member_id, space_id, computer_id, role_text, status, driver_kind, \
+        "INSERT INTO agents (member_id, space_id, computer_id, role_text, desired_lifecycle, \
+         provision_status, driver_kind, \
          driver_config_json, attention_config_json, created_by_member_id, created_at, updated_at) \
-         VALUES ($1, $2, $3, 'Verify invariants.', 'active', 'builtin', '{}', \
+         VALUES ($1, $2, $3, 'Verify invariants.', 'active', 'ready', 'builtin', '{}', \
          '{\"max_retry_count\":3}', $4, $5, $5)",
     )
     .bind(agent_id)

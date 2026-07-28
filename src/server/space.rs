@@ -277,7 +277,8 @@ pub(super) async fn update_for_agent_admin(
         "SELECT members.space_id, members.access_level FROM members \
          JOIN agents ON agents.member_id = members.id WHERE members.id = $1 \
            AND members.kind = 'agent' AND members.retired_at IS NULL \
-           AND agents.status = 'active' FOR UPDATE OF members",
+           AND agents.desired_lifecycle = 'active' AND agents.provision_status = 'ready' \
+           FOR UPDATE OF members",
     )
     .bind(agent_id)
     .fetch_optional(&mut *transaction)

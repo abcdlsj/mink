@@ -209,7 +209,7 @@ function ComputerDetail({
   onCreate: () => void;
   onDelete: () => void;
 }) {
-  const busyAgents = agents.filter((agent) => agent.activity_status === "busy").length;
+  const busyAgents = agents.filter((agent) => ["queued", "starting", "running", "stopping", "unreachable"].includes(agent.activity_status)).length;
   return (
     <article className="computer-detail">
       <header className="entity-detail-header">
@@ -247,7 +247,7 @@ function ComputerDetail({
           <Link key={agent.member_id} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
             <span><strong>{agent.name}</strong><small>{agent.driver_kind} Driver</small></span>
-            <span className={`agent-state agent-state--${agent.status}`}><i />{agent.status}</span>
+            <span className={`agent-state agent-state--${agent.activity_status}`}><i />{agent.activity_status}</span>
           </Link>
         ))}</div> : <p className="section-empty">No Agents are hosted on this Computer.</p>}
       </section>
@@ -301,7 +301,7 @@ function DeleteDialog({ computer, agents, pending, error, close, confirm }: { co
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
         <p>The daemon will exit and its Computer Token can never reconnect. A fresh pairing creates a new Computer identity; retired Agents are not restored.</p>
         <h3>Affected Agents ({agents.length})</h3>
-        {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={agent.status} /></li>)}</ul> : <p>No hosted Agents.</p>}
+        {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={`${agent.desired_lifecycle} · ${agent.provision_status}`} /></li>)}</ul> : <p>No hosted Agents.</p>}
         {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || !acknowledged} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>

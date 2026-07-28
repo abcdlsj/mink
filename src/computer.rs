@@ -63,7 +63,8 @@ struct PairingStartResponse {
 #[derive(Deserialize)]
 struct HostedAgent {
     member_id: Uuid,
-    status: String,
+    desired_lifecycle: String,
+    provision_status: String,
 }
 
 #[derive(Deserialize)]
@@ -1022,7 +1023,10 @@ async fn poll_agent_inbox(
         .error_for_status()?
         .json()
         .await?;
-    for agent in agents.into_iter().filter(|agent| agent.status == "active") {
+    for agent in agents
+        .into_iter()
+        .filter(|agent| agent.desired_lifecycle == "active" && agent.provision_status == "ready")
+    {
         let claim: AgentClaimResponse = client
             .post(server.join(&format!(
                 "/api/v1/computers/{computer_id}/agents/{}/inbox/claim",
@@ -1397,16 +1401,20 @@ async fn execute_local_command(
             profile.insert(field.to_owned(), value.clone());
         }
     }
-    let status = match kind {
+    let desired_lifecycle = match kind {
         "agent.provision" | "agent.resume" => "active",
         "agent.suspend" => "suspended",
         "agent.retire" => "retired",
         _ => profile
-            .get("status")
+            .get("desired_lifecycle")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("active"),
     };
-    profile.insert("status".to_owned(), serde_json::json!(status));
+    profile.insert(
+        "desired_lifecycle".to_owned(),
+        serde_json::json!(desired_lifecycle),
+    );
+    profile.insert("provision_status".to_owned(), serde_json::json!("ready"));
     write_restricted_file_atomic(&profile_path, &serde_json::to_vec_pretty(&profile)?).await?;
     let memory = home.join("memory/MEMORY.md");
     if !memory.exists() {

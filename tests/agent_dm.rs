@@ -842,7 +842,7 @@ async fn governance_chat_stream(
             )
         }
         5 if latest_tool_result(&request)
-            .is_some_and(|result| result["data"]["status"] == "suspended") =>
+            .is_some_and(|result| result["data"]["desired_lifecycle"] == "suspended") =>
         {
             tool_call_stream(
                 "governance-resume",
@@ -850,7 +850,7 @@ async fn governance_chat_stream(
             )
         }
         6 if latest_tool_result(&request)
-            .is_some_and(|result| result["data"]["status"] == "active") =>
+            .is_some_and(|result| result["data"]["desired_lifecycle"] == "active") =>
         {
             tool_call_stream(
                 "governance-audit",
@@ -2277,7 +2277,8 @@ async fn builtin_agent_create_requires_human_approval_and_provisions_through_rea
                 AND resolved_by_member_id = $2), \
             (SELECT count(*) FROM inbox_items WHERE approval_id = $1 \
                 AND status = 'handled'), \
-            (SELECT count(*) FROM agents WHERE member_id = $3 AND status = 'active'), \
+            (SELECT count(*) FROM agents WHERE member_id = $3 \
+                AND desired_lifecycle = 'active' AND provision_status = 'ready'), \
             (SELECT count(*) FROM computer_commands WHERE computer_id = $4 \
                 AND kind = 'agent.provision' AND payload_json->>'agent_id' = $3::text \
                 AND status = 'completed'), \
@@ -2680,7 +2681,7 @@ async fn builtin_agent_admin_executes_governance_and_respects_human_private_boun
     wait_for_mention_run(&harness.pool, inbox_item_id, "handled", 1).await?;
 
     let state: (String, String, String, i64, bool, bool, i64, i64, i64) = sqlx::query_as(
-        "SELECT spaces.name, spaces.accent, agents.status, \
+        "SELECT spaces.name, spaces.accent, agents.desired_lifecycle, \
             (SELECT count(*) FROM channel_members WHERE channel_id = $3 AND member_id = $4), \
             (SELECT archived_at IS NOT NULL FROM channels WHERE id = $3), \
             (SELECT archived_at IS NULL FROM channels WHERE id = $5), \
@@ -3656,11 +3657,11 @@ async fn wait_for_agent_active(pool: &sqlx::PgPool, agent_id: Uuid) -> Result<()
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let status: String =
-                sqlx::query_scalar("SELECT status FROM agents WHERE member_id = $1")
+                sqlx::query_scalar("SELECT provision_status FROM agents WHERE member_id = $1")
                     .bind(agent_id)
                     .fetch_one(pool)
                     .await?;
-            if status == "active" {
+            if status == "ready" {
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

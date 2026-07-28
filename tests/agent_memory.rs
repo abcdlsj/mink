@@ -201,11 +201,17 @@ async fn wait_for_agent_status(pool: &sqlx::PgPool, agent_id: Uuid, expected: &s
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM agents WHERE member_id = $1")
+                sqlx::query_scalar("SELECT provision_status FROM agents WHERE member_id = $1")
                     .bind(agent_id)
                     .fetch_optional(pool)
                     .await?;
-            if status.as_deref() == Some(expected) {
+            if status.as_deref()
+                == Some(if expected == "active" {
+                    "ready"
+                } else {
+                    expected
+                })
+            {
                 return Ok::<_, sqlx::Error>(());
             }
             tokio::time::sleep(Duration::from_millis(50)).await;

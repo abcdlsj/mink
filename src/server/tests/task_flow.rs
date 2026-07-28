@@ -43,9 +43,10 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     ).bind(computer_id).bind(space_id).bind(vec![7_u8; 32]).bind(now).execute(&mut *tx).await?;
     for id in [agent_a, agent_b, hidden_agent] {
         sqlx::query(
-            "INSERT INTO agents (member_id, space_id, computer_id, role_text, status, driver_kind, \
+            "INSERT INTO agents (member_id, space_id, computer_id, role_text, desired_lifecycle, \
+             provision_status, driver_kind, \
              driver_config_json, attention_config_json, created_by_member_id, created_at, updated_at) \
-             VALUES ($1, $2, $3, 'Handle Tasks', 'active', 'builtin', '{}', \
+             VALUES ($1, $2, $3, 'Handle Tasks', 'active', 'ready', 'builtin', '{}', \
              '{\"ambient_enabled\":false}', $4, $5, $5)",
         ).bind(id).bind(space_id).bind(computer_id).bind(owner_id).bind(now).execute(&mut *tx).await?;
     }

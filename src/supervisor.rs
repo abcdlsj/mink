@@ -626,8 +626,15 @@ impl Supervisor {
         .await?;
         let profile: serde_json::Value = serde_json::from_slice(&profile)?;
         ensure!(
-            profile.get("status").and_then(serde_json::Value::as_str) == Some("active"),
-            "Agent is not active"
+            profile
+                .get("desired_lifecycle")
+                .and_then(serde_json::Value::as_str)
+                == Some("active")
+                && profile
+                    .get("provision_status")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("ready"),
+            "Agent is not active and ready"
         );
         Ok(())
     }
@@ -904,7 +911,11 @@ mod tests {
             for relative in ["workspace", "memory", "runs", "drivers/codex"] {
                 std::fs::create_dir_all(home.join(relative)).unwrap();
             }
-            std::fs::write(home.join("profile.json"), r#"{"status":"active"}"#).unwrap();
+            std::fs::write(
+                home.join("profile.json"),
+                r#"{"desired_lifecycle":"active","provision_status":"ready"}"#,
+            )
+            .unwrap();
         }
         std::fs::write(state.join("daemon.sock"), "").unwrap();
         let database = database::connect_sqlite(&state.join("daemon.db"))

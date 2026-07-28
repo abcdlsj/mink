@@ -345,7 +345,7 @@ async function ensureAgents(cookie, spaceId, computerId) {
       log(`created @${profile.handle}`);
       continue;
     }
-    if (agent.status === "retired") throw new Error(`seed Agent @${profile.handle} is retired`);
+    if (agent.desired_lifecycle === "retired") throw new Error(`seed Agent @${profile.handle} is retired`);
     if (agent.computer_id !== computerId) {
       throw new Error(`seed Agent @${profile.handle} belongs to another Computer`);
     }

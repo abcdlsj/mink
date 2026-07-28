@@ -488,7 +488,8 @@ async fn validate_assignee(
         "SELECT EXISTS(SELECT 1 FROM agents JOIN members ON members.id = agents.member_id \
          JOIN channel_members ON channel_members.member_id = agents.member_id \
          WHERE agents.member_id = $1 AND members.space_id = $2 AND channel_members.channel_id = $3 \
-           AND agents.status = 'active' AND members.retired_at IS NULL)",
+           AND agents.desired_lifecycle = 'active' AND agents.provision_status = 'ready' \
+           AND members.retired_at IS NULL)",
     )
     .bind(assignee_id)
     .bind(space_id)

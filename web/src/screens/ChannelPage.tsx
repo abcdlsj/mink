@@ -564,7 +564,7 @@ function SetupStrip({
 
   const hasComputer = Boolean(computers?.length);
   const hasOnlineComputer = Boolean(computers?.some((computer) => computer.status === "online"));
-  const hasAgent = Boolean(agents?.some((agent) => agent.status !== "retired"));
+  const hasAgent = Boolean(agents?.some((agent) => agent.desired_lifecycle !== "retired"));
   if (hasComputer && hasAgent) return null;
 
   return (
@@ -584,7 +584,7 @@ function SetupStrip({
         </li>
         <li className={hasAgent ? "is-complete" : ""}>
           <span className="setup-step-icon setup-step-icon--agent" aria-hidden="true">{hasAgent ? <Check /> : <Asterisk />}</span>
-          <span><strong>Create your first Agent</strong><small>{hasAgent ? `${agents?.filter((agent) => agent.status !== "retired").length} created` : hasOnlineComputer ? "Choose a Role and Driver" : "Requires an online Computer"}</small></span>
+          <span><strong>Create your first Agent</strong><small>{hasAgent ? `${agents?.filter((agent) => agent.desired_lifecycle !== "retired").length} created` : hasOnlineComputer ? "Choose a Role and Driver" : "Requires an online Computer"}</small></span>
           {!hasAgent && canCreateAgent && hasOnlineComputer ? (
             <Link className="setup-action" to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="create-agent">Create</Link>
           ) : null}

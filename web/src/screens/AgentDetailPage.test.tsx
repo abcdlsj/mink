@@ -20,7 +20,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("Agent detail", () => {
   it("edits Role and controls lifecycle while warning about local-only Memory", async () => {
-    let current = agent("active");
+    let current = agent("active", "ready");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/spaces/by-slug/")) return json(space);
@@ -35,8 +35,9 @@ describe("Agent detail", () => {
           ...current,
           role_text: body.role_text ?? current.role_text,
           role_revision: body.role_text ? current.role_revision + 1 : current.role_revision,
-          status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "provisioning" : current.status,
-          activity_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "offline" : current.activity_status,
+          desired_lifecycle: body.lifecycle?.action === "suspend" ? "suspended" : body.lifecycle?.action === "retry" ? "active" : current.desired_lifecycle,
+          provision_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "provisioning" : current.provision_status,
+          activity_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "idle" : current.activity_status,
           last_error_code: body.lifecycle?.action === "suspend" ? "driver_unavailable" : undefined,
         };
         return json(current);
@@ -51,7 +52,7 @@ describe("Agent detail", () => {
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getByRole("img", { name: "Lin avatar" })).toHaveAttribute("data-agent-identicon");
-    expect(screen.getByRole("status")).toHaveTextContent("Busy");
+    expect(screen.getByRole("status")).toHaveTextContent("Running");
     expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
@@ -80,7 +81,10 @@ describe("Agent detail", () => {
   });
 });
 
-function agent(status: "provisioning" | "active" | "suspended" | "error" | "retired") {
+function agent(
+  desiredLifecycle: "active" | "suspended" | "retired",
+  provisionStatus: "provisioning" | "ready" | "error",
+) {
   return {
     member_id: agentId,
     space_id: space.id,
@@ -90,8 +94,9 @@ function agent(status: "provisioning" | "active" | "suspended" | "error" | "reti
     access_level: "member",
     role_text: "Review boundaries.",
     role_revision: 1,
-    status,
-    activity_status: status === "error" ? "error" : status === "active" ? "busy" : "offline",
+    desired_lifecycle: desiredLifecycle,
+    provision_status: provisionStatus,
+    activity_status: provisionStatus === "error" ? "error" : desiredLifecycle === "active" ? "running" : "suspended",
     driver_kind: "codex",
     attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
     created_at: "2026-07-25T00:00:00Z",

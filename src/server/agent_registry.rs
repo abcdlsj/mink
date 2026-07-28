@@ -32,7 +32,8 @@ pub struct AgentResponse {
     pub access_level: String,
     pub role_text: String,
     pub role_revision: i64,
-    pub status: String,
+    pub desired_lifecycle: String,
+    pub provision_status: String,
     pub activity_status: String,
     pub driver_kind: String,
     pub attention_config: AttentionConfig,
@@ -110,9 +111,10 @@ struct AgentRow {
     access_level: String,
     role_text: String,
     role_revision: i64,
-    status: String,
+    desired_lifecycle: String,
+    provision_status: String,
     computer_status: String,
-    has_active_run: bool,
+    run_status: Option<String>,
     driver_kind: String,
     attention_config_json: serde_json::Value,
     driver_config_json: serde_json::Value,
@@ -207,7 +209,11 @@ pub async fn update(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(Json(response));
     }
-    authorize_transition(&current.status, request.lifecycle.as_ref())?;
+    authorize_transition(
+        &current.desired_lifecycle,
+        &current.provision_status,
+        request.lifecycle.as_ref(),
+    )?;
     let now = OffsetDateTime::now_utc();
     let next_role = request.role_text.as_deref().unwrap_or(&current.role_text);
     let role_changed = next_role != current.role_text;
@@ -219,23 +225,31 @@ pub async fn update(
         .attention_config
         .clone()
         .unwrap_or(current_attention);
-    let (next_status, retired_at) = match request.lifecycle.as_ref() {
-        Some(LifecycleAction::Suspend { .. }) => ("suspended", None),
-        Some(LifecycleAction::Resume) => ("active", None),
-        Some(LifecycleAction::Retry) => ("provisioning", None),
-        Some(LifecycleAction::Retire) => ("retired", Some(now)),
-        None => (current.status.as_str(), current.retired_at),
+    let (next_lifecycle, next_provision_status, retired_at) = match request.lifecycle.as_ref() {
+        Some(LifecycleAction::Suspend { .. }) => {
+            ("suspended", current.provision_status.as_str(), None)
+        }
+        Some(LifecycleAction::Resume) => ("active", current.provision_status.as_str(), None),
+        Some(LifecycleAction::Retry) => ("active", "provisioning", None),
+        Some(LifecycleAction::Retire) => ("retired", current.provision_status.as_str(), Some(now)),
+        None => (
+            current.desired_lifecycle.as_str(),
+            current.provision_status.as_str(),
+            current.retired_at,
+        ),
     };
     sqlx::query(
         "UPDATE agents SET role_text = $2, role_revision = $3, attention_config_json = $4, \
-         status = $5, updated_at = $6, retired_at = $7, last_error_code = NULL \
+         desired_lifecycle = $5, provision_status = $6, updated_at = $7, \
+         retired_at = $8, last_error_code = NULL \
          WHERE member_id = $1",
     )
     .bind(agent_id)
     .bind(next_role)
     .bind(next_revision)
     .bind(serde_json::to_value(&next_attention).map_err(|_| ApiError::Internal)?)
-    .bind(next_status)
+    .bind(next_lifecycle)
+    .bind(next_provision_status)
     .bind(now)
     .bind(retired_at)
     .execute(&mut *transaction)
@@ -296,8 +310,10 @@ pub async fn update(
                 "command_id": command_id,
                 "previous_role": role_summary(&current.role_text),
                 "next_role": role_summary(next_role),
-                "previous_status": current.status,
-                "next_status": next_status,
+                "previous_desired_lifecycle": current.desired_lifecycle,
+                "next_desired_lifecycle": next_lifecycle,
+                "previous_provision_status": current.provision_status,
+                "next_provision_status": next_provision_status,
             })),
             occurred_at: now,
         },
@@ -307,7 +323,8 @@ pub async fn update(
         &mut transaction,
         current.space_id,
         agent_id,
-        next_status,
+        next_lifecycle,
+        next_provision_status,
         now,
     )
     .await?;
@@ -437,7 +454,8 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         "SELECT members.space_id, members.access_level FROM members \
          JOIN agents ON agents.member_id = members.id WHERE members.id = $1 \
            AND members.kind = 'agent' AND members.retired_at IS NULL \
-           AND agents.status = 'active' FOR UPDATE OF members",
+           AND agents.desired_lifecycle = 'active' AND agents.provision_status = 'ready' \
+           FOR UPDATE OF members",
     )
     .bind(actor_agent_id)
     .fetch_optional(&mut *transaction)
@@ -456,7 +474,11 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         Some(mode) => LifecycleAction::Suspend { mode },
         None => LifecycleAction::Resume,
     };
-    authorize_transition(&current.status, Some(&lifecycle))?;
+    authorize_transition(
+        &current.desired_lifecycle,
+        &current.provision_status,
+        Some(&lifecycle),
+    )?;
     let request = serde_json::json!({
         "lifecycle": &lifecycle,
         "target_agent_id": target_agent_id,
@@ -470,18 +492,18 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    let (next_status, command_kind, action) = match lifecycle {
+    let (next_lifecycle, command_kind, action) = match lifecycle {
         LifecycleAction::Suspend { .. } => ("suspended", "agent.suspend", "agent.suspended"),
         LifecycleAction::Resume => ("active", "agent.resume", "agent.resumed"),
         _ => return Err(ApiError::Internal),
     };
     let now = OffsetDateTime::now_utc();
     sqlx::query(
-        "UPDATE agents SET status = $2, updated_at = $3, last_error_code = NULL \
+        "UPDATE agents SET desired_lifecycle = $2, updated_at = $3, last_error_code = NULL \
          WHERE member_id = $1",
     )
     .bind(target_agent_id)
-    .bind(next_status)
+    .bind(next_lifecycle)
     .bind(now)
     .execute(&mut *transaction)
     .await
@@ -528,7 +550,8 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         &mut transaction,
         current.space_id,
         target_agent_id,
-        next_status,
+        next_lifecycle,
+        &current.provision_status,
         now,
     )
     .await?;
@@ -541,9 +564,12 @@ pub(super) async fn update_lifecycle_for_agent_admin(
 
 const AGENT_SELECT: &str = "SELECT agents.member_id, agents.space_id, agents.computer_id, \
     members.display_name AS name, members.handle, members.access_level, agents.role_text, \
-    agents.role_revision, agents.status, computers.status AS computer_status, \
-    EXISTS(SELECT 1 FROM agent_runs WHERE agent_runs.agent_member_id = agents.member_id \
-        AND agent_runs.status IN ('queued', 'running')) AS has_active_run, \
+    agents.role_revision, agents.desired_lifecycle, agents.provision_status, \
+    computers.status AS computer_status, \
+    (SELECT agent_runs.status FROM agent_runs \
+        WHERE agent_runs.agent_member_id = agents.member_id \
+          AND agent_runs.status IN ('queued', 'starting', 'running', 'stopping') \
+        ORDER BY agent_runs.created_at DESC LIMIT 1) AS run_status, \
     agents.driver_kind, agents.attention_config_json, \
     agents.driver_config_json, agents.created_at, agents.updated_at, agents.retired_at, \
     agents.last_error_code FROM agents \
@@ -730,8 +756,9 @@ pub(super) async fn provision_agent_tx(
         access_level: request.access_level,
         role_text: request.role_text,
         role_revision: 1,
-        status: "provisioning".to_owned(),
-        activity_status: "offline".to_owned(),
+        desired_lifecycle: "active".to_owned(),
+        provision_status: "provisioning".to_owned(),
+        activity_status: "idle".to_owned(),
         driver_kind: request.driver_kind,
         attention_config,
         created_at: now,
@@ -827,13 +854,19 @@ fn validate_update(request: &mut UpdateAgentRequest) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn authorize_transition(status: &str, action: Option<&LifecycleAction>) -> Result<(), ApiError> {
+fn authorize_transition(
+    desired_lifecycle: &str,
+    provision_status: &str,
+    action: Option<&LifecycleAction>,
+) -> Result<(), ApiError> {
     let allowed = match action {
-        None => status != "retired",
-        Some(LifecycleAction::Suspend { .. }) => status == "active",
-        Some(LifecycleAction::Resume) => status == "suspended",
-        Some(LifecycleAction::Retry) => status == "error",
-        Some(LifecycleAction::Retire) => matches!(status, "active" | "suspended" | "error"),
+        None => desired_lifecycle != "retired",
+        Some(LifecycleAction::Suspend { .. }) => desired_lifecycle == "active",
+        Some(LifecycleAction::Resume) => desired_lifecycle == "suspended",
+        Some(LifecycleAction::Retry) => {
+            desired_lifecycle != "retired" && provision_status == "error"
+        }
+        Some(LifecycleAction::Retire) => desired_lifecycle != "retired",
     };
     if allowed {
         Ok(())
@@ -902,7 +935,8 @@ async fn publish_agent_status(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     space_id: Uuid,
     agent_id: Uuid,
-    status: &str,
+    desired_lifecycle: &str,
+    provision_status: &str,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
     super::outbox::publish(
@@ -912,7 +946,8 @@ async fn publish_agent_status(
         serde_json::json!({
             "space_id": space_id,
             "agent_member_id": agent_id,
-            "status": status,
+            "desired_lifecycle": desired_lifecycle,
+            "provision_status": provision_status,
         }),
         now,
     )
@@ -1010,9 +1045,13 @@ impl AgentRow {
     ) -> Result<AgentResponse, ApiError> {
         let attention_config =
             serde_json::from_value(self.attention_config_json).map_err(|_| ApiError::Internal)?;
-        let activity_status =
-            agent_activity_status(&self.status, &self.computer_status, self.has_active_run)
-                .to_owned();
+        let activity_status = agent_activity_status(
+            &self.desired_lifecycle,
+            &self.provision_status,
+            &self.computer_status,
+            self.run_status.as_deref(),
+        )
+        .to_owned();
         Ok(AgentResponse {
             member_id: self.member_id,
             space_id: self.space_id,
@@ -1022,7 +1061,8 @@ impl AgentRow {
             access_level: self.access_level,
             role_text: self.role_text,
             role_revision: self.role_revision,
-            status: self.status,
+            desired_lifecycle: self.desired_lifecycle,
+            provision_status: self.provision_status,
             activity_status,
             driver_kind: self.driver_kind,
             attention_config,
@@ -1036,16 +1076,27 @@ impl AgentRow {
 }
 
 fn agent_activity_status(
-    lifecycle_status: &str,
+    desired_lifecycle: &str,
+    provision_status: &str,
     computer_status: &str,
-    has_active_run: bool,
+    run_status: Option<&str>,
 ) -> &'static str {
-    if lifecycle_status == "error" {
+    if provision_status == "error" {
         "error"
-    } else if lifecycle_status != "active" || computer_status != "online" {
-        "offline"
-    } else if has_active_run {
-        "busy"
+    } else if let Some(run_status) = run_status {
+        if computer_status == "online" {
+            match run_status {
+                "queued" => "queued",
+                "starting" => "starting",
+                "running" => "running",
+                "stopping" => "stopping",
+                _ => "error",
+            }
+        } else {
+            "unreachable"
+        }
+    } else if desired_lifecycle == "suspended" || desired_lifecycle == "retired" {
+        "suspended"
     } else {
         "idle"
     }
@@ -1088,14 +1139,30 @@ mod activity_status_tests {
     use super::agent_activity_status;
 
     #[test]
-    fn derives_the_four_public_agent_activity_states() {
-        assert_eq!(agent_activity_status("active", "online", false), "idle");
-        assert_eq!(agent_activity_status("active", "online", true), "busy");
-        assert_eq!(agent_activity_status("active", "offline", true), "offline");
+    fn derives_lifecycle_and_observed_execution_independently() {
         assert_eq!(
-            agent_activity_status("suspended", "online", false),
-            "offline"
+            agent_activity_status("active", "ready", "online", None),
+            "idle"
         );
-        assert_eq!(agent_activity_status("error", "offline", false), "error");
+        assert_eq!(
+            agent_activity_status("active", "ready", "online", Some("queued")),
+            "queued"
+        );
+        assert_eq!(
+            agent_activity_status("suspended", "ready", "online", Some("running")),
+            "running"
+        );
+        assert_eq!(
+            agent_activity_status("active", "ready", "offline", Some("running")),
+            "unreachable"
+        );
+        assert_eq!(
+            agent_activity_status("suspended", "ready", "online", None),
+            "suspended"
+        );
+        assert_eq!(
+            agent_activity_status("active", "error", "offline", None),
+            "error"
+        );
     }
 }

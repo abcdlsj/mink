@@ -62,8 +62,9 @@ export interface Agent {
   access_level: "member" | "admin";
   role_text: string;
   role_revision: number;
-  status: "provisioning" | "active" | "suspended" | "error" | "retired";
-  activity_status: "idle" | "busy" | "offline" | "error";
+  desired_lifecycle: "active" | "suspended" | "retired";
+  provision_status: "provisioning" | "ready" | "error";
+  activity_status: "idle" | "queued" | "starting" | "running" | "stopping" | "unreachable" | "suspended" | "error";
   driver_kind: "codex" | "builtin";
   attention_config: AttentionConfig;
   created_at: string;

@@ -316,7 +316,11 @@ async fn run_lifecycle_flow(
         serde_json::json!({ "lifecycle": { "action": "suspend", "mode": "stop_after_current" } }),
     )
     .await?;
-    ensure!(suspended["status"] == "suspended");
+    ensure!(
+        suspended["desired_lifecycle"] == "suspended"
+            && suspended["provision_status"] == "ready"
+            && suspended["activity_status"] == "running"
+    );
     let duplicate = update_agent(
         &client,
         &server_url,
@@ -347,7 +351,9 @@ async fn run_lifecycle_flow(
         serde_json::json!({ "lifecycle": { "action": "resume" } }),
     )
     .await?;
-    ensure!(resumed["member_id"] == agent_id.to_string() && resumed["status"] == "active");
+    ensure!(
+        resumed["member_id"] == agent_id.to_string() && resumed["desired_lifecycle"] == "active"
+    );
     wait_for_agent_status(&pool, agent_id, "active").await?;
 
     send_dm(
@@ -375,7 +381,7 @@ async fn run_lifecycle_flow(
         serde_json::json!({ "lifecycle": { "action": "suspend", "mode": "cancel_now" } }),
     )
     .await?;
-    ensure!(canceled["status"] == "suspended");
+    ensure!(canceled["desired_lifecycle"] == "suspended");
     wait_for_run_status(&pool, second_run, "canceled").await?;
     let retried_item: (String, i32) = sqlx::query_as(
         "SELECT status, retry_count FROM inbox_items WHERE member_id = $1 AND message_id = \
@@ -408,7 +414,9 @@ async fn run_lifecycle_flow(
         serde_json::json!({ "lifecycle": { "action": "retire" } }),
     )
     .await?;
-    ensure!(retired["member_id"] == agent_id.to_string() && retired["status"] == "retired");
+    ensure!(
+        retired["member_id"] == agent_id.to_string() && retired["desired_lifecycle"] == "retired"
+    );
     wait_for_agent_status(&pool, agent_id, "retired").await?;
     assert_profile_status(&computer_state, agent_id, "retired").await?;
 
@@ -510,7 +518,7 @@ async fn wait_for_agent_status(pool: &sqlx::PgPool, agent_id: Uuid, expected: &s
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM agents WHERE member_id = $1")
+                sqlx::query_scalar("SELECT desired_lifecycle FROM agents WHERE member_id = $1")
                     .bind(agent_id)
                     .fetch_optional(pool)
                     .await?;
@@ -592,7 +600,7 @@ async fn assert_profile_status(state: &Path, agent_id: Uuid, expected: &str) -> 
         loop {
             if let Ok(bytes) = tokio::fs::read(&path).await
                 && let Ok(profile) = serde_json::from_slice::<serde_json::Value>(&bytes)
-                && profile["status"] == expected
+                && profile["desired_lifecycle"] == expected
             {
                 return;
             }
