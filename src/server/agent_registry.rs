@@ -11,6 +11,10 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, approval, auth, idempotency, member, space};
+use crate::computer_protocol::{
+    AgentConfiguration, AgentMemoryReadCommand, AttentionConfig as ProtocolAttentionConfig,
+    ComputerCommand, DriverConfig, SuspendMode as ProtocolSuspendMode,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateAgentRequest {
@@ -263,30 +267,35 @@ pub async fn update(
             .await
             .map_err(ApiError::database)?;
     }
-    let command_kind = lifecycle_command(request.lifecycle.as_ref()).unwrap_or("agent.configure");
-    let payload = serde_json::json!({
-        "agent_id": agent_id,
-        "space_id": current.space_id,
-        "name": current.name,
-        "handle": current.handle,
-        "role_text": next_role,
-        "role_revision": next_revision,
-        "driver_kind": current.driver_kind,
-        "driver_config": current.driver_config_json,
-        "attention_config": next_attention,
-        "mode": request.lifecycle.as_ref().and_then(|action| match action {
-            LifecycleAction::Suspend { mode } => Some(mode),
+    let configuration = AgentConfiguration {
+        agent_id,
+        space_id: current.space_id,
+        name: current.name,
+        handle: current.handle,
+        role_text: next_role.to_owned(),
+        role_revision: next_revision,
+        driver_kind: current.driver_kind,
+        driver_config: serde_json::from_value(current.driver_config_json)
+            .map_err(|_| ApiError::Internal)?,
+        attention_config: protocol_attention_config(&next_attention),
+        mode: request.lifecycle.as_ref().and_then(|action| match action {
+            LifecycleAction::Suspend {
+                mode: SuspendMode::StopAfterCurrent,
+            } => Some(ProtocolSuspendMode::StopAfterCurrent),
+            LifecycleAction::Suspend {
+                mode: SuspendMode::CancelNow,
+            } => Some(ProtocolSuspendMode::CancelNow),
             _ => None,
         }),
-    });
-    let command_id = allocate_command(
-        &mut transaction,
-        current.computer_id,
-        command_kind,
-        payload,
-        now,
-    )
-    .await?;
+    };
+    let command = match request.lifecycle.as_ref() {
+        Some(LifecycleAction::Suspend { .. }) => ComputerCommand::Suspend(configuration),
+        Some(LifecycleAction::Resume) => ComputerCommand::Resume(configuration),
+        Some(LifecycleAction::Retry) => ComputerCommand::Provision(configuration),
+        Some(LifecycleAction::Retire) => ComputerCommand::Retire(configuration),
+        None => ComputerCommand::Configure(configuration),
+    };
+    let command_id = allocate_command(&mut transaction, current.computer_id, &command, now).await?;
     let action = if role_changed || request.attention_config.is_some() {
         "agent.configured"
     } else {
@@ -389,8 +398,10 @@ pub async fn read_memory(
     let command_id = allocate_command(
         &mut transaction,
         row.computer_id,
-        "agent.memory.read",
-        serde_json::json!({ "agent_id": agent_id, "path": path }),
+        &ComputerCommand::MemoryRead(AgentMemoryReadCommand {
+            agent_id,
+            path: path.to_owned(),
+        }),
         OffsetDateTime::now_utc(),
     )
     .await?;
@@ -425,8 +436,16 @@ pub async fn read_memory(
             "Computer could not read the Agent Memory file",
         ));
     }
-    let response: MemoryContentResponse =
-        serde_json::from_value(result).map_err(|_| ApiError::Internal)?;
+    let response = MemoryContentResponse {
+        path: result.path.ok_or(ApiError::Internal)?,
+        content: result.content.ok_or(ApiError::Internal)?,
+        size: result
+            .size
+            .and_then(|size| i64::try_from(size).ok())
+            .ok_or(ApiError::Internal)?,
+        sha256: result.sha256.ok_or(ApiError::Internal)?,
+        updated_at: result.updated_at.ok_or(ApiError::Internal)?,
+    };
     if response.path != path {
         return Err(ApiError::Internal);
     }
@@ -492,9 +511,9 @@ pub(super) async fn update_lifecycle_for_agent_admin(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    let (next_lifecycle, command_kind, action) = match lifecycle {
-        LifecycleAction::Suspend { .. } => ("suspended", "agent.suspend", "agent.suspended"),
-        LifecycleAction::Resume => ("active", "agent.resume", "agent.resumed"),
+    let (next_lifecycle, action) = match lifecycle {
+        LifecycleAction::Suspend { .. } => ("suspended", "agent.suspended"),
+        LifecycleAction::Resume => ("active", "agent.resumed"),
         _ => return Err(ApiError::Internal),
     };
     let now = OffsetDateTime::now_utc();
@@ -510,29 +529,33 @@ pub(super) async fn update_lifecycle_for_agent_admin(
     .map_err(ApiError::database)?;
     let attention: AttentionConfig = serde_json::from_value(current.attention_config_json.clone())
         .map_err(|_| ApiError::Internal)?;
-    let payload = serde_json::json!({
-        "agent_id": target_agent_id,
-        "space_id": current.space_id,
-        "name": current.name,
-        "handle": current.handle,
-        "role_text": current.role_text,
-        "role_revision": current.role_revision,
-        "driver_kind": current.driver_kind,
-        "driver_config": current.driver_config_json,
-        "attention_config": attention,
-        "mode": match lifecycle {
-            LifecycleAction::Suspend { mode } => Some(mode),
+    let configuration = AgentConfiguration {
+        agent_id: target_agent_id,
+        space_id: current.space_id,
+        name: current.name,
+        handle: current.handle,
+        role_text: current.role_text,
+        role_revision: current.role_revision,
+        driver_kind: current.driver_kind,
+        driver_config: serde_json::from_value(current.driver_config_json)
+            .map_err(|_| ApiError::Internal)?,
+        attention_config: protocol_attention_config(&attention),
+        mode: match lifecycle {
+            LifecycleAction::Suspend {
+                mode: SuspendMode::StopAfterCurrent,
+            } => Some(ProtocolSuspendMode::StopAfterCurrent),
+            LifecycleAction::Suspend {
+                mode: SuspendMode::CancelNow,
+            } => Some(ProtocolSuspendMode::CancelNow),
             _ => None,
         },
-    });
-    let command_id = allocate_command(
-        &mut transaction,
-        current.computer_id,
-        command_kind,
-        payload,
-        now,
-    )
-    .await?;
+    };
+    let command = match lifecycle {
+        LifecycleAction::Suspend { .. } => ComputerCommand::Suspend(configuration),
+        LifecycleAction::Resume => ComputerCommand::Resume(configuration),
+        _ => return Err(ApiError::Internal),
+    };
+    let command_id = allocate_command(&mut transaction, current.computer_id, &command, now).await?;
     super::audit::record(
         &mut transaction,
         super::audit::Event {
@@ -711,12 +734,19 @@ pub(super) async fn provision_agent_tx(
     .await
     .map_err(ApiError::database)?;
     let command_id = Uuid::now_v7();
-    let payload = serde_json::json!({
-        "agent_id": member_id, "space_id": space_id, "name": request.name,
-        "handle": handle, "role_text": request.role_text, "role_revision": 1,
-        "driver_kind": request.driver_kind, "driver_config": driver_config,
-        "attention_config": attention_config
+    let command = ComputerCommand::Provision(AgentConfiguration {
+        agent_id: member_id,
+        space_id,
+        name: request.name.clone(),
+        handle: handle.clone(),
+        role_text: request.role_text.clone(),
+        role_revision: 1,
+        driver_kind: request.driver_kind.clone(),
+        driver_config: DriverConfig { schema_version: 1 },
+        attention_config: protocol_attention_config(&attention_config),
+        mode: None,
     });
+    let payload = command.payload_json().map_err(|_| ApiError::Internal)?;
     sqlx::query(
         "INSERT INTO computer_commands (id, computer_id, computer_seq, kind, payload_json, created_at) \
          VALUES ($1, $2, $3, 'agent.provision', $4, $5)",
@@ -878,16 +908,6 @@ fn authorize_transition(
     }
 }
 
-fn lifecycle_command(action: Option<&LifecycleAction>) -> Option<&'static str> {
-    match action {
-        Some(LifecycleAction::Suspend { .. }) => Some("agent.suspend"),
-        Some(LifecycleAction::Resume) => Some("agent.resume"),
-        Some(LifecycleAction::Retry) => Some("agent.provision"),
-        Some(LifecycleAction::Retire) => Some("agent.retire"),
-        None => None,
-    }
-}
-
 fn role_summary(role: &str) -> String {
     let digest = Sha256::digest(role.as_bytes());
     format!(
@@ -900,8 +920,7 @@ fn role_summary(role: &str) -> String {
 async fn allocate_command(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     computer_id: Uuid,
-    kind: &str,
-    payload: serde_json::Value,
+    command: &ComputerCommand,
     now: OffsetDateTime,
 ) -> Result<Uuid, ApiError> {
     let computer_seq: i64 = sqlx::query_scalar(
@@ -914,6 +933,7 @@ async fn allocate_command(
     .map_err(ApiError::database)?
     .ok_or_else(|| ApiError::conflict("computer_revoked", "Agent Computer has been revoked"))?;
     let command_id = Uuid::now_v7();
+    let payload = command.payload_json().map_err(|_| ApiError::Internal)?;
     sqlx::query(
         "INSERT INTO computer_commands \
          (id, computer_id, computer_seq, kind, payload_json, created_at) \
@@ -922,13 +942,24 @@ async fn allocate_command(
     .bind(command_id)
     .bind(computer_id)
     .bind(computer_seq)
-    .bind(kind)
+    .bind(command.kind())
     .bind(payload)
     .bind(now)
     .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     Ok(command_id)
+}
+
+fn protocol_attention_config(config: &AttentionConfig) -> ProtocolAttentionConfig {
+    ProtocolAttentionConfig {
+        dm_immediate: config.dm_immediate,
+        mention_immediate: config.mention_immediate,
+        ambient_enabled: config.ambient_enabled,
+        ambient_debounce_seconds: config.ambient_debounce_seconds,
+        ambient_max_wait_seconds: config.ambient_max_wait_seconds,
+        max_retry_count: config.max_retry_count,
+    }
 }
 
 async fn publish_agent_status(

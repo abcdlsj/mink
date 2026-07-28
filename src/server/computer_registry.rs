@@ -11,9 +11,9 @@ use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, auth, idempotency, member};
 
-use super::{
-    computer_pairing::ComputerResponse,
-    computer_protocol::{ComputerFrame, ServerFrame},
+use super::computer_pairing::ComputerResponse;
+use crate::computer_protocol::{
+    AgentRunCommand, CommandResult, ComputerCommand, ComputerFrame, RunResultStatus, ServerFrame,
 };
 
 pub async fn list(
@@ -252,7 +252,7 @@ struct RunStartedEvent {
     event_id: String,
     run_id: Uuid,
     fencing_token: String,
-    run_attempt: i32,
+    run_attempt: i64,
     process_instance_id: Uuid,
     daemon_observed_at: OffsetDateTime,
 }
@@ -271,7 +271,7 @@ struct CommandResultEvent<'a> {
     command_id: Uuid,
     computer_seq: i64,
     ok: bool,
-    result: &'a serde_json::Value,
+    result: &'a CommandResult,
     result_event_id: Option<&'a str>,
     fencing_token: Option<&'a str>,
 }
@@ -425,17 +425,16 @@ pub async fn claim_agent_inbox(
         &role_text,
         &summaries,
     );
-    let payload = serde_json::json!({
-        "run_id": run_id,
-        "agent_id": agent_id,
-        "space_id": space_id,
-        "driver_kind": driver_kind,
-        "fencing_token": fencing_token,
-        "ownership_lease_expires_at": expires_at
-            .format(&time::format_description::well_known::Rfc3339)
-            .map_err(|_| ApiError::Internal)?,
-        "prompt": prompt,
+    let command = ComputerCommand::Run(AgentRunCommand {
+        run_id,
+        agent_id,
+        space_id,
+        driver_kind,
+        fencing_token,
+        ownership_lease_expires_at: expires_at,
+        prompt,
     });
+    let payload = command.payload_json().map_err(|_| ApiError::Internal)?;
     let command_id = Uuid::now_v7();
     let computer_seq: i64 = sqlx::query_scalar(
         "UPDATE computers SET next_command_seq = next_command_seq + 1 WHERE id = $1 \
@@ -923,13 +922,9 @@ async fn apply_command_result(
     } = event;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let locked_run: Option<LockedRunOwnership> = if result_event_id.is_some() {
-        let run_id = result
-            .get("run_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-            .ok_or_else(|| {
-                ApiError::validation("invalid_run_result", "Run result has no valid Run id")
-            })?;
+        let run_id = result.run_id.ok_or_else(|| {
+            ApiError::validation("invalid_run_result", "Run result has no valid Run id")
+        })?;
         sqlx::query_as(
             "SELECT id, status, fencing_token, ownership_lease_expires_at \
                  FROM agent_runs WHERE id = $1 AND computer_id = $2 FOR UPDATE",
@@ -958,7 +953,8 @@ async fn apply_command_result(
             "Computer command does not exist",
         ));
     };
-    if (kind == "agent.run") != result_event_id.is_some() {
+    let command = ComputerCommand::from_parts(&kind, payload).map_err(|_| ApiError::Internal)?;
+    if matches!(command, ComputerCommand::Run(_)) != result_event_id.is_some() {
         return Err(ApiError::validation(
             "invalid_result_frame",
             "Computer result frame does not match command kind",
@@ -980,12 +976,8 @@ async fn apply_command_result(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(());
     }
-    if kind == "agent.run" {
-        let command_run_id = payload
-            .get("run_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-            .ok_or(ApiError::Internal)?;
+    if let ComputerCommand::Run(run_command) = &command {
+        let command_run_id = run_command.run_id;
         let owns_run = locked_run.as_ref().is_some_and(|run| {
             run.id == command_run_id
                 && matches!(run.status.as_str(), "queued" | "running")
@@ -1001,14 +993,17 @@ async fn apply_command_result(
         }
     }
     let status = if ok { "completed" } else { "failed" };
-    let stored_result = if kind == "agent.memory.read" {
-        serde_json::json!({
-            "ok": ok,
-            "error_code": result.get("error_code"),
-        })
+    let stored_result = if matches!(command, ComputerCommand::MemoryRead(_)) {
+        CommandResult {
+            ok: Some(ok),
+            error_code: result.error_code.clone(),
+            ..CommandResult::default()
+        }
     } else {
         result.clone()
     };
+    let stored_result_json =
+        serde_json::to_value(&stored_result).map_err(|_| ApiError::Internal)?;
     sqlx::query(
         "UPDATE computer_commands SET status = $4, result_json = $5, completed_at = now(), \
          acked_at = COALESCE(acked_at, now()), result_event_id = $6 \
@@ -1018,34 +1013,39 @@ async fn apply_command_result(
     .bind(computer_id)
     .bind(computer_seq)
     .bind(status)
-    .bind(&stored_result)
+    .bind(&stored_result_json)
     .bind(result_event_id)
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    if kind == "agent.run" {
-        apply_run_result(&mut transaction, computer_id, &payload, ok, result).await?;
+    if let ComputerCommand::Run(run_command) = &command {
+        apply_run_result(
+            &mut transaction,
+            computer_id,
+            run_command.run_id,
+            ok,
+            result,
+        )
+        .await?;
     }
-    if !kind.starts_with("agent.") {
+    if matches!(command, ComputerCommand::Cancel(_)) {
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(());
     }
-    let Some(agent_id) = payload
-        .get("agent_id")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok())
-    else {
+    let Some(agent_id) = command.agent_id() else {
         return Err(ApiError::Internal);
     };
     let updates_provision = matches!(
-        kind.as_str(),
-        "agent.provision" | "agent.configure" | "agent.suspend" | "agent.resume" | "agent.retire"
+        command,
+        ComputerCommand::Provision(_)
+            | ComputerCommand::Configure(_)
+            | ComputerCommand::Suspend(_)
+            | ComputerCommand::Resume(_)
+            | ComputerCommand::Retire(_)
     );
-    let new_provision_status = updates_provision.then_some(if ok || kind == "agent.retire" {
-        "ready"
-    } else {
-        "error"
-    });
+    let retires = matches!(command, ComputerCommand::Retire(_));
+    let new_provision_status =
+        updates_provision.then_some(if ok || retires { "ready" } else { "error" });
     let space_id: Option<Uuid> = if let Some(new_provision_status) = new_provision_status {
         sqlx::query_scalar(
             "UPDATE agents SET provision_status = $2, updated_at = now(), last_error_code = $4 \
@@ -1054,10 +1054,10 @@ async fn apply_command_result(
         .bind(agent_id)
         .bind(new_provision_status)
         .bind(computer_id)
-        .bind(if ok || kind == "agent.retire" {
+        .bind(if ok || retires {
             None
         } else {
-            result.get("error_code").and_then(serde_json::Value::as_str)
+            result.error_code.as_deref()
         })
         .fetch_optional(&mut *transaction)
         .await
@@ -1086,18 +1086,18 @@ async fn apply_command_result(
                     "space_id": space_id, "agent_member_id": agent_id,
                     "desired_lifecycle": desired_lifecycle,
                     "provision_status": new_provision_status,
-                    "error_code": if ok { None } else { result.get("error_code") },
+                    "error_code": if ok { None } else { result.error_code.as_deref() },
                 }),
                 OffsetDateTime::now_utc(),
             )
             .await?;
         }
-        if result.get("memory_files").is_some() {
+        if result.memory_files.is_some() {
             replace_memory_files(&mut transaction, agent_id, result).await?;
         }
     }
     transaction.commit().await.map_err(ApiError::database)?;
-    if kind == "agent.memory.read"
+    if matches!(command, ComputerCommand::MemoryRead(_))
         && let Some(waiter) = state.memory_read_waiters.lock().await.remove(&command_id)
     {
         let _ = waiter.send((ok, result.clone()));
@@ -1108,23 +1108,16 @@ async fn apply_command_result(
 async fn apply_run_result(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     computer_id: Uuid,
-    payload: &serde_json::Value,
+    run_id: Uuid,
     ok: bool,
-    result: &serde_json::Value,
+    result: &CommandResult,
 ) -> Result<(), ApiError> {
-    let run_id = payload
-        .get("run_id")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok())
-        .ok_or(ApiError::Internal)?;
-    let local_status = result
-        .get("status")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(if ok { "completed" } else { "failed" });
-    let run_status = match local_status {
-        "completed" => "completed",
-        "canceled" => "canceled",
-        _ => "failed",
+    let run_status = match result.status {
+        Some(RunResultStatus::Completed) => "completed",
+        Some(RunResultStatus::Canceled) => "canceled",
+        Some(RunResultStatus::Failed) | None if !ok => "failed",
+        None => "completed",
+        Some(RunResultStatus::Failed) => "failed",
     };
     let updated: Option<(Uuid, Uuid)> = sqlx::query_as(
         "UPDATE agent_runs SET status = $2, started_at = COALESCE(started_at, created_at), \
@@ -1134,7 +1127,7 @@ async fn apply_run_result(
     )
     .bind(run_id)
     .bind(run_status)
-    .bind(result.get("error_code").and_then(serde_json::Value::as_str))
+    .bind(result.error_code.as_deref())
     .bind(computer_id)
     .fetch_optional(&mut **transaction)
     .await
@@ -1145,10 +1138,7 @@ async fn apply_run_result(
     let error_code = if run_status == "completed" {
         "run_exited_without_handling"
     } else {
-        result
-            .get("error_code")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("driver_failed")
+        result.error_code.as_deref().unwrap_or("driver_failed")
     };
     release_run_inbox_items(transaction, run_id, agent_id, space_id, error_code).await?;
     publish_run_status(transaction, run_id, agent_id, space_id, run_status).await?;
@@ -1254,12 +1244,9 @@ async fn publish_run_status(
 async fn replace_memory_files(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     agent_id: Uuid,
-    result: &serde_json::Value,
+    result: &CommandResult,
 ) -> Result<(), ApiError> {
-    let Some(files) = result
-        .get("memory_files")
-        .and_then(serde_json::Value::as_array)
-    else {
+    let Some(files) = result.memory_files.as_ref() else {
         return Ok(());
     };
     sqlx::query("DELETE FROM agent_memory_files WHERE agent_member_id = $1")
@@ -1268,37 +1255,20 @@ async fn replace_memory_files(
         .await
         .map_err(ApiError::database)?;
     for file in files {
-        let path = file
-            .get("path")
-            .and_then(serde_json::Value::as_str)
-            .ok_or(ApiError::Internal)?;
-        let size = file
-            .get("size")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|value| i64::try_from(value).ok())
-            .ok_or(ApiError::Internal)?;
-        let sha256 = file
-            .get("sha256")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| hex::decode(value).ok())
+        let size = i64::try_from(file.size).map_err(|_| ApiError::Internal)?;
+        let sha256 = hex::decode(&file.sha256)
+            .ok()
             .filter(|value| value.len() == 32)
-            .ok_or(ApiError::Internal)?;
-        let updated_at = file
-            .get("updated_at")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| {
-                OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
-            })
             .ok_or(ApiError::Internal)?;
         sqlx::query(
             "INSERT INTO agent_memory_files (agent_member_id, path, size, sha256, updated_at) \
              VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(agent_id)
-        .bind(path)
+        .bind(&file.path)
         .bind(size)
         .bind(sha256)
-        .bind(updated_at)
+        .bind(file.updated_at)
         .execute(&mut **transaction)
         .await
         .map_err(ApiError::database)?;
@@ -1346,13 +1316,14 @@ async fn replay_commands(
     .await
     .map_err(ApiError::database)?;
     for (command_id, computer_seq, kind, payload) in commands {
+        let command = crate::computer_protocol::ComputerCommand::from_parts(&kind, payload)
+            .map_err(|_| ApiError::Internal)?;
         send_frame(
             socket,
             &ServerFrame::Command {
                 command_id,
                 computer_seq,
-                kind,
-                payload,
+                command: Box::new(command),
             },
         )
         .await?;

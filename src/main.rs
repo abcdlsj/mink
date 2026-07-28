@@ -2,6 +2,7 @@ mod agent_cli;
 mod agent_core;
 mod cli;
 mod computer;
+mod computer_protocol;
 mod config;
 mod database;
 mod driver;

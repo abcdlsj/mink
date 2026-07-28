@@ -5,6 +5,32 @@ use super::local_ipc::{
 use super::*;
 use crate::local_protocol::{AgentIdentity, LocalRequest, LocalResponse};
 
+fn test_agent_configuration(
+    agent_id: Uuid,
+    space_id: Uuid,
+    driver_kind: &str,
+) -> crate::computer_protocol::AgentConfiguration {
+    crate::computer_protocol::AgentConfiguration {
+        agent_id,
+        space_id,
+        name: "Test Agent".to_owned(),
+        handle: "test-agent".to_owned(),
+        role_text: "Test role".to_owned(),
+        role_revision: 1,
+        driver_kind: driver_kind.to_owned(),
+        driver_config: crate::computer_protocol::DriverConfig { schema_version: 1 },
+        attention_config: crate::computer_protocol::AttentionConfig {
+            dm_immediate: true,
+            mention_immediate: true,
+            ambient_enabled: true,
+            ambient_debounce_seconds: 5,
+            ambient_max_wait_seconds: 30,
+            max_retry_count: 3,
+        },
+        mode: None,
+    }
+}
+
 #[test]
 fn pairing_start_response_accepts_server_rfc3339_timestamp() {
     let response: PairingStartResponse = serde_json::from_value(serde_json::json!({
@@ -158,11 +184,15 @@ async fn duplicate_commands_reuse_sqlite_state_and_conflicting_payloads_fail() {
         .await
         .unwrap();
     let command_id = Uuid::now_v7();
-    let payload = serde_json::json!({ "agent_id": Uuid::now_v7() });
-    persist_command(&database, command_id, 1, "agent.provision", &payload)
+    let command = ComputerCommand::Provision(test_agent_configuration(
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        "builtin",
+    ));
+    persist_command(&database, command_id, 1, &command)
         .await
         .unwrap();
-    persist_command(&database, command_id, 1, "agent.provision", &payload)
+    persist_command(&database, command_id, 1, &command)
         .await
         .unwrap();
     assert_eq!(last_acked_sequence(&database).await.unwrap(), 1);
@@ -172,15 +202,14 @@ async fn duplicate_commands_reuse_sqlite_state_and_conflicting_payloads_fail() {
         .unwrap();
     assert_eq!(count, 1);
 
-    let error = persist_command(
-        &database,
-        command_id,
-        1,
-        "agent.provision",
-        &serde_json::json!({ "agent_id": Uuid::now_v7() }),
-    )
-    .await
-    .unwrap_err();
+    let conflicting = ComputerCommand::Provision(test_agent_configuration(
+        Uuid::now_v7(),
+        Uuid::now_v7(),
+        "builtin",
+    ));
+    let error = persist_command(&database, command_id, 1, &conflicting)
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("different content"));
 }
 
@@ -214,11 +243,14 @@ async fn restart_recovers_runs_and_received_provision_commands() {
         &database,
         run_command_id,
         1,
-        "agent.run",
-        &serde_json::json!({
-            "run_id": run_id,
-            "agent_id": agent_id,
-            "space_id": space_id,
+        &ComputerCommand::Run(crate::computer_protocol::AgentRunCommand {
+            run_id,
+            agent_id,
+            space_id,
+            driver_kind: "codex".to_owned(),
+            fencing_token: "fencing-token".to_owned(),
+            ownership_lease_expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
+            prompt: crate::prompt::AgentRunPrompt::plain("test"),
         }),
     )
     .await
@@ -233,11 +265,7 @@ async fn restart_recovers_runs_and_received_provision_commands() {
         &database,
         command_id,
         2,
-        "agent.provision",
-        &serde_json::json!({
-            "agent_id": agent_id,
-            "driver_kind": "codex"
-        }),
+        &ComputerCommand::Provision(test_agent_configuration(agent_id, space_id, "codex")),
     )
     .await
     .unwrap();
@@ -961,48 +989,34 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
         Arc::new(CodexDriver::new()),
         None,
     );
-    let provision = serde_json::json!({
-        "agent_id": agent_id,
-        "space_id": Uuid::now_v7(),
-        "name": "Lin",
-        "handle": "lin",
-        "role_text": "Review boundaries.",
-        "role_revision": 1,
-        "driver_kind": "codex",
-        "driver_config": { "schema_version": 1 },
-        "attention_config": {
-            "dm_immediate": true,
-            "mention_immediate": true,
-            "ambient_enabled": true,
-            "ambient_debounce_seconds": 5,
-            "ambient_max_wait_seconds": 30,
-            "max_retry_count": 3
-        }
-    });
-    let files = execute_local_command(&state, "agent.provision", &provision, &supervisor)
-        .await
-        .unwrap();
-    assert_eq!(files.len(), 1);
-    assert_eq!(files[0].path, "MEMORY.md");
-    assert_eq!(files[0].sha256, hex::encode(Sha256::digest(b"# Memory\n")));
-
-    execute_local_command(
+    let mut configuration = test_agent_configuration(agent_id, Uuid::now_v7(), "codex");
+    configuration.name = "Lin".to_owned();
+    configuration.handle = "lin".to_owned();
+    configuration.role_text = "Review boundaries.".to_owned();
+    let files = execute_local_command(
         &state,
-        "agent.configure",
-        &serde_json::json!({
-            "agent_id": agent_id,
-            "role_text": "Enforce the current specification.",
-            "role_revision": 2,
-            "attention_config": provision["attention_config"]
-        }),
+        &ComputerCommand::Provision(configuration.clone()),
         &supervisor,
     )
     .await
     .unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "MEMORY.md");
+    assert_eq!(files[0].sha256, hex::encode(Sha256::digest(b"# Memory\n")));
+
+    configuration.role_text = "Enforce the current specification.".to_owned();
+    configuration.role_revision = 2;
     execute_local_command(
         &state,
-        "agent.suspend",
-        &serde_json::json!({ "agent_id": agent_id, "mode": "cancel_now" }),
+        &ComputerCommand::Configure(configuration.clone()),
+        &supervisor,
+    )
+    .await
+    .unwrap();
+    configuration.mode = Some(crate::computer_protocol::SuspendMode::CancelNow);
+    execute_local_command(
+        &state,
+        &ComputerCommand::Suspend(configuration.clone()),
         &supervisor,
     )
     .await
@@ -1018,8 +1032,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
 
     execute_local_command(
         &state,
-        "agent.resume",
-        &serde_json::json!({ "agent_id": agent_id }),
+        &ComputerCommand::Resume(configuration.clone()),
         &supervisor,
     )
     .await
@@ -1028,14 +1041,9 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
         serde_json::from_slice(&tokio::fs::read(&profile_path).await.unwrap()).unwrap();
     assert_eq!(resumed["desired_lifecycle"], "active");
 
-    execute_local_command(
-        &state,
-        "agent.retire",
-        &serde_json::json!({ "agent_id": agent_id }),
-        &supervisor,
-    )
-    .await
-    .unwrap();
+    execute_local_command(&state, &ComputerCommand::Retire(configuration), &supervisor)
+        .await
+        .unwrap();
     let retired: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(profile_path).await.unwrap()).unwrap();
     assert_eq!(retired["desired_lifecycle"], "retired");
@@ -1058,16 +1066,22 @@ async fn memory_read_is_scoped_to_agent_memory_and_rejects_symlinks() {
         .unwrap();
     let content = read_memory_file(
         &state,
-        &serde_json::json!({ "agent_id": agent_id, "path": "notes/current.md" }),
+        &crate::computer_protocol::AgentMemoryReadCommand {
+            agent_id,
+            path: "notes/current.md".to_owned(),
+        },
     )
     .await
     .unwrap();
-    assert_eq!(content.path, "notes/current.md");
-    assert_eq!(content.content, "Current facts.\n");
+    assert_eq!(content.path.as_deref(), Some("notes/current.md"));
+    assert_eq!(content.content.as_deref(), Some("Current facts.\n"));
 
     let escaped = read_memory_file(
         &state,
-        &serde_json::json!({ "agent_id": agent_id, "path": "../profile.json" }),
+        &crate::computer_protocol::AgentMemoryReadCommand {
+            agent_id,
+            path: "../profile.json".to_owned(),
+        },
     )
     .await
     .unwrap_err();
@@ -1079,7 +1093,10 @@ async fn memory_read_is_scoped_to_agent_memory_and_rejects_symlinks() {
             .unwrap();
         let linked = read_memory_file(
             &state,
-            &serde_json::json!({ "agent_id": agent_id, "path": "linked.md" }),
+            &crate::computer_protocol::AgentMemoryReadCommand {
+                agent_id,
+                path: "linked.md".to_owned(),
+            },
         )
         .await
         .unwrap_err();
@@ -1275,17 +1292,19 @@ fn shutdown_frame_is_a_terminal_server_instruction() {
 fn command_log_context_only_extracts_safe_identifiers() {
     let agent_id = Uuid::now_v7();
     let run_id = Uuid::now_v7();
-    let payload = serde_json::json!({
-        "agent_id": agent_id,
-        "run_id": run_id,
-        "role_text": "private role",
-        "prompt": "private prompt",
-        "body_markdown": "private message",
-        "token": "private token"
-    });
+    let command =
+        crate::computer_protocol::ComputerCommand::Run(crate::computer_protocol::AgentRunCommand {
+            agent_id,
+            run_id,
+            space_id: Uuid::now_v7(),
+            driver_kind: "builtin".to_owned(),
+            fencing_token: "private token".to_owned(),
+            ownership_lease_expires_at: OffsetDateTime::now_utc(),
+            prompt: crate::prompt::AgentRunPrompt::plain("private prompt"),
+        });
 
     assert_eq!(
-        command_log_context(&payload),
+        command_log_context(&command),
         CommandLogContext {
             agent_member_id: Some(agent_id),
             run_id: Some(run_id),
@@ -1297,11 +1316,10 @@ fn command_log_context_only_extracts_safe_identifiers() {
 fn command_result_log_summary_only_exposes_error_code() {
     let outcome = LocalCommandOutcome {
         ok: false,
-        result: serde_json::json!({
-            "error_code": "driver_failed",
-            "prompt": "private prompt",
-            "result": "private result"
-        }),
+        result: CommandResult {
+            error_code: Some("driver_failed".to_owned()),
+            ..CommandResult::default()
+        },
     };
 
     assert_eq!(command_error_code(&outcome), "driver_failed");

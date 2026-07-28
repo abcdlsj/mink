@@ -172,6 +172,27 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         }
     }
     let command_id = Uuid::now_v7();
+    let replay_command = crate::computer_protocol::ComputerCommand::Provision(
+        crate::computer_protocol::AgentConfiguration {
+            agent_id: Uuid::now_v7(),
+            space_id: space.id,
+            name: "Replay Agent".to_owned(),
+            handle: "replay-agent".to_owned(),
+            role_text: "Replay the persisted command.".to_owned(),
+            role_revision: 1,
+            driver_kind: "builtin".to_owned(),
+            driver_config: crate::computer_protocol::DriverConfig { schema_version: 1 },
+            attention_config: crate::computer_protocol::AttentionConfig {
+                dm_immediate: true,
+                mention_immediate: true,
+                ambient_enabled: true,
+                ambient_debounce_seconds: 5,
+                ambient_max_wait_seconds: 30,
+                max_retry_count: 3,
+            },
+            mode: None,
+        },
+    );
     sqlx::query(
         "WITH allocated AS ( \
              UPDATE computers SET next_command_seq = next_command_seq + 1 WHERE id = $2 \
@@ -182,7 +203,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     )
     .bind(command_id)
     .bind(computer.id)
-    .bind(serde_json::json!({ "agent_id": Uuid::now_v7() }))
+    .bind(replay_command.payload_json()?)
     .execute(&pool)
     .await?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

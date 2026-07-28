@@ -2,20 +2,20 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use tokio::sync::{Mutex, Semaphore, mpsc, oneshot};
 use uuid::Uuid;
 
+pub(crate) use crate::computer_protocol::{AgentRunCommand as StartRun, MemoryFileMetadata};
 use crate::{
     config::ComputerConfig,
     driver::{
         Driver, DriverEnvironment, DriverOutcome, DriverProcess, DriverRun, DriverStopOutcome,
         ProcessExitEvidence,
     },
-    prompt::AgentRunPrompt,
 };
 
 #[derive(Clone)]
@@ -63,18 +63,6 @@ struct DriverSignalEvidence {
     sigkill_sent: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct StartRun {
-    pub run_id: Uuid,
-    pub agent_id: Uuid,
-    pub space_id: Uuid,
-    pub prompt: AgentRunPrompt,
-    pub driver_kind: String,
-    pub fencing_token: String,
-    #[serde(with = "time::serde::rfc3339")]
-    pub ownership_lease_expires_at: OffsetDateTime,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct RunCommand {
     pub command_id: Uuid,
@@ -87,15 +75,6 @@ pub struct RunResult {
     pub status: String,
     pub error_code: Option<String>,
     pub memory_files: Vec<MemoryFileMetadata>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct MemoryFileMetadata {
-    pub path: String,
-    pub size: u64,
-    pub sha256: String,
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated_at: OffsetDateTime,
 }
 
 impl Supervisor {

@@ -17,10 +17,14 @@ const ATTENTION_PREFETCH_RUNS: usize = 1;
 
 use crate::{
     cli::ComputerArgs,
+    computer_protocol::{
+        AgentMemoryReadCommand, CommandResult, ComputerCommand, ComputerFrame, MemoryFileMetadata,
+        RunResultStatus, ServerFrame, SuspendMode,
+    },
     config, database,
     driver::builtin_config::{self, BuiltinAuthentication},
     driver::codex::CodexDriver,
-    supervisor::{RunCommand, RunResult, StartRun, Supervisor},
+    supervisor::{RunCommand, RunResult, Supervisor},
 };
 
 mod local_ipc;
@@ -93,72 +97,6 @@ enum PairingPollOutcome {
     Confirmed,
     Expired,
     Shutdown,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ComputerFrame {
-    Hello {
-        last_acked_computer_seq: i64,
-    },
-    Heartbeat {
-        daemon_version: &'static str,
-        os: &'static str,
-        cpu_count: usize,
-        memory_total_bytes: Option<u64>,
-        agents_count: u32,
-        active_runs: u32,
-    },
-    CommandAck {
-        command_id: Uuid,
-        computer_seq: i64,
-    },
-    CommandResult {
-        command_id: Uuid,
-        computer_seq: i64,
-        ok: bool,
-        result: serde_json::Value,
-    },
-    RunStarted {
-        event_id: String,
-        run_id: Uuid,
-        fencing_token: String,
-        run_attempt: i64,
-        process_instance_id: Uuid,
-        #[serde(with = "time::serde::rfc3339")]
-        daemon_observed_at: OffsetDateTime,
-    },
-    RunResult {
-        event_id: String,
-        fencing_token: String,
-        command_id: Uuid,
-        computer_seq: i64,
-        ok: bool,
-        result: serde_json::Value,
-    },
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum ServerFrame {
-    Welcome {
-        heartbeat_interval_seconds: u64,
-    },
-    Command {
-        command_id: Uuid,
-        computer_seq: i64,
-        kind: String,
-        payload: serde_json::Value,
-    },
-    ResultReceipt {
-        event_id: String,
-    },
-    StartedReceipt {
-        event_id: String,
-    },
-    Shutdown {
-        reason: String,
-    },
 }
 
 pub async fn run(args: ComputerArgs) -> Result<()> {
@@ -547,8 +485,7 @@ async fn connect_once(
 struct ReceivedCommand {
     command_id: Uuid,
     computer_seq: i64,
-    kind: String,
-    payload: serde_json::Value,
+    command: ComputerCommand,
 }
 
 #[derive(Debug)]
@@ -656,10 +593,10 @@ where
                     ServerFrame::Command {
                         command_id,
                         computer_seq,
-                        kind,
-                        payload,
+                        command,
                     } => {
-                        let context = command_log_context(&payload);
+                        let kind = command.kind();
+                        let context = command_log_context(&command);
                         tracing::info!(
                             computer_id = %computer_id,
                             command_id = %command_id,
@@ -669,8 +606,7 @@ where
                             run_id = context.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
                             "Computer command received"
                         );
-                        persist_command(&database, command_id, computer_seq, &kind, &payload)
-                            .await?;
+                        persist_command(&database, command_id, computer_seq, &command).await?;
                         queue_computer_frame(
                             &outgoing,
                             &ComputerFrame::CommandAck {
@@ -684,8 +620,7 @@ where
                             .send(ReceivedCommand {
                                 command_id,
                                 computer_seq,
-                                kind,
-                                payload,
+                                command: *command,
                             })
                             .await
                             .context("Computer command processor stopped")?;
@@ -739,13 +674,13 @@ async fn command_processor_task(
         let Some(command) = command else {
             return Ok(ConnectionTaskExit::Disconnected);
         };
+        let kind = command.command.kind();
         let outcome = tokio::select! {
             _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
             outcome = processor.process(
                 command.command_id,
                 command.computer_seq,
-                &command.kind,
-                &command.payload,
+                &command.command,
             ) => outcome?,
         };
         if let Some(outcome) = outcome {
@@ -765,7 +700,7 @@ async fn command_processor_task(
                 computer_id = %computer_id,
                 command_id = %command.command_id,
                 computer_seq = command.computer_seq,
-                kind = command.kind,
+                kind,
                 ok,
                 error_code,
                 "Computer command result sent"
@@ -894,8 +829,8 @@ async fn heartbeat_reporter_task(
         queue_computer_frame(
             &outgoing,
             &ComputerFrame::Heartbeat {
-                daemon_version: env!("CARGO_PKG_VERSION"),
-                os: platform_os()?,
+                daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
+                os: platform_os()?.to_owned(),
                 cpu_count: std::thread::available_parallelism()
                     .map(usize::from)
                     .unwrap_or(1),
@@ -1007,8 +942,8 @@ where
         return Ok(());
     };
     let command_id = Uuid::parse_str(&command_id)?;
-    let result: serde_json::Value = serde_json::from_str(&payload)?;
-    let ok = result.get("status").and_then(serde_json::Value::as_str) == Some("completed");
+    let result: CommandResult = serde_json::from_str(&payload)?;
+    let ok = matches!(result.status, Some(RunResultStatus::Completed));
     send_ws_frame(
         writer,
         &ComputerFrame::RunResult {
@@ -1256,7 +1191,7 @@ async fn release_interrupted_runs(
 
 struct LocalCommandOutcome {
     ok: bool,
-    result: serde_json::Value,
+    result: CommandResult,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1265,25 +1200,15 @@ struct CommandLogContext {
     run_id: Option<Uuid>,
 }
 
-fn command_log_context(payload: &serde_json::Value) -> CommandLogContext {
-    let parse_id = |name: &str| {
-        payload
-            .get(name)
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-    };
+fn command_log_context(command: &ComputerCommand) -> CommandLogContext {
     CommandLogContext {
-        agent_member_id: parse_id("agent_id").or_else(|| parse_id("agent_member_id")),
-        run_id: parse_id("run_id"),
+        agent_member_id: command.agent_id(),
+        run_id: command.run_id(),
     }
 }
 
 fn command_error_code(outcome: &LocalCommandOutcome) -> &str {
-    outcome
-        .result
-        .get("error_code")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("none")
+    outcome.result.error_code.as_deref().unwrap_or("none")
 }
 
 struct LocalCommandProcessor {
@@ -1298,9 +1223,9 @@ impl LocalCommandProcessor {
         &self,
         command_id: Uuid,
         computer_seq: i64,
-        kind: &str,
-        payload: &serde_json::Value,
+        command: &ComputerCommand,
     ) -> Result<Option<LocalCommandOutcome>> {
+        let kind = command.kind();
         let existing: (String, Option<String>) =
             sqlx::query_as("SELECT status, result_json FROM server_commands WHERE command_id = ?1")
                 .bind(command_id.to_string())
@@ -1308,7 +1233,7 @@ impl LocalCommandProcessor {
                 .await?;
         if matches!(existing.0.as_str(), "completed" | "failed") {
             tracing::info!(command_id = %command_id, computer_seq, kind, replayed = true, status = %existing.0, "Computer command replayed from local result");
-            if kind == "agent.run" {
+            if matches!(command, ComputerCommand::Run(_)) {
                 return Ok(None);
             }
             return Ok(Some(LocalCommandOutcome {
@@ -1320,32 +1245,30 @@ impl LocalCommandProcessor {
             tracing::info!(command_id = %command_id, computer_seq, kind, replayed = true, status = "running", "Computer command already running");
             return Ok(None);
         }
-        if kind == "agent.memory.read" {
+        if let ComputerCommand::MemoryRead(payload) = command {
             let outcome = match read_memory_file(&self.state_dir, payload).await {
                 Ok(file) => LocalCommandOutcome {
                     ok: true,
-                    result: serde_json::to_value(file)?,
+                    result: file,
                 },
                 Err(_) => LocalCommandOutcome {
                     ok: false,
-                    result: serde_json::json!({
-                        "ok": false,
-                        "error_code": COMMAND_FAILED_ERROR_CODE,
-                    }),
+                    result: failed_command_result(),
                 },
             };
             finish_local_command_with_result(
                 &self.database,
                 command_id,
                 &outcome,
-                &serde_json::json!({ "ok": outcome.ok }),
+                &CommandResult {
+                    ok: Some(outcome.ok),
+                    ..CommandResult::default()
+                },
             )
             .await?;
             return Ok(Some(outcome));
         }
-        if kind == "agent.run" {
-            let run: StartRun = serde_json::from_value(payload.clone())
-                .context("agent.run command payload is invalid")?;
+        if let ComputerCommand::Run(run) = command {
             sqlx::query("UPDATE server_commands SET status = 'running' WHERE command_id = ?1")
                 .bind(command_id.to_string())
                 .execute(&self.database)
@@ -1353,7 +1276,7 @@ impl LocalCommandProcessor {
             let result = self
                 .supervisor
                 .start(
-                    run,
+                    run.clone(),
                     RunCommand {
                         command_id,
                         computer_seq,
@@ -1377,45 +1300,38 @@ impl LocalCommandProcessor {
                 Err(_) => {
                     let outcome = LocalCommandOutcome {
                         ok: false,
-                        result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
+                        result: failed_command_result(),
                     };
                     finish_local_command(&self.database, command_id, &outcome).await?;
                     return Ok(Some(outcome));
                 }
             }
         }
-        if kind == "agent.cancel" {
-            let run_id = payload
-                .get("run_id")
-                .and_then(serde_json::Value::as_str)
-                .context("agent.cancel command has no run_id")
-                .and_then(|value| {
-                    Uuid::parse_str(value).context("agent.cancel run_id is invalid")
-                })?;
-            let result = self.supervisor.cancel(run_id).await;
+        if let ComputerCommand::Cancel(payload) = command {
+            let result = self.supervisor.cancel(payload.run_id).await;
             let outcome = match result {
                 Ok(()) => LocalCommandOutcome {
                     ok: true,
-                    result: serde_json::json!({ "ok": true }),
+                    result: successful_command_result(None),
                 },
                 Err(_) => LocalCommandOutcome {
                     ok: false,
-                    result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
+                    result: failed_command_result(),
                 },
             };
             finish_local_command(&self.database, command_id, &outcome).await?;
             return Ok(Some(outcome));
         }
-        let result = execute_local_command(&self.state_dir, kind, payload, &self.supervisor).await;
-        let result = validate_provision_result(result, kind, payload, &self.supervisor).await;
+        let result = execute_local_command(&self.state_dir, command, &self.supervisor).await;
+        let result = validate_provision_result(result, command, &self.supervisor).await;
         let outcome = match result {
             Ok(memory_files) => LocalCommandOutcome {
                 ok: true,
-                result: serde_json::json!({ "ok": true, "memory_files": memory_files }),
+                result: successful_command_result(Some(memory_files)),
             },
             Err(_) => LocalCommandOutcome {
                 ok: false,
-                result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
+                result: failed_command_result(),
             },
         };
         finish_local_command(&self.database, command_id, &outcome).await?;
@@ -1435,7 +1351,7 @@ async fn finish_local_command_with_result(
     database: &SqlitePool,
     command_id: Uuid,
     outcome: &LocalCommandOutcome,
-    stored_result: &serde_json::Value,
+    stored_result: &CommandResult,
 ) -> Result<()> {
     let status = if outcome.ok { "completed" } else { "failed" };
     sqlx::query(
@@ -1453,35 +1369,44 @@ async fn finish_local_command_with_result(
 
 const COMMAND_FAILED_ERROR_CODE: &str = "command_failed";
 
+fn successful_command_result(memory_files: Option<Vec<MemoryFileMetadata>>) -> CommandResult {
+    CommandResult {
+        ok: Some(true),
+        memory_files,
+        ..CommandResult::default()
+    }
+}
+
+fn failed_command_result() -> CommandResult {
+    CommandResult {
+        ok: Some(false),
+        error_code: Some(COMMAND_FAILED_ERROR_CODE.to_owned()),
+        ..CommandResult::default()
+    }
+}
+
 async fn execute_local_command(
     state_dir: &Path,
-    kind: &str,
-    payload: &serde_json::Value,
+    command: &ComputerCommand,
     supervisor: &Supervisor,
 ) -> Result<Vec<MemoryFileMetadata>> {
-    if !matches!(
-        kind,
-        "agent.provision" | "agent.configure" | "agent.suspend" | "agent.resume" | "agent.retire"
-    ) {
-        bail!("unsupported Server command kind: {kind}");
-    }
-    let agent_id = payload
-        .get("agent_id")
-        .and_then(serde_json::Value::as_str)
-        .context("Agent command has no agent_id")
-        .and_then(|value| Uuid::parse_str(value).context("Agent command agent_id is invalid"))?;
-    let home = if kind == "agent.provision" {
-        let driver_kind = payload
-            .get("driver_kind")
-            .and_then(serde_json::Value::as_str)
-            .context("agent.provision command has no driver_kind")?;
+    let (configuration, lifecycle, provision) = match command {
+        ComputerCommand::Provision(configuration) => (configuration, "active", true),
+        ComputerCommand::Configure(configuration) => (configuration, "unchanged", false),
+        ComputerCommand::Suspend(configuration) => (configuration, "suspended", false),
+        ComputerCommand::Resume(configuration) => (configuration, "active", false),
+        ComputerCommand::Retire(configuration) => (configuration, "retired", false),
+        _ => bail!("unsupported local command: {}", command.kind()),
+    };
+    let agent_id = configuration.agent_id;
+    let home = if provision {
         ensure!(
-            matches!(driver_kind, "codex" | "builtin"),
+            matches!(configuration.driver_kind.as_str(), "codex" | "builtin"),
             "agent.provision command has unknown driver_kind"
         );
         let home = prepare_agent_home(state_dir, agent_id).await?;
         supervisor
-            .prepare_agent_driver(agent_id, driver_kind)
+            .prepare_agent_driver(agent_id, &configuration.driver_kind)
             .await?;
         home
     } else {
@@ -1490,15 +1415,15 @@ async fn execute_local_command(
         home
     };
     let profile_path = home.join("profile.json");
-    let mut profile = if kind == "agent.provision" {
+    let mut profile = if provision {
         serde_json::json!({
             "schema_version": 1,
             "agent_id": agent_id,
-            "space_id": payload.get("space_id"),
-            "name": payload.get("name"),
-            "handle": payload.get("handle"),
-            "driver_kind": payload.get("driver_kind"),
-            "driver_config": payload.get("driver_config"),
+            "space_id": configuration.space_id,
+            "name": configuration.name,
+            "handle": configuration.handle,
+            "driver_kind": configuration.driver_kind,
+            "driver_config": configuration.driver_config,
         })
     } else {
         serde_json::from_slice(&tokio::fs::read(&profile_path).await?)?
@@ -1506,19 +1431,25 @@ async fn execute_local_command(
     let profile = profile
         .as_object_mut()
         .context("Agent profile must be a JSON object")?;
-    for field in ["role_text", "role_revision", "attention_config"] {
-        if let Some(value) = payload.get(field) {
-            profile.insert(field.to_owned(), value.clone());
-        }
-    }
-    let desired_lifecycle = match kind {
-        "agent.provision" | "agent.resume" => "active",
-        "agent.suspend" => "suspended",
-        "agent.retire" => "retired",
-        _ => profile
+    profile.insert(
+        "role_text".to_owned(),
+        serde_json::to_value(&configuration.role_text)?,
+    );
+    profile.insert(
+        "role_revision".to_owned(),
+        serde_json::to_value(configuration.role_revision)?,
+    );
+    profile.insert(
+        "attention_config".to_owned(),
+        serde_json::to_value(&configuration.attention_config)?,
+    );
+    let desired_lifecycle = if lifecycle == "unchanged" {
+        profile
             .get("desired_lifecycle")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("active"),
+            .unwrap_or("active")
+    } else {
+        lifecycle
     };
     profile.insert(
         "desired_lifecycle".to_owned(),
@@ -1530,32 +1461,15 @@ async fn execute_local_command(
     if !memory.exists() {
         write_restricted_file(&memory, b"# Memory\n").await?;
     }
-    if matches!(kind, "agent.suspend" | "agent.retire")
-        && (kind == "agent.retire"
-            || payload.get("mode").and_then(serde_json::Value::as_str) == Some("cancel_now"))
+    if matches!(
+        command,
+        ComputerCommand::Suspend(_) | ComputerCommand::Retire(_)
+    ) && (matches!(command, ComputerCommand::Retire(_))
+        || matches!(configuration.mode, Some(SuspendMode::CancelNow)))
     {
         supervisor.cancel_agent(agent_id).await?;
     }
     scan_memory(&home.join("memory")).await
-}
-
-#[derive(Serialize)]
-struct MemoryFileMetadata {
-    path: String,
-    size: u64,
-    sha256: String,
-    #[serde(with = "time::serde::rfc3339")]
-    updated_at: OffsetDateTime,
-}
-
-#[derive(Debug, Serialize)]
-struct MemoryFileContent {
-    path: String,
-    content: String,
-    size: u64,
-    sha256: String,
-    #[serde(with = "time::serde::rfc3339")]
-    updated_at: OffsetDateTime,
 }
 
 async fn scan_memory(root: &Path) -> Result<Vec<MemoryFileMetadata>> {
@@ -1597,18 +1511,11 @@ async fn scan_memory(root: &Path) -> Result<Vec<MemoryFileMetadata>> {
 
 async fn read_memory_file(
     state_dir: &Path,
-    payload: &serde_json::Value,
-) -> Result<MemoryFileContent> {
+    command: &AgentMemoryReadCommand,
+) -> Result<CommandResult> {
     const MAX_MEMORY_READ_BYTES: u64 = 1024 * 1024;
-    let agent_id = payload
-        .get("agent_id")
-        .and_then(serde_json::Value::as_str)
-        .context("Memory command has no agent_id")
-        .and_then(|value| Uuid::parse_str(value).context("Memory command agent_id is invalid"))?;
-    let relative = payload
-        .get("path")
-        .and_then(serde_json::Value::as_str)
-        .context("Memory command has no path")?;
+    let agent_id = command.agent_id;
+    let relative = command.path.as_str();
     let relative_path = Path::new(relative);
     ensure!(
         !relative.is_empty()
@@ -1649,12 +1556,13 @@ async fn read_memory_file(
     );
     let bytes = tokio::fs::read(&canonical).await?;
     let content = String::from_utf8(bytes.clone()).context("Memory file is not UTF-8")?;
-    Ok(MemoryFileContent {
-        path: relative.to_owned(),
-        content,
-        size: metadata.len(),
-        sha256: hex::encode(Sha256::digest(&bytes)),
-        updated_at: OffsetDateTime::from(metadata.modified()?),
+    Ok(CommandResult {
+        path: Some(relative.to_owned()),
+        content: Some(content),
+        size: Some(metadata.len()),
+        sha256: Some(hex::encode(Sha256::digest(&bytes))),
+        updated_at: Some(OffsetDateTime::from(metadata.modified()?)),
+        ..CommandResult::default()
     })
 }
 
@@ -1678,24 +1586,14 @@ async fn write_restricted_file_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 
 async fn validate_provision_result(
     result: Result<Vec<MemoryFileMetadata>>,
-    kind: &str,
-    payload: &serde_json::Value,
+    command: &ComputerCommand,
     supervisor: &Supervisor,
 ) -> Result<Vec<MemoryFileMetadata>> {
     let memory_files = result?;
-    if kind == "agent.provision" {
-        let agent_id = payload
-            .get("agent_id")
-            .and_then(serde_json::Value::as_str)
-            .context("agent.provision command has no agent_id")
-            .and_then(|value| {
-                Uuid::parse_str(value).context("agent.provision agent_id is invalid")
-            })?;
-        let driver_kind = payload
-            .get("driver_kind")
-            .and_then(serde_json::Value::as_str)
-            .context("agent.provision command has no driver_kind")?;
-        supervisor.validate_agent(agent_id, driver_kind).await?;
+    if let ComputerCommand::Provision(configuration) = command {
+        supervisor
+            .validate_agent(configuration.agent_id, &configuration.driver_kind)
+            .await?;
     }
     Ok(memory_files)
 }
@@ -1713,27 +1611,18 @@ async fn resume_received_commands(
     .await?;
     for (command_id, request_json) in commands {
         let command_id = Uuid::parse_str(&command_id)?;
-        let request: serde_json::Value = serde_json::from_str(&request_json)?;
-        let kind = request
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            .context("persisted command has no kind")?;
-        let payload = request
-            .get("payload")
-            .context("persisted command has no payload")?;
-        let result = execute_local_command(state_dir, kind, payload, supervisor).await;
-        let result = validate_provision_result(result, kind, payload, supervisor).await;
+        let command: ComputerCommand = serde_json::from_str(&request_json)
+            .context("persisted command has invalid protocol payload")?;
+        let result = execute_local_command(state_dir, &command, supervisor).await;
+        let result = validate_provision_result(result, &command, supervisor).await;
         let outcome = match result {
             Ok(memory_files) => LocalCommandOutcome {
                 ok: true,
-                result: serde_json::json!({ "ok": true, "memory_files": memory_files }),
+                result: successful_command_result(Some(memory_files)),
             },
             Err(_) => LocalCommandOutcome {
                 ok: false,
-                result: serde_json::json!({
-                    "ok": false,
-                    "error_code": COMMAND_FAILED_ERROR_CODE,
-                }),
+                result: failed_command_result(),
             },
         };
         finish_local_command(database, command_id, &outcome).await?;
@@ -1775,11 +1664,10 @@ async fn persist_command(
     database: &SqlitePool,
     command_id: Uuid,
     computer_seq: i64,
-    kind: &str,
-    payload: &serde_json::Value,
+    command: &ComputerCommand,
 ) -> Result<()> {
     ensure!(computer_seq > 0, "Server command sequence must be positive");
-    let request = serde_json::json!({ "kind": kind, "payload": payload });
+    let request = serde_json::to_value(command)?;
     let inserted = sqlx::query(
         "INSERT INTO server_commands \
          (command_id, computer_seq, request_json, status, received_at) \

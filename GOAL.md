@@ -45,7 +45,7 @@
 
 ### 4. Computer 共享强类型协议
 
-- 状态：待开始
+- 状态：已完成
 - 将 Server 与 daemon 的镜像 Frame 移入共享 protocol 模块。
 - 统一 `run_attempt` 等字段类型。
 - 将已稳定的 command payload/result 从 `kind + serde_json::Value` 改为 tagged enum 和 struct。

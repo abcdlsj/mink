@@ -34,7 +34,6 @@ mod channel;
 mod channel_access;
 mod computer_auth;
 mod computer_pairing;
-mod computer_protocol;
 mod computer_registry;
 mod idempotency;
 mod inbox;
@@ -57,8 +56,12 @@ pub(super) struct AppState {
     pub auth_rate_limits: rate_limit::AuthRateLimits,
     pub attachment_store: Arc<dyn ObjectStore>,
     pub attachment_max_bytes: u64,
-    pub memory_read_waiters:
-        tokio::sync::Mutex<HashMap<Uuid, tokio::sync::oneshot::Sender<(bool, serde_json::Value)>>>,
+    pub memory_read_waiters: tokio::sync::Mutex<
+        HashMap<
+            Uuid,
+            tokio::sync::oneshot::Sender<(bool, crate::computer_protocol::CommandResult)>,
+        >,
+    >,
 }
 
 #[derive(Serialize)]
