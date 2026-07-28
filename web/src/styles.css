@@ -4495,17 +4495,17 @@ h1 {
   width: 40px;
   height: 40px;
   border-color: var(--ink);
-  background: var(--accent);
-  color: #66233d;
-  box-shadow: 2px 2px 0 var(--paper);
+  background: var(--paper);
+  color: #553342;
+  box-shadow: 3px 3px 0 #fe7da8;
   transform: rotate(-2deg);
 }
 
 .space-brand-mark {
   display: block;
-  font-size: 25px;
-  font-weight: 600;
-  line-height: 1;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: .9;
 }
 
 .rail-tools {
