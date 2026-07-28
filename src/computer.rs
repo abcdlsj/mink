@@ -13,6 +13,8 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 use uuid::Uuid;
 
+const ATTENTION_PREFETCH_RUNS: usize = 1;
+
 use crate::{
     cli::ComputerArgs,
     config, database,
@@ -416,6 +418,10 @@ async fn connect_once(
         completion_tx,
     };
     let heartbeat_supervisor = command_processor.supervisor.clone();
+    let max_claimed_runs = command_processor
+        .supervisor
+        .max_concurrent_runs()
+        .saturating_add(ATTENTION_PREFETCH_RUNS);
     let mut tasks = JoinSet::new();
     tasks.spawn(websocket_writer_task(
         writer,
@@ -449,6 +455,8 @@ async fn connect_once(
         server.clone(),
         computer_id,
         secrets.token.expose().to_owned(),
+        database.clone(),
+        max_claimed_runs,
         cancellation.child_token(),
     ));
     tasks.spawn(lease_renewer_task(
@@ -762,9 +770,17 @@ async fn attention_scheduler_task(
     server: Url,
     computer_id: Uuid,
     token: String,
+    database: SqlitePool,
+    max_claimed_runs: usize,
     cancellation: CancellationToken,
 ) -> Result<ConnectionTaskExit> {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut scheduler = AttentionSchedulerState {
+        database,
+        max_claimed_runs,
+        next_agent_index: 0,
+        pending_claims: std::collections::HashSet::new(),
+    };
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     interval.tick().await;
     loop {
@@ -774,7 +790,13 @@ async fn attention_scheduler_task(
         }
         let result = tokio::select! {
             _ = cancellation.cancelled() => return Ok(ConnectionTaskExit::Cancelled),
-            result = poll_agent_inbox(&client, &server, computer_id, &token) => result,
+            result = poll_agent_inbox(
+                &client,
+                &server,
+                computer_id,
+                &token,
+                &mut scheduler,
+            ) => result,
         };
         if let Err(error) = result {
             tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox poll failed");
@@ -1009,12 +1031,41 @@ async fn mark_run_started_reported(
     Ok(())
 }
 
+struct AttentionSchedulerState {
+    database: SqlitePool,
+    max_claimed_runs: usize,
+    next_agent_index: usize,
+    pending_claims: std::collections::HashSet<Uuid>,
+}
+
 async fn poll_agent_inbox(
     client: &reqwest::Client,
     server: &Url,
     computer_id: Uuid,
     token: &str,
+    scheduler: &mut AttentionSchedulerState,
 ) -> Result<()> {
+    let local_runs: Vec<(String, String)> =
+        sqlx::query_as("SELECT run_id, status FROM local_agent_runs")
+            .fetch_all(&scheduler.database)
+            .await?;
+    let local_run_ids = local_runs
+        .iter()
+        .filter_map(|(run_id, _)| Uuid::parse_str(run_id).ok())
+        .collect::<std::collections::HashSet<_>>();
+    scheduler
+        .pending_claims
+        .retain(|run_id| !local_run_ids.contains(run_id));
+    let active_runs = local_runs
+        .iter()
+        .filter(|(_, status)| !matches!(status.as_str(), "completed" | "failed" | "canceled"))
+        .count();
+    let mut claim_budget = scheduler
+        .max_claimed_runs
+        .saturating_sub(active_runs.saturating_add(scheduler.pending_claims.len()));
+    if claim_budget == 0 {
+        return Ok(());
+    }
     let agents: Vec<HostedAgent> = client
         .get(server.join(&format!("/api/v1/computers/{computer_id}/agents"))?)
         .bearer_auth(token)
@@ -1023,10 +1074,19 @@ async fn poll_agent_inbox(
         .error_for_status()?
         .json()
         .await?;
-    for agent in agents
+    let agents = agents
         .into_iter()
         .filter(|agent| agent.desired_lifecycle == "active" && agent.provision_status == "ready")
-    {
+        .collect::<Vec<_>>();
+    if agents.is_empty() {
+        scheduler.next_agent_index = 0;
+        return Ok(());
+    }
+    let start = scheduler.next_agent_index % agents.len();
+    let mut visited = 0;
+    while visited < agents.len() && claim_budget > 0 {
+        let index = (start + visited) % agents.len();
+        let agent = &agents[index];
         let claim: AgentClaimResponse = client
             .post(server.join(&format!(
                 "/api/v1/computers/{computer_id}/agents/{}/inbox/claim",
@@ -1040,15 +1100,20 @@ async fn poll_agent_inbox(
             .json()
             .await?;
         if claim.claimed {
+            let run_id = claim.run_id.context("claimed Agent Run has no run id")?;
+            scheduler.pending_claims.insert(run_id);
+            claim_budget -= 1;
             tracing::info!(
                 computer_id = %computer_id,
                 agent_member_id = %agent.member_id,
-                run_id = claim.run_id.map(|id| id.to_string()).as_deref().unwrap_or("none"),
+                run_id = %run_id,
                 inbox_items_count = claim.inbox_item_ids.len(),
                 "Agent Inbox claimed"
             );
         }
+        visited += 1;
     }
+    scheduler.next_agent_index = (start + visited) % agents.len();
     Ok(())
 }
 

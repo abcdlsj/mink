@@ -456,22 +456,22 @@ async fn run_result_outbox_retries_until_server_receipt() {
     .await
     .unwrap();
 
-    let (daemon_io, server_io) = tokio::io::duplex(4096);
-    let mut daemon_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
-        daemon_io,
-        tungstenite::protocol::Role::Client,
-        None,
-    )
-    .await;
-    let mut server_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
-        server_io,
-        tungstenite::protocol::Role::Server,
-        None,
-    )
-    .await;
     let computer_id = Uuid::now_v7();
 
     for attempt in 1..=2 {
+        let (daemon_io, server_io) = tokio::io::duplex(4096);
+        let mut daemon_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            daemon_io,
+            tungstenite::protocol::Role::Client,
+            None,
+        )
+        .await;
+        let mut server_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            server_io,
+            tungstenite::protocol::Role::Server,
+            None,
+        )
+        .await;
         sqlx::query("UPDATE run_result_outbox SET next_attempt_at = ?2 WHERE event_id = ?1")
             .bind(&event_id)
             .bind(OffsetDateTime::now_utc().to_string())
@@ -498,6 +498,19 @@ async fn run_result_outbox_retries_until_server_receipt() {
     mark_run_result_reported(&database, computer_id, &event_id)
         .await
         .unwrap();
+    let (daemon_io, server_io) = tokio::io::duplex(4096);
+    let mut daemon_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        daemon_io,
+        tungstenite::protocol::Role::Client,
+        None,
+    )
+    .await;
+    let mut server_socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        server_io,
+        tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
     send_pending_run_result(&mut daemon_socket, &database, computer_id)
         .await
         .unwrap();
@@ -608,6 +621,136 @@ async fn run_started_outbox_retries_until_server_receipt() {
 }
 
 #[tokio::test]
+async fn attention_claims_respect_capacity_and_rotate_agents() {
+    use axum::{extract::State, routing::get};
+
+    #[derive(Clone)]
+    struct SchedulerState {
+        agents: Arc<Vec<Uuid>>,
+        claimed: Arc<tokio::sync::Mutex<Vec<Uuid>>>,
+    }
+
+    async fn list_agents(State(state): State<SchedulerState>) -> axum::Json<serde_json::Value> {
+        axum::Json(serde_json::Value::Array(
+            state
+                .agents
+                .iter()
+                .map(|agent_id| {
+                    serde_json::json!({
+                        "member_id": agent_id,
+                        "desired_lifecycle": "active",
+                        "provision_status": "ready"
+                    })
+                })
+                .collect(),
+        ))
+    }
+
+    async fn claim_agent(
+        axum::extract::Path((_computer_id, agent_id)): axum::extract::Path<(Uuid, Uuid)>,
+        State(state): State<SchedulerState>,
+    ) -> axum::Json<serde_json::Value> {
+        state.claimed.lock().await.push(agent_id);
+        axum::Json(serde_json::json!({
+            "claimed": true,
+            "run_id": agent_id,
+            "inbox_item_ids": [Uuid::now_v7()]
+        }))
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let database = database::connect_sqlite(&root.path().join("daemon.db"))
+        .await
+        .unwrap();
+    let existing_run_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+         token_expires_at, status) VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'queued')",
+    )
+    .bind(existing_run_id.to_string())
+    .bind(Uuid::now_v7().to_string())
+    .bind(Uuid::now_v7().to_string())
+    .bind(OffsetDateTime::now_utc().to_string())
+    .execute(&database)
+    .await
+    .unwrap();
+    let agents = Arc::new((0..4).map(|_| Uuid::now_v7()).collect::<Vec<_>>());
+    let claimed = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let state = SchedulerState {
+        agents: agents.clone(),
+        claimed: claimed.clone(),
+    };
+    let app = axum::Router::new()
+        .route("/api/v1/computers/{computer_id}/agents", get(list_agents))
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/claim",
+            axum::routing::post(claim_agent),
+        )
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let server_url = Url::parse(&format!("http://{address}")).unwrap();
+    let client = daemon_http_client().unwrap();
+    let computer_id = Uuid::now_v7();
+    let mut scheduler = AttentionSchedulerState {
+        database: database.clone(),
+        max_claimed_runs: 2,
+        next_agent_index: 0,
+        pending_claims: std::collections::HashSet::new(),
+    };
+
+    poll_agent_inbox(&client, &server_url, computer_id, "token", &mut scheduler)
+        .await
+        .unwrap();
+    assert_eq!(claimed.lock().await.as_slice(), &[agents[0]]);
+
+    sqlx::query("UPDATE local_agent_runs SET status = 'completed' WHERE run_id = ?1")
+        .bind(existing_run_id.to_string())
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+         token_expires_at, status) VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'completed')",
+    )
+    .bind(agents[0].to_string())
+    .bind(agents[0].to_string())
+    .bind(Uuid::now_v7().to_string())
+    .bind(OffsetDateTime::now_utc().to_string())
+    .execute(&database)
+    .await
+    .unwrap();
+    poll_agent_inbox(&client, &server_url, computer_id, "token", &mut scheduler)
+        .await
+        .unwrap();
+    assert_eq!(claimed.lock().await.as_slice(), &agents[..3]);
+    for agent_id in &agents[1..3] {
+        sqlx::query(
+            "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+             token_expires_at, status) VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'completed')",
+        )
+        .bind(agent_id.to_string())
+        .bind(agent_id.to_string())
+        .bind(Uuid::now_v7().to_string())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&database)
+        .await
+        .unwrap();
+    }
+    poll_agent_inbox(&client, &server_url, computer_id, "token", &mut scheduler)
+        .await
+        .unwrap();
+    assert_eq!(
+        claimed.lock().await.as_slice(),
+        &[agents[0], agents[1], agents[2], agents[3], agents[0]]
+    );
+
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn hanging_claim_does_not_block_websocket_results_or_heartbeat() {
     use axum::extract::State;
 
@@ -713,6 +856,8 @@ async fn hanging_claim_does_not_block_websocket_results_or_heartbeat() {
         server_url,
         computer_id,
         "token".to_owned(),
+        database.clone(),
+        2,
         cancellation.child_token(),
     ));
     let heartbeat = tokio::spawn(heartbeat_reporter_task(

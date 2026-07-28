@@ -36,7 +36,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 - [x] 将 WebSocket、result sender、attention scheduler、lease renewer 和 heartbeat 拆成独立 task。
 - [x] 分开 Agent desired lifecycle 与 Run observed execution。
 - [x] 完成 SIGTERM、SIGKILL、reap 和 orphaned 状态处理。
-- [ ] 通过该设计文档列出的 12 个故障注入测试。
+- [x] 通过该设计文档列出的 12 个故障注入测试。
 
 ### 2. DM WebUI
 
@@ -68,7 +68,7 @@ pnpm --dir web build
 
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
-- `cargo test --all-features`：通过；70 个单元测试和 21 个进程与数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `cargo test --all-features`：通过；71 个单元测试和 21 个进程与数据库集成测试通过，1 个手动 provider smoke test 忽略。
 
 ## 完成条件
 

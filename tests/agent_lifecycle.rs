@@ -341,6 +341,25 @@ async fn run_lifecycle_flow(
     provider.wait_for("stop_after_current_completed").await?;
     wait_for_run_status(&pool, first_run, "completed").await?;
     assert_profile_status(&computer_state, agent_id, "suspended").await?;
+    send_dm(
+        &client,
+        &server_url,
+        &cookie,
+        channel_id,
+        "Keep this pending until the Agent resumes.",
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let suspended_state: (i64, i64) = sqlx::query_as(
+        "SELECT \
+           (SELECT count(*) FROM inbox_items WHERE member_id = $1 AND status = 'pending'), \
+           (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1 \
+             AND status IN ('queued', 'running'))",
+    )
+    .bind(agent_id)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(suspended_state == (1, 0));
 
     let resumed = update_agent(
         &client,
@@ -356,14 +375,6 @@ async fn run_lifecycle_flow(
     );
     wait_for_agent_status(&pool, agent_id, "active").await?;
 
-    send_dm(
-        &client,
-        &server_url,
-        &cookie,
-        channel_id,
-        "Cancel this run immediately.",
-    )
-    .await?;
     let second_run = wait_for_new_running_run(&pool, agent_id, first_run).await?;
     wait_for_file(
         &computer_state

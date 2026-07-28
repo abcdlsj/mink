@@ -184,7 +184,7 @@ pub async fn list_hosted_agents(
     let agents: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT member_id, desired_lifecycle, provision_status FROM agents \
          WHERE computer_id = $1 AND desired_lifecycle != 'retired' \
-         ORDER BY created_at",
+         ORDER BY created_at, member_id",
     )
     .bind(computer_id)
     .fetch_all(&state.database)

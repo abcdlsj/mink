@@ -746,18 +746,50 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .into(),
         ))
         .await?;
-    let status_after_ack: String =
-        sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
+    let state_after_ack: (String, Option<time::OffsetDateTime>) =
+        sqlx::query_as("SELECT status, started_at FROM agent_runs WHERE id = $1")
             .bind(run_id)
             .fetch_one(&pool)
             .await?;
-    ensure!(status_after_ack == "queued");
+    ensure!(state_after_ack == ("queued".to_owned(), None));
     ensure!(
         tokio::time::timeout(std::time::Duration::from_millis(1_200), socket.next())
             .await
             .is_err(),
         "acked Agent run command was redelivered on the same connection"
     );
+    let started_event_id = Uuid::now_v7().to_string();
+    let process_instance_id = Uuid::now_v7();
+    let started_frame = serde_json::json!({
+        "type": "run_started",
+        "event_id": started_event_id,
+        "run_id": run_id,
+        "fencing_token": run_fencing_token,
+        "run_attempt": 1,
+        "process_instance_id": process_instance_id,
+        "daemon_observed_at": time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)?,
+    });
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            started_frame.to_string().into(),
+        ))
+        .await?;
+    let started_receipt = socket
+        .next()
+        .await
+        .context("Run started receipt missing")??;
+    let started_receipt: serde_json::Value = serde_json::from_str(started_receipt.to_text()?)?;
+    ensure!(
+        started_receipt["type"] == "started_receipt"
+            && started_receipt["event_id"] == started_event_id
+    );
+    let status_before_disconnect: String =
+        sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await?;
+    ensure!(status_before_disconnect == "running");
     socket.close(None).await?;
     let mut reconnect_request =
         format!("ws://{address}/api/v1/computers/{}/connect", computer.id).into_client_request()?;
@@ -788,39 +820,26 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .bind(run_id)
             .fetch_one(&pool)
             .await?;
-    ensure!(status_after_watermark == "queued");
+    ensure!(status_after_watermark == "running");
     ensure!(
         tokio::time::timeout(std::time::Duration::from_millis(1_200), socket.next())
             .await
             .is_err(),
         "replayed Agent run command repeated again on the reconnected socket"
     );
-    let started_event_id = Uuid::now_v7().to_string();
-    let process_instance_id = Uuid::now_v7();
-    let started_frame = serde_json::json!({
-        "type": "run_started",
-        "event_id": started_event_id,
-        "run_id": run_id,
-        "fencing_token": run_fencing_token,
-        "run_attempt": 1,
-        "process_instance_id": process_instance_id,
-        "daemon_observed_at": time::OffsetDateTime::now_utc()
-            .format(&time::format_description::well_known::Rfc3339)?,
-    });
-    for _ in 0..2 {
-        socket
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                started_frame.to_string().into(),
-            ))
-            .await?;
-        let receipt = socket
-            .next()
-            .await
-            .context("Run started receipt missing")??;
-        let receipt: serde_json::Value = serde_json::from_str(receipt.to_text()?)?;
-        ensure!(receipt["type"] == "started_receipt");
-        ensure!(receipt["event_id"] == started_event_id);
-    }
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            started_frame.to_string().into(),
+        ))
+        .await?;
+    let duplicate_started_receipt = socket
+        .next()
+        .await
+        .context("Duplicate Run started receipt missing")??;
+    let duplicate_started_receipt: serde_json::Value =
+        serde_json::from_str(duplicate_started_receipt.to_text()?)?;
+    ensure!(duplicate_started_receipt["type"] == "started_receipt");
+    ensure!(duplicate_started_receipt["event_id"] == started_event_id);
     let started_state: (String, Option<String>, Option<i32>, Option<Uuid>, i64) = sqlx::query_as(
         "SELECT status, started_event_id, run_attempt, process_instance_id, \
              (SELECT count(*) FROM outbox_events WHERE topic = 'agent.run_changed' \
@@ -1880,10 +1899,11 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         let receipt: serde_json::Value = serde_json::from_str(receipt.to_text()?)?;
         ensure!(receipt["type"] == "result_receipt" && receipt["event_id"] == completed_event_id);
     }
-    let applied_result: (Option<String>, i64) = sqlx::query_as(
+    let applied_result: (Option<String>, i64, i32) = sqlx::query_as(
         "SELECT result_event_id, \
          (SELECT count(*) FROM outbox_events WHERE topic = 'agent.run_changed' \
-          AND aggregate_id = $1 AND payload_json->>'status' = 'completed') \
+          AND aggregate_id = $1 AND payload_json->>'status' = 'completed'), \
+         (SELECT retry_count FROM inbox_items WHERE id = $3) \
          FROM computer_commands WHERE id = $2",
     )
     .bind(run_id)
@@ -1892,9 +1912,10 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .as_str()
             .context("Run command id missing")?,
     )?)
+    .bind(inbox_item_id)
     .fetch_one(&pool)
     .await?;
-    ensure!(applied_result == (Some(completed_event_id.clone()), 1));
+    ensure!(applied_result == (Some(completed_event_id.clone()), 1, 0));
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let status: String = sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")

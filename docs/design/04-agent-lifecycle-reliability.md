@@ -106,7 +106,7 @@ daemon 使用独立 task 处理以下职责：
 
 这些 task 共享 cancellation token，并按 shutdown 顺序退出。HTTP 使用一个配置了 connect timeout 和 request timeout 的 client。claim 或 renew 请求超时不能停止 heartbeat、WebSocket 读取或 result sender。
 
-attention scheduler 的 claim 上限为可用执行槽加固定 prefetch 数。已 queued 的本地 Run 占用 prefetch。相同优先级的 Agent 按 round-robin 调度。
+attention scheduler 的 claim 上限为执行槽数加 1 个 prefetch。已 queued 的本地 Run 和已经 claim、但尚未写入 SQLite 的 Run 都占用该上限。相同优先级的 Agent 按 round-robin 调度。
 
 Raft Computer 的 `AgentStartCoordinator` 限制并发启动，`AgentStartPendingDeliveryBuffer` 保存启动期间收到的消息。Sumi 使用这两个实现位置作为容量控制参考。
 
@@ -221,6 +221,7 @@ Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状
 截至 2026-07-28，daemon 已使用独立 result sender 跨连接补报结果，并实现 ownership lease、
 `run_started` 回执和本地停止证据。Supervisor 在发信号前持久化 stop epoch；Codex Driver 检查
 SIGTERM 和 SIGKILL 返回值，两次等待都受 timeout 限制。第二次等待超时后，本地 Run 保持非终态并
-写入 `orphaned`，后台 reaper 取得退出证据后才写终态和 result outbox。
+写入 `orphaned`，后台 reaper 取得退出证据后才写终态和 result outbox。attention scheduler 按执行
+槽数加 1 个 prefetch 限制 claim，并在稳定的 Agent 顺序上轮转起点。
 
 实施顺序见 [GOAL.md](../../GOAL.md)。

@@ -31,6 +31,7 @@ struct SupervisorInner {
     codex_auth_source: Option<PathBuf>,
     drivers: HashMap<String, Arc<dyn Driver>>,
     slots: Arc<Semaphore>,
+    max_concurrent_runs: usize,
     active: Mutex<HashMap<Uuid, ActiveRun>>,
     timeout: Duration,
     grace_period: Duration,
@@ -121,11 +122,16 @@ impl Supervisor {
                 codex_auth_source: config.codex_auth_source.clone(),
                 drivers,
                 slots: Arc::new(Semaphore::new(config.max_concurrent_runs)),
+                max_concurrent_runs: config.max_concurrent_runs,
                 active: Mutex::new(HashMap::new()),
                 timeout: Duration::from_secs(config.per_agent_timeout_seconds),
                 grace_period: Duration::from_secs(config.shutdown_grace_period_seconds),
             }),
         }
+    }
+
+    pub fn max_concurrent_runs(&self) -> usize {
+        self.inner.max_concurrent_runs
     }
 
     pub async fn start(
@@ -1537,6 +1543,16 @@ mod tests {
         assert_eq!(first_result.await.unwrap().status, "canceled");
         assert_eq!(second_result.await.unwrap().status, "canceled");
         assert_eq!(supervisor.counts().await.unwrap().1, 0);
+        let pending_results: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM run_result_outbox \
+             WHERE run_id IN (?1, ?2) AND reported_at IS NULL",
+        )
+        .bind(first_id.to_string())
+        .bind(second_id.to_string())
+        .fetch_one(&supervisor.inner.database)
+        .await
+        .unwrap();
+        assert_eq!(pending_results, 2);
     }
 
     #[tokio::test]
@@ -1658,6 +1674,55 @@ mod tests {
         .execute(&supervisor.inner.database)
         .await
         .unwrap();
+        let completed_run_id = Uuid::now_v7();
+        let completed_command = RunCommand {
+            command_id: Uuid::now_v7(),
+            computer_seq: 2,
+        };
+        let completed_event_id = Uuid::now_v7().to_string();
+        let completed_payload = serde_json::json!({
+            "ok": true,
+            "run_id": completed_run_id,
+            "status": "completed",
+            "memory_files": [],
+        });
+        sqlx::query(
+            "INSERT INTO server_commands (command_id, computer_seq, request_json, status, \
+             result_json, received_at, completed_at) VALUES (?1, ?2, ?3, 'completed', ?4, ?5, ?5)",
+        )
+        .bind(completed_command.command_id.to_string())
+        .bind(completed_command.computer_seq)
+        .bind(
+            serde_json::json!({
+                "kind": "agent.run",
+                "payload": {
+                    "run_id": completed_run_id,
+                    "agent_id": first,
+                    "space_id": run.space_id,
+                },
+            })
+            .to_string(),
+        )
+        .bind(completed_payload.to_string())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&supervisor.inner.database)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+             token_expires_at, status, finished_at, command_id, computer_seq, result_event_id) \
+             VALUES (?1, ?2, ?3, zeroblob(32), ?4, 'completed', ?4, ?5, ?6, ?7)",
+        )
+        .bind(completed_run_id.to_string())
+        .bind(first.to_string())
+        .bind(run.space_id.to_string())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .bind(completed_command.command_id.to_string())
+        .bind(completed_command.computer_seq)
+        .bind(&completed_event_id)
+        .execute(&supervisor.inner.database)
+        .await
+        .unwrap();
 
         recover_interrupted_runs(&supervisor.inner.database)
             .await
@@ -1679,5 +1744,17 @@ mod tests {
         assert_eq!(persisted.3, 0);
         let payload: serde_json::Value = serde_json::from_str(&persisted.2).unwrap();
         assert_eq!(payload["error_code"], "process_lost");
+        let recovered_completed: (String, Option<String>) = sqlx::query_as(
+            "SELECT payload_json, reported_at FROM run_result_outbox WHERE run_id = ?1",
+        )
+        .bind(completed_run_id.to_string())
+        .fetch_one(&supervisor.inner.database)
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&recovered_completed.0).unwrap(),
+            completed_payload
+        );
+        assert!(recovered_completed.1.is_none());
     }
 }
