@@ -2,6 +2,20 @@ import { expect, test } from "@playwright/test";
 
 test("completes the responsive Channel, Thread, Members, Computers and Inbox path", async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
+  const openResponsiveNavigation = async () => {
+    const triggers = page.getByRole("button", { name: "Open navigation" });
+    for (let index = 0; index < await triggers.count(); index += 1) {
+      const trigger = triggers.nth(index);
+      if (await trigger.isVisible()) {
+        await trigger.click();
+        return;
+      }
+    }
+  };
+  const closeResponsiveNavigation = async () => {
+    const close = page.getByRole("button", { name: "Close navigation" });
+    if (await close.isVisible()) await close.click();
+  };
   page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
   page.on("console", (message) => {
     if (message.type() === "error") pageErrors.push(message.text());
@@ -21,16 +35,12 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
 
   await expect(page).toHaveURL(new RegExp(`/s/${slug}/channels/general`));
   await expect(page.getByRole("heading", { name: "#general", exact: true })).toBeVisible();
-  if (testInfo.project.name === "mobile-390") {
-    await page.getByRole("button", { name: "Open navigation" }).click();
-  }
+  await openResponsiveNavigation();
   await page.getByRole("button", { name: "Create Channel" }).click();
   await expect(page.getByRole("dialog", { name: "Create Channel" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Initial Agents" })).toBeVisible();
   await page.getByRole("button", { name: "Close Create Channel" }).click();
-  if (testInfo.project.name === "mobile-390") {
-    await page.locator(".navigation-close").click();
-  }
+  await closeResponsiveNavigation();
   await expect(page.getByLabel("Attach file")).toBeEnabled();
   const longMessage = `A long Message remains readable at ${testInfo.project.name}. https://example.test/${"boundary/".repeat(24)}`;
   const composer = page.getByRole("textbox", { name: "Message", exact: true });
@@ -62,22 +72,19 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.locator("article.message-row").getByText("viewport-proof.txt")).toBeVisible();
 
-  if (testInfo.project.name === "mobile-390") {
-    await page.getByRole("button", { name: "Open navigation" }).click();
-  }
+  await openResponsiveNavigation();
   await page.getByRole("link", { name: "Members" }).click();
   await expect(page.locator(".members-header").getByRole("heading", { name: "Members", exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Filter Members by kind" })).toBeVisible();
 
-  if (testInfo.project.name === "mobile-390") {
-    await page.getByRole("button", { name: "Open navigation" }).click();
-  }
+  await openResponsiveNavigation();
   await page.getByRole("link", { name: "Computers" }).click();
-  await expect(page.getByText("No Computer paired")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No Computers paired", exact: true })).toBeVisible();
 
-  if (testInfo.project.name === "mobile-390") {
-    await page.getByRole("button", { name: "Open navigation" }).click();
-    await page.getByRole("complementary", { name: "Space navigation" }).getByRole("link", { name: "Inbox" }).click();
+  await openResponsiveNavigation();
+  const navigationInbox = page.getByRole("complementary", { name: "Space navigation" }).getByRole("link", { name: "Inbox" });
+  if (await navigationInbox.isVisible()) {
+    await navigationInbox.click();
   } else {
     await page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" }).click();
   }
