@@ -25,6 +25,14 @@ pub(super) enum ComputerFrame {
         ok: bool,
         result: serde_json::Value,
     },
+    RunStarted {
+        event_id: String,
+        run_id: Uuid,
+        run_attempt: i32,
+        process_instance_id: Uuid,
+        #[serde(with = "time::serde::rfc3339")]
+        daemon_observed_at: time::OffsetDateTime,
+    },
     RunResult {
         event_id: String,
         command_id: Uuid,
@@ -47,6 +55,9 @@ pub(super) enum ServerFrame {
         payload: serde_json::Value,
     },
     ResultReceipt {
+        event_id: String,
+    },
+    StartedReceipt {
         event_id: String,
     },
     Shutdown {

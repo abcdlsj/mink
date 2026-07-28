@@ -114,7 +114,11 @@ impl Driver for BuiltinDriver {
         let bridge_events = driver_events_tx.clone();
 
         let run_id = run.run_id;
+        let (activation_tx, activation_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
+            if activation_rx.await.is_err() {
+                return;
+            }
             let mut session = Session::default();
             let result = engine.run(&turn, &mut session, &tool_events_tx, None).await;
             let usage = session.token_usage();
@@ -161,6 +165,7 @@ impl Driver for BuiltinDriver {
         Ok(DriverProcess::Internal {
             task,
             events: driver_events_rx,
+            activation: Some(activation_tx),
         })
     }
 
@@ -169,7 +174,10 @@ impl Driver for BuiltinDriver {
         process: &mut DriverProcess,
         events: &mpsc::Sender<DriverEvent>,
     ) -> Result<DriverOutcome> {
-        let DriverProcess::Internal { task, events: rx } = process else {
+        let DriverProcess::Internal {
+            task, events: rx, ..
+        } = process
+        else {
             bail!("Builtin driver requires internal process");
         };
 
@@ -559,6 +567,7 @@ mod tests {
             })
             .await
             .unwrap();
+        process.activate().await.unwrap();
         let (events, _receiver) = mpsc::channel(16);
 
         let outcome = driver.observe(&mut process, &events).await.unwrap();

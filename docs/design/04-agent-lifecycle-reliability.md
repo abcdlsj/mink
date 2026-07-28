@@ -69,7 +69,7 @@ daemon 获得执行槽后把本地 Run 写为 `starting`。Driver 启动且 SQLi
 - fencing token
 - daemon observed timestamp
 
-Server 应用 `run_started` 后把 Run 改为 `running`，用 daemon observed timestamp 填写 `started_at`，并返回 event receipt。daemon 收到该回执后才向 Driver 交付首个 prompt 和 Run token。这个顺序保证 Driver 第一次调用 Agent API 时，Server 已接受 running 状态。
+Server 应用 `run_started` 后把 Run 改为 `running`，用 daemon observed timestamp 填写 `started_at`，并返回只包含同一 `event_id` 的 `started_receipt`。同一 `event_id` 的重复 `run_started` 返回相同回执，不重复发布 Run 状态事件。daemon 收到该回执后才激活本地 Run token 并向 Driver 交付首个 prompt。这个顺序保证 Driver 第一次调用 Agent API 时，Server 已接受 running 状态。
 
 ## Run result outbox
 
@@ -221,7 +221,7 @@ Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状
 截至 2026-07-28：
 
 - `src/computer.rs` 的 completion channel 属于单次 `connect_once`。running command 重放不会为新连接恢复完成上报。
-- `src/server/computer_registry.rs` 在 command ACK 后把 Run 写为 running。offline monitor 没有处理 active Run。
+- `run_started` 已使用 durable outbox 和 `started_receipt`，但尚未携带 ownership fencing token。offline monitor 也没有处理 active Run。
 - `src/supervisor.rs` 在 Driver cancel 失败后可能从 active map 删除 Run。
 - `src/driver/codex.rs` 没有检查 kill 返回值，SIGKILL 后的 reap 没有第二个 timeout。
 - `migrations/postgres/0009_agents.sql` 约束同一 Agent 只有一个 active Run，但 Server 没有 ownership lease 过期处理。

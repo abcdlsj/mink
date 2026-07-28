@@ -30,7 +30,7 @@ Human 可以从空环境创建 Space、配对 Computer，并创建使用本机 p
 
 - [x] 在 SQLite 增加 durable result outbox。Run 结束时原子写入终态和待上报结果。
 - [x] 增加 `result_receipt`。daemon 收到回执前持续重发，Server 幂等应用结果。
-- [ ] 增加 `run_started`。command ACK 不再把 queued Run 改成 running。
+- [x] 增加 `run_started`。command ACK 不再把 queued Run 改成 running。
 - [ ] 增加 Run ownership lease、fencing token 和 Server reconciler。过期 Run 释放 Inbox 和 active Run 唯一约束。
 - [ ] 将 WebSocket、result sender、attention scheduler、lease renewer 和 heartbeat 拆成独立 task。
 - [ ] 分开 Agent desired lifecycle 与 Run observed execution。
@@ -67,7 +67,7 @@ pnpm --dir web build
 
 - `cargo fmt --all -- --check`：通过。
 - `cargo clippy --all-targets --all-features -- -D warnings`：通过。
-- `cargo test --all-features`：通过；65 个单元测试、21 个进程和数据库集成测试通过，1 个手动 provider smoke test 忽略。
+- `cargo test --all-features`：通过；66 个单元测试、21 个进程和数据库集成测试通过，1 个手动 provider smoke test 忽略。
 
 ## 完成条件
 

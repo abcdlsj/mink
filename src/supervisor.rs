@@ -321,25 +321,6 @@ impl Supervisor {
             .validate(&environment)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "driver_unavailable"))?;
-        let token_hash = Sha256::digest(environment.run_token.as_bytes()).to_vec();
-        sqlx::query(
-            "UPDATE local_agent_runs SET status = 'running', run_token_hash = ?2, started_at = ?3, \
-             token_expires_at = ?4 \
-             WHERE run_id = ?1 AND status = 'queued'",
-        )
-        .bind(run.run_id.to_string())
-        .bind(token_hash)
-        .bind(OffsetDateTime::now_utc().to_string())
-        .bind(
-            (OffsetDateTime::now_utc()
-                + time::Duration::seconds(
-                    self.inner.timeout.as_secs() as i64 + self.inner.grace_period.as_secs() as i64,
-                ))
-            .to_string(),
-        )
-        .execute(&self.inner.database)
-        .await
-        .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
         let mut process = driver
             .start(DriverRun {
                 run_id: run.run_id,
@@ -353,15 +334,100 @@ impl Supervisor {
             agent_member_id = %run.agent_id,
             driver_kind = %run.driver_kind,
             process_id = process.pid(),
-            status = "running",
-            "Agent Driver started"
+            status = "starting",
+            "Agent Driver started and is waiting for Server receipt"
         );
-        sqlx::query("UPDATE local_agent_runs SET process_id = ?2 WHERE run_id = ?1")
-            .bind(run.run_id.to_string())
-            .bind(process.pid().map(i64::from))
-            .execute(&self.inner.database)
+        let process_instance_id = Uuid::now_v7();
+        let started_event_id = Uuid::now_v7();
+        let daemon_observed_at = OffsetDateTime::now_utc();
+        let mut transaction = self
+            .inner
+            .database
+            .begin()
             .await
             .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+        sqlx::query(
+            "UPDATE local_agent_runs SET process_id = ?2, process_instance_id = ?3 \
+             WHERE run_id = ?1 AND status = 'queued'",
+        )
+        .bind(run.run_id.to_string())
+        .bind(process.pid().map(i64::from))
+        .bind(process_instance_id.to_string())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+        sqlx::query(
+            "INSERT INTO run_started_outbox (event_id, run_id, run_attempt, process_instance_id, \
+             daemon_observed_at, next_attempt_at, created_at) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5)",
+        )
+        .bind(started_event_id.to_string())
+        .bind(run.run_id.to_string())
+        .bind(process_instance_id.to_string())
+        .bind(
+            daemon_observed_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?,
+        )
+        .bind(daemon_observed_at.to_string())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+
+        loop {
+            let reported: bool = sqlx::query_scalar(
+                "SELECT reported_at IS NOT NULL FROM run_started_outbox WHERE event_id = ?1",
+            )
+            .bind(started_event_id.to_string())
+            .fetch_one(&self.inner.database)
+            .await
+            .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+            if reported {
+                break;
+            }
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(25)) => {}
+                _ = &mut cancel_rx => {
+                    driver.cancel(&mut process, self.inner.grace_period).await
+                        .map_err(|_| RunFailure::new(run.run_id, "driver_cancel_failed"))?;
+                    return self.persist_terminal_result(run.run_id, run.agent_id, command, "canceled", None).await;
+                }
+            }
+        }
+
+        let token_hash = Sha256::digest(environment.run_token.as_bytes()).to_vec();
+        let activated_at = OffsetDateTime::now_utc();
+        sqlx::query(
+            "UPDATE local_agent_runs SET status = 'running', run_token_hash = ?2, started_at = ?3, \
+             token_expires_at = ?4 WHERE run_id = ?1 AND status = 'queued'",
+        )
+        .bind(run.run_id.to_string())
+        .bind(token_hash)
+        .bind(activated_at.to_string())
+        .bind(
+            (activated_at
+                + time::Duration::seconds(
+                    self.inner.timeout.as_secs() as i64 + self.inner.grace_period.as_secs() as i64,
+                ))
+            .to_string(),
+        )
+        .execute(&self.inner.database)
+        .await
+        .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
+        process
+            .activate()
+            .await
+            .map_err(|_| RunFailure::new(run.run_id, "driver_start_failed"))?;
+        tracing::info!(
+            run_id = %run.run_id,
+            agent_member_id = %run.agent_id,
+            process_instance_id = %process_instance_id,
+            status = "running",
+            "Agent Driver activated after Server receipt"
+        );
 
         let (event_tx, mut event_rx) = mpsc::channel(64);
         event_tx
@@ -764,7 +830,11 @@ mod tests {
                 _ => Duration::ZERO,
             };
             let (events_tx, events) = mpsc::channel(1);
+            let (activation_tx, activation_rx) = oneshot::channel();
             let task = tokio::spawn(async move {
+                if activation_rx.await.is_err() {
+                    return;
+                }
                 events_tx
                     .send(DriverEvent::OutputReceived {
                         event_type: "test_started".to_owned(),
@@ -773,7 +843,11 @@ mod tests {
                     .ok();
                 tokio::time::sleep(delay).await;
             });
-            Ok(DriverProcess::Internal { task, events })
+            Ok(DriverProcess::Internal {
+                task,
+                events,
+                activation: Some(activation_tx),
+            })
         }
 
         async fn observe(
@@ -784,6 +858,7 @@ mod tests {
             let DriverProcess::Internal {
                 task,
                 events: source,
+                ..
             } = process
             else {
                 bail!("Test Driver requires an internal task");
@@ -881,6 +956,25 @@ mod tests {
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&supervisor.inner.database)
         .await?;
+        let database = supervisor.inner.database.clone();
+        let run_id = run.run_id;
+        tokio::spawn(async move {
+            loop {
+                let updated = sqlx::query(
+                    "UPDATE run_started_outbox SET reported_at = ?2 \
+                     WHERE run_id = ?1 AND reported_at IS NULL",
+                )
+                .bind(run_id.to_string())
+                .bind(OffsetDateTime::now_utc().to_string())
+                .execute(&database)
+                .await
+                .unwrap();
+                if updated.rows_affected() == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
         supervisor.start(run, command).await
     }
 

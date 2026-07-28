@@ -4,10 +4,10 @@ pub mod codex;
 
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::process::Child;
+use tokio::{io::AsyncWriteExt, process::Child};
 
 use crate::prompt::AgentRunPrompt;
 
@@ -46,10 +46,13 @@ pub enum DriverProcess {
     External {
         child: Child,
         stdout: tokio::process::ChildStdout,
+        stdin: Option<tokio::process::ChildStdin>,
+        prompt: Option<Vec<u8>>,
     },
     Internal {
         task: tokio::task::JoinHandle<()>,
         events: tokio::sync::mpsc::Receiver<DriverEvent>,
+        activation: Option<tokio::sync::oneshot::Sender<()>>,
     },
 }
 
@@ -59,6 +62,25 @@ impl DriverProcess {
             DriverProcess::External { child, .. } => child.id(),
             DriverProcess::Internal { .. } => None,
         }
+    }
+
+    pub async fn activate(&mut self) -> Result<()> {
+        match self {
+            DriverProcess::External { stdin, prompt, .. } => {
+                let mut stdin = stdin.take().context("Driver stdin is unavailable")?;
+                let prompt = prompt.take().context("Driver prompt is unavailable")?;
+                stdin.write_all(&prompt).await?;
+                drop(stdin);
+            }
+            DriverProcess::Internal { activation, .. } => {
+                activation
+                    .take()
+                    .context("Driver activation is unavailable")?
+                    .send(())
+                    .map_err(|_| anyhow::anyhow!("Driver stopped before activation"))?;
+            }
+        }
+        Ok(())
     }
 }
 

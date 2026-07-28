@@ -62,12 +62,13 @@ mod tests {
 
         let table_count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
-             ('daemon_metadata', 'server_commands', 'local_agent_runs', 'run_result_outbox')",
+             ('daemon_metadata', 'server_commands', 'local_agent_runs', 'run_result_outbox', \
+              'run_started_outbox')",
         )
         .fetch_one(&database)
         .await
         .unwrap();
 
-        assert_eq!(table_count, 4);
+        assert_eq!(table_count, 5);
     }
 }

@@ -108,6 +108,14 @@ enum ComputerFrame {
         ok: bool,
         result: serde_json::Value,
     },
+    RunStarted {
+        event_id: String,
+        run_id: Uuid,
+        run_attempt: i64,
+        process_instance_id: Uuid,
+        #[serde(with = "time::serde::rfc3339")]
+        daemon_observed_at: OffsetDateTime,
+    },
     RunResult {
         event_id: String,
         command_id: Uuid,
@@ -130,6 +138,9 @@ enum ServerFrame {
         payload: serde_json::Value,
     },
     ResultReceipt {
+        event_id: String,
+    },
+    StartedReceipt {
         event_id: String,
     },
     Shutdown {
@@ -235,6 +246,9 @@ enum DaemonExit {
 
 async fn reset_deleted_identity(database: &SqlitePool, secrets_path: &Path) -> Result<()> {
     let mut transaction = database.begin().await?;
+    sqlx::query("DELETE FROM run_started_outbox")
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query("DELETE FROM run_result_outbox")
         .execute(&mut *transaction)
         .await?;
@@ -429,11 +443,11 @@ async fn connect_once(
                 }
             }
             _ = result_retry.tick() => {
-                send_pending_run_result(&mut writer, database, computer_id).await?;
+                send_pending_run_event(&mut writer, database, computer_id).await?;
             }
             completion = completion_rx.recv() => {
                 completion.context("Computer command completion channel closed")?;
-                send_pending_run_result(&mut writer, database, computer_id).await?;
+                send_pending_run_event(&mut writer, database, computer_id).await?;
             }
             message = reader.next() => {
                 let Some(message) = message else {
@@ -475,6 +489,9 @@ async fn connect_once(
                             ServerFrame::ResultReceipt { event_id } => {
                                 mark_run_result_reported(database, computer_id, &event_id).await?;
                             }
+                            ServerFrame::StartedReceipt { event_id } => {
+                                mark_run_started_reported(database, computer_id, &event_id).await?;
+                            }
                             ServerFrame::Welcome { .. } => {}
                         }
                     }
@@ -493,6 +510,70 @@ async fn connect_once(
             }
         }
     }
+}
+
+async fn send_pending_run_event<S>(
+    writer: &mut S,
+    database: &SqlitePool,
+    computer_id: Uuid,
+) -> Result<()>
+where
+    S: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
+{
+    if send_pending_run_started(writer, database, computer_id).await? {
+        return Ok(());
+    }
+    send_pending_run_result(writer, database, computer_id).await
+}
+
+async fn send_pending_run_started<S>(
+    writer: &mut S,
+    database: &SqlitePool,
+    computer_id: Uuid,
+) -> Result<bool>
+where
+    S: futures_util::Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin,
+{
+    let now = OffsetDateTime::now_utc();
+    let pending: Option<(String, String, i64, String, String, i64)> = sqlx::query_as(
+        "SELECT event_id, run_id, run_attempt, process_instance_id, daemon_observed_at, attempt_count \
+         FROM run_started_outbox WHERE reported_at IS NULL AND next_attempt_at <= ?1 \
+         ORDER BY next_attempt_at, event_id LIMIT 1",
+    )
+    .bind(now.to_string())
+    .fetch_optional(database)
+    .await?;
+    let Some((event_id, run_id, run_attempt, process_instance_id, observed_at, attempt_count)) =
+        pending
+    else {
+        return Ok(false);
+    };
+    let run_id = Uuid::parse_str(&run_id)?;
+    let process_instance_id = Uuid::parse_str(&process_instance_id)?;
+    let daemon_observed_at =
+        OffsetDateTime::parse(&observed_at, &time::format_description::well_known::Rfc3339)?;
+    send_ws_frame(
+        writer,
+        &ComputerFrame::RunStarted {
+            event_id: event_id.clone(),
+            run_id,
+            run_attempt,
+            process_instance_id,
+            daemon_observed_at,
+        },
+    )
+    .await?;
+    let retry_seconds = 1_i64 << attempt_count.min(5);
+    sqlx::query(
+        "UPDATE run_started_outbox SET attempt_count = attempt_count + 1, next_attempt_at = ?2 \
+         WHERE event_id = ?1 AND reported_at IS NULL",
+    )
+    .bind(&event_id)
+    .bind((now + time::Duration::seconds(retry_seconds)).to_string())
+    .execute(database)
+    .await?;
+    tracing::info!(computer_id = %computer_id, run_id = %run_id, event_id, attempt = attempt_count + 1, "Agent run started event sent");
+    Ok(true)
 }
 
 async fn send_pending_run_result<S>(
@@ -561,6 +642,26 @@ async fn mark_run_result_reported(
         "Server receipted an unknown Run result event"
     );
     tracing::info!(computer_id = %computer_id, event_id, "Agent run result receipted");
+    Ok(())
+}
+
+async fn mark_run_started_reported(
+    database: &SqlitePool,
+    computer_id: Uuid,
+    event_id: &str,
+) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE run_started_outbox SET reported_at = COALESCE(reported_at, ?2) WHERE event_id = ?1",
+    )
+    .bind(event_id)
+    .bind(OffsetDateTime::now_utc().to_string())
+    .execute(database)
+    .await?;
+    ensure!(
+        updated.rows_affected() == 1,
+        "Server receipted an unknown Run started event"
+    );
+    tracing::info!(computer_id = %computer_id, event_id, "Agent run started event receipted");
     Ok(())
 }
 

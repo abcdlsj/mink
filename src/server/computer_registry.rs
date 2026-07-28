@@ -578,18 +578,6 @@ async fn run_computer_socket(
     .execute(&state.database)
     .await
     .map_err(ApiError::database)?;
-    sqlx::query(
-        "UPDATE agent_runs SET status = 'running', started_at = COALESCE(started_at, now()) \
-         WHERE computer_id = $1 AND status = 'queued' AND id IN ( \
-           SELECT (payload_json->>'run_id')::uuid FROM computer_commands \
-           WHERE computer_id = $1 AND computer_seq <= $2 AND kind = 'agent.run' \
-             AND status IN ('acked', 'completed'))",
-    )
-    .bind(computer_id)
-    .bind(last_acked)
-    .execute(&state.database)
-    .await
-    .map_err(ApiError::database)?;
     update_online(state, computer_id, None, None).await?;
     send_frame(
         socket,
@@ -664,6 +652,31 @@ async fn run_computer_socket(
                         )
                         .await?;
                     }
+                    ComputerFrame::RunStarted {
+                        event_id,
+                        run_id,
+                        run_attempt,
+                        process_instance_id,
+                        daemon_observed_at,
+                    } => {
+                        if event_id.is_empty() || event_id.len() > 128 || run_attempt <= 0 {
+                            return Err(ApiError::validation(
+                                "invalid_run_started",
+                                "Run started event is invalid",
+                            ));
+                        }
+                        apply_run_started(
+                            state,
+                            computer_id,
+                            &event_id,
+                            run_id,
+                            run_attempt,
+                            process_instance_id,
+                            daemon_observed_at,
+                        )
+                        .await?;
+                        send_frame(socket, &ServerFrame::StartedReceipt { event_id }).await?;
+                    }
                     ComputerFrame::RunResult {
                         event_id,
                         command_id,
@@ -726,34 +739,76 @@ async fn apply_command_ack(
     computer_seq: i64,
 ) -> Result<(), ApiError> {
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
-    let command: Option<(String, serde_json::Value)> = sqlx::query_as(
+    sqlx::query(
         "UPDATE computer_commands SET status = 'acked', acked_at = COALESCE(acked_at, now()) \
          WHERE id = $1 AND computer_id = $2 AND computer_seq = $3 \
-           AND status IN ('pending', 'acked') RETURNING kind, payload_json",
+           AND status IN ('pending', 'acked')",
     )
     .bind(command_id)
     .bind(computer_id)
     .bind(computer_seq)
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(())
+}
+
+async fn apply_run_started(
+    state: &AppState,
+    computer_id: Uuid,
+    event_id: &str,
+    run_id: Uuid,
+    run_attempt: i32,
+    process_instance_id: Uuid,
+    daemon_observed_at: OffsetDateTime,
+) -> Result<(), ApiError> {
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let run: Option<(Option<String>, String, Uuid, Uuid)> = sqlx::query_as(
+        "SELECT started_event_id, status, agent_member_id, \
+         (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id) \
+         FROM agent_runs WHERE id = $1 AND computer_id = $2 FOR UPDATE",
+    )
+    .bind(run_id)
+    .bind(computer_id)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    if let Some((kind, payload)) = command
-        && kind == "agent.run"
-        && let Some(run_id) = payload
-            .get("run_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-    {
-        sqlx::query(
-            "UPDATE agent_runs SET status = 'running', started_at = COALESCE(started_at, now()) \
-             WHERE id = $1 AND computer_id = $2 AND status = 'queued'",
-        )
-        .bind(run_id)
-        .bind(computer_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
+    let Some((stored_event_id, status, agent_id, space_id)) = run else {
+        return Err(ApiError::validation(
+            "unknown_agent_run",
+            "Agent Run does not exist",
+        ));
+    };
+    if let Some(stored_event_id) = stored_event_id {
+        if stored_event_id != event_id {
+            return Err(ApiError::validation(
+                "conflicting_started_event",
+                "Run started event conflicts with the applied event",
+            ));
+        }
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(());
     }
+    if status != "queued" {
+        return Err(ApiError::validation(
+            "invalid_run_state",
+            "Agent Run cannot be started from its current state",
+        ));
+    }
+    sqlx::query(
+        "UPDATE agent_runs SET status = 'running', started_at = $2, run_attempt = $3, \
+         process_instance_id = $4, started_event_id = $5 WHERE id = $1 AND status = 'queued'",
+    )
+    .bind(run_id)
+    .bind(daemon_observed_at)
+    .bind(run_attempt)
+    .bind(process_instance_id)
+    .bind(event_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    publish_run_status(&mut transaction, run_id, agent_id, space_id, "running").await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(())
 }

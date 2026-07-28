@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     process::Command,
 };
 
@@ -201,18 +201,18 @@ impl Driver for CodexDriver {
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn().context("failed to start Codex Driver")?;
-        let mut stdin = child.stdin.take().context("Codex stdin was not captured")?;
-        let prompt = run.prompt.render();
-        stdin
-            .write_all(prompt.as_bytes())
-            .await
-            .context("failed to write Codex run prompt")?;
-        drop(stdin);
+        let stdin = child.stdin.take().context("Codex stdin was not captured")?;
+        let prompt = run.prompt.render().into_bytes();
         let stdout = child
             .stdout
             .take()
             .context("Codex stdout was not captured")?;
-        Ok(DriverProcess::External { child, stdout })
+        Ok(DriverProcess::External {
+            child,
+            stdout,
+            stdin: Some(stdin),
+            prompt: Some(prompt),
+        })
     }
 
     async fn observe(
@@ -220,7 +220,7 @@ impl Driver for CodexDriver {
         process: &mut DriverProcess,
         events: &tokio::sync::mpsc::Sender<DriverEvent>,
     ) -> Result<DriverOutcome> {
-        let DriverProcess::External { child, stdout } = process else {
+        let DriverProcess::External { child, stdout, .. } = process else {
             anyhow::bail!("Codex driver requires external process");
         };
         let mut lines = BufReader::new(stdout).lines();
@@ -694,6 +694,7 @@ enabled = true
             })
             .await
             .unwrap();
+        process.activate().await.unwrap();
         let (events, mut receiver) = tokio::sync::mpsc::channel(8);
         let status = driver.observe(&mut process, &events).await.unwrap();
         drop(events);
@@ -786,6 +787,7 @@ enabled = true
             })
             .await
             .unwrap();
+        process.activate().await.unwrap();
         let (events, _receiver) = tokio::sync::mpsc::channel(8);
         assert_eq!(
             driver.observe(&mut process, &events).await.unwrap(),
