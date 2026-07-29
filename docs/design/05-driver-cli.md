@@ -1,327 +1,194 @@
-# Driver 与 CLI
+# Driver 与 Agent CLI
 
 [返回设计索引](../design.md)
 
-## 13. Driver 契约、Codex 与 Builtin
+## 1. Driver 契约
 
-### 13.1 Driver 契约
+Driver adapter 只负责将 Sumi 的 Run 和 Session 语义映射到 provider。所有 Drivers实现统一接口：
 
-daemon 内部 Driver 接口必须至少表达：
+```text
+validate(agent_home, config) -> capabilities
+open_or_resume(session_spec) -> session
+start_turn(session, run_input) -> turn
+steer(turn, item_input) -> accepted | too_late | unsupported
+interrupt(turn, reason) -> outcome
+observe(turn) -> normalized events
+close(session, reason) -> outcome
+```
 
-~~~
-Validate(computer, config) -> capability or error
-Start(agent, run, prompt, environment) -> process
-Cancel(process, grace_period) -> result
-Observe(process) -> normalized events
-Cleanup(run) -> result
-~~~
+规范事件包括 `session_opened`、`session_resumed`、`turn_started`、`activity`、`turn_completed`、`turn_failed`、`turn_interrupted` 和 `session_closed`。
 
-normalized events：
+Driver stdout、final response 和 tool output 都不能自动创建 Message、Task Result 或 Memory。只有 Agent通过 Sumi capability 提交协作事实。
 
-- process_started。
-- output_received，仅用于操作日志，不自动变成 Message。
-- command_started/finished，可从 Driver 支持能力映射。
-- process_completed。
-- process_failed。
-- process_canceled。
+## 2. Run 输入
 
-任何 Driver stdout 都不得自动发布到 Channel。只有 sumi agent message send 创建 Message。
+Computer传给 Driver 的输入分为四块：
 
-### 13.2 Agent run 输入与 Prompt 设计
+1. `global_contract`：安全规则、Sumi能力和沟通约束。
+2. `agent_profile`：Agent identity、Role revision 和 Memory入口。
+3. `work_context`：可选Task、Linked Threads、Session scope和已有公开结果。
+4. `run_context`：Run、Focus、claimed Items 和当前消息窗口。
 
-Sumi 的 Agent run prompt 由 `src/server/agent_prompt.rs` 集中管理，Server 在 claim Inbox 时构建并通过 `agent.run` WebSocket command 下发给 daemon。command 中的 prompt 必须保留三段结构，不能提前拼成无法区分稳定与动态内容的单个字符串：
+稳定内容和动态内容必须保持结构化边界。Driver可以按 provider协议映射缓存，但不能修改产品语义。
 
-1. `global_static`：所有 Agents 共用的安全规则、启动顺序、CLI/Message/Thread 契约和沟通规则。
-2. `agent_static`：Agent identity、Memory 约定和带 revision 的 Role；只在 Agent 配置变化时改变。
-3. `dynamic_context`：当前时间和本次 claimed Inbox summary；每个 run 都可以改变。
+Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历史不能替代Server的最新可选Task、Message、权限和Inbox事实。
 
-结构化 prompt 还包含统一的 `user_input`，用于要求当前 Driver 处理完整 claimed batch。Codex 将它拼在 stdin 末尾，Builtin 将它作为 system messages 之后的 user message；不得由某个 Driver 私自追加额外行为指令。
+## 3. Codex Driver
 
-Codex Driver 按上述顺序拼接后通过 stdin 注入。Builtin Driver 将三段保留为有序 system messages，随后才追加本次 user turn、assistant/tool call 和 tool result。
-三段的产品语义和正文必须对所有 Driver 完全相同；Driver adapter 只能改变传输表示、缓存标记和进程调用，prompt 不得出现“Codex 应该怎样、Builtin 应该怎样”的行为分支。
+Codex Driver使用 Codex app-server 或等价的结构化本地协议，以支持：
 
-#### 设计来源
+- 创建 thread。
+- 使用本地 thread/session ID resume。
+- 启动 turn。
+- 向 active turn steer 新输入。
+- interrupt turn。
+- 读取结构化状态和最终结果。
 
-Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 360 行），吸收其结构组织、约束表达和上下文编排理念。Slock 的 prompt 涵盖 Who You Are、Runtime Context、CLI Command Reference、Startup Sequence、Security Rules、Message Format、Thread Usage、Memory Management、Communication Style 等板块。Sumi 吸收其中适合自身领域模型与 CLI 契约的结构，去除与 Slock 专属的 Tasks、Reminders、Search、Reactions、Integrations 绑定的内容。
+Codex thread/session ID 只保存在 Computer Session registry。Server、Message和Task API不得出现该 ID。
 
-#### Prompt 结构
+普通 Thread 首次运行时创建 Codex thread。Agent 在该 Run 创建 Task 时，Computer 把 Codex thread 提升为 Task Session。
 
-每次 run 的启动 prompt 包含以下章节：
+后续 Task Run 在兼容条件下 resume 同一 thread。Session reset 创建新 generation 和新 Codex thread，但 Task ID 不变。
 
-`global_static` 依次包含 Security rules、Startup sequence、Inbox Item format、CLI command reference、Message format、Context freshness、Thread lifecycle、Channel awareness 和 Communication style。
+Codex Driver 必须使用 Agent 专属的`CODEX_HOME`。daemon 只复制明确允许的 provider、model 配置和显式认证源。
 
-`agent_static` 依次包含 Who you are、Memory management 和 Your Role。`dynamic_context` 最后包含 Current runtime context 与 Claimed Inbox summary。当前时间、run/Inbox 标识或 Message 正文不得出现在前两个稳定段中。
+Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式进入 Agent 环境。
 
-#### 约束
+如果当前 Codex接口不支持 active turn steer，adapter返回 `unsupported`。Sumi保留 Item pending，不得通过启动第二个并行 Codex进程伪造 steer。
 
-- 不得把整个 Channel 历史预先拼进 prompt。Agent 根据 Inbox 摘要调用 CLI 拉取所需上下文。
-- Builtin 使用官方 OpenAI GPT-5.6 系列端点时，为 `global_static` 和 `agent_static` 设置显式 prompt cache breakpoint，并使用按 Agent、prompt schema 和 Role revision 稳定的 `prompt_cache_key`；同一 run 的追加式 tool loop 保留 implicit latest-message caching。
-- 自定义 OpenAI-compatible endpoint 或不支持显式 breakpoint 的模型只使用服务端自动缓存，不得发送其可能拒绝的 OpenAI 专属缓存字段。
-- 缓存只优化推理前缀，不是 Agent Session、Memory 或授权边界。不得为了缓存把 provider conversation 变成 Agent 事实来源。
-- Role text 由 Human 通过 WebUI 或 CLI 提供，不得包含 Server Secret。
-- Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
-- Agent Memory 只表示 Agent Home 下的 `memory/` 文件；prompt 不得引入另一套 Server 托管、提案式或按 scope 分层的 Memory 语义。
-- Agent run prompt 只说明 `memory/MEMORY.md` 是恢复索引及 `memory/notes/` 的组织原则，不注入 Memory 正文。Agent 在每次 run 中先读索引，再按当前 Inbox 按需读取 notes；Memory 不复制权威 Role，也不替代 Channel/Thread 历史。
-- Agent prompt 只公开本节定义的轻量 Task CLI，不引入 Task Board 自动调度、子任务或工作流语义。
-- Prompt 模板修改必须同时更新本文件对应小节，保持文档与实际行为一致。
+## 4. Builtin Driver
 
-### 13.3 Codex v1 启动
+Builtin Driver实现与 Codex相同的 Session和Run契约。它可以在本地保存 provider conversation state，但该状态仍属于 Provider Session缓存。
 
-v1 使用 Codex CLI 的非交互模式。prompt 通过 stdin 传入，避免 Message 摘要、Role 或 Inbox ID 出现在进程参数和系统进程列表中。基准命令：
+Builtin 的模型凭据只存在于 Computer。文件和 shell tool 只能访问当前 Agent 的 workspace、Memory 和运行临时目录。
 
-~~~
-printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-write --skip-git-repo-check -
-~~~
+工具子进程不能获得 Computer Token 或模型 API key。
 
-实现要求：
+Builtin不支持某项能力时必须报告 capability。daemon不能静默回退到 Codex，也不能改变 Run语义。
 
-- 工作目录设为 Agent workspace。
-- 若 workspace 是有效 Git repository，则省略 --skip-git-repo-check。
-- --json 输出按 JSONL 逐行解析，记录 thread.started、turn.started、item.*、turn.completed、turn.failed 和 error。
-- --ephemeral 确保 Codex rollout 不成为 Agent 长期身份或 Memory。
-- daemon 始终把 CODEX_HOME 指向 Agent 专属目录，因此 Codex 不会读取 Human 的全局 Codex 目录。若 Computer 配置了 `codex_config_source`，provision 只从该 TOML 复制当前 model/provider 的白名单字段到 Agent 专属 `config.toml`；MCP、headers、hooks、projects、trust 和其他 Human 配置不得复制。`existing_local_auth` 还可显式配置 `codex_auth_source`，daemon 将该 Codex 认证文件以 0600 复制到 Agent 专属 CODEX_HOME，不解析、不记录且不得写入 profile。未配置 source 时 Agent 专属 CODEX_HOME 保持无配置、无认证状态。
-- Linux 默认使用 Codex workspace-write。macOS 的 Codex 内层 sandbox 不能嵌套在 daemon 的 `sandbox-exec` 中，因此 daemon 使用 Codex 的 externally-sandboxed bypass 模式；这不向 Agent 开放可配置的 danger-full-access，文件边界仍由 daemon 生成的外层 profile 强制执行。
-- daemon 必须限制环境变量，只注入当前 Agent 必需的 PATH、HOME/CODEX_HOME、Sumi local capability 和 Codex 本地认证。
-- Codex 的 workspace-write 是 Linux Driver 的内层命令策略，不是 Agent 间隔离边界。daemon 必须使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent 的 workspace/Memory/runs/当前 Driver home；为允许路径解析，可只放行 Computer root、Agents root 与当前 Agent Home 目录节点的 metadata，不得放行其中其他内容。Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent 的上述目录、daemon socket，以及只读的当前 Driver 与 `sumi` executable；macOS 同样只对当前 Driver 与 `sumi` executable 补只读执行权限。两端都只允许写当前 Agent 的上述目录，并遮蔽 Computer Token、其他 Driver 私有目录与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
-- daemon 将 Agent 专属 `CODEX_HOME` 放在 `drivers/codex/`；该目录必须在启动前存在。若该目录包含由 daemon 生成的白名单 `config.toml`，Codex 可以读取它；Driver 不得传入会屏蔽该文件的 `--ignore-user-config`。子进程环境从空集合构造，不继承 daemon 的任意 Secret 或 Human 环境。
-- Codex 的最终 agent_message 只写运行日志，不自动发送到 Sumi。
-- 任一 Driver 正常完成但没有处理 claimed Inbox Items，run 仍判定为未处理并进入重试。
+## 5. Agent capability
 
-官方行为依据：
+`sumi agent` 是Run内唯一Sumi操作入口。daemon注入：
 
-- [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
-- [Codex CLI commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-codex-exec)
+- `SUMI_SOCKET`
+- `SUMI_RUN_TOKEN`
 
-截至 2026-07-25，官方文档确认 codex exec 支持 JSONL、ephemeral run、显式 sandbox 和 resume。Sumi v1 故意不把 resume 作为对话承接；对话承接由 Channel、Thread 和 Agent Memory 完成。
+Run token隐式确定：
 
-### 13.4 Codex 认证
+- Agent身份。
+- Space。
+- 可选Task。
+- Focus Thread。
+- Run和fencing token。
 
-Codex 只支持 Computer 本地既有认证：使用该 Computer 已完成的 Codex 登录，或使用 `codex_config_source` 中的自定义 provider 与其所需的 `codex_auth_source`；必须为 Agent 设置独立 CODEX_HOME。自定义 provider 只复制 model/provider 白名单配置，认证只复制到权限为 0600 的 `auth.json`，不得复制 header、MCP、hook 或其他 Human 配置。v1 不提供 Browser API key 输入、BYOK 或 Server 模型凭据接口。
+CLI不得要求Agent重复传入这些字段。Agent也不能通过参数切换身份、Task或Focus。
 
-### 13.5 Builtin Driver
+所有自动化调用使用 `--json`。输出 envelope：
 
-Builtin Driver 在 daemon 进程内维护 LLM session，并通过 OpenAI-compatible Chat Completions SSE
-调用配置的模型。Server 创建 Agent、PostgreSQL `agents/agent_runs`、`agent.run` command 和 daemon
-Supervisor 必须端到端保留 `driver_kind=builtin`，不得静默回退到 Codex。
-
-Builtin 的 provider 配置只来自 Computer 本地文件。v1 接受 Pi-compatible 的三文件结构：settings 提供
-`defaultProvider/defaultModel`，models store 提供对应 provider/model 的 `api/baseUrl`，auth 以 provider
-为 key 提供本机认证。三个显式 source path 的配置名固定为 `computer.builtin_settings_source`、
-`computer.builtin_models_source` 和 `computer.builtin_auth_source`，必须同时配置或同时省略；auth source
-必须是 group/other 不可访问的普通文件。当前本地 Pi 配置的可验收基线是 `deepseek/deepseek-v4-pro`、
-`api=openai-completions`、`baseUrl=https://api.deepseek.com`；Sumi 不读取 Pi session、extension 或 prompt，
-也不把 Pi 变成运行时依赖。daemon 启动时只读取显式配置的 source path，校验选中 provider/model 后把
-非敏感配置规范化到 Computer state；认证只保留在权限受限的本机 secrets 中。v1 Builtin 只实现
-OpenAI-compatible completions SSE，遇到其他 `api` kind 必须明确拒绝，不得猜测协议或回退到 Codex。
-
-Builtin 的 OpenAI provider adapter 必须保持 prompt message 顺序和 content block 边界。官方 GPT-5.6
-系列端点使用 `prompt_cache_key`、implicit request policy 和稳定 system block 上的 explicit breakpoint；
-其他模型与自定义 base URL 不发送这些字段。
-
-Builtin 与 Codex 使用同一 Agent Home、Role、Memory、workspace 和单 run capability。Builtin 的文件
-和 shell tools 必须满足：
-
-- read/write/edit 只接受以 `workspace/` 或 `memory/` 开头的 Agent Home 相对路径，拒绝绝对路径、`..`、symlink 和 canonical path 逃逸；
-- shell 固定以当前 Agent workspace 为工作目录，清空 daemon 环境后只注入最小 PATH、HOME、
-  `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`，不得继承 Computer Token 或模型 API key；
-- shell 子进程使用对应平台的 OS sandbox，取消或超时必须终止整个进程组；缺少 sandbox 时 Builtin Validate 失败；
-- 工具输入、输出、Message、Attachment 和 Memory 正文不得进入普通日志；
-- OpenAI-compatible SSE parser 必须按 tool call `index` 聚合跨事件的 name/arguments，完整 JSON 参数解析成功后才能执行。
-
-模型 API key 只保存在 daemon 的受限本机认证中并仅用于 daemon 发起 HTTP 请求，不注入工具子进程。
-
-## 14. sumi 命令行
-
-sumi 是唯一可执行文件，一级命令固定为：
-
-~~~
-sumi server [--config path]                 # 启动中心 Server
-sumi computer --server https://host         # 启动本机 Computer daemon
-sumi agent <resource> <action> ...           # Agent 在 run 内调用的受限 CLI
-~~~
-
-不得发布或在文档中使用 sumi-server、sumi-daemon 等入口。`sumi agent` 提供当前 Agent 身份可用的 Sumi 命令，不启动 Agent Driver。`sumi computer` 根据 Server command 管理 Driver 的启动、暂停和恢复。
-
-### 14.1 身份与传输
-
-daemon 启动 Agent run 时注入：
-
-- SUMI_SOCKET：当前 daemon local IPC 地址。
-- SUMI_RUN_TOKEN：短期、单 run、单 Agent capability。
-
-CLI 每次调用发送 run token。daemon 校验：
-
-- token 未过期。
-- token 对应 Server 已确认的 running 或 stopping Run。
-- Agent 没有 retired。suspended Agent 的当前 Run 仍可完成或处理取消。
-- 请求的 Space 与 Agent Space 相同。
-- Server 操作所需权限。
-
-Agent 无法通过参数切换身份。CLI 不保存 Computer Token。
-
-### 14.2 通用输出
-
-以下资源命令都位于 `sumi agent` 下。为避免噪声，本节后续示例会写出完整命令。所有 Agent 自动化必须使用 --json。JSON 顶层格式：
-
-~~~
+```json
 {
   "schema_version": 1,
   "ok": true,
   "data": {},
   "error": null
 }
-~~~
+```
 
-错误：
+## 6. 启动读取
 
-~~~
-{
-  "schema_version": 1,
-  "ok": false,
-  "data": null,
-  "error": {
-    "code": "permission_denied",
-    "message": "Agent is not a member of #private-roadmap",
-    "retryable": false,
-    "details": null
-  }
-}
-~~~
+Run prompt已经包含当前Focus和可选Task，因此Agent不需要先调用whoami、task show和thread read才能理解基本上下文。以下命令用于按需扩展：
 
-Message 内容永远位于 JSON string 字段中，不得把内容当作协议前缀重新解析。
+```text
+sumi agent context current --json
+sumi agent message read [--before seq] [--after seq] [--limit 50] --json
+sumi agent thread read {thread-id} [--after seq] [--limit 50] --json
+sumi agent channel read {channel-id} [--around message-id] [--limit 50] --json
+sumi agent memory read {path} --json
+```
 
-稳定 exit codes：
+`context current` 一次返回Agent、Task、Focus、Run、claimed Items和Session continuity摘要。它不返回Provider transcript。
 
-| Code | 含义 |
-| --- | --- |
-| 0 | 成功 |
-| 2 | 参数或地址错误 |
-| 3 | 身份或权限错误 |
-| 4 | 资源不存在 |
-| 5 | 冲突或上下文过期 |
-| 6 | 临时不可用，可重试 |
-| 7 | Server/daemon 内部错误 |
+## 7. 最小协作命令
 
-### 14.3 必须命令
+### 7.1 Message
 
-身份和发现：
+```text
+sumi agent message send --body "text" [--handle item-id] --json
+sumi agent message send --thread {linked-thread-id} --stdin [--handle item-id] --json
+sumi agent message send --channel {channel-id} --stdin --json
+```
 
-~~~
-sumi agent whoami --json
-sumi agent member list [--query text] --json
-sumi agent channel list --json
-~~~
+省略目标时发送到当前Focus。发送到其他Thread要求该Thread已链接到当前Task。发送到普通Channel主时间线必须显式提供目标。
 
-Inbox：
+### 7.2 Task
 
-~~~
+```text
+sumi agent task create [--title text] [--assign member-id] --json
+sumi agent task link-thread {thread-id} --json
+sumi agent task unlink-thread {thread-id} --json
+sumi agent task update [--title text] --json
+sumi agent task submit-review --body-file {path} [--post-to focus|source] --json
+sumi agent task done --result-file {path} [--post-to focus|source] --json
+sumi agent task close --reason invalid|duplicate|not_needed|obsolete|other [--note text] --json
+sumi agent run yield [--note "text"] --json
+```
+
+`task create`是创建 Task 的唯一 Agent 命令。它不接受 Message ID 或 Thread ID。
+
+Server 从当前 Run 的 Focus 推导 Root Message，并原子创建 Task、Source Thread 和 Run 绑定。
+
+除`task create`外，Task 命令只在当前 Run 已绑定 Task 时可用。这些命令不接受 Task ID。
+
+`submit-review`进入`in_review`。不需要复核时可以直接调用`done`。管理其他 Task 属于 Human UI 或未来的显式治理能力。
+
+### 7.3 Inbox
+
+```text
 sumi agent inbox current --json
-sumi agent inbox show {inbox-id} --json
-sumi agent inbox ack {inbox-id}... --reason "not relevant" --json
-sumi agent inbox defer {inbox-id}... --until "2026-07-25T12:00:00Z" --json
-~~~
+sumi agent inbox ack {item-id} [--reason text] --json
+sumi agent inbox defer {item-id} --until timestamp --json
+```
 
-读取上下文：
+`inbox current` 只显示当前Run已经领取的Items和不同Focus notices。不同Focus Item正文必须在后续Run取得lease后读取。
 
-~~~
-sumi agent channel read #design [--before seq] [--after seq] [--around message-id] [--limit 50] --json
-sumi agent thread read #design:123456 [--after seq] [--limit 50] [--include-channel 20] --json
-~~~
+### 7.4 Attachment 与 Memory
 
-发送：
+```text
+sumi agent attachment upload {path} --json
+sumi agent attachment download {attachment-id} --output {path} --json
+sumi agent memory read {path} --json
+sumi agent memory write {path} --stdin --json
+```
 
-~~~
-sumi agent message send #design --body "text" [--attachment attachment-id] [--based-on seq] [--handle inbox-id] --json
-sumi agent message send #design:123456 --stdin [--based-on seq] [--handle inbox-id] --json
-sumi agent message send @alice --stdin [--handle inbox-id] --json
-~~~
+## 8. 原子操作
 
-Attachment：
+以下操作必须各自使用一个Server事务：
 
-~~~
-sumi agent attachment upload ./report.md --json
-sumi agent attachment download {attachment-id} --output ./report.md --json
-sumi agent attachment info {attachment-id} --json
-~~~
+- `task create`：Task及其Source Thread、当前Run绑定、Session提升command、audit和outbox。
+- `message send --handle`：Message和Item handled。
+- `task submit-review`：review Message、Task状态和Items。
+- `task done`：Result Message、Task状态和Items。
+- `task close`：Task状态、close reason和Items。
+- `run yield`：Run终态和Items release/defer。
 
-Task：
+Agent不通过多条CLI命令拼接这些不变量。
 
-~~~
-sumi agent task list [--status open|in_progress|done|canceled] --json
-sumi agent task convert {message-id} [--title "Ship auth"] [--assign {agent-member-id}] --json
-sumi agent task create #design --title "Ship auth" --body "Implement and verify auth." [--assign {agent-member-id}] --json
-sumi agent task claim {task-id} --json
-sumi agent task assign {task-id} {agent-member-id} --json
-sumi agent task status {task-id} open|in_progress|done|canceled --json
-~~~
+## 9. 上下文变化
 
-Task 命令不要求 Access Level 或显式 Permission，但始终要求当前 Agent 是来源 Channel Member。`convert`
-只接受主时间线根 Message；title 省略时从 Message 首个非空行截取。`create` 原子创建无 mention、无
-Attachment 的根 Message 与 Task。claim、assign 和 status 都写 audit/outbox；进入 in_progress 必须已有
-assignee。Agent 必须根据自己的 Role、上下文和负载自行判断是否领取或向谁分配，Server 不做能力分类。
+所有 read 响应包含消息快照序号。Agent 提交 Message 或 Task Result 时，可以携带 Server 注入的默认 snapshot。
 
-Channel 与 Agent：
+hard Item 相关输出发现新消息时，Server 返回`context_changed`，不创建部分结果。
 
-~~~
-sumi agent channel create design --name "Design" [--private] --json
-sumi agent create --name "Reviewer" --role-file ./role.md --computer {computer-id} --driver codex --json
-~~~
+错误只返回变化Message的ID、seq、author和地址。Agent需要正文时显式读取。错误、日志和activity不得复制Message正文。
 
-Agent Admin 治理：
+## 10. 退出规则
 
-~~~
-sumi agent space update [--name "Sumi Lab"] [--accent '#FE7DA8'] --json
-sumi agent channel member add #design {member-id} --json
-sumi agent channel member remove #design {member-id} --json
-sumi agent channel archive #design --json
-sumi agent lifecycle suspend {agent-member-id} [--cancel-now] --json
-sumi agent lifecycle resume {agent-member-id} --json
-sumi agent audit list [--before {event-id}] [--limit 50] --json
-~~~
+Driver turn正常结束后，daemon自动进入Run finalizing。Agent不调用 settle、finish-run或ack-all。
 
-Space、lifecycle 和 audit 命令要求当前 Agent 为 Admin；Channel member/archive 允许 Agent Admin 或
-Channel 创建者。Channel member/archive 必须先验证当前 Agent 是目标 Channel 的
-显式 Member；未加入的 private Channel 统一返回 `permission_denied`，不得通过错误差异泄露其存在。
-member add/remove 只接受同一 Space 的 active Member，不能用于 direct Channel；general 和 direct
-Channel 不能归档，Agent 不能移除自己的 Channel membership。lifecycle 只能操作其他 Agent，当前
-Agent 自己的 lifecycle 必须由 Human 治理，避免 action 提交后失去 active-run 身份而破坏幂等重放。
-audit 响应只返回 event id、actor 摘要、action、subject type/id 和 created_at，
-不返回 `metadata_json`，并过滤当前 Agent 未加入 private Channel 的 Channel audit。
+存在未处理Items时：
 
-Agent CLI 不提供 Human invite/remove、Admin 授予/撤销、Computer 配对/撤销、Approval 决议、Owner
-转移/Space 删除、Agent retry/retire 或 Role/Driver/attention 修改。不能用手写 Agent action frame
-调用这些 Human-only 动作。
+- Agent已显式yield时，按yield事务处理。
+- Agent已defer或ack时，按已提交状态处理。
+- 其余Items释放并增加失败计数，Run标记failed。
 
-若当前 Agent 调用 agent create，命令成功表示 Approval 已创建，不表示 Agent 已 provision。JSON 必须返回 approval_id 和 status=pending。
-
-### 14.4 读取响应
-
-channel/thread read 响应必须包含：
-
-- address。
-- channel_id。
-- thread_id，可空。
-- snapshot_channel_seq。
-- messages。
-- has_more_before、has_more_after。
-
-每条 Message：
-
-- id、seq、author member 摘要。
-- address。
-- body_markdown。
-- mentions。
-- attachments。
-- created_at、edited_at。
-
-### 14.5 原子处理
-
-带 --handle 的 message send 必须在 Server 同一事务中：
-
-1. 创建 Message。
-2. 将指定 Inbox Items 标记 handled。
-3. 记录处理 Agent 和 run_id。
-
-这样 Agent 发送成功后即使进程崩溃，也不会再次处理同一 Inbox Item。若事务失败，两者都不得成功。
-
-ack 表示 Agent 明确选择沉默或无需行动。defer 要求未来时间，届时 Item 重新进入 pending。
+该规则迫使执行结果明确，同时不增加Agent必须记忆的系统操作。

@@ -2112,7 +2112,7 @@ h1 {
 }
 
 
-/* Channel fidelity pass: reference-directed density with Sumi's domain model. */
+/* Channel fidelity pass: Sumi's current visual density and domain model. */
 .space-shell {
   --space-accent: var(--accent);
   grid-template-columns: 56px 260px minmax(0, 1fr);
@@ -3374,7 +3374,7 @@ h1 {
   .agent-role { grid-column: auto; }
 }
 
-/* Complete list/detail surfaces defined by docs/UI.md. */
+/* Complete list/detail surfaces defined by docs/design/03-web-ui.md. */
 .member-filter { display: flex; gap: 8px; padding: 14px 28px; border-bottom: 2px solid var(--ink); background: var(--panel); }
 .mobile-space-tools { display: none; }
 .context-entity-row { display: grid; min-height: 58px; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0 10px 8px; padding: 8px; border: 2px solid transparent; color: var(--ink); text-decoration: none; }

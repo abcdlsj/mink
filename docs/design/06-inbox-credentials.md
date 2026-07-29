@@ -2,169 +2,113 @@
 
 [返回设计索引](../design.md)
 
-## 15. Inbox 与 Agent 注意力
+## 1. Inbox 保证
 
-### 15.1 系统保证
+Inbox是注意力事实，不是Message历史。Sumi保证：
 
-Sumi 可以保证：
+- 有资格的信息会持久生成Inbox Item。
+- Item在明确处理前不会因进程退出而消失。
+- 领取、附加、释放和完成操作可以幂等重试。
+- Agent能知道active Run之外还有新的hard attention。
 
-- 有资格的信息会持久进入 Inbox。
-- Inbox Item 在显式处理前不会因为进程退出而消失。
-- daemon 会按照优先级和配置尝试唤醒 Agent。
-- 同一个处理动作可以幂等重试。
-- Agent 回复前可以知道上下文是否变化。
+Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决定相关性。
 
-Sumi 不能保证模型一定做出正确的相关性判断。不得在产品文案中声称“绝不漏掉重要消息”；应声明为可靠投递和可追踪处理。
+## 2. Item 类型
 
-### 15.2 Inbox Item 类型与优先级
+| 来源 | 类型 | 强度 |
+| --- | --- | --- |
+| DM新Message | direct | hard |
+| mention Agent | mention | hard |
+| reply指向Agent Message | reply | hard |
+| Linked Thread新Message | task_activity | hard |
+| Agent订阅的普通Thread更新 | thread_activity | ambient |
+| Agent所在Channel普通Message | channel_activity | ambient |
+| 系统或执行错误 | system | hard |
 
-| 来源 | 类型 | 优先级 | 行为 |
-| --- | --- | --- | --- |
-| DM 中对方新 Message | direct | hard | 立即唤醒 |
-| Message 显式 mention Agent | mention | hard | 立即唤醒 |
-| reply_to 指向 Agent Message | reply | hard | 立即唤醒 |
-| Agent 已订阅 Thread 的更新 | thread_activity | ambient | 聚合 |
-| Agent 所在 Channel 普通 Message | channel_activity | ambient | 聚合 |
-| Approval 需要 Human 处理 | approval | hard，仅 Human | 立即 UI 通知 |
-| Computer/Agent 错误 | system | hard，Admin | 立即 UI 通知 |
+同一Message对同一Agent只生成一个最高强度Item。发送者不为自己生成Message Item。
 
-发送者不为自己创建 Message Inbox Item。一个 Message 同时产生 mention 和 channel_activity 时，对该 Agent 只保留 mention hard Item，不重复创建 ambient Item。
+## 3. Item 状态
 
-### 15.3 Thread 订阅
-
-Member 在以下情况自动订阅 Thread：
-
-- 在 Thread 中发送 Message。
-- 在 Thread 中被 mention。
-- 对 Thread 显式 follow。
-
-自动订阅只影响普通 Thread 更新的 Inbox，不改变读取权限。Member 可以 unfollow，但 direct mention 仍创建 hard Item。
-
-Browser 读取 Thread 时响应包含当前 Member 的 `is_following`。显式 follow/unfollow 使用
-`PUT/DELETE /api/v1/channels/{channel_id}/threads/{thread_id}/subscription`；两者都要求当前
-Member 已加入 Channel，且重复调用保持幂等。unfollow 只将现有订阅标记 muted，不删除历史游标。
-
-### 15.4 Ambient 聚合
-
-普通 Channel Message 不能每条启动一次 Codex。Server 对每个 Agent、Channel 和可选 Thread 维护最多一个 pending ambient Item：
-
-- first_seq：聚合开始序号。
-- last_seq：最新序号。
-- message_count。
-- available_at：第一条消息时间加 debounce，默认 5 秒。
-- force_at：第一条消息时间加 max wait，默认 30 秒。
-
-新 Message 到来时更新 last_seq 和 count，但不得把 available_at 无限后移到 force_at 之后。hard Item 到来时，同来源 pending ambient Item 一起加入下一 batch。
-
-### 15.5 状态机
-
-~~~
+```text
 pending -> leased -> handled
-   ^          |
-   |          +-> pending  lease expired or run failed
-   |
-   +------ deferred until available_at
+   ^          |----> deferred
+   |          |----> pending
+   +----------+
 
-pending/leased -> dead after retry limit
-~~~
+pending/leased -> dead
+```
 
-字段：
+Item保存来源Message、Thread、可选Task、强度、available time、lease、retry count和处理结果。Item不复制Message正文。
 
-- status：pending、leased、deferred、handled、dead。
-- available_at。
-- lease_id、lease_expires_at。
-- retry_count。
-- handled_by_run_id、handled_at。
-- last_error。
+## 4. Task 路由
 
-lease 默认 35 分钟，略长于 run timeout。daemon 每 60 秒续租 active run 对应 Items。Server 只能由持有 lease 的 Computer 处理 Item。
+Message位于未完成Task的Linked Thread时，Server在发送事务中把`task_id`写入Item。该关系来自显式link，不来自正文判断。
 
-### 15.6 daemon 注意力循环
+未关联 Thread 中的 Item 没有 Task。Server 可以用该 Thread 创建普通 Run。
 
-~~~
-on inbox notification or periodic poll:
-  find active Agents with available pending Items
-  if Agent already running:
-    leave new Items pending
-    notify current run that context changed
-    return
+Agent 决定开始持续工作时，可以在 Run 中调用无来源参数的`task create`。
 
-  respect Computer concurrency limit
-  claim one Agent batch with lease
-  build compact run prompt
-  start current Driver
+Server 从 Focus 找到 Root Message。Server 原子创建 Task、绑定当前 Run，并更新已领取 Item。
 
-  while Driver runs:
-    forward structured operational events
-    renew lease
+Thread reply不能成为Task source。reply触发的Run调用`task create`时，Server仍使用Focus Thread的Root Message。
 
-  after Driver exits:
-    verify every claimed Item is handled or deferred
-    if yes:
-      finish run
-    if no:
-      release unhandled Items with retry_count + 1
-      apply backoff
-      after max retries mark dead and notify Admin
-~~~
+## 5. active Run 路由
 
-达到 `max_retry_count` 时，Server 在同一事务把 Item 标记为 dead，并为 Space 的 Human Owner/Admin
-各创建一个不携带 Message 正文、Attachment 或 private Channel 地址的 system hard Inbox Item。
+hard Item生成后，attention模块只做结构化判断：
 
-同一 Agent 不得并行处理两个 batch。不同 Agents 可以按 Computer concurrency 并行。
+- 与active Run的Agent、可选Task scope和Focus一致时，尝试attach。
+- Task或Focus不同，Item保持pending并生成notice。
+- active Run不是running时，Item保持pending。
+- ambient Item只聚合，不attach active Run。
 
-### 15.7 “Agent 自己判断”原则
+daemon和Server不得读取正文决定attach或notice。
 
-daemon 只判断何时唤醒，不判断 Message 内容是否相关。当前 Driver 读取 compact Inbox 摘要和必要上下文后，选择：
+## 6. Ambient 聚合
 
-- 回复并 handle。
-- 不回复并 ack。
-- 稍后处理并 defer。
-- 读取更多 Channel、Thread 或其他已授权 Channel 后再决定。
+Server按Agent和Thread聚合ambient activity。聚合项保存首尾Message序号、数量、available time和force time。新Message不能无限推迟force time。
 
-v1 不增加廉价分类模型、关键词 router 或第二个“注意力 Agent”。这些机制会让实际 Agent 在尚未看到 Message 前就被替它做决定，并产生不可解释漏判。
+hard Item优先于ambient Item。ambient Item在Agent有执行容量时才创建Run。
 
-### 15.8 上下文变化与 held draft
+## 7. notice
 
-所有 read 响应返回 snapshot_channel_seq。Agent 发送时可以传 --based-on：
+不同Focus hard Item到达时，Server向active Run发送notice。notice用于让Agent决定是否yield，不授予该Item lease。
 
-- 当前 Channel/Thread 没有新 Message：直接发送。
-- 有新 Message，且本次 send 要 handle hard Inbox Item：Server 返回 context_changed，不创建 Message，并附最新序号与变化摘要。
-- Agent 重新读取后可再次发送。
-- 未来可增加 --force；v1 不开放 force，避免 Agent 在过期上下文中强发。
+notice包含：
 
-daemon 将 context_changed 呈现给 Driver，不把它算作 run failure。草稿留在 Agent workspace，由 Driver 决定修改或沉默。
+- `notice_id`
+- Item类型和强度
+- 可公开的Task ID和Thread ID
+- 到达时间
+- 是否来自Human明确转向请求
 
-`context_changed` 的 JSON error `details` 固定包含 `snapshot_channel_seq`、
-`latest_channel_seq`、按 seq 升序的最多 10 条 `changes` 元数据（Message ID、seq、地址、Thread ID
-和 author 摘要）以及 `has_more`。变化摘要不得把 Message 正文塞进错误或日志；Agent 使用返回的
-地址与最新序号再次调用 channel/thread read。Server 必须先确认 `--handle` Item 是当前 run 持有的
-hard lease，再做 freshness 判断；ambient Item 和不带 `--handle` 的普通发送不使用该强制门禁。
+Agent当前无权读取来源时，notice只显示“另一个受限位置有待处理事项”。Agent不能通过notice读取Message正文或Attachment。
 
-### 15.9 启动与恢复
+## 8. 重试和dead
 
-- daemon 重启后从 Server 重新查询 Agent pending/leased Items。
-- 属于旧 daemon session 且未过期的 lease 可以由同一 Computer 恢复；进程不存在时应主动 release。
-- Computer offline 时 Inbox 继续积累。
-- Computer 重连后按 hard 优先、created_at 次序恢复。
-- pending 数量超过 1000 时停止逐条 ambient Item，按 Channel cursor 合并；hard Items 永不因合并丢失。
+Run失败或lease过期时，未处理Items返回pending并增加retry count。达到上限后Item进入dead，并为有权治理该Agent的Human创建不含正文的system Item。
 
-## 16. Computer 本地凭据
+网络错误、receipt丢失和重复command不得重复增加retry count。
 
-### 16.1 信任边界
+## 9. 本地凭据
 
-v1 的 Server 不接收、不保存也不转发模型 API key。Computer Token、Codex 本地认证与 Builtin provider 认证只存在于 Computer 的权限受限本地文件和所需进程内存；Browser 没有模型 Secret 表单或 API。v1 不接入 macOS Keychain 或 Linux Secret Service。这只能降低其他普通 OS 用户误读的风险，不防御 root、同一 OS 用户下的恶意进程或已失陷的 Computer；部署文档必须如实说明，不能宣称本地静态加密。
+Server不接收、不保存模型API key。以下Secret只存在于Computer受限文件和必要进程内存：
 
-### 16.2 本地认证规则
+- raw Computer Token。
+- Codex本地认证。
+- Builtin provider认证。
 
-- Codex 只复制显式 `codex_auth_source` 的既有认证到 Agent 专属 CODEX_HOME，权限必须为 0600。
-- Builtin 只读取显式配置的 Pi-compatible auth source 中当前 provider 的认证，认证不得写入 Agent Home。
-- Driver 子进程与工具进程不得获得 Computer Token；Builtin 工具进程也不得获得模型 API key。
-- Computer 删除后删除本机失效 Token 与规范化认证缓存，但保留 Agent Homes；外部 auth source 不属于 Sumi，不得删除。
+Server只保存Computer Token hash。Browser不提供模型Secret表单。Agent CLI和Driver工具进程不能读取Computer Token。Builtin工具进程不能读取模型API key。
 
-### 16.3 日志规则
+本地文件权限和sandbox只能降低误读风险，不能防御root、同一OS用户下的恶意进程或已失陷Computer。产品文案必须说明该边界。
 
-- Computer Token 和模型认证字段使用 redaction type，不得实现普通 Stringer。
-- CLI 不提供读取本机凭据命令。
-- daemon 环境日志不得输出完整 env。
-- Driver 请求结束后清理包含 key 的环境和内存引用。
+## 10. 日志
+
+日志和错误不得包含：
+
+- Message、Attachment或Memory正文。
+- Provider transcript。
+- Task Result正文。
+- Computer Token或模型凭据。
+- 完整命令参数和环境变量。
+
+诊断使用稳定ID、状态、错误代码、计数、时间和hash。

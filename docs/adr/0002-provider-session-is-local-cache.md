@@ -1,0 +1,3 @@
+# Provider Session 是 Computer 本地缓存
+
+Provider Session 只保存在Computer，并按Agent和当前Thread或Task复用。Run创建Task时，Computer可以把当前Thread Session提升为Task Session。Server不保存会话正文，也不把Provider Session作为Message、Task Result或Memory的来源。该边界保留resume带来的推理连续性，同时确保会话损坏、丢失或更换Driver时可以从Server事实和Agent Memory重建执行。

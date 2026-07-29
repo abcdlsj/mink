@@ -1,0 +1,159 @@
+# 交付与验收
+
+[返回设计索引](../design.md)
+
+## 1. 重建原则
+
+实现以[GOAL](../../GOAL.md)、[领域词汇](../../GLOSSARY.md)和本设计为依据。当前代码只能作为实现材料。
+
+发现旧代码与新边界冲突时：
+
+1. 定位旧假设属于哪个模块。
+2. 删除或重写冲突实现。
+3. 只保留与新接口一致的通用代码。
+4. 增加覆盖新不变量的测试。
+
+不得为了减少diff加入兼容层。更少改动不是验收目标。
+
+## 2. 实施顺序
+
+### 阶段一：领域层
+
+- 建立Root Message、Thread、Task、TaskThread、Run和Inbox Item类型。
+- 实现Task状态和Run状态转换。
+- 实现领域错误和事务命令。
+- 使用内存repository验证不变量。
+
+### 阶段二：新schema
+
+- 从空库创建PostgreSQL最终schema。
+- 从空目录创建Computer SQLite最终schema。
+- 实现Task来源、Thread关联、active Run和fencing约束。
+- 不创建从旧版本进入新基线的 migration。
+- 新基线进入共享环境后，按数据库设计使用前向 migration。
+
+### 阶段三：Server
+
+- 实现conversation、task、attention和execution模块。
+- 实现Root Message创建Task的单一领域入口。
+- 实现same-Focus attach和different-Focus notice。
+- 实现outbox、command和result receipt。
+
+### 阶段四：Computer
+
+- 实现Session registry和fingerprint。
+- 实现Run supervisor、steer、yield、finalizing和恢复。
+- 实现Codex resume和Builtin Session adapter。
+- 实现sandbox和本地Secret边界。
+
+### 阶段五：Agent capability
+
+- 注入Run token中的Focus和可选Task。
+- 实现一步Task创建、默认Focus发送、Task完成和yield。
+- 删除bind、settle和重复上下文参数。
+
+### 阶段六：WebUI
+
+- 实现Conversation中的Task marker和一步创建。
+- 实现Task列表、Task详情和Linked Threads。
+- 实现Agent current Focus、Run和Session continuity。
+- 完成桌面、移动端、空态、错误和无障碍。
+
+## 3. 单元验收
+
+- reply不能创建Task。
+- Root Message创建Task时Source Thread和Task同一行成功或失败。
+- 并发创建只产生一个Task。
+- Source Thread不可删除或更换。
+- Thread同时最多关联一个未结束Task。
+- 不兼容成员集合不能link。
+- Run有Task时，Focus必须属于Task。
+- 普通Run创建Task后，Run、Items和Source Thread必须同事务绑定。
+- 一个Agent同时最多一个active Run。
+- Done Task必须有Result Message。
+- Closed Task必须有close reason。
+- In Progress可以直接进入Done，也可以经过In Review。
+- In Review只有另一位有权Member可以确认Done或退回In Progress。
+- Run终态不自动完成Task。
+
+## 4. 集成验收
+
+- Message发送事务同时创建Root Thread和Inbox Items。
+- same-Focus hard Item与finalizing并发时不会丢失或重复处理。
+- different-Focus Item保持pending，notice不泄露正文。
+- 重复command、started、delivery和result只应用一次。
+- lease过期后旧fencing token不能修改状态。
+- Task完成事务失败时Message和Result都不产生部分写入。
+- Session close失败不回滚已完成Task。
+- Task表不重复保存Root Message、Result正文或Source link。
+- different-Focus notice和Session continuity不在Server建立事实表。
+- 空 PostgreSQL 可以直接建立完整基线。
+- 空 Computer 目录可以直接建立完整 SQLite schema。
+- 数据库约束拒绝非法 Task 终态和并行 active Run。
+- 已应用 migration 不允许修改。
+- backfill 中断后可以从稳定游标继续。
+
+## 5. Driver 验收
+
+- 同一Task的第二个Run resume同一Provider Session。
+- 不同Task不会复用Session。
+- 同一Run只使用一个Session和一个Focus。
+- Session resume失败会创建新generation并恢复Task事实。
+- token量、Run数量和经过时间不会单独换新Session。
+- Role、Driver、workspace或audience不兼容变化会换新Session。
+- Codex steer unsupported时Item保持pending。
+- Driver output不会自动创建Message或Result。
+
+## 6. 故障验收
+
+- Server在Run期间重启。
+- WebSocket在start ACK前后断开。
+- daemon在Driver运行和result上报期间重启。
+- receipt丢失并重复上报。
+- Computer离线直到lease过期。
+- Task完成后Computer离线，Session稍后关闭。
+- workspace丢失和Provider locator损坏。
+- active Run收到Human明确转向并yield。
+
+每个场景必须证明Message、Task、Inbox和Run事实一致。
+
+## 7. UI 验收
+
+- Root Message的一步创建不显示bind或Source Thread字段。
+- reply上的Task动作解释只能从Root Message创建。
+- Task详情显示Source、Linked Threads、assignee、status、Result和Runs。
+- Agent详情区分Task、Focus、Run状态和Session continuity。
+- different-Focus notice不会显示成当前Task的新Message。
+- UI不展示Provider transcript、隐藏推理或Secret。
+- 390px和1440px视口能完成核心流程。
+- 所有状态使用文字和图形，不只使用颜色。
+
+## 8. 代码质量验收
+
+- 领域模块不引用HTTP DTO、WebSocket frame或Driver SDK。
+- 每个模块有单一公开职责和领域命名接口。
+- Task创建只有一个transaction service。
+- Session lifecycle只存在于Computer session模块。
+- 注释只说明不变量、并发和安全原因。
+- 日志测试证明正文和Secret被排除。
+- 仓库搜索不到旧schema兼容、双写、deprecated入口和Agent bind步骤。
+
+## 9. 提交前验证
+
+文档阶段运行：
+
+```text
+git diff --check
+Markdown相对链接检查
+旧模型冲突词定向搜索
+```
+
+Rust阶段还必须运行：
+
+```text
+cargo test --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+Web阶段还必须运行类型检查、组件测试和Playwright核心流程。只有对应阶段的验收全部通过后，才能声明该阶段完成。

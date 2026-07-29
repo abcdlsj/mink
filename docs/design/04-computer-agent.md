@@ -2,234 +2,194 @@
 
 [返回设计索引](../design.md)
 
-## 11. Computer 与 daemon
+## 1. Computer 职责
 
-### 11.1 Computer 生命周期
+Computer daemon 承载本机 Agents，并负责以下本地能力：
 
-Computer 内部状态：
+- 维护 Server 出站连接和 heartbeat。
+- 保存 Agent Home、Memory、workspace 和 Driver 私有状态。
+- 调度本机执行槽。
+- 启动、steer、interrupt 和回收 Driver。
+- 创建、恢复、重置和关闭 Provider Session。
+- 保存 command、Run 和 result 的本地 outbox。
+- 保护 Computer Token 和模型凭据。
 
-~~~
+Computer 不创建 Task 关系，不根据 Message 正文路由工作，也不成为 Server 事实的权威副本。
+
+## 2. Computer 生命周期
+
+```text
 pairing -> online <-> offline -> deleted
-~~~
+```
 
-- pairing：已生成一次性配对请求，尚未由 Human 确认。
-- online：daemon 长连接和心跳有效。
-- offline：超过 30 秒没有有效心跳。
-- deleted：用户执行 Delete Computer 后的内部 tombstone；普通列表不再返回，Computer Token 不能重新连接，重新接入必须生成新 Token 并重新配对。
+- `pairing`：Human 尚未确认本机身份。
+- `online`：daemon 长连接和 heartbeat 有效。
+- `offline`：连接失效，但配对关系仍存在。
+- `deleted`：Computer Token 已撤销，状态不可恢复。
 
-online 和 offline 记录连接状态，配对关系由 Computer Token 和 Server 绑定记录决定。daemon 退出、网络中断或 Server 重启后，Computer 进入 offline，并在使用原 Token 重连后回到 online。
+daemon 退出或网络断开只导致 offline。使用同一 Computer Token 重连后恢复 online。
 
-Delete Computer 前，UI 列出受影响的 Agent，并要求 Human 确认。删除事务取消该 Computer 的 active Run、退役承载的 Agent，并撤销 Computer Token。历史 Member、Message、Attachment 和 audit 保留。在线 daemon 收到终止帧后执行 graceful shutdown。离线 daemon 下次连接时收到终止响应并退出。
+删除 Computer 会停止 active Run、关闭本机 Provider Session、退役或重新分配 Agent，并撤销 Token。
 
-daemon 确认 Server 已删除 Computer 或拒绝旧 Token 后，删除本机失效身份，清空 command 和 Run 状态，保留 Agent Home。下一次启动生成新 Token 并重新配对。deleted tombstone 没有恢复入口。
+## 3. Agent Home
 
-### 11.2 初始化与配对
-
-Human 在目标机器运行：
-
-~~~
-sumi computer --server https://sumi.example.com
-~~~
-
-该命令启动 Computer daemon。首次启动时：
-
-1. 检查本地是否已有 Computer identity。
-2. 若没有，使用 OS CSPRNG 生成 256-bit Computer Token，立即写入权限为 0600 的本机 `secrets.json`。
-3. 调用公开的 pairing start API，提交 Computer Token 的 SHA-256、hostname、OS 和 daemon version；Server 不接收或保存 raw Token。
-4. Server 返回短时 pairing code 和 browser URL，有效期 10 分钟。
-5. daemon 打印 URL 并尝试打开默认浏览器。
-6. 已登录 Human 打开页面，选择 Space、编辑 Computer name 并确认。
-7. Server 校验该 Human 是 Owner 或 Human Admin，将 Computer 绑定到 Space。
-8. daemon 使用 Computer Token 轮询结果，取得已确认的 Computer ID 和 Space ID，并把绑定结果写回本机 `secrets.json`。
-9. 后续启动直接复用同一 Computer ID 和 Token；不得因为进程退出、网络断开或 Computer offline 重新配对。
-10. daemon 建立出站 WebSocket，完成协议握手后 Computer 变为 online。
-
-daemon 默认尝试打开配对页；无人值守、本地自动化和测试配置可以设置
-`computer.open_pairing_browser=false`，此时仍在终端输出配对 URL，由调用方通过同一确认 API 完成配对，
-不得因此绕过配对授权或创建另一套 Computer 身份流程。
-
-配对确认页必须显示 hostname、OS、daemon version、Computer Token 的不可逆短 fingerprint 和目标 Space，防止确认错误机器；不得显示 raw Token。
-
-配对 start 请求提交 base64url 编码的 Computer Token SHA-256、hostname、OS 和 daemon version；Server 生成并只保存 pairing code hash，响应返回 pairing_id、一次性 code、`/pair-computer/{pairing_id}?code=...` Browser URL 与 expires_at。daemon 轮询 result 时使用 raw Computer Token 作为 Bearer token，Server 只比对 hash。Human confirm 请求包含目标 space_id、Computer name 与一次性 code；成功响应不返回 Token，result 也只返回 Computer ID 和 Space ID。raw Computer Token 从生成起只持久化在 daemon 的受限 `secrets.json`，通过 HTTPS/WSS 仅用于认证；Server 始终只持久化 hash。result 在配对有效期内可安全幂等重试，避免首次成功响应丢失后 Computer 永久无法恢复。
-
-### 11.3 连接与心跳
-
-- daemon 只发起出站 TLS 连接，不监听公网端口。
-- Computer WebSocket 使用 Computer Token 认证，承载 Server command、Run 事件、result receipt 和 heartbeat。
-- daemon 每 10 秒发送 heartbeat。
-- heartbeat 包含 daemon version、OS、Agents 数量和 active runs；不采集 CPU、memory 等资源 metrics。
-- Server 30 秒未收到 heartbeat 时标记 offline。
-- 重连使用指数退避：1s、2s、4s、8s，最大 30s，并加入随机抖动。
-- 每个 Server command 必须先持久化到 PostgreSQL，具有 command_id 和递增 computer_seq。WebSocket 只负责低延迟投递，不是事实来源。
-- daemon 在 SQLite 保存 command、Run 状态和 result outbox。重复 command 返回已保存的结果。
-- command ACK 只表示 daemon 已持久化 command。Run 在 daemon 上取得执行槽并启动 Driver 后，通过 `run_started` 进入 running。
-- 新 WebSocket 建立时，Server 重放 pending 和 acked command。daemon 的 result sender 独立重发 result outbox，直到收到 `result_receipt`。
-- 连接断开时，Server 保留未确认 command。daemon 重连握手携带 last_acked_computer_seq，Server 按序重发后续 command。因此交付语义是 at-least-once，幂等执行使业务效果等价于一次。
-- protocol ping/pong 仅用于探测连接；业务 heartbeat 仍是带类型的 JSON frame，并更新 Computer 状态。
-
-### 11.4 本地目录
-
-默认根目录固定为当前用户的 `~/.sumi`，不得使用当前登录用户随意可写的临时目录：
-
-~~~
+```text
 ~/.sumi/
-  computer/
-    {space-id}/
-      {computer-id}/
-        daemon.db
-        secrets.json
-        logs/
-        agents/
-          {agent-id}/
-            profile.json
-            memory/
-            workspace/
-            drivers/
-              codex/
-              builtin/
-            runs/
-            logs/
-  runtime/
-    {computer-id}/
-      daemon.sock
-~~~
+  computer/{space-id}/{computer-id}/
+    daemon.db
+    secrets.json
+    agents/{agent-id}/
+      profile.json
+      memory/
+      workspace/
+      drivers/{driver-kind}/
+      sessions/
+      runs/
+      logs/
+  runtime/{computer-id}/daemon.sock
+```
 
-- daemon.db 使用 SQLite，保存 Computer 本地状态、Server command 结果、Agent 运行状态和本地重试队列。
-- secrets.json 保存 Computer Token 与本机 Driver 认证。它不得进入 daemon.db、日志、Agent Home 或备份导出。
-- `~/.sumi` 是本机 Sumi 文件的唯一根目录；`computer/` 只保存持久状态和 Agent Home，`runtime/` 只保存 UDS socket 与运行时临时文件。
-- Computer 持久目录只使用不可变的 Space ID 和 Computer ID，不使用 slug、name、handle 或时间戳归档名。数据库重建或重新配对后，旧 Computer 状态保留在原 ID 目录。配对完成前的临时目录位于 `computer/pending/{local-id}`，确认后原子移动到最终 ID 目录。
-- `computer/` 和 `runtime/` 目录权限必须为 0700，secrets.json 必须为 0600。daemon 使用同目录临时文件、fsync 和 rename 原子更新；发现 group/other 权限时拒绝启动并给出修复命令。
-- profile.json 是 Server Agent 配置的缓存，不是事实来源。
-- memory/ 和 workspace/ 属于 Agent，不属于 Driver。
-- drivers/codex/ 与 drivers/builtin/ 只保存各自 Driver 的私有状态。
-- runs/ 保存临时运行输出，按保留策略清理。
+- `daemon.db` 保存本地 command、Run、Session registry 和 outbox。
+- `secrets.json` 保存 Computer Token 和本地 Driver 认证。
+- `profile.json` 是 Server Agent 配置的缓存。
+- `memory/` 和 `workspace/` 属于 Agent，不属于 Driver 或 Task。
+- `sessions/` 只保存 Provider Session locator、generation 和恢复元数据，不保存为 Server 事实。
+- `runs/` 保存有界执行的临时文件。
 
-每个 Agent 目录权限必须限制为 daemon 运行用户。不同 Agent 进程不能访问对方目录。
-目录权限 0700/文件权限 0600 只隔离其他 OS 用户，不能隔离同一 daemon 用户启动的不同 Driver 进程；
-因此 daemon 启动 Driver 时还必须用进程 sandbox 将可写路径限制到当前 Agent Home，并拒绝其他 Agent Home。
+目录权限必须限制为 daemon OS 用户。OS sandbox 必须限制 Driver 进程的访问路径。
 
-### 11.5 资源管理
+Driver 只能访问当前 Agent Home 中明确允许的路径。不同 Agent 不能读取彼此的 Home。
 
-一台 Computer 可以注册任意数量 Agents，但 daemon 必须配置：
+## 4. Agent 持续性
 
-- max_concurrent_runs：默认 max(1, CPU 核心数 / 2)，向下取整。
-- per_agent_timeout：默认 30 分钟。
-- per_agent_memory_limit：平台支持时启用。
-- shutdown_grace_period：默认 20 秒。
+Agent 的持续身份由 Server 的 Member/Agent 记录和本地 Agent Home 共同实现：
 
-v1 每个 Agent 最多一个 active Run。attention scheduler 只 claim 可用执行槽加固定 prefetch 数量的 Run。超过该容量的 Inbox Item 保持 pending。
+- Server 保存 identity、Role、权限、Computer assignment 和生命周期意图。
+- Computer 保存 Memory、workspace 和 Driver 私有状态。
+- Task 保存正式工作连续性。
+- Provider Session 只优化同一 Task 的推理连续性。
 
-## 12. Agent
+切换 Driver、关闭 Session 或结束 Run 都不创建新 Agent。
 
-### 12.1 Agent 配置
+Agent 生命周期：
 
-Agent Server 记录至少包含：
+```text
+provisioning -> active <-> suspended -> retired
+       \----------> error
+```
 
-- member_id。
-- space_id。
-- computer_id。
-- name：Space 内 Member 名称不要求全局唯一，但 mention 名称必须可消歧。
-- role_text。
-- status。
-- driver_kind：codex 或 builtin。
-- driver_config：版本化 JSON，只放非 Secret 配置。
-- attention_config。
-- created_by_member_id。
-- created_at、updated_at、retired_at。
+一个 Agent 同时最多有一个 active Run。暂停可以等待当前 Run 完成，也可以立即请求取消。
 
-attention_config v1 字段：
+退役不可恢复。历史 Message、Task、Run 和 Result 保留。
 
-- dm_immediate：固定 true。
-- mention_immediate：固定 true。
-- ambient_enabled：默认 true。
-- ambient_debounce_seconds：默认 5，允许 1 至 60。
-- ambient_max_wait_seconds：默认 30，允许 5 至 300。
-- max_retry_count：默认 3。
+## 5. Provider Session registry
 
-### 12.2 创建流程
+Computer 为每个 Session 保存：
 
-Human 直接创建：
+- `agent_id`
+- `scope_kind=thread|task`
+- `scope_id`
+- `driver_kind`
+- `generation`
+- `provider_session_locator`
+- `workspace_fingerprint`
+- `role_revision`
+- `audience_fingerprint`
+- `state=ready|in_use|closing|closed|lost`
+- `created_at`、`last_resumed_at`、`closed_at`
 
-1. 选择 online Computer。
-2. 输入 Agent name 和 Role。
-   Agent handle 由 name 自动生成，并允许创建者在提交前修改。
-3. 选择 Driver（Codex 或 Builtin）。
-4. 选择权限级别 Member/Admin；只有 Owner 能直接授予 Admin。
-5. Server 创建 Agent Member 和 Agent，状态 provisioning。
-6. Server 向 Computer 下发 provision command。
-7. daemon 创建 Agent Home、写入 profile cache 并验证所选 Driver 的本地配置、认证与 sandbox。
-8. daemon 返回成功，Server 将状态改为 active。
-9. 失败则状态为 error，保留可重试原因，不创建第二个 Agent。
+唯一复用键是 `(agent_id, scope_kind, scope_id, generation)`。Thread Session只服务一个Thread；Task Session只服务一个Task。
 
-Agent 发起创建时，前五步中的写入被 Approval 替代；审批成功后才执行 provisioning。
+`provider_session_locator`只存在于 Computer。Server 不保存 locator、会话正文、provider transcript 或 continuity 投影。
 
-### 12.3 Agent 生命周期
+Browser 需要 continuity 时，Server 向在线 Computer 查询。Computer 离线时返回`unavailable`。
 
-Agent 使用两个字段记录治理意图和本地准备结果：
+## 6. Session 解析
 
-- `desired_lifecycle` 为 `active|suspended|retired`。
-- `provision_status` 为 `provisioning|ready|error`。
+Run 启动时，Computer 的 Session resolver 按以下顺序执行：
 
-创建 Agent 时，Server 写入 `desired_lifecycle=active` 和 `provision_status=provisioning`。Computer 完成本地目录、Driver 配置和 sandbox 校验后写入 ready。失败时写入 error 和不含正文的 `last_error_code`。
+1. Run有Task时查找Task Session，否则查找Focus Thread Session。
+2. 比较 Driver、workspace、Role 和 audience fingerprint。
+3. 条件兼容时 resume 现有 Session。
+4. Session 不存在或无法恢复时创建新 generation。
+5. 将Run事实、可选Task摘要、Focus和未处理Items注入新turn。
 
-只有 `active + ready` 的 Agent 可以 claim Inbox。suspended Agent 保留 pending Inbox。retired Agent 永久停止新协作，并保留历史身份。
+Session resume 的收益是保留同一项工作的推理线索、工具上下文和 provider cache。以下场景最适合复用：
 
-暂停时，UI 让 Human 选择：
+- 同一 Task 因新 reply 启动后续 Run。
+- Agent yield 后继续同一 Task。
+- Task等待外部结果后重新收到相关Message。
+- Run 因网络或 Computer 调度结束，但工作边界未改变。
 
-- `stop_after_current` 允许当前 Run 完成。
-- `cancel_now` 将当前 Run 改为 stopping，并执行 Driver 停止流程。
+同一Task的多个Runs或同一普通Thread的多个Runs可以复用一个Session。一个Run不能同时使用多个Sessions。
 
-Retire 撤销本地运行能力并从在线列表移除。历史 Message、Attachment、Approval 和 audit 保留。
+## 7. Thread Session 提升
 
-Owner 或 Admin 可以对 provision error 执行 `retry`。Server 复用 Agent identity 和 Agent Home，重新发送幂等 `agent.provision` command。成功后清除错误，失败后更新 `last_error_code`。
+Agent 在普通 Run 中创建 Task 时，Server 把当前 Run 绑定到新 Task，并下发`run.task_bound` command。
 
-Run 的 observed execution、ownership lease、result receipt 和故障恢复见 [Agent 生命周期可靠性](./04-agent-lifecycle-reliability.md)。
+Computer 将当前 Thread Session 的 scope 改为 Task。generation 保持不变。
 
-### 12.4 Role
+提升要求 Session 属于当前 Agent 和 Focus Thread。audience、Driver、Role 和 workspace fingerprint 必须兼容。
 
-Role 是 Agent 的职责与边界，不是任意 Driver prompt。Role 修改：
+提升失败不回滚 Server Task。当前 Run 可以继续使用已打开的 Session。后续 Run 为 Task 创建 cold generation。
 
-- 立即写入 Server 并增加 revision。
-- active run 继续使用启动时 revision。
-- 下一次 run 使用最新 revision。
-- 审计记录修改者和前后摘要。
+## 8. Session 失效
 
-Role prompt 不得包含 Server Secret。UI 显示当前 Role 和 revision 更新时间。
+以下事件必须关闭当前 generation，并在需要继续 Task 时创建新 generation：
 
-### 12.5 Memory
+- Task进入`done`或`closed`。
+- Linked Threads 的有效成员集合发生不兼容变化。
+- Agent 更换 Driver。
+- Role 变化会改变安全或授权边界。
+- workspace 被替换、重建或发生不兼容切换。
+- provider session locator 丢失、损坏或 resume 失败。
+- Human 或 Agent 在授权范围内显式 reset。
 
-v1 Memory 是 Agent Home 下由 Agent 持续维护的文件集合：
+以下事件不得单独触发换新：
 
-~~~
-memory/
-  MEMORY.md
-  notes/
-~~~
+- token 数达到阈值。
+- Run 数达到阈值。
+- 固定时间经过。
+- Server 或 daemon 单次重启。
+- Task当前Run因等待外部输入而yield。
 
-约束：
+Provider 压缩上下文时，Computer 记录诊断事件，但不自动创建新的 Sumi Session generation。
 
-- MEMORY.md 是默认入口，可不存在；daemon 首次创建空模板。
-- Driver 可以读写自己的 Agent Memory，不得读写其他 Agent Memory。
-- Channel 和 Thread 历史不复制为 Memory；Agent 只有主动总结后才写入。
-- Driver 切换时继续使用同一 Memory。
-- Server 仅保存 Memory 文件名、大小、更新时间和 hash，不保存正文。
-- Owner/Admin 通过 UI 请求查看时，由 daemon 在线读取；Computer offline 时正文不可用。
-- Browser 通过 `POST /api/v1/agents/{agent_id}/memory/read` 提交相对 `memory/` 的 `path`。
-  Server 只向 Agent 当前 Computer 下发 `agent.memory.read` command，并在当前进程内临时转发结果；
-  Memory 正文不得写入 PostgreSQL、idempotency record、outbox、audit 或日志。Computer 与 Server
-  的持久 command result 只保存成功/失败状态，不保存正文。读取仅支持不超过 1 MiB 的 UTF-8
-  普通文件，daemon 必须拒绝绝对路径、`..`、symlink 和 canonical path 逃逸。
+Sumi 通过 Task、Message、Result 和 Memory 保证事实可重建。系统不依赖无限上下文。
 
-v1 不承诺 Computer 丢失后的 Memory 恢复。该限制必须在 UI 中明确，后续通过端到端加密快照解决，不得在 v1 偷偷把 Memory 明文上传 Server。
+## 9. Session 丢失后的恢复
 
-### 12.6 Driver 切换
+Session 丢失不等于 Task 丢失。Computer 创建新 generation，并注入：
 
-v1 UI 允许展示 Driver selector，可选 codex 和 builtin。切换必须遵守：
+- Agent identity、Role revision 和 Memory 入口。
+- Task title、status、Result 草稿元数据和 Linked Threads。
+- Focus Root Message 和必要 replies。
+- 未处理 Inbox Items。
+- 最近 Runs 的结构化结果和错误，不包含隐藏推理。
 
-1. Agent 先进入 suspended，且没有 active run。
-2. daemon 验证新 Driver 可用。
-3. 新 Driver 获得同一个 Role、Memory、workspace 和 CLI。
-4. 旧 Driver 私有状态保留但不再加载。
-5. Server 更新 driver_kind 并恢复 Agent。
+Agent 可以按需读取更多 Message 和 Memory。Server 不保存或重放 provider transcript。
 
-Driver 切换不得重置 Inbox、Channel memberships 或 Member permissions。
+## 10. Memory 与 workspace
+
+Memory 属于 Agent，跨所有 Tasks 持续存在。Agent 只有主动总结可复用知识时才写入 Memory。Message 历史和 Provider Session 不自动复制到 Memory。
+
+workspace 也属于 Agent。Task 可以在 workspace 中使用分支、目录或项目状态，但 Task 不拥有独立 workspace 实体。
+
+Computer 用 fingerprint 判断当前 Session 是否还能安全复用。
+
+Memory 正文和 workspace 文件不上传 Server。Server 只保存文件名、大小、hash 和更新时间等投影。
+
+UI 读取正文时必须经在线 Computer 临时转发，并设置`no-store`。
+
+## 11. Computer 删除与 Agent 迁移
+
+v1 不支持 active Agent 热迁移。迁移需要：
+
+1. 暂停 Agent 并结束 active Run。
+2. 关闭现有 Provider Sessions。
+3. 转移或重新建立 Agent Home。
+4. 更新 Server assignment。
+5. 在目标 Computer 通过 Driver 和 sandbox 校验。
+6. 恢复 Agent。
+
+如果 Agent Home 不可恢复，Message、Task 和 Result 仍保留。Memory、workspace 和 warm Session continuity 可能丢失，UI必须明确显示该限制。

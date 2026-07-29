@@ -1,225 +1,197 @@
-# Agent 生命周期可靠性
+# Agent Run 可靠性
 
-- [返回设计索引](../design.md)
-- [Computer 与 Agent 基础设计](./04-computer-agent.md)
-- [Raft Computer 实现参考](../../references/raft-computer-lifecycle.md)
+[返回设计索引](../design.md)
 
-本文补充 §11 和 §12，定义 Agent Run 在断线、daemon 重启、Computer 失联和 Driver 停止失败时的状态变化。
+## 1. Run 定义
 
-## 完成要求
+Run 是 Agent 围绕一个 Focus 完成一次处理的有界执行。Run包含：
 
-每个 Run 必须得到一个 `completed`、`failed` 或 `canceled` 结果。结果写入 Server 后，Inbox 必须进入 handled、pending 或 dead。WebSocket 断线、daemon 重启和 HTTP 超时不能丢失结果。
+- 一个 `agent_id`。
+- 一个可空 `task_id`。
+- 一个不可变 `focus_thread_id`。
+- 一组已领取 Inbox Items。
+- 一个 ownership lease 和 fencing token。
+- 零个或一个本地 Driver turn。
+- 一个终态结果。
 
-PostgreSQL 保存 Server 已确认的 Run 和 Inbox 状态。SQLite 保存 daemon 已接收的 command、本地 Run 状态和待上报结果。WebSocket、HTTP、tokio channel 和 PID 只提供传输或进程信息。
+Run 不是 Agent 身份、Task、Provider Session 或 Driver process。
 
-协议使用 at-least-once delivery。每个状态事件具有稳定 ID，接收方按 ID 幂等处理。
-
-## 标识
-
-| 标识 | 有效期 | 用途 |
-| --- | --- | --- |
-| `agent_member_id` | Agent 存续期间 | 标识 Space 中的 Agent |
-| `computer_id` | Computer 配对期间 | 标识配对的 Computer |
-| `daemon_session_id` | 一次 daemon 启动 | 区分 daemon 重启前后的执行者 |
-| `connection_id` | 一条 WebSocket | 记录连接诊断信息 |
-| `run_id` | 一次 Inbox 执行 | 关联 command、Inbox 和结果 |
-| `run_attempt` | 一次本地执行尝试 | 区分同一 Run 的进程尝试 |
-| `process_instance_id` | 一个 Driver 进程 | 关联启动、activity、停止和退出证据 |
-
-Server 为 Run 生成 ownership lease 和 fencing token。fencing token 是一次 Run 所有权的随机值或递增版本。renew、`run_started`、activity 和 Run result 必须携带该值。Server 使 token 失效后，旧 daemon 的消息只写诊断记录。
-
-Raft Computer 使用 `RuntimeProcessBindingFence`、`AgentLifecycleRecords.stopEpoch()` 和 `process_instance_id` 隔离旧进程的回调。Sumi 采用相同约束。
-
-## 状态
-
-Agent 的 desired lifecycle 表示治理意图：
+## 2. Run 状态
 
 ```text
-active | suspended | retired
+queued -> starting -> running -> finalizing -> completed
+                         |            |------> yielded
+                         |            |------> failed
+                         +-> stopping -------> canceled
 ```
 
-- `active` 允许 claim Inbox。
-- `suspended` 禁止 claim。`stop_after_current` 允许当前 Run 完成，`cancel_now` 要求停止当前 Run。
-- `retired` 禁止新 Run，并停止当前 Run。
+- `queued`：Server 已创建 Run，Computer 尚未取得执行槽。
+- `starting`：Computer 正在解析 Session、校验环境或启动 Driver。
+- `running`：Driver 已开始处理，Run 可以接收同 Focus hard Item。
+- `finalizing`：Driver turn 已结束，接收集合被冻结，Server 正在提交处理结果。
+- `completed`：本次领取的 Items 已处理，Task 可以继续存在。
+- `yielded`：Agent 主动释放执行权，保留尚未完成的 Task 工作。
+- `failed`：执行失败，未处理 Items 按策略重试。
+- `stopping`：已请求停止，进程退出尚未确认。
+- `canceled`：停止已确认。
 
-Run 的 observed execution 表示执行进度：
+所有 Runs必须到达一个终态。Run 终态不自动等于 Task 终态。
+
+## 3. 有界条件
+
+Run 的边界由一次处理周期决定，不由 token 数量决定。
+
+以下事件开始 finalizing：
+
+- Driver turn 正常结束。
+- Agent 显式 yield。
+- Task 完成或取消命令已提交。
+- Human 请求 stop after current。
+- Run 达到执行安全上限。
+
+进入 finalizing 后，Run 不再接受新 Inbox Item。新 Item 保持 pending，并等待后续 Run。
+
+该冻结点替代公开的`settle`概念。Agent 不需要调用额外的 settle 命令。
+
+执行安全上限用于回收失控进程和租约，不决定 Provider Session 是否换新。
+
+Run 达到上限时可以 yield 或 failed。后续 Run 仍可 resume 同一 Session。
+
+## 4. active Run 接收新 hard Item
+
+新 hard Item 到达时，Server按以下规则处理：
 
 ```text
-queued -> starting -> running -> stopping -> completed | failed | canceled
+没有 active Run
+  -> Item 保持 pending，scheduler 创建 Run
+
+存在 running Run，Item 属于同一Task scope和Focus
+  -> 原子加入 Run
+  -> 推送完整 Item 给 Computer
+  -> Driver adapter steer 当前 Provider Session
+
+存在 running Run，Item 属于不同Focus或不同Task scope
+  -> Item 保持 pending
+  -> 只向当前 Run 发送 attention notice
+
+Run 已 finalizing/stopping
+  -> Item 保持 pending
 ```
 
-- `queued` 表示 Server 已创建 Run，daemon 还没有获得执行槽。
-- `starting` 表示 daemon 已获得执行槽，正在校验环境或启动 Driver。
-- `running` 表示 Driver 已启动，SQLite 已保存 `process_instance_id`。
-- `stopping` 表示 daemon 已接受停止请求，进程退出尚未确认。
-- `completed`、`failed` 和 `canceled` 是终态。终态需要启动前错误、进程退出或 ownership lease 过期作为证据。
+attention notice 只包含来源类型、Task/Thread 标识、优先级和到达时间。当前 Run 未获授权时不得包含正文或 private Channel 地址。
 
-UI 必须组合显示两组状态。例如，`suspended + running` 表示当前 Run 将完成后暂停，`suspended + stopping` 表示正在取消，`active + unreachable` 表示 Computer 失联且 lease 仍有效。
+Agent收到不同 Focus notice 后可以继续当前 Run，也可以 yield。系统不得自动切换 Focus、Task 或 Provider Session。
 
-## Command ACK 和 Run started
+## 5. 同 Focus attach 事务
 
-daemon 把 Server command 写入 SQLite 后返回 `command_ack`。ACK 表示 daemon 已接收 command。Server 此时保留 Run 的 `queued` 状态。
+将 hard Item 加入 active Run 必须在 Server 事务中：
 
-daemon 获得执行槽后把本地 Run 写为 `starting`。Driver 启动且 SQLite 写入 `process_instance_id` 后，daemon 将 `run_started` 写入本地 outbox。事件包含：
+1. 锁定 Run 和 Item。
+2. 校验 Run 仍为 `running`。
+3. 校验Item的可选Task和Thread与Run scope相同。
+4. 将 Item 从 `pending` 改为 `leased`。
+5. 创建 `run_items` 关系。
+6. 分配递增 `run_delivery_seq`。
+7. 写入 Computer command 和 outbox。
 
-- `event_id`
-- `run_id`
-- `run_attempt`
-- `process_instance_id`
-- fencing token
-- daemon observed timestamp
+Computer按 `run_delivery_seq` 幂等接收。重复交付不得重复 steer。Run在事务前进入 finalizing 时，Item保持 pending。
 
-Server 应用 `run_started` 后把 Run 改为 `running`，用 daemon observed timestamp 填写 `started_at`，并返回只包含同一 `event_id` 的 `started_receipt`。同一 `event_id` 的重复 `run_started` 返回相同回执，不重复发布 Run 状态事件。daemon 收到该回执后才激活本地 Run token 并向 Driver 交付首个 prompt。这个顺序保证 Driver 第一次调用 Agent API 时，Server 已接受 running 状态。
+普通 Run 的`task_id`为空。Agent 从当前 Focus 创建 Task 时，Server 在 Task 事务中填写 Run 和已领取 Item 的`task_id`。
 
-## Run result outbox
+此后，只有同 Task 和 Focus 的 hard Item 可以 attach。
 
-Run 结束时，daemon 在一个 SQLite 事务中完成三次写入：
+## 6. Driver turn 与 steer
 
-1. 把 `local_agent_runs` 写为终态。
-2. 保存 status、error code、memory metadata 和进程退出证据。
-3. 向 result outbox 插入待上报记录。
-
-result sender 扫描没有 `reported_at` 的记录，并在连接可用时发送。Server 在一个 PostgreSQL 事务中更新 command、Run、Inbox 和 Server outbox，然后返回 `result_receipt`。daemon 收到回执后填写 `reported_at`。
-
-daemon 使用 `run_result` 帧上报 Run 结果。该帧包含 `event_id`、`command_id`、`computer_seq`、`ok` 和 `result`。Server 只允许非 Run command 使用 `command_result`。Server 提交结果事务后返回只包含同一 `event_id` 的 `result_receipt`。同一 `event_id` 的重复 `run_result` 必须返回回执，且不得再次更新 Inbox retry count 或发布 Run 状态事件。
+Provider Session 可以在一个 Run 中包含初始 turn 和后续 steering 输入。Driver adapter 必须暴露：
 
 ```text
-SQLite Run 终态和 result outbox
-  -> result sender 重试
-  -> PostgreSQL 幂等事务
-  -> result_receipt
-  -> SQLite reported_at
+open_or_resume(session_spec) -> session
+start_turn(session, run_input) -> turn
+steer(turn, item_input) -> accepted | too_late
+interrupt(turn, reason) -> outcome
+observe(turn) -> events
+close(session, reason) -> outcome
 ```
 
-completion channel 只用于通知 result sender 扫描 outbox。channel 关闭或连接更换不能删除待发结果。
+`too_late` 表示 Driver turn 已完成。Computer 将 Item delivery 保持未消费并报告 Server；Server把 Item释放回 pending，后续 Run处理。
 
-## daemon task
+Driver不支持 steer 时，Computer发送 attention notice并让 Item保持 pending。Driver能力差异不能改变 Server 的 Task 和 Run 事实。
 
-daemon 使用独立 task 处理以下职责：
+## 7. yield
 
-- WebSocket reader 和 writer 处理协议帧和重连。
-- result sender 上报 `run_started` 和 Run result，并处理 event receipt。
-- attention scheduler 按容量 claim Inbox。
-- lease renewer 续租 ownership 和 Inbox lease。
-- Supervisor 管理本地 Run 和 Driver。
-- heartbeat reporter 上报 daemon 状态和容量。
+Yield 用于释放当前 Focus，让 Agent转向另一个 waiting item。Agent提交 yield 时可以：
 
-这些 task 共享 cancellation token，并按 shutdown 顺序退出。HTTP 使用一个配置了 connect timeout 和 request timeout 的 client。claim 或 renew 请求超时不能停止 heartbeat、WebSocket 读取或 result sender。
+- handle 已完成的 Items。
+- defer 尚不需要处理的 Items。
+- release 未完成的 Items。
+- 写入不含隐藏推理的简短 continuation note。
 
-attention scheduler 的 claim 上限为执行槽数加 1 个 prefetch。已 queued 的本地 Run 和已经 claim、但尚未写入 SQLite 的 Run 都占用该上限。相同优先级的 Agent 按 round-robin 调度。
+Server原子提交Item状态和Run `yielded` 结果。Yield不改变Task状态；等待原因保存在Run outcome。Provider Session保持ready，供后续同scope Run resume。
 
-Raft Computer 的 `AgentStartCoordinator` 限制并发启动，`AgentStartPendingDeliveryBuffer` 保存启动期间收到的消息。Sumi 使用这两个实现位置作为容量控制参考。
+Yield 不是 Session reset，也不是 Task cancel。
 
-## WebSocket 重连
+## 8. 完成与结果
 
-WebSocket 断线不改变 Run、ownership lease 和 result outbox。重连后按以下顺序恢复：
+Run 完成事务必须：
 
-1. daemon 发送 command watermark 和 `daemon_session_id`。
-2. Server 重放未完成 command。
-3. daemon 为本地终态 command 重发 result。
-4. daemon 收到本地 running command 的重放时保留现有进程。
-5. result sender 继续等待 `result_receipt`。
+1. 验证 ownership fencing token。
+2. 验证所有 `run_items` 已 handled、deferred 或 released。
+3. 保存 Run 终态和结构化 outcome。
+4. 更新 Inbox Items。
+5. 可选更新 Task 状态和 Result。
+6. 写入 audit 和 Server outbox。
+7. 返回 result receipt。
 
-Run 的完成处理必须写入 result outbox。完成通知不能持有某条 WebSocket 专用的 sender 作为唯一上报路径。
+Computer先在 SQLite 原子保存本地终态和 result outbox，再重试上报直到收到 receipt。WebSocket 断开不能丢失结果。
 
-## daemon 重启
+## 9. 租约与 fencing
 
-daemon 接收新 command 前校正 SQLite 状态：
+Server为 Run生成 ownership lease 和 fencing token。`run_started`、renew、Item delivery receipt、activity 和 result 都必须携带 token。
 
-- queued Run 没有启动证据时，按重试策略重新启动或写入 `process_lost`。
-- running 或 stopping Run 无法证明进程仍受当前 daemon 管理时，写入 `process_lost`。
-- 终态 Run 没有 receipt 时，保留原结果并继续上报。
-- command 与 Run 状态不一致时，根据 Run 终态重建 result outbox，并写入 invariant violation 日志。
+lease 过期后，Server可以使 token 失效并释放 Items。旧 Computer 后续上报只能写诊断记录，不能改变 Task、Run 或 Inbox。
 
-`process_lost` 只用于缺少进程证据的非终态 Run。它不能覆盖已有终态结果。
+Command delivery 使用 at-least-once。所有 command、event 和 receipt 都有稳定 ID，并由接收方幂等处理。
 
-## Computer 失联
+## 10. daemon 重启与断线
 
-Computer 超过 30 秒没有 heartbeat 时进入 offline。该状态不结束 Run。Run ownership lease 独立计时：
+WebSocket 断开不改变本地 Driver、Run、Session 或 result outbox。重连时：
 
-- lease 有效时，Run 显示 `unreachable`，其他执行者不能接管。
-- lease 过期时，Server 使 fencing token 失效，把 Run 写为 failed，并释放 Inbox。
-- 旧 daemon 之后发送的 started 或 result 不能修改 Run 和 Inbox。
+1. daemon发送 command watermark 和 daemon session ID。
+2. Server重放未确认 commands。
+3. daemon重发 started 和 result events。
+4. 同一 fencing token 的 running Run保留现有进程。
+5. Session registry继续使用本地 locator。
 
-Server 定时扫描过期 ownership lease。该任务保证失联 Run 最终释放 active Run 唯一约束。
+daemon重启时：
 
-Raft Computer 的 `rehydrateRunnerRecord()`、`nextRunnerStateOnExit()` 和 `degraded` 状态提供了重启恢复和重复崩溃暂停的实现参考。
+- 有进程所有权证据的 Run可以重新接管。
+- 无法证明进程仍受控的 Run写入 `process_lost`。
+- 已结束但未回执的结果继续上报。
+- ready Provider Session保留；resume失败时创建新 generation。
 
-## Suspend、retire 和 cancel
+## 11. 公平调度
 
-- `suspend/stop_after_current` 更新 desired lifecycle，禁止新 claim，保留当前 Run。
-- `suspend/cancel_now` 更新 desired lifecycle，禁止新 claim，并把当前 Run 改为 `stopping`。
-- `retire` 禁止新 Run，把当前 Run 改为 `stopping`，并在进程退出后清理可再生目录。
-- `resume` 更新 desired lifecycle，不改变历史 Run。
+Computer scheduler按本机执行槽限制并发。一个 Agent最多占一个 active Run。不同 Agents按 round-robin 取得执行槽，hard Item优先于 ambient Item。
 
-停止 Driver 时按以下顺序执行：
+同一 Agent有多个 pending Focus 时，选择顺序为：
 
-1. 持久化 `stopping` 和 stop epoch。
-2. 向进程组发送 SIGTERM，并检查返回值。
-3. 在 grace period 内等待进程退出和 reap。
-4. 超时后发送 SIGKILL，并在第二个 timeout 内等待 reap。
-5. 第二次等待超时后写入 `orphaned`，由后台 reaper 继续处理。
+1. Human明确要求切换的 Item。
+2. hard Item 的到达时间。
+3. 已有 Task 的连续性。
+4. ambient Item 的聚合时间。
 
-`orphaned` 表示数据库尚未取得进程退出证据。Supervisor 在 reaper 完成前保留该 Run。进程退出回调、自动重启 timer 和延迟 cancel 必须校验 `process_instance_id` 和 stop epoch。
+Server不根据正文、标题或模型判断优先级。
 
-Raft Computer 的 `AgentProcessManager.stopAgent()`、`RuntimeProcessBindingFence` 和 stalled recovery 使用了上述信号顺序和进程绑定检查。
+## 12. 必测故障
 
-## 数据字段
-
-SQLite 需要保存：
-
-- `daemon_session_id`
-- `run_attempt`
-- `process_instance_id`
-- ownership lease 和 fencing token
-- result outbox 的 payload、attempt count、next attempt、last error 和 `reported_at`
-- started 和 result 的稳定 event ID
-- stopping、orphaned 和 reap 证据
-
-PostgreSQL 需要保存：
-
-- Agent desired lifecycle
-- Run observed execution
-- ownership lease、fencing token 和 last renewal
-- daemon observed timestamp 和 Server received timestamp
-- result event ID 或等价去重键
-- 旧 token 消息的诊断记录
-
-同一 Agent 只能存在一个非终态 Run。Server 的 lease 扫描任务负责使过期 Run 离开该集合。
-
-## 日志与不变量
-
-日志和 trace 使用 `agent_member_id`、`run_id`、`run_attempt`、`process_instance_id`、`daemon_session_id` 和 `command_id` 关联事件。必须记录 command persisted、command acked、slot acquired、Driver started、lease renewed、lease expired、result persisted、result sent、result receipted、SIGTERM、SIGKILL、reaped 和 orphaned。
-
-校正任务每次运行后检查：
-
-- 每个本地终态 Run 都有 result outbox 或 receipt。
-- 每个 running 或 stopping Run 都有当前进程绑定，或处于 ownership lease 有效的 unreachable 状态。
-- Supervisor active map 中的 Run 都有 SQLite 非终态记录。
-- WebSocket 更换不删除本地 Run 的完成上报路径。
-- 过期 ownership lease 不占用 Server 的 active Run 唯一约束。
-
-Raft Computer 的 `AgentNoProcessResidency.assertInvariant()` 检查无进程状态，`AgentVisibleDeliveryLedger` 记录 Agent 已看到的投递。Sumi 的校正任务采用同类检查方式。
-
-## 故障注入测试
-
-1. Run 在连接 A 启动。A 断线，连接 B 在 Run 仍 running 时重连。Run 完成后 Server 进入 completed。
-2. 第一次发送 Run result 失败。重连后 daemon 补报，Server 只应用一次。
-3. Server 已应用 result，`result_receipt` 丢失。daemon 重发后 Inbox retry count 和事件数量不变。
-4. claim HTTP 不返回。heartbeat、WebSocket reader 和 result sender 继续工作。
-5. command ACK 后 Run 等待 semaphore。Server 保持 queued 或 starting，`started_at` 为空。
-6. daemon 崩溃后重启。已有终态结果继续上报，中断 Run 写入 `process_lost`。
-7. Computer 永久离线。ownership lease 过期后 Server 释放 Run 和 Inbox。
-8. Server 使 token 失效后收到旧 daemon 的 result。Run 和 Inbox 状态不变。
-9. suspend stop_after_current 后，当前 Run 仍可使用 Agent API，结束后不再 claim。
-10. 分别注入 SIGTERM、SIGKILL 和 reap 失败。数据库不能在缺少退出证据时写入 completed 或 canceled。
-11. Agent 数量超过本地并发上限。claim 数不超过执行槽加 prefetch，Agent 不因固定顺序长期得不到执行。
-12. daemon shutdown 等待 Run 进入终态或 orphaned，并保留所有待上报结果。
-
-## 当前实现
-
-截至 2026-07-28，daemon 已使用独立 result sender 跨连接补报结果，并实现 ownership lease、
-`run_started` 回执和本地停止证据。Supervisor 在发信号前持久化 stop epoch；Codex Driver 检查
-SIGTERM 和 SIGKILL 返回值，两次等待都受 timeout 限制。第二次等待超时后，本地 Run 保持非终态并
-写入 `orphaned`，后台 reaper 取得退出证据后才写终态和 result outbox。attention scheduler 按执行
-槽数加 1 个 prefetch 限制 claim，并在稳定的 Agent 顺序上轮转起点。
+- hard Item 与 Run finalizing 并发。
+- 同 Focus Item重复交付和重复 steer。
+- 不同 Focus notice 到达后 Agent yield。
+- `run_started` 成功但 receipt 丢失。
+- result提交成功但 receipt 丢失。
+- WebSocket断线期间 Driver完成。
+- daemon重启后进程存在和进程丢失两种情况。
+- lease过期后旧 fencing token上报。
+- Provider Session resume失败后新 generation恢复 Task。
+- Task完成后 Session close失败。
+- 多 Agent竞争执行槽且无长期饥饿。
