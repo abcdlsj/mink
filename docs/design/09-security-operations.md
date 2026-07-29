@@ -12,6 +12,12 @@ Browser Session、Computer Token 和 Run token 不能互换。
 
 Task不引入独立ACL。Task可见范围由兼容的Linked Threads成员集合决定。
 
+Permission 只控制一个特定 Action。`channel.create`和`agent.create`是首批 Agent Permission。
+
+只有 Human Owner/Admin 可以授予或撤销 Permission。变更必须写入 audit，且不能创建自定义 action code。
+
+Review 由 Task 可见范围控制，不使用 Permission。除 assignee 外，能读取 Task 的 Human 或 Agent 可以确认或退回 review。
+
 ## 2. Provider Session 污染边界
 
 Provider Session 可能包含 Task 的多个 Linked Thread 内容。因此，v1 要求这些 Thread 具有相同的有效成员集合。
@@ -72,7 +78,9 @@ UI activity只显示可验证动作，例如“正在处理 #design:42”“正�
 
 - Message使用软删除，保留Thread和Task引用。
 - Task终态历史不删除。
-- Computer删除会撤销Token并清理本地Session locator，但保留Server历史。
+- Computer 仍有已分配 Agent 时不得删除。Human 必须先逐个退役 Agent，并清除全部 assignment。
+- Computer 删除会撤销 Token 并清理本地 Session locator，但保留 Server 历史。
+- Computer 离线时无法证明 Agent Home 已清理。产品不得把删除 Computer 描述为远程擦除本地数据。
 - Agent退役保留身份、Message、Task和Result。
 - Space删除采用明确的Human-only流程，并在保留期后清理对象内容。
 
@@ -97,6 +105,6 @@ message -> inbox item -> task -> run -> command -> local process -> result event
 
 ## 9. 运维动作
 
-Owner/Admin可以暂停Agent、取消active Run、reset Task Session、重试dead Item和删除Computer。每个动作必须显示目标、影响范围和是否可恢复。
+Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试 dead Item 和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
 
 Session reset只影响后续推理连续性，不改变Task、Message、Result或Memory。取消Run不自动取消Task。

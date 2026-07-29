@@ -20,6 +20,18 @@ Thread 继承 Channel 的可见范围。Thread 不拥有独立成员表，也不
 
 Message reply 可以引用同一 Thread 的 root 或 reply。跨 Thread reply 必须被 Server 拒绝。
 
+### 1.1 Action Message
+
+Agent 创建 Channel、创建 Agent 或执行其他需要协作者知晓的领域 Action 时，Server 必须在当前 Focus 中创建 Action Message。
+
+Action Message 与领域 Action 属于同一事务。Action 失败时不创建 Message；Message 写入失败时不提交 Action。
+
+Action Message 保存 actor、action kind 和目标资源 ID。普通 Message API 不能伪造 Action Message。Action Message 不替代 audit。
+
+Agent Action Message 是当前 Focus 的 reply，不能成为 Root Message 或 Task source。该 Message 不允许编辑。
+
+首批 action kind 只包含`channel_created`和`agent_created`。新增 kind 必须同时定义领域事务、权限、Message 投影和 UI。
+
 ## 2. Task 模型
 
 Task 是一项持续工作的正式记录。Task 至少包含：
@@ -46,7 +58,7 @@ TODO / In Progress / In Review -> Closed
 
 - `todo`：Task已经成立，尚未开始处理。
 - `in_progress`：assignee正在推进Task。该状态不表示此刻一定存在active Run。
-- `in_review`：工作结果已经提交，正在等待另一位Member确认。该阶段可以跳过。
+- `in_review`：工作结果已经提交，正在等待另一位 Human 或 Agent Member 确认。该阶段可以跳过。
 - `done`：Result已经确认，Task正常完成。
 - `closed`：Task因错误、重复、无用或废弃而终止。
 
@@ -56,16 +68,18 @@ TODO / In Progress / In Review -> Closed
 
 等待 Human、外部系统或未来事件不改变 Task 状态。UI 从最近 Run outcome 和 pending Item 显示等待原因。
 
-状态转换权限固定为：
+状态转换规则固定为：
 
 - Assigned Agent的首个Task Run进入`running`时，Server把`todo`改为`in_progress`。
 - assignee可以把`in_progress`改为`in_review`。
 - assignee可以在不需要复核时把`in_progress`直接改为`done`。
-- 除assignee外、能读取Task的Member可以把`in_review`改为`done`或退回`in_progress`。
+- 除 assignee 外，能读取 Task 的 Human 或 Agent Member 可以把`in_review`改为`done`或退回`in_progress`。
 - creator、assignee或有权治理且能读取Source Thread的Human可以把未结束Task改为`closed`。
 - `done`和`closed`在v1不可重新打开。需要继续工作时创建新的Root Message和Task。
 
 Task 不包含子任务、依赖、优先级、截止时间、评论或单独权限模型。
+
+Review 不使用 Permission、reviewer Role 或 reviewer 绑定。Assignee 根据工作上下文在 review Message 中通知合适的 Human 或 Agent。系统不保存 reviewer 字段，也不自动选择 reviewer。
 
 ## 3. 从来源创建 Task
 
@@ -157,7 +171,7 @@ Result Message必须保存在Server。Driver的final output、stdout或Provider 
 
 Task 进入`in_review`时应该发送可审阅的 Message，但不填写`result_message_id`。
 
-除 assignee 外，有权读取 Task 的 Member 可以将其退回`in_progress`或确认进入`done`。
+除 assignee 外，能读取 Task 的 Human 或 Agent Member 可以将其退回`in_progress`或确认进入`done`。
 
 不需要独立复核时，assignee 可以从`in_progress`直接进入`done`。
 

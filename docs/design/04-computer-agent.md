@@ -29,7 +29,9 @@ pairing -> online <-> offline -> deleted
 
 daemon 退出或网络断开只导致 offline。使用同一 Computer Token 重连后恢复 online。
 
-删除 Computer 会停止 active Run、关闭本机 Provider Session、退役或重新分配 Agent，并撤销 Token。
+存在已分配 Agent 时，Server 必须拒绝删除 Computer。Human 必须先逐个退役这些 Agent，并清除全部 Computer assignment。
+
+Computer 没有已分配 Agent 后，删除操作撤销 Computer Token，并把 Computer 标记为`deleted`。系统不得在 Computer 删除事务中自动退役或重新分配 Agent。
 
 ## 3. Agent Home
 
@@ -191,6 +193,8 @@ UI 读取正文时必须经在线 Computer 临时转发，并设置`no-store`。
 
 ## 11. Computer 删除与 Agent 迁移
 
+Computer 删除和 Agent 迁移是两个独立流程。迁移不能作为删除 Computer 的隐式副作用。
+
 v1 不支持 active Agent 热迁移。迁移需要：
 
 1. 暂停 Agent 并结束 active Run。
@@ -201,3 +205,7 @@ v1 不支持 active Agent 热迁移。迁移需要：
 6. 恢复 Agent。
 
 如果 Agent Home 不可恢复，Message、Task 和 Result 仍保留。Memory、workspace 和 warm Session continuity 可能丢失，UI必须明确显示该限制。
+
+Agent 退役事务必须结束 active Run、关闭 Sessions，并清除 Computer assignment。Computer 在线时，daemon 同时清理 Agent Home；Computer 离线时，Server 记录本地清理未确认。
+
+本地清理未确认不阻止 Computer 删除。删除 Computer 会撤销 Token，但不能证明离线设备上的 Agent Home 已被擦除。

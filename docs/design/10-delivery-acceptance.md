@@ -91,7 +91,8 @@
 - Done Task必须有Result Message。
 - Closed Task必须有close reason。
 - In Progress可以直接进入Done，也可以经过In Review。
-- In Review只有另一位有权Member可以确认Done或退回In Progress。
+- In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
+- Review 不检查 Permission，也不保存 reviewer 字段。
 - Run终态不自动完成Task。
 
 ## 4. 集成验收
@@ -110,6 +111,11 @@
 - 数据库约束拒绝非法 Task 终态和并行 active Run。
 - 已应用 migration 不允许修改。
 - backfill 中断后可以从稳定游标继续。
+- 创建 Channel 或 Agent 时，目标资源和 Action Message 同时成功或失败。
+- Agent 缺少对应 Permission 时返回`permission_denied`，且不创建目标资源或 Action Message。
+- 普通 Message API 不能创建 Action Message。
+- Computer 删除事务锁定 assigned Agents，并在仍有 assignment 时拒绝删除。
+- Agent 退役清除 assignment 后，Computer 才能删除。
 
 ## 5. Driver 验收
 
@@ -121,6 +127,8 @@
 - Role、Driver、workspace或audience不兼容变化会换新Session。
 - Codex steer unsupported时Item保持pending。
 - Driver output不会自动创建Message或Result。
+- Agent CLI 的参数、权限、冲突、IPC 和 Server 错误都返回统一 JSON error envelope。
+- JSON error stdout 只包含一个文档，且不泄露正文或 Secret。
 
 ## 6. 故障验收
 
@@ -143,6 +151,7 @@
 - Agent详情区分Task、Focus、Run状态和Session continuity。
 - different-Focus notice不会显示成当前Task的新Message。
 - UI不展示Provider transcript、隐藏推理或Secret。
+- Channel 和 Agent 创建 Action Message 使用专用 UI，不显示原始 JSON 或命令参数。
 - 390px和1440px视口能完成核心流程。
 - 所有状态使用文字和图形，不只使用颜色。
 

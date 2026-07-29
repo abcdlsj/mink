@@ -42,6 +42,10 @@ _Avoid_：Private Chat、Direct Thread
 Member 发布在 Channel 主时间线或 Thread 中的协作内容。
 _Avoid_：Prompt、Event、Agent Output
 
+**Action Message**：
+Agent 完成一项需要协作者知晓的领域 Action 时，由同一事务创建的结构化 Message。Action Message 使用专用 UI，不是日志或 Audit Event。
+_Avoid_：System Message、Activity Log、Tool Output
+
 **Root Message**：
 发布在 Channel 主时间线、且不属于其他 Thread 的 Message。每条 Root Message 都是一个 Thread 的根。
 _Avoid_：Channel Message、Top-level Message、Parent Message
@@ -127,7 +131,7 @@ Member 在 Space 中的治理级别，取 Owner、Admin 或 Member。它不表�
 _Avoid_：Role、Agent Role
 
 **Permission**：
-在 Access Level 之外单独授予 Member 的特定能力。
+授予 Member 执行一个特定 Action 的能力。Permission 不表示 Role、资源可见性或 review 身份。
 _Avoid_：Role、Access Level
 
 **Owner**：

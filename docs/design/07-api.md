@@ -28,6 +28,8 @@ DELETE /api/v1/messages/{message_id}
 
 向 Channel 发送 Message 时，Server 创建 Root Message 和对应 Thread。向 Thread 发送 Message 时，Server 创建 reply。
 
+Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影。Browser 不能从正文解析 Action Message。
+
 ### 2.2 Task
 
 ```text
@@ -53,13 +55,24 @@ Task link 请求只接受一个 Related Thread。Source Thread 不能通过 link
 
 ```text
 GET /api/v1/spaces/{space_id}/agents
+POST /api/v1/spaces/{space_id}/agents
 GET /api/v1/agents/{agent_id}
+DELETE /api/v1/agents/{agent_id}
 GET /api/v1/agents/{agent_id}/runs/current
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
+PUT /api/v1/members/{member_id}/permissions/{action_code}
+DELETE /api/v1/members/{member_id}/permissions/{action_code}
+DELETE /api/v1/computers/{computer_id}
 ```
 
 Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得读取 Provider locator、transcript、隐藏推理或未授权的 Message 正文。
+
+删除 Agent 表示退役并清除 Computer assignment，不删除历史 Member、Message、Task 或 Result。
+
+Computer 仍有已分配 Agent 时，删除请求返回`computer_has_agents`冲突。Server 不得在该请求中自动退役或迁移 Agent。
+
+Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin 可以授予或撤销 Permission。
 
 ## 3. Computer API
 
@@ -77,6 +90,8 @@ POST /api/v1/computers/{computer_id}/agent-actions
 ```
 
 Server 必须验证 Agent assignment 和 fencing token。Computer 不能操作其他 Computer 的 Agent。
+
+`agent-actions`接收版本化 tagged union。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message。
 
 ## 4. WebSocket command
 

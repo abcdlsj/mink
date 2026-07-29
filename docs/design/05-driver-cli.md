@@ -94,6 +94,32 @@ CLI不得要求Agent重复传入这些字段。Agent也不能通过参数切换�
 }
 ```
 
+失败也必须向 stdout 输出一个 JSON envelope：
+
+```json
+{
+  "schema_version": 1,
+  "ok": false,
+  "data": null,
+  "error": {
+    "code": "permission_denied",
+    "message": "channel.create permission is required",
+    "retryable": false,
+    "details": {
+      "action": "channel.create"
+    }
+  }
+}
+```
+
+`--json`模式下，参数校验、认证、权限、冲突、IPC、Server 和内部错误都使用该 envelope。stdout 只能包含一个 JSON 文档；诊断输出写入 stderr。
+
+`error.code`是 Agent 判断分支的稳定字段。首批通用错误码为`invalid_argument|unauthenticated|permission_denied|not_found|conflict|context_changed|rate_limited|unavailable|internal`。
+
+`message`只用于解释错误，不能作为程序判断依据。`details`只能包含错误处理需要的结构化标识，不得包含 Message、Attachment、Memory、Secret 或 Provider transcript 正文。
+
+成功退出码为`0`，失败退出码非零。Agent 不能只依赖退出码理解错误原因。
+
 ## 6. 启动读取
 
 Run prompt已经包含当前Focus和可选Task，因此Agent不需要先调用whoami、task show和thread read才能理解基本上下文。以下命令用于按需扩展：
@@ -159,6 +185,14 @@ sumi agent attachment download {attachment-id} --output {path} --json
 sumi agent memory read {path} --json
 sumi agent memory write {path} --stdin --json
 ```
+
+### 7.5 特定 Action
+
+Agent capability 必须提供创建 Channel 和创建 Agent 的领域命令。命令参数只描述目标资源，不接受 Action Message 字段。
+
+Server 从 Run token 推导 actor 和当前 Focus。Action 成功时，Server 在同一事务中创建目标资源和对应 Action Message。
+
+Agent 必须分别具有`channel.create`或`agent.create`Permission。Review 不需要 Permission。
 
 ## 8. 原子操作
 

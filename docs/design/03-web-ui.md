@@ -78,7 +78,9 @@ UI不显示bind步骤、Source Thread选择器或来源确认。Thread reply不�
 
 Human创建的Task初始为`TODO`。Agent在当前Run中创建Task时，因为Server同时绑定当前Agent和Run，初始状态为`In Progress`。
 
-## 5. Message中的Task投影
+## 5. Message 投影
+
+### 5.1 Task 标识
 
 Root Message上的Task标识保持紧凑，只显示：
 
@@ -102,6 +104,17 @@ Task状态标签固定为：
 | `closed` | CLOSED | stone背景、close图形 |
 
 状态必须同时显示文字和图形。Running、Waiting和Failed使用独立Run status。
+
+### 5.2 Action Message
+
+Action Message 使用紧凑的结构化行，不显示为普通 Markdown 气泡。首批 UI 包含：
+
+- `channel_created`：显示 actor、`Created channel`、Channel 名称和可打开链接。
+- `agent_created`：显示 actor、`Created agent`、Agent 头像、名称、生命周期和详情链接。
+
+Action Message 从目标资源读取当前名称。目标已退役或删除时保留 Message，并显示不可用占位。
+
+Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message composer 不能选择 action kind。
 
 ## 6. Tasks页面
 
@@ -144,7 +157,7 @@ TODO / In Progress / In Review -> Closed
 - assignee开始工作时进入In Progress。
 - assignee提交复核时进入In Review。
 - 不需要复核时可以从In Progress直接进入Done。
-- In Review可以由另一位有权Member确认Done或退回In Progress。
+- In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
 - Closed需要选择Invalid、Duplicate、Not needed、Obsolete或Other，并可填写说明。
 
 `Running`、`Waiting`、`Finalizing`和`Failed`是Run或attention状态，不能出现在Task状态选择器中。
@@ -168,6 +181,8 @@ UI不得展示隐藏推理、Provider transcript、完整命令参数或Message�
 Human Inbox继续按Approvals、DM/mention、replies、Task updates、Channel activity和system issues分组。Inbox不是Message历史。
 
 Agent Inbox默认不向普通Member公开。Owner/Admin只能读取自己有权访问的来源摘要和错误代码。
+
+Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或撤销`channel.create`和`agent.create`。UI 不提供 Role 形式的 Permission 套餐。
 
 ## 10. 通用组件
 

@@ -110,6 +110,15 @@
 
 `member_id`是主键。一个 User 在同一 Space 只能对应一个 Human Member。
 
+### 4.6 `member_permissions`
+
+- `member_id`
+- `action_code`
+- `granted_by_member_id`
+- `created_at`
+
+主键是`(member_id, action_code)`。Permission 只授予一个稳定 Action，不保存 Role、reviewer 或资源可见范围。
+
 ## 5. 对话
 
 ### 5.1 `channels`
@@ -141,15 +150,24 @@
 - `channel_id`
 - `thread_id`
 - `channel_seq`
-- `kind=root|reply`
+- `placement=root|reply`
+- `content_kind=text|channel_created|agent_created`
 - `reply_to_message_id`
 - `author_member_id`
 - `body_markdown`
+- `action_channel_id`
+- `action_agent_member_id`
 - `created_at`
 - `edited_at`
 - `deleted_at`
 
 `(channel_id, channel_seq)`必须唯一。Root Message 的`thread_id`等于自身 ID。Reply 必须与目标 Message 属于同一 Thread。
+
+`text`具有`body_markdown`，且不具有 action target。Action Message 的`body_markdown`为空。`channel_created`只具有`action_channel_id`。`agent_created`只具有`action_agent_member_id`。CHECK 必须拒绝其他组合。
+
+Action Message 的`placement`只能是`reply`。该约束避免 Action Message 成为 Thread root 或 Task source。
+
+Action Message 与目标资源在同一领域事务中创建。普通 Message 写入入口只能创建`text`。
 
 ### 5.4 `threads`
 
@@ -223,6 +241,10 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 
 `member_id`是主键，并引用`kind=agent`的 Member。
 
+`computer_id`对 active 和 suspended Agent 必填。Agent 退役事务将 lifecycle 改为`retired`、填写`retired_at`并清空`computer_id`。
+
+Agent assignment 事务必须拒绝`deleted`Computer。
+
 ### 7.2 `inbox_items`
 
 - `id`
@@ -278,7 +300,9 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 ### 8.1 `computers`
 
-保存 Space、名称、token hash、连接状态、daemon 版本、下一个 command sequence 和 last seen。Raw Computer Token 不得进入数据库。
+保存 Space、名称、token hash、连接状态、daemon 版本、下一个 command sequence、last seen 和`deleted_at`。Raw Computer Token 不得进入数据库。
+
+Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assigned Agents；仍存在 assignment 时返回冲突，否则填写`deleted_at`并撤销 token hash。
 
 ### 8.2 `computer_commands`
 

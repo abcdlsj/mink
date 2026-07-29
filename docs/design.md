@@ -1,6 +1,6 @@
 # Sumi 新版本设计索引
 
-- 状态：Draft
+- 状态：Accepted
 - 日期：2026-07-29
 - 目标：[GOAL.md](../GOAL.md)
 - 领域词汇：[GLOSSARY.md](../GLOSSARY.md)
