@@ -1,1 +1,41 @@
+pub(in crate::server) mod attention;
+pub(in crate::server) mod conversation;
+pub(in crate::server) mod execution;
+pub(in crate::server) mod identity;
+pub(in crate::server) mod task;
 
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub(in crate::server) enum DomainError {
+    #[error("invalid state transition")]
+    InvalidTransition,
+    #[error("message is not a root message")]
+    SourceIsNotRoot,
+    #[error("source message and thread do not match")]
+    SourceMismatch,
+    #[error("task requires an assignee")]
+    AssigneeRequired,
+    #[error("task review must be decided by another visible member")]
+    InvalidReviewer,
+    #[error("thread is not linked to the task")]
+    FocusOutsideTask,
+    #[error("thread audience differs from the task audience")]
+    IncompatibleAudience,
+    #[error("source thread cannot be added or removed as a related thread")]
+    SourceThreadImmutable,
+    #[error("inbox item cannot be attached to this run")]
+    ItemScopeMismatch,
+    #[error("ambient inbox item cannot attach to an active run")]
+    AmbientItemCannotAttach,
+    #[error("run no longer accepts inbox items")]
+    RunNotAcceptingItems,
+    #[error("run item disposition is incomplete")]
+    IncompleteItemDisposition,
+    #[error("fencing token is stale")]
+    StaleFencingToken,
+    #[error("action messages must be replies")]
+    ActionMustBeReply,
+    #[error("agent is already retired")]
+    AgentRetired,
+    #[error("computer still has assigned agents")]
+    ComputerHasAgents,
+}

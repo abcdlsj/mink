@@ -1,0 +1,79 @@
+use time::OffsetDateTime;
+
+use crate::ids::{ComputerId, MemberId, SpaceId};
+
+use super::DomainError;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(in crate::server) enum PermissionAction {
+    ChannelCreate,
+    AgentCreate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum AgentLifecycle {
+    Provisioning,
+    Active,
+    Suspended,
+    Retired,
+    Error,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct Agent {
+    pub(in crate::server) member_id: MemberId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) computer_id: Option<ComputerId>,
+    pub(in crate::server) role_text: String,
+    pub(in crate::server) role_revision: u64,
+    pub(in crate::server) lifecycle: AgentLifecycle,
+    pub(in crate::server) retired_at: Option<OffsetDateTime>,
+}
+
+impl Agent {
+    pub(in crate::server) fn retire(&mut self, now: OffsetDateTime) -> Result<(), DomainError> {
+        if self.lifecycle == AgentLifecycle::Retired {
+            return Err(DomainError::AgentRetired);
+        }
+        self.lifecycle = AgentLifecycle::Retired;
+        self.computer_id = None;
+        self.retired_at = Some(now);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum ComputerLifecycle {
+    Pairing,
+    Online,
+    Offline,
+    Deleted,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct Computer {
+    pub(in crate::server) id: ComputerId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) lifecycle: ComputerLifecycle,
+    pub(in crate::server) token_hash: Option<String>,
+    pub(in crate::server) deleted_at: Option<OffsetDateTime>,
+}
+
+impl Computer {
+    pub(in crate::server) fn delete(
+        &mut self,
+        has_assigned_agents: bool,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if has_assigned_agents {
+            return Err(DomainError::ComputerHasAgents);
+        }
+        if self.lifecycle == ComputerLifecycle::Deleted {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.lifecycle = ComputerLifecycle::Deleted;
+        self.token_hash = None;
+        self.deleted_at = Some(now);
+        Ok(())
+    }
+}
