@@ -38,6 +38,17 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
         &["crate::server", "crate::legacy_"],
     );
     assert_forbidden(
+        "src/computer/adapters",
+        &[
+            "crate::computer::core",
+            "computer::core",
+            "core::{",
+            "crate::server",
+            "crate::legacy_",
+            "crate::driver",
+        ],
+    );
+    assert_forbidden(
         "src/computer/drivers",
         &["crate::server", "crate::legacy_server", "sqlx::postgres"],
     );

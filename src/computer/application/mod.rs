@@ -4,6 +4,20 @@ pub(in crate::computer) mod recovery;
 pub(in crate::computer) mod run;
 pub(in crate::computer) mod scheduler;
 
+pub(in crate::computer) use crate::computer::core::{
+    home::{LocalAgent, LocalAgentState},
+    input::{
+        AgentInput, AttentionNoticeInput, ClaimedItemInput, NoticeLocationInput, RunContextInput,
+        RunInput, TaskInput, WorkInput,
+    },
+    scheduler::{RunPriority, WorkStrength},
+    session::{DriverKind, ProviderSession, SessionFingerprint, SessionScope, SessionState},
+    supervisor::{
+        Delivery, DeliveryState, FencingToken, ItemDisposition, LocalRun, LocalRunState, NewRun,
+        NoticeDelivery, TerminalStatus,
+    },
+};
+
 #[cfg(test)]
 mod tests;
 

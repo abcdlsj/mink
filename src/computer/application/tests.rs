@@ -4,9 +4,12 @@ use async_trait::async_trait;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use crate::ids::{AgentId, CommandId, EventId, InboxItemId, NoticeId, RunId, TaskId, ThreadId};
+use crate::ids::{
+    AgentId, CommandId, EventId, InboxItemId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
+};
 
 use crate::computer::core::{
+    home::LocalAgent,
     input::{
         AgentInput, AttentionNoticeInput, ClaimedItemInput, NoticeLocationInput, RunContextInput,
         RunInput, TaskInput, WorkInput,
@@ -26,7 +29,7 @@ use super::{
     ApplicationError,
     command::{Command, CommandService},
     ports::{
-        CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent,
+        AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent,
         OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome, StoredCommand,
         TransactionPort,
     },
@@ -132,6 +135,19 @@ impl ComputerTransaction for MemoryTransaction {
             .collect())
     }
 
+    fn agent_sessions(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<Vec<ProviderSession>, ApplicationError> {
+        Ok(self
+            .state
+            .sessions
+            .iter()
+            .filter(|session| session.agent_id == agent_id)
+            .cloned()
+            .collect())
+    }
+
     fn save_session(&mut self, session: ProviderSession) -> Result<(), ApplicationError> {
         self.state.sessions.retain(|stored| {
             stored.agent_id != session.agent_id
@@ -171,6 +187,49 @@ impl ComputerTransaction for MemoryTransaction {
     }
 }
 
+#[derive(Default)]
+struct MemoryHome {
+    agents: BTreeMap<AgentId, LocalAgent>,
+}
+
+#[async_trait(?Send)]
+impl AgentHomePort for MemoryHome {
+    async fn agent(&mut self, agent_id: AgentId) -> Result<LocalAgent, ApplicationError> {
+        self.agents
+            .get(&agent_id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn provision(&mut self, agent: LocalAgent) -> Result<(), ApplicationError> {
+        self.agents.insert(agent.agent_id, agent);
+        Ok(())
+    }
+
+    async fn configure(&mut self, mut agent: LocalAgent) -> Result<(), ApplicationError> {
+        agent.state = self.agent(agent.agent_id).await?.state;
+        self.provision(agent).await
+    }
+
+    async fn suspend(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
+            .ok_or(ApplicationError::NotFound)?;
+        agent.state = crate::computer::core::home::LocalAgentState::Suspended;
+        Ok(())
+    }
+
+    async fn retire(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        self.agents.remove(&agent_id);
+        Ok(())
+    }
+
+    async fn workspace_fingerprint(&mut self, _: AgentId) -> Result<String, ApplicationError> {
+        Ok("workspace".to_owned())
+    }
+}
+
 struct FakeDriver {
     open_count: usize,
     start_count: usize,
@@ -184,6 +243,7 @@ struct FakeDriver {
     process_evidence: ProcessEvidence,
     steered_content: Option<String>,
     fail_next_steer: bool,
+    fail_validation: bool,
 }
 
 impl Default for FakeDriver {
@@ -201,12 +261,21 @@ impl Default for FakeDriver {
             process_evidence: ProcessEvidence::Controlled,
             steered_content: None,
             fail_next_steer: false,
+            fail_validation: false,
         }
     }
 }
 
 #[async_trait(?Send)]
 impl DriverPort for FakeDriver {
+    async fn validate(&mut self, _: &LocalAgent) -> Result<(), ApplicationError> {
+        if self.fail_validation {
+            Err(ApplicationError::DriverUnavailable)
+        } else {
+            Ok(())
+        }
+    }
+
     async fn open_or_resume(
         &mut self,
         request: OpenSessionRequest,
@@ -389,15 +458,29 @@ async fn duplicate_start_command_does_not_start_a_second_driver_turn() {
     let command_id = command_id();
 
     assert_eq!(
-        CommandService::execute(&mut store, &mut driver, command_id, 1, command.clone())
-            .await
-            .unwrap()
-            .status,
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut MemoryHome::default(),
+            command_id,
+            1,
+            command.clone(),
+        )
+        .await
+        .unwrap()
+        .status,
         CommandStatus::Applied
     );
-    CommandService::execute(&mut store, &mut driver, command_id, 1, command)
-        .await
-        .unwrap();
+    CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id,
+        1,
+        command,
+    )
+    .await
+    .unwrap();
     SchedulerService::dispatch(&mut store, &mut driver, 1)
         .await
         .unwrap();
@@ -416,6 +499,7 @@ async fn rejected_command_replays_the_stored_error() {
     CommandService::execute(
         &mut store,
         &mut driver,
+        &mut MemoryHome::default(),
         command_id(),
         1,
         Command::Start {
@@ -433,17 +517,159 @@ async fn rejected_command_replays_the_stored_error() {
     };
     let command_id = command_id();
 
-    let first_result =
-        CommandService::execute(&mut store, &mut driver, command_id, 2, command.clone())
-            .await
-            .unwrap();
-    let replay = CommandService::execute(&mut store, &mut driver, command_id, 2, command)
-        .await
-        .unwrap();
+    let first_result = CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id,
+        2,
+        command.clone(),
+    )
+    .await
+    .unwrap();
+    let replay = CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id,
+        2,
+        command,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(first_result.status, CommandStatus::Rejected);
     assert_eq!(first_result.error, Some(ApplicationError::Conflict));
     assert_eq!(replay, first_result);
+}
+
+#[tokio::test]
+async fn incompatible_agent_configuration_closes_every_warm_session() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let mut homes = MemoryHome::default();
+    let agent = local_agent(DriverKind::Codex, 1);
+    let agent_id = agent.agent_id;
+    homes.provision(agent.clone()).await.unwrap();
+    store.state.sessions.push(ProviderSession {
+        agent_id,
+        scope: SessionScope::Thread(thread_id()),
+        generation: 1,
+        locator: "provider-secret-locator".to_owned(),
+        fingerprint: fingerprint(1, "workspace"),
+        state: SessionState::Ready,
+        created_at: OffsetDateTime::now_utc(),
+        last_resumed_at: None,
+        closed_at: None,
+    });
+    let mut configured = agent;
+    configured.driver = DriverKind::Builtin;
+    configured.role_revision = 2;
+
+    CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut homes,
+        command_id(),
+        1,
+        Command::Configure { agent: configured },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(driver.close_count, 1);
+    assert_eq!(store.state.sessions[0].state, SessionState::Closed);
+    assert!(store.state.sessions[0].locator.is_empty());
+    assert_eq!(
+        homes.agent(agent_id).await.unwrap().driver,
+        DriverKind::Builtin
+    );
+}
+
+#[tokio::test]
+async fn failed_driver_validation_preserves_existing_profile_and_session() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver {
+        fail_validation: true,
+        ..FakeDriver::default()
+    };
+    let mut homes = MemoryHome::default();
+    let agent = local_agent(DriverKind::Codex, 1);
+    let agent_id = agent.agent_id;
+    homes.provision(agent.clone()).await.unwrap();
+    store.state.sessions.push(ProviderSession {
+        agent_id,
+        scope: SessionScope::Thread(thread_id()),
+        generation: 1,
+        locator: "provider-secret-locator".to_owned(),
+        fingerprint: fingerprint(1, "workspace"),
+        state: SessionState::Ready,
+        created_at: OffsetDateTime::now_utc(),
+        last_resumed_at: None,
+        closed_at: None,
+    });
+    let mut configured = agent;
+    configured.driver = DriverKind::Builtin;
+    let command_id = command_id();
+
+    assert_eq!(
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut homes,
+            command_id,
+            1,
+            Command::Configure { agent: configured },
+        )
+        .await,
+        Err(ApplicationError::DriverUnavailable)
+    );
+
+    assert_eq!(
+        store.state.commands[&command_id].status,
+        CommandStatus::Pending
+    );
+    assert_eq!(store.state.sessions[0].state, SessionState::Ready);
+    assert_eq!(
+        homes.agent(agent_id).await.unwrap().driver,
+        DriverKind::Codex
+    );
+}
+
+#[tokio::test]
+async fn retire_closes_idle_sessions_before_removing_agent_home() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let mut homes = MemoryHome::default();
+    let agent = local_agent(DriverKind::Codex, 1);
+    let agent_id = agent.agent_id;
+    homes.provision(agent).await.unwrap();
+    store.state.sessions.push(ProviderSession {
+        agent_id,
+        scope: SessionScope::Thread(thread_id()),
+        generation: 1,
+        locator: "provider-secret-locator".to_owned(),
+        fingerprint: fingerprint(1, "workspace"),
+        state: SessionState::Ready,
+        created_at: OffsetDateTime::now_utc(),
+        last_resumed_at: None,
+        closed_at: None,
+    });
+
+    CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut homes,
+        command_id(),
+        1,
+        Command::Retire { agent_id },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(driver.close_count, 1);
+    assert_eq!(store.state.sessions[0].state, SessionState::Closed);
+    assert_eq!(homes.agent(agent_id).await, Err(ApplicationError::NotFound));
 }
 
 #[tokio::test]
@@ -458,6 +684,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
         CommandService::execute(
             &mut store,
             &mut driver,
+            &mut MemoryHome::default(),
             command_id(),
             sequence,
             Command::Start {
@@ -646,7 +873,7 @@ async fn pending_command_is_replayed_after_restart() {
         },
     );
 
-    RecoveryService::recover(&mut store, &mut driver, 1)
+    RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
         .await
         .unwrap();
 
@@ -785,16 +1012,31 @@ async fn retryable_driver_error_keeps_command_pending_until_replay_succeeds() {
     let command_id = command_id();
 
     assert_eq!(
-        CommandService::execute(&mut store, &mut driver, command_id, 8, command.clone(),).await,
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut MemoryHome::default(),
+            command_id,
+            8,
+            command.clone(),
+        )
+        .await,
         Err(ApplicationError::DriverUnavailable)
     );
     assert_eq!(
         store.state.commands[&command_id].status,
         CommandStatus::Pending
     );
-    let replay = CommandService::execute(&mut store, &mut driver, command_id, 8, command)
-        .await
-        .unwrap();
+    let replay = CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id,
+        8,
+        command,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(replay.status, CommandStatus::Applied);
     assert_eq!(driver.steer_count, 2);
@@ -859,7 +1101,7 @@ async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() 
     let run_id = run.id;
     store.state.runs.insert(run_id, run);
 
-    RecoveryService::recover(&mut store, &mut driver, 1)
+    RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
         .await
         .unwrap();
 
@@ -893,12 +1135,35 @@ async fn restart_stops_a_run_whose_ownership_lease_expired() {
     let run_id = run.id;
     store.state.runs.insert(run_id, run);
 
-    RecoveryService::recover(&mut store, &mut driver, 1)
+    RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
         .await
         .unwrap();
 
     assert_eq!(driver.interrupt_count, 1);
     assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+}
+
+#[tokio::test]
+async fn stop_cancels_a_queued_run_without_starting_or_interrupting_driver() {
+    let thread_id = thread_id();
+    let run = local_run(None, thread_id, []);
+    let run_id = run.id;
+    let mut store = MemoryPort::default();
+    store.state.runs.insert(run_id, run);
+    let mut driver = FakeDriver::default();
+
+    RunService::stop(&mut store, &mut driver, run_id)
+        .await
+        .unwrap();
+
+    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Canceled);
+    assert_eq!(driver.start_count, 0);
+    assert_eq!(driver.interrupt_count, 0);
+    assert!(
+        store.state.events.values().any(
+            |event| matches!(event, LocalEvent::RunResult { run_id: id, .. } if *id == run_id)
+        )
+    );
 }
 
 fn pending(
@@ -1013,6 +1278,19 @@ fn fingerprint(role_revision: u64, workspace: &str) -> SessionFingerprint {
         workspace: workspace.to_owned(),
         role_revision,
         audience: "audience".to_owned(),
+    }
+}
+
+fn local_agent(driver: DriverKind, role_revision: u64) -> LocalAgent {
+    LocalAgent {
+        agent_id: agent_id(),
+        space_id: SpaceId::from_uuid(Uuid::now_v7()),
+        name: "agent".to_owned(),
+        handle: "agent".to_owned(),
+        role_revision,
+        role: "role".to_owned(),
+        driver,
+        state: crate::computer::core::home::LocalAgentState::Active,
     }
 }
 

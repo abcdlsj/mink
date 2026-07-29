@@ -1,8 +1,10 @@
-use crate::ids::{CommandId, RunId, TaskId};
+use crate::ids::{AgentId, CommandId, RunId, TaskId};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
 use crate::computer::core::{
+    home::LocalAgent,
     input::{AttentionNoticeInput, ClaimedItemInput},
     session::{ProviderSession, SessionFingerprint},
     supervisor::LocalRun,
@@ -10,12 +12,28 @@ use crate::computer::core::{
 
 use super::{
     ApplicationError,
-    ports::{CommandStatus, ComputerTransaction, DriverPort, StoredCommand, TransactionPort},
+    ports::{
+        AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, StoredCommand,
+        TransactionPort,
+    },
     run::RunService,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum Command {
+    Provision {
+        agent: LocalAgent,
+    },
+    Configure {
+        agent: LocalAgent,
+    },
+    Suspend {
+        agent_id: AgentId,
+        cancel_current: bool,
+    },
+    Retire {
+        agent_id: AgentId,
+    },
     Start {
         run: Box<LocalRun>,
         fingerprint: SessionFingerprint,
@@ -45,6 +63,13 @@ pub(in crate::computer) enum Command {
 impl Command {
     pub(super) fn fingerprint(&self) -> String {
         let semantic = match self {
+            Self::Provision { agent } => format!("provision:{agent:?}"),
+            Self::Configure { agent } => format!("configure:{agent:?}"),
+            Self::Suspend {
+                agent_id,
+                cancel_current,
+            } => format!("suspend:{agent_id}:{cancel_current}"),
+            Self::Retire { agent_id } => format!("retire:{agent_id}"),
             Self::Start { run, fingerprint } => format!(
                 "start:{}:{}:{:?}:{}:{}:{}:{}:{}:{:?}:{}",
                 run.id,
@@ -94,9 +119,14 @@ pub(in crate::computer) struct CommandExecution {
 }
 
 impl CommandService {
-    pub(in crate::computer) async fn execute<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn execute<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         command_id: CommandId,
         sequence: u64,
         command: Command,
@@ -133,7 +163,7 @@ impl CommandService {
             return Ok(execution);
         }
 
-        let result = Self::apply(store, driver, command).await;
+        let result = Self::apply(store, driver, homes, command).await;
         if result.as_ref().is_err_and(|error| {
             matches!(
                 error,
@@ -167,12 +197,99 @@ impl CommandService {
         Ok(execution)
     }
 
-    async fn apply<P: TransactionPort, D: DriverPort>(
+    async fn apply<P: TransactionPort, D: DriverPort, H: AgentHomePort>(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         command: Command,
     ) -> Result<(), ApplicationError> {
         match command {
+            Command::Provision { agent } => {
+                homes.provision(agent.clone()).await?;
+                driver.validate(&agent).await
+            }
+            Command::Configure { agent } => {
+                driver.validate(&agent).await?;
+                let existing = homes.agent(agent.agent_id).await?;
+                if existing.driver != agent.driver
+                    || existing.role_revision != agent.role_revision
+                    || existing.role != agent.role
+                {
+                    let sessions = store
+                        .transact(async |transaction| transaction.agent_sessions(agent.agent_id))
+                        .await?;
+                    for mut session in sessions {
+                        if matches!(
+                            session.state,
+                            crate::computer::core::session::SessionState::Closed
+                                | crate::computer::core::session::SessionState::Lost
+                        ) {
+                            continue;
+                        }
+                        session.mark_closing();
+                        let closed = driver.close_session(&session).await.is_ok();
+                        session.close(closed, OffsetDateTime::now_utc());
+                        store
+                            .transact(async |transaction| transaction.save_session(session))
+                            .await?;
+                    }
+                }
+                homes.configure(agent).await
+            }
+            Command::Suspend {
+                agent_id,
+                cancel_current,
+            } => {
+                let runs = store
+                    .transact(async |transaction| {
+                        Ok(transaction
+                            .nonterminal_runs()?
+                            .into_iter()
+                            .filter(|run| run.agent_id == agent_id)
+                            .collect::<Vec<_>>())
+                    })
+                    .await?;
+                for run in runs {
+                    if run.state == crate::computer::core::supervisor::LocalRunState::Queued
+                        || cancel_current
+                    {
+                        RunService::stop(store, driver, run.id).await?;
+                    }
+                }
+                homes.suspend(agent_id).await
+            }
+            Command::Retire { agent_id } => {
+                let (runs, sessions) = store
+                    .transact(async |transaction| {
+                        let runs = transaction
+                            .nonterminal_runs()?
+                            .into_iter()
+                            .filter(|run| run.agent_id == agent_id)
+                            .collect::<Vec<_>>();
+                        let sessions = transaction.agent_sessions(agent_id)?;
+                        Ok((runs, sessions))
+                    })
+                    .await?;
+                for run in runs {
+                    RunService::stop(store, driver, run.id).await?;
+                }
+                for mut session in sessions {
+                    if matches!(
+                        session.state,
+                        crate::computer::core::session::SessionState::Closed
+                            | crate::computer::core::session::SessionState::Lost
+                    ) {
+                        continue;
+                    }
+                    session.mark_closing();
+                    let closed = driver.close_session(&session).await.is_ok();
+                    session.close(closed, OffsetDateTime::now_utc());
+                    store
+                        .transact(async |transaction| transaction.save_session(session))
+                        .await?;
+                }
+                homes.retire(agent_id).await
+            }
             Command::Start { run, fingerprint } => {
                 let mut run = *run;
                 let run_id = run.id;

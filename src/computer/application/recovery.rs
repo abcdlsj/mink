@@ -7,8 +7,8 @@ use super::{
     ApplicationError,
     command::CommandService,
     ports::{
-        ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent, ProcessEvidence,
-        TransactionPort,
+        AgentHomePort, ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent,
+        ProcessEvidence, TransactionPort,
     },
     run::RunService,
     scheduler::SchedulerService,
@@ -17,17 +17,29 @@ use super::{
 pub(in crate::computer) struct RecoveryService;
 
 impl RecoveryService {
-    pub(in crate::computer) async fn recover<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn recover<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<(), ApplicationError> {
         let pending_commands = store
             .transact(async |transaction| transaction.pending_commands())
             .await?;
         for stored in pending_commands {
-            match CommandService::execute(store, driver, stored.id, stored.sequence, stored.command)
-                .await
+            match CommandService::execute(
+                store,
+                driver,
+                homes,
+                stored.id,
+                stored.sequence,
+                stored.command,
+            )
+            .await
             {
                 Ok(_) | Err(ApplicationError::DriverUnavailable) => {}
                 Err(error) => return Err(error),

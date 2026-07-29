@@ -1,24 +1,25 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::ids::{AgentId, TaskId, ThreadId};
 
 use super::CoreError;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum DriverKind {
     Codex,
     Builtin,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(in crate::computer) enum SessionScope {
     Thread(ThreadId),
     Task(TaskId),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct SessionFingerprint {
     pub(in crate::computer) driver: DriverKind,
     pub(in crate::computer) workspace: String,
@@ -26,7 +27,7 @@ pub(in crate::computer) struct SessionFingerprint {
     pub(in crate::computer) audience: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum SessionState {
     Ready,
     InUse,
@@ -35,7 +36,7 @@ pub(in crate::computer) enum SessionState {
     Lost,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct ProviderSession {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) scope: SessionScope,

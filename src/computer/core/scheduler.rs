@@ -1,16 +1,17 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::ids::{AgentId, RunId};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum WorkStrength {
     Hard,
     Ambient,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunPriority {
     pub(in crate::computer) explicit_human_redirect: bool,
     pub(in crate::computer) strength: WorkStrength,

@@ -1,10 +1,12 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::ids::{AgentId, CommandId, EventId, InboxItemId, RunId};
 
 use crate::computer::core::{
+    home::LocalAgent,
     session::{ProviderSession, SessionFingerprint, SessionScope},
     supervisor::{DeliveryState, ItemDisposition, LocalRun, TerminalStatus},
 };
@@ -64,7 +66,7 @@ impl LocalEvent {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum LocalErrorCode {
     ProcessLost,
     SessionLost,
@@ -85,6 +87,10 @@ pub(in crate::computer) trait ComputerTransaction {
         agent_id: AgentId,
         scope: SessionScope,
     ) -> Result<Vec<ProviderSession>, ApplicationError>;
+    fn agent_sessions(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<Vec<ProviderSession>, ApplicationError>;
     fn save_session(&mut self, session: ProviderSession) -> Result<(), ApplicationError>;
     fn delete_session(
         &mut self,
@@ -95,6 +101,19 @@ pub(in crate::computer) trait ComputerTransaction {
     fn append_event(&mut self, event: LocalEvent) -> Result<(), ApplicationError>;
     fn pending_events(&mut self) -> Result<Vec<LocalEvent>, ApplicationError>;
     fn acknowledge_event(&mut self, event_id: EventId) -> Result<(), ApplicationError>;
+}
+
+#[async_trait(?Send)]
+pub(in crate::computer) trait AgentHomePort {
+    async fn agent(&mut self, agent_id: AgentId) -> Result<LocalAgent, ApplicationError>;
+    async fn provision(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
+    async fn configure(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
+    async fn suspend(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
+    async fn retire(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
+    async fn workspace_fingerprint(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<String, ApplicationError>;
 }
 
 pub(in crate::computer) trait TransactionPort {
@@ -162,6 +181,7 @@ pub(in crate::computer) enum ProcessEvidence {
 
 #[async_trait(?Send)]
 pub(in crate::computer) trait DriverPort {
+    async fn validate(&mut self, agent: &LocalAgent) -> Result<(), ApplicationError>;
     async fn open_or_resume(
         &mut self,
         request: OpenSessionRequest,

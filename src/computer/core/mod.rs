@@ -1,3 +1,4 @@
+pub(in crate::computer) mod home;
 pub(in crate::computer) mod input;
 pub(in crate::computer) mod scheduler;
 pub(in crate::computer) mod session;

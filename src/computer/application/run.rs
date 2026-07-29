@@ -308,6 +308,30 @@ impl RunService {
                 transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
             })
             .await?;
+        if run.state == LocalRunState::Queued {
+            run.cancel_queued()?;
+            let event_id = next_event_id();
+            let fencing_token = run.fencing_token.clone();
+            store
+                .transact(async |transaction| {
+                    transaction.save_run(run.clone())?;
+                    transaction.append_event(LocalEvent::RunResult {
+                        event_id,
+                        run_id,
+                        status: TerminalStatus::Canceled,
+                        item_outcomes: run
+                            .deliveries
+                            .values()
+                            .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
+                            .collect(),
+                        continuation_note: None,
+                        error_code: None,
+                        fencing_token,
+                    })
+                })
+                .await?;
+            return Ok(event_id);
+        }
         if !run.state.is_terminal() && run.state != LocalRunState::Stopping {
             run.request_stop()?;
             store

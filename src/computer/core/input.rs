@@ -1,12 +1,13 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use time::OffsetDateTime;
 
 use crate::ids::{AgentId, InboxItemId, MessageId, NoticeId, TaskId, ThreadId};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunInput {
     pub(in crate::computer) global_contract: String,
     pub(in crate::computer) agent: AgentInput,
@@ -14,7 +15,7 @@ pub(in crate::computer) struct RunInput {
     pub(in crate::computer) context: RunContextInput,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct AgentInput {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) identity: String,
@@ -23,21 +24,21 @@ pub(in crate::computer) struct AgentInput {
     pub(in crate::computer) memory_entry: String,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct WorkInput {
     pub(in crate::computer) task: Option<TaskInput>,
     pub(in crate::computer) linked_thread_ids: Vec<ThreadId>,
     pub(in crate::computer) public_result_message_id: Option<MessageId>,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct TaskInput {
     pub(in crate::computer) task_id: TaskId,
     pub(in crate::computer) title: String,
     pub(in crate::computer) status: String,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunContextInput {
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) message_snapshot_sequence: u64,
@@ -45,7 +46,7 @@ pub(in crate::computer) struct RunContextInput {
     pub(in crate::computer) claimed_items: Vec<ClaimedItemInput>,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct ClaimedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
@@ -53,7 +54,7 @@ pub(in crate::computer) struct ClaimedItemInput {
     pub(in crate::computer) content: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct AttentionNoticeInput {
     pub(in crate::computer) notice_id: NoticeId,
     pub(in crate::computer) source_kind: String,
@@ -62,7 +63,7 @@ pub(in crate::computer) struct AttentionNoticeInput {
     pub(in crate::computer) arrived_at: OffsetDateTime,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum NoticeLocationInput {
     Restricted,
     Visible {

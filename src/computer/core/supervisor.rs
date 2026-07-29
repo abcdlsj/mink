@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
 use crate::ids::{AgentId, InboxItemId, NoticeId, RunId, TaskId, ThreadId};
@@ -9,7 +10,7 @@ use super::{
     session::{SessionFingerprint, SessionScope},
 };
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct FencingToken(String);
 
 impl FencingToken {
@@ -28,7 +29,7 @@ impl fmt::Debug for FencingToken {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum LocalRunState {
     Queued,
     Starting,
@@ -50,7 +51,7 @@ impl LocalRunState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum DeliveryState {
     Pending,
     Accepted,
@@ -58,20 +59,20 @@ pub(in crate::computer) enum DeliveryState {
     Unsupported,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct Delivery {
     pub(in crate::computer) sequence: u64,
     pub(in crate::computer) item: ClaimedItemInput,
     pub(in crate::computer) state: DeliveryState,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct NoticeDelivery {
     pub(in crate::computer) notice: AttentionNoticeInput,
     pub(in crate::computer) delivered: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum TerminalStatus {
     Completed,
     Yielded,
@@ -79,14 +80,14 @@ pub(in crate::computer) enum TerminalStatus {
     Canceled,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum ItemDisposition {
     Handled,
     Deferred,
     Released,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct LocalRun {
     pub(in crate::computer) id: RunId,
     pub(in crate::computer) agent_id: AgentId,
@@ -290,6 +291,15 @@ impl LocalRun {
             return Err(CoreError::InvalidTransition);
         }
         self.state = LocalRunState::Stopping;
+        Ok(())
+    }
+
+    pub(in crate::computer) fn cancel_queued(&mut self) -> Result<(), CoreError> {
+        if self.state != LocalRunState::Queued {
+            return Err(CoreError::InvalidTransition);
+        }
+        self.state = LocalRunState::Canceled;
+        self.terminal_status = Some(TerminalStatus::Canceled);
         Ok(())
     }
 
