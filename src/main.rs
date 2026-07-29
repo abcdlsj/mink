@@ -1,3 +1,8 @@
+#[path = "agent_cli.rs"]
+mod legacy_agent_cli;
+// 新 Agent CLI 在最终运行时切换前只通过自身流程测试验证。
+#[allow(dead_code)]
+#[path = "agent_cli/mod.rs"]
 mod agent_cli;
 mod agent_config;
 mod agent_core;
@@ -37,7 +42,7 @@ async fn main() -> ExitCode {
     let (result, agent_command) = match cli.command {
         Command::Server(args) => (legacy_server::run(args).await, false),
         Command::Computer(args) => (legacy_computer::run(args).await, false),
-        Command::Agent(args) => (agent_cli::run(args).await, true),
+        Command::Agent(args) => (legacy_agent_cli::run(args).await, true),
         Command::Schema(args) => {
             let result = match args.command {
                 SchemaCommand::BrowserOpenapi => legacy_server::api_schema::write_browser_openapi(),
@@ -51,7 +56,7 @@ async fn main() -> ExitCode {
         Err(error) => {
             tracing::error!(error = ?error, "command failed");
             ExitCode::from(if agent_command {
-                agent_cli::exit_code(&error)
+                legacy_agent_cli::exit_code(&error)
             } else {
                 1
             })

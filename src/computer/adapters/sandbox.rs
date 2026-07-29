@@ -24,6 +24,7 @@ impl SandboxAdapter {
         agent_home: &Path,
         driver_home: &Path,
         socket: &Path,
+        run_token: &str,
     ) -> Result<Command, ApplicationError> {
         Self::validate()?;
         #[cfg(target_os = "macos")]
@@ -43,7 +44,7 @@ impl SandboxAdapter {
             );
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);
-            configure_environment(&mut command, agent_home, driver_home, socket);
+            configure_environment(&mut command, agent_home, driver_home, socket, run_token);
             return Ok(command);
         }
         #[cfg(target_os = "linux")]
@@ -77,6 +78,7 @@ impl SandboxAdapter {
                 Path::new("/agent"),
                 Path::new("/agent/driver"),
                 Path::new("/runtime/daemon.sock"),
+                run_token,
             );
             return Ok(command);
         }
@@ -90,6 +92,7 @@ fn configure_environment(
     agent_home: &Path,
     driver_home: &Path,
     socket: &Path,
+    run_token: &str,
 ) {
     command
         .env_clear()
@@ -98,6 +101,7 @@ fn configure_environment(
         .env("CODEX_HOME", driver_home)
         .env("TMPDIR", agent_home.join("runs"))
         .env("SUMI_SOCKET", socket)
+        .env("SUMI_RUN_TOKEN", run_token)
         .current_dir(agent_home.join("workspace"));
 }
 

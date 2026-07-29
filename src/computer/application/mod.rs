@@ -1,3 +1,4 @@
+pub(in crate::computer) mod capability;
 pub(in crate::computer) mod command;
 pub(in crate::computer) mod ports;
 pub(in crate::computer) mod recovery;
@@ -27,6 +28,8 @@ pub(in crate::computer) enum ApplicationError {
     Core(#[from] crate::computer::core::CoreError),
     #[error("local resource was not found")]
     NotFound,
+    #[error("run capability is invalid or expired")]
+    Unauthenticated,
     #[error("local state conflicts with the command")]
     Conflict,
     #[error("command was already applied")]

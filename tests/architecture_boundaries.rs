@@ -54,10 +54,20 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     );
     assert_forbidden("src/server", &["crate::legacy_"]);
     assert_forbidden("src/computer", &["crate::legacy_"]);
+    assert_forbidden(
+        "src/agent_cli",
+        &[
+            "crate::server",
+            "crate::computer::core",
+            "sqlx",
+            "crate::legacy_",
+        ],
+    );
     assert_scoped_visibility("src/ids.rs");
     assert_scoped_visibility("src/protocol");
     assert_scoped_visibility("src/server");
     assert_scoped_visibility("src/computer");
+    assert_scoped_visibility("src/agent_cli");
 }
 
 fn assert_forbidden(relative_root: &str, forbidden: &[&str]) {

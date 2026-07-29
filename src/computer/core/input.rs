@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use time::OffsetDateTime;
 
-use crate::ids::{AgentId, InboxItemId, MessageId, NoticeId, TaskId, ThreadId};
+use crate::ids::{AgentId, InboxItemId, MessageId, NoticeId, SpaceId, TaskId, ThreadId};
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunInput {
@@ -18,6 +18,7 @@ pub(in crate::computer) struct RunInput {
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct AgentInput {
     pub(in crate::computer) agent_id: AgentId,
+    pub(in crate::computer) space_id: SpaceId,
     pub(in crate::computer) identity: String,
     pub(in crate::computer) role_revision: u64,
     pub(in crate::computer) role: String,
@@ -102,6 +103,7 @@ impl RunInput {
         let mut digest = Sha256::new();
         digest.update(self.global_contract.as_bytes());
         digest.update(self.agent.agent_id.to_string().as_bytes());
+        digest.update(self.agent.space_id.to_string().as_bytes());
         digest.update(self.agent.identity.as_bytes());
         digest.update(self.agent.role_revision.to_le_bytes());
         digest.update(self.agent.role.as_bytes());

@@ -654,6 +654,7 @@ fn application_error_name(value: &ApplicationError) -> &'static str {
     match value {
         ApplicationError::Core(_) => "internal",
         ApplicationError::NotFound => "not_found",
+        ApplicationError::Unauthenticated => "unauthenticated",
         ApplicationError::Conflict => "conflict",
         ApplicationError::AlreadyApplied => "already_applied",
         ApplicationError::DriverUnavailable => "driver_unavailable",
@@ -882,6 +883,7 @@ mod tests {
                 global_contract: "contract".to_owned(),
                 agent: AgentInput {
                     agent_id,
+                    space_id: crate::ids::SpaceId::from_uuid(Uuid::nil()),
                     identity: "agent".to_owned(),
                     role_revision: 1,
                     role: "role".to_owned(),

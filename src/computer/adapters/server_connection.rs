@@ -129,6 +129,7 @@ impl ServerConnectionAdapter {
                     global_contract: self.global_contract.clone(),
                     agent: AgentInput {
                         agent_id: agent.agent_id,
+                        space_id: agent.space_id,
                         identity: format!("{} (@{})", agent.name, agent.handle),
                         role_revision: agent.role_revision,
                         role: agent.role.clone(),
@@ -417,7 +418,9 @@ fn computer_error(error: &ApplicationError) -> wire::ComputerErrorCode {
         | ApplicationError::AlreadyApplied => wire::ComputerErrorCode::InvalidCommand,
         ApplicationError::DriverUnavailable => wire::ComputerErrorCode::DriverUnavailable,
         ApplicationError::SessionLost => wire::ComputerErrorCode::SessionLost,
-        ApplicationError::Core(_) | ApplicationError::Internal => wire::ComputerErrorCode::Internal,
+        ApplicationError::Unauthenticated
+        | ApplicationError::Core(_)
+        | ApplicationError::Internal => wire::ComputerErrorCode::Internal,
     }
 }
 

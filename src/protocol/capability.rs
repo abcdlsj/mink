@@ -1,8 +1,256 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
+use crate::ids::{
+    AgentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId, SpaceId, TaskId,
+    ThreadId,
+};
+
 pub(crate) const SCHEMA_VERSION: u16 = 1;
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Request {
+    pub(crate) schema_version: u16,
+    pub(crate) run_token: String,
+    pub(crate) idempotency_key: Option<IdempotencyKey>,
+    pub(crate) action: Action,
+}
+
+impl fmt::Debug for Request {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Request")
+            .field("schema_version", &self.schema_version)
+            .field("run_token", &"[REDACTED]")
+            .field("idempotency_key", &self.idempotency_key)
+            .field("action", &self.action.name())
+            .finish()
+    }
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "type",
+    content = "input",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub(crate) enum Action {
+    ContextCurrent,
+    MessageRead(Page),
+    ThreadRead {
+        thread_id: ThreadId,
+        page: Page,
+    },
+    ChannelRead {
+        channel_id: ChannelId,
+        around_message_id: Option<MessageId>,
+        limit: u16,
+    },
+    MessageSend(MessageSend),
+    TaskCreate {
+        title: Option<String>,
+        assignee: Option<MemberId>,
+    },
+    TaskLinkThread {
+        thread_id: ThreadId,
+    },
+    TaskUnlinkThread {
+        thread_id: ThreadId,
+    },
+    TaskUpdate {
+        title: String,
+    },
+    TaskSubmitReview {
+        body: String,
+        post_to: PostTarget,
+    },
+    TaskDone {
+        result: String,
+        post_to: PostTarget,
+    },
+    TaskClose {
+        reason: CloseReason,
+        note: Option<String>,
+    },
+    RunYield {
+        note: Option<String>,
+    },
+    InboxCurrent,
+    InboxAck {
+        item_id: InboxItemId,
+        reason: Option<String>,
+    },
+    InboxDefer {
+        item_id: InboxItemId,
+        until: time::OffsetDateTime,
+    },
+    AttachmentUpload {
+        path: String,
+    },
+    AttachmentDownload {
+        attachment_id: crate::ids::AttachmentId,
+        output: String,
+    },
+    MemoryRead {
+        path: String,
+    },
+    MemoryWrite {
+        path: String,
+        content: String,
+    },
+    ChannelCreate {
+        name: String,
+        private: bool,
+    },
+    AgentCreate {
+        name: String,
+        role: String,
+        driver: DriverKind,
+    },
+}
+
+impl Action {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::ContextCurrent => "context.current",
+            Self::MessageRead(_) => "message.read",
+            Self::ThreadRead { .. } => "thread.read",
+            Self::ChannelRead { .. } => "channel.read",
+            Self::MessageSend(_) => "message.send",
+            Self::TaskCreate { .. } => "task.create",
+            Self::TaskLinkThread { .. } => "task.link_thread",
+            Self::TaskUnlinkThread { .. } => "task.unlink_thread",
+            Self::TaskUpdate { .. } => "task.update",
+            Self::TaskSubmitReview { .. } => "task.submit_review",
+            Self::TaskDone { .. } => "task.done",
+            Self::TaskClose { .. } => "task.close",
+            Self::RunYield { .. } => "run.yield",
+            Self::InboxCurrent => "inbox.current",
+            Self::InboxAck { .. } => "inbox.ack",
+            Self::InboxDefer { .. } => "inbox.defer",
+            Self::AttachmentUpload { .. } => "attachment.upload",
+            Self::AttachmentDownload { .. } => "attachment.download",
+            Self::MemoryRead { .. } => "memory.read",
+            Self::MemoryWrite { .. } => "memory.write",
+            Self::ChannelCreate { .. } => "channel.create",
+            Self::AgentCreate { .. } => "agent.create",
+        }
+    }
+
+    pub(crate) fn requires_task(&self) -> bool {
+        matches!(
+            self,
+            Self::TaskLinkThread { .. }
+                | Self::TaskUnlinkThread { .. }
+                | Self::TaskUpdate { .. }
+                | Self::TaskSubmitReview { .. }
+                | Self::TaskDone { .. }
+                | Self::TaskClose { .. }
+        )
+    }
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.name())
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Page {
+    pub(crate) before: Option<u64>,
+    pub(crate) after: Option<u64>,
+    pub(crate) limit: u16,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MessageSend {
+    pub(crate) target: MessageTarget,
+    pub(crate) body: String,
+    pub(crate) handle_item_id: Option<InboxItemId>,
+    pub(crate) snapshot_sequence: Option<u64>,
+}
+
+impl fmt::Debug for MessageSend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessageSend")
+            .field("target", &self.target)
+            .field("body", &"[REDACTED]")
+            .field("handle_item_id", &self.handle_item_id)
+            .field("snapshot_sequence", &self.snapshot_sequence)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "kind",
+    content = "id",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub(crate) enum MessageTarget {
+    Focus,
+    Thread(ThreadId),
+    Channel(ChannelId),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PostTarget {
+    Focus,
+    Source,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CloseReason {
+    Invalid,
+    Duplicate,
+    NotNeeded,
+    Obsolete,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DriverKind {
+    Codex,
+    Builtin,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RunContext {
+    pub(crate) agent_id: AgentId,
+    pub(crate) space_id: SpaceId,
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) focus_thread_id: ThreadId,
+    pub(crate) run_id: RunId,
+    pub(crate) fencing_token: String,
+    pub(crate) message_snapshot_sequence: u64,
+}
+
+impl fmt::Debug for RunContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RunContext")
+            .field("agent_id", &self.agent_id)
+            .field("space_id", &self.space_id)
+            .field("task_id", &self.task_id)
+            .field("focus_thread_id", &self.focus_thread_id)
+            .field("run_id", &self.run_id)
+            .field("fencing_token", &"[REDACTED]")
+            .field("message_snapshot_sequence", &self.message_snapshot_sequence)
+            .finish()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,7 +307,7 @@ impl<T> Response<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::ErrorCode;
+    use super::{Action, ErrorCode, MessageSend, MessageTarget, Request, SCHEMA_VERSION};
 
     #[test]
     fn error_code_has_stable_wire_value() {
@@ -67,5 +315,24 @@ mod tests {
             serde_json::to_string(&ErrorCode::PermissionDenied).unwrap(),
             "\"permission_denied\""
         );
+    }
+
+    #[test]
+    fn request_debug_excludes_token_and_content() {
+        let request = Request {
+            schema_version: SCHEMA_VERSION,
+            run_token: "secret-token".to_owned(),
+            idempotency_key: None,
+            action: Action::MessageSend(MessageSend {
+                target: MessageTarget::Focus,
+                body: "private body".to_owned(),
+                handle_item_id: None,
+                snapshot_sequence: None,
+            }),
+        };
+        let debug = format!("{request:?}");
+        assert!(!debug.contains("secret-token"));
+        assert!(!debug.contains("private body"));
+        assert!(debug.contains("message.send"));
     }
 }

@@ -1211,6 +1211,7 @@ fn test_input<const N: usize>(
         global_contract: "contract".to_owned(),
         agent: AgentInput {
             agent_id,
+            space_id: crate::ids::SpaceId::from_uuid(Uuid::nil()),
             identity: "agent".to_owned(),
             role_revision: 1,
             role: "role".to_owned(),
