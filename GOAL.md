@@ -42,14 +42,14 @@
 ## 4. Handoff 规则
 
 1. 每个实现任务单独提交。下一任务的实现不能混入当前提交。
-2. 当前任务提交后，如果仍有未完成任务，在`tmp/handoff.md`写非空交接文档。
+2. 当前任务提交后，如果仍有未完成任务，在`/tmp/handoff.md`写非空交接文档。
 3. 交接文档必须记录已完成内容、验证结果、当前提交、剩余任务和已知风险。
-4. 交接文档是一次性文件，不得提交。`tmp/`必须被 Git 忽略。
-5. 通过当前 Superset workspace 创建新的 Codex session。创建命令必须使用`--attachment tmp/handoff.md`上传交接文档，并使用`--json`校验结果。
+4. 交接文档是一次性文件，只能存放在`/tmp`，不得写入或提交到仓库。
+5. 通过当前 Superset workspace 创建新的 Codex session。创建命令必须使用`--attachment /tmp/handoff.md`上传交接文档，并使用`--json`校验结果。
 6. `--prompt`只要求新 session 读取附件、验证仓库现状并继续任务。完整交接内容不能复制到 prompt。
 7. 新 session 必须先读取项目约定、领域词汇和设计索引，再从下一个未完成任务继续。
 8. 用户指定目标 Agent 时使用该 Agent。用户未指定时沿用当前 Agent 类型。
-9. 新 session 创建成功后保留`tmp/handoff.md`。下一次 handoff 生成时覆盖该文件。
+9. 新 session 创建成功后保留`/tmp/handoff.md`。下一次 handoff 生成时覆盖该文件。
 
 ## 5. 完成定义
 
