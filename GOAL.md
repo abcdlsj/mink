@@ -26,7 +26,7 @@
 
 - [x] 建立标识、协议、Server facade 和 Computer facade。
 - [x] 重建 Server domain 和 application，并通过模块测试。
-- [ ] 实现 PostgreSQL、对象存储和 Server transport adapters，并通过模块测试。
+- [x] 实现 PostgreSQL、对象存储和 Server transport adapters，并通过模块测试。
 - [ ] 重建 Computer core 和 application，并通过模块测试。
 - [ ] 实现 SQLite、Driver、连接和本地 IPC adapters，并通过模块测试。
 - [ ] 接入 Agent CLI，并通过本地能力流程测试。

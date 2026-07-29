@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -11,15 +12,19 @@ use crate::server::domain::{
     attention::{
         AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
     },
-    conversation::{Channel, Message, MessageContent, MessagePlacement, Thread},
+    conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
     execution::{Run, RunItem, RunOutcome, RunStatus},
-    identity::{Agent, AgentLifecycle, Computer, ComputerLifecycle, PermissionAction},
+    identity::{
+        Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member, PermissionAction,
+    },
     task::{CloseReason, Task, TaskStatus},
 };
 
 use super::{
     attention::{AttachHardItem, AttachHardItemInput},
-    conversation::{CreateChannelAction, CreateChannelActionInput},
+    conversation::{
+        CreateAgentAction, CreateAgentActionInput, CreateChannelAction, CreateChannelActionInput,
+    },
     execution::{ClaimRun, ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput},
     identity::{DeleteComputer, RetireAgent},
     ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
@@ -39,11 +44,13 @@ struct MemoryState {
     items: HashMap<InboxItemId, InboxItem>,
     messages: HashMap<MessageId, Message>,
     agents: HashMap<MemberId, Agent>,
+    members: HashMap<MemberId, Member>,
     computers: HashMap<ComputerId, Computer>,
     idempotency: HashMap<(MemberId, IdempotencyKey), TaskId>,
     completed_run_events: HashMap<EventId, RunId>,
     assignable_agents: HashSet<MemberId>,
     permissions: HashSet<(MemberId, PermissionAction)>,
+    computer_assignments: HashSet<(ComputerId, MemberId)>,
     effects: Vec<Effect>,
     reject_message_insert: bool,
 }
@@ -53,26 +60,29 @@ struct MemoryPort {
     state: MemoryState,
 }
 
-struct MemoryTransaction<'a> {
-    state: &'a mut MemoryState,
+struct MemoryTransaction {
+    state: MemoryState,
 }
 
 impl TransactionPort for MemoryPort {
-    type Transaction<'a> = MemoryTransaction<'a>;
+    type Transaction = MemoryTransaction;
 
-    fn transact<T>(
+    async fn transact<T>(
         &mut self,
-        operation: impl FnOnce(&mut Self::Transaction<'_>) -> Result<T, ApplicationError>,
+        operation: impl for<'a> AsyncFnOnce(&'a mut Self::Transaction) -> Result<T, ApplicationError>,
     ) -> Result<T, ApplicationError> {
-        let mut staged = self.state.clone();
-        let result = operation(&mut MemoryTransaction { state: &mut staged })?;
-        self.state = staged;
+        let mut transaction = MemoryTransaction {
+            state: self.state.clone(),
+        };
+        let result = operation(&mut transaction).await?;
+        self.state = transaction.state;
         Ok(result)
     }
 }
 
-impl ServerTransaction for MemoryTransaction<'_> {
-    fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
+#[async_trait::async_trait(?Send)]
+impl ServerTransaction for MemoryTransaction {
+    async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         self.state
             .threads
             .get(&id)
@@ -80,7 +90,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError> {
+    async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError> {
         self.state
             .roots
             .get(&thread_id)
@@ -88,7 +98,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError> {
+    async fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError> {
         self.state
             .tasks
             .get(&id)
@@ -96,7 +106,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn run(&mut self, id: RunId) -> Result<Run, ApplicationError> {
+    async fn run(&mut self, id: RunId) -> Result<Run, ApplicationError> {
         self.state
             .runs
             .get(&id)
@@ -104,7 +114,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn inbox_item(&mut self, id: InboxItemId) -> Result<InboxItem, ApplicationError> {
+    async fn inbox_item(&mut self, id: InboxItemId) -> Result<InboxItem, ApplicationError> {
         self.state
             .items
             .get(&id)
@@ -112,7 +122,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn agent(&mut self, id: MemberId) -> Result<Agent, ApplicationError> {
+    async fn agent(&mut self, id: MemberId) -> Result<Agent, ApplicationError> {
         self.state
             .agents
             .get(&id)
@@ -120,7 +130,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn computer(&mut self, id: ComputerId) -> Result<Computer, ApplicationError> {
+    async fn computer(&mut self, id: ComputerId) -> Result<Computer, ApplicationError> {
         self.state
             .computers
             .get(&id)
@@ -128,91 +138,148 @@ impl ServerTransaction for MemoryTransaction<'_> {
             .ok_or(ApplicationError::NotFound)
     }
 
-    fn task_for_source(&mut self, thread_id: ThreadId) -> Option<TaskId> {
-        self.state
+    async fn task_for_source(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self
+            .state
             .tasks
             .values()
             .find(|task| task.source_thread_id == thread_id)
-            .map(|task| task.id)
+            .map(|task| task.id))
     }
 
-    fn unfinished_task_for_thread(&mut self, thread_id: ThreadId) -> Option<TaskId> {
-        self.state
+    async fn unfinished_task_for_thread(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self
+            .state
             .tasks
             .values()
             .find(|task| !task.status.is_finished() && task.linked_to(thread_id))
-            .map(|task| task.id)
+            .map(|task| task.id))
     }
 
-    fn task_for_idempotency(&mut self, actor: MemberId, key: IdempotencyKey) -> Option<TaskId> {
-        self.state.idempotency.get(&(actor, key)).copied()
+    async fn task_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        key: IdempotencyKey,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self.state.idempotency.get(&(actor, key)).copied())
     }
 
-    fn active_run_for_agent(&mut self, agent_id: MemberId) -> Option<RunId> {
-        self.state
+    async fn active_run_for_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        Ok(self
+            .state
             .runs
             .values()
             .find(|run| run.agent_id == agent_id && run.status.is_active())
-            .map(|run| run.id)
+            .map(|run| run.id))
     }
 
-    fn computer_has_assigned_agents(&mut self, computer_id: ComputerId) -> bool {
-        self.state
+    async fn computer_has_assigned_agents(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
             .agents
             .values()
-            .any(|agent| agent.computer_id == Some(computer_id))
+            .any(|agent| agent.computer_id == Some(computer_id)))
     }
 
-    fn completed_run_for_event(&mut self, event_id: EventId) -> Option<RunId> {
-        self.state.completed_run_events.get(&event_id).copied()
+    async fn completed_run_for_event(
+        &mut self,
+        event_id: EventId,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        Ok(self.state.completed_run_events.get(&event_id).copied())
     }
 
-    fn can_read_thread(&mut self, actor: MemberId, thread_id: ThreadId) -> bool {
-        self.state
+    async fn can_read_thread(
+        &mut self,
+        actor: MemberId,
+        thread_id: ThreadId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
             .threads
             .get(&thread_id)
-            .is_some_and(|thread| thread.audience.contains(&actor))
+            .is_some_and(|thread| thread.audience.contains(&actor)))
     }
 
-    fn can_link_thread(&mut self, actor: MemberId, task: &Task, target: &Thread) -> bool {
-        self.can_read_thread(actor, task.source_thread_id) && target.audience.contains(&actor)
+    async fn can_link_thread(
+        &mut self,
+        actor: MemberId,
+        task: &Task,
+        target: &Thread,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.can_read_thread(actor, task.source_thread_id).await?
+            && target.audience.contains(&actor))
     }
 
-    fn can_assign_agent(&mut self, agent: MemberId, source: &Thread) -> bool {
-        self.state.assignable_agents.contains(&agent) && source.audience.contains(&agent)
+    async fn can_assign_agent(
+        &mut self,
+        agent: MemberId,
+        source: &Thread,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.assignable_agents.contains(&agent) && source.audience.contains(&agent))
     }
 
-    fn can_govern_task(&mut self, _actor: MemberId, _task: &Task) -> bool {
-        false
+    async fn can_govern_task(
+        &mut self,
+        _actor: MemberId,
+        _task: &Task,
+    ) -> Result<bool, ApplicationError> {
+        Ok(false)
     }
 
-    fn has_permission(&mut self, actor: MemberId, action: PermissionAction) -> bool {
-        self.state.permissions.contains(&(actor, action))
+    async fn has_permission(
+        &mut self,
+        actor: MemberId,
+        action: PermissionAction,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.permissions.contains(&(actor, action)))
     }
 
-    fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+    async fn can_operate_agent(
+        &mut self,
+        computer_id: ComputerId,
+        agent_id: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
+            .computer_assignments
+            .contains(&(computer_id, agent_id)))
+    }
+
+    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
         if self.state.tasks.insert(task.id, task).is_some() {
             return Err(ApplicationError::Conflict);
         }
         Ok(())
     }
 
-    fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+    async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {
         self.state.tasks.insert(task.id, task);
         Ok(())
     }
 
-    fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
+    async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.state.runs.insert(run.id, run);
         Ok(())
     }
 
-    fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
+    async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         self.state.items.insert(item.id, item);
         Ok(())
     }
 
-    fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError> {
+    async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError> {
         if self.state.reject_message_insert {
             return Err(ApplicationError::Conflict);
         }
@@ -220,24 +287,35 @@ impl ServerTransaction for MemoryTransaction<'_> {
         Ok(())
     }
 
-    fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
+    async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         if self.state.channels.insert(channel.id, channel).is_some() {
             return Err(ApplicationError::Conflict);
         }
         Ok(())
     }
 
-    fn save_agent(&mut self, agent: Agent) -> Result<(), ApplicationError> {
+    async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError> {
+        if self.state.members.contains_key(&member.id)
+            || self.state.agents.contains_key(&agent.member_id)
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state.members.insert(member.id, member);
         self.state.agents.insert(agent.member_id, agent);
         Ok(())
     }
 
-    fn save_computer(&mut self, computer: Computer) -> Result<(), ApplicationError> {
+    async fn save_agent(&mut self, agent: Agent) -> Result<(), ApplicationError> {
+        self.state.agents.insert(agent.member_id, agent);
+        Ok(())
+    }
+
+    async fn save_computer(&mut self, computer: Computer) -> Result<(), ApplicationError> {
         self.state.computers.insert(computer.id, computer);
         Ok(())
     }
 
-    fn record_completed_run_event(
+    async fn record_completed_run_event(
         &mut self,
         event_id: EventId,
         run_id: RunId,
@@ -246,7 +324,7 @@ impl ServerTransaction for MemoryTransaction<'_> {
         Ok(())
     }
 
-    fn record_task_idempotency(
+    async fn record_task_idempotency(
         &mut self,
         actor: MemberId,
         key: IdempotencyKey,
@@ -261,8 +339,8 @@ impl ServerTransaction for MemoryTransaction<'_> {
     }
 }
 
-#[test]
-fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently() {
+#[tokio::test]
+async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently() {
     let now = OffsetDateTime::UNIX_EPOCH;
     let agent = member(1);
     let thread_id = thread(2);
@@ -294,6 +372,7 @@ fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently() {
             now,
         },
     )
+    .await
     .unwrap();
 
     assert_eq!(created.status, TaskStatus::InProgress);
@@ -312,13 +391,14 @@ fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently() {
             now,
         },
     )
+    .await
     .unwrap();
     assert_eq!(retried.id, task_id);
     assert_eq!(port.state.tasks.len(), 1);
 }
 
-#[test]
-fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
+#[tokio::test]
+async fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
     let actor = member(10);
     let thread_id = thread(11);
     let mut port = MemoryPort::default();
@@ -337,6 +417,7 @@ fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
 
     assert!(matches!(
@@ -347,8 +428,8 @@ fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
     assert!(port.state.effects.is_empty());
 }
 
-#[test]
-fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
+#[tokio::test]
+async fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
     let actor = member(20);
     let other = member(21);
     let source = thread(22);
@@ -373,6 +454,7 @@ fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert!(matches!(
         incompatible_error,
@@ -388,16 +470,33 @@ fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert_eq!(occupied_error, ApplicationError::Conflict);
 }
 
-#[test]
-fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
+#[tokio::test]
+async fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
     let agent = member(30);
     let focus = thread(31);
     let other_focus = thread(32);
     let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+    port.state.agents.insert(
+        agent,
+        Agent {
+            member_id: agent,
+            space_id: space(1),
+            computer_id: Some(computer(999)),
+            role_text: "run".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
     insert_thread(&mut port, focus, &[agent]);
     insert_thread(&mut port, other_focus, &[agent]);
     port.state.tasks.insert(
@@ -409,10 +508,18 @@ fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
         running_run(run(34), agent, focus, Some(task(33)), Vec::new()),
     );
 
+    let mut unauthorized_input = claim_input(run(35), agent, Some(task(33)), focus);
+    unauthorized_input.computer_id = computer(998);
+    let unauthorized = ClaimRun::execute(&mut port, unauthorized_input)
+        .await
+        .unwrap_err();
+    assert_eq!(unauthorized, ApplicationError::PermissionDenied);
+
     let conflict = ClaimRun::execute(
         &mut port,
         claim_input(run(35), agent, Some(task(33)), focus),
     )
+    .await
     .unwrap_err();
     assert_eq!(conflict, ApplicationError::Conflict);
 
@@ -421,6 +528,7 @@ fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
         &mut port,
         claim_input(run(36), agent, Some(task(33)), other_focus),
     )
+    .await
     .unwrap_err();
     assert!(matches!(
         focus_error,
@@ -428,8 +536,8 @@ fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
     ));
 }
 
-#[test]
-fn attach_loses_finalizing_race_without_leasing_item() {
+#[tokio::test]
+async fn attach_loses_finalizing_race_without_leasing_item() {
     let agent = member(40);
     let focus = thread(41);
     let run_id = run(42);
@@ -452,6 +560,7 @@ fn attach_loses_finalizing_race_without_leasing_item() {
             lease_expires_at: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert!(matches!(
         error,
@@ -460,14 +569,17 @@ fn attach_loses_finalizing_race_without_leasing_item() {
     assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
 }
 
-#[test]
-fn run_completion_checks_fencing_and_does_not_complete_task() {
+#[tokio::test]
+async fn run_completion_checks_fencing_and_does_not_complete_task() {
     let agent = member(50);
     let focus = thread(51);
     let task_id = task(52);
     let run_id = run(53);
     let item_id = item(54);
     let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
     insert_thread(&mut port, focus, &[agent]);
     port.state.tasks.insert(
         task_id,
@@ -488,25 +600,28 @@ fn run_completion_checks_fencing_and_does_not_complete_task() {
         running_run(run_id, agent, focus, Some(task_id), vec![item_id]),
     );
 
-    let stale =
-        CompleteRun::execute(&mut port, complete_run_input(run_id, "stale", item_id)).unwrap_err();
+    let stale = CompleteRun::execute(&mut port, complete_run_input(run_id, "stale", item_id))
+        .await
+        .unwrap_err();
     assert!(matches!(
         stale,
         ApplicationError::Domain(crate::server::domain::DomainError::StaleFencingToken)
     ));
 
-    let completed =
-        CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id)).unwrap();
+    let completed = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
+        .await
+        .unwrap();
     assert_eq!(completed.status, RunStatus::Completed);
-    let retried =
-        CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id)).unwrap();
+    let retried = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
+        .await
+        .unwrap();
     assert_eq!(retried.status, RunStatus::Completed);
     assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Handled);
     assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
 }
 
-#[test]
-fn result_message_failure_rolls_back_task_completion() {
+#[tokio::test]
+async fn result_message_failure_rolls_back_task_completion() {
     let assignee = member(60);
     let focus = thread(61);
     let task_id = task(62);
@@ -530,6 +645,7 @@ fn result_message_failure_rolls_back_task_completion() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert_eq!(error, ApplicationError::Conflict);
     assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
@@ -537,8 +653,8 @@ fn result_message_failure_rolls_back_task_completion() {
     assert!(port.state.effects.is_empty());
 }
 
-#[test]
-fn computer_delete_requires_explicit_agent_retirement() {
+#[tokio::test]
+async fn computer_delete_requires_explicit_agent_retirement() {
     let computer_id = computer(70);
     let agent_id = member(71);
     let mut port = MemoryPort::default();
@@ -561,12 +677,14 @@ fn computer_delete_requires_explicit_agent_retirement() {
             role_text: "实现".into(),
             role_revision: 1,
             lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
             retired_at: None,
         },
     );
 
-    let blocked =
-        DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH).unwrap_err();
+    let blocked = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
+        .await
+        .unwrap_err();
     assert!(matches!(
         blocked,
         ApplicationError::Domain(crate::server::domain::DomainError::ComputerHasAgents)
@@ -576,15 +694,18 @@ fn computer_delete_requires_explicit_agent_retirement() {
         ComputerLifecycle::Offline
     );
 
-    RetireAgent::execute(&mut port, agent_id, OffsetDateTime::UNIX_EPOCH).unwrap();
-    let deleted =
-        DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH).unwrap();
+    RetireAgent::execute(&mut port, agent_id, OffsetDateTime::UNIX_EPOCH)
+        .await
+        .unwrap();
+    let deleted = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
+        .await
+        .unwrap();
     assert_eq!(deleted.lifecycle, ComputerLifecycle::Deleted);
     assert!(deleted.token_hash.is_none());
 }
 
-#[test]
-fn task_review_requires_another_visible_member_and_closed_is_terminal() {
+#[tokio::test]
+async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
     let assignee = member(90);
     let reviewer = member(91);
     let focus = thread(92);
@@ -606,6 +727,7 @@ fn task_review_requires_another_visible_member_and_closed_is_terminal() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap();
     let self_review = UpdateTask::execute(
         &mut port,
@@ -616,6 +738,7 @@ fn task_review_requires_another_visible_member_and_closed_is_terminal() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert!(matches!(
         self_review,
@@ -630,6 +753,7 @@ fn task_review_requires_another_visible_member_and_closed_is_terminal() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap();
     assert_eq!(returned.status, TaskStatus::InProgress);
 
@@ -645,13 +769,14 @@ fn task_review_requires_another_visible_member_and_closed_is_terminal() {
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap();
     assert_eq!(closed.status, TaskStatus::Closed);
     assert!(closed.finished_at.is_some());
 }
 
-#[test]
-fn agent_channel_action_and_action_message_commit_together() {
+#[tokio::test]
+async fn agent_channel_action_and_action_message_commit_together() {
     let agent = member(100);
     let focus = thread(101);
     let run_id = run(102);
@@ -670,14 +795,17 @@ fn agent_channel_action_and_action_message_commit_together() {
         &mut port,
         CreateChannelActionInput {
             channel_id,
-            space_id: space(1),
             audience: [agent].into_iter().collect(),
+            kind: ChannelKind::Private,
+            slug: Some("new-channel".into()),
+            topic: None,
             action_message_id: message(104),
             actor_member_id: agent,
             current_run_id: run_id,
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap_err();
     assert_eq!(error, ApplicationError::Conflict);
     assert!(!port.state.channels.contains_key(&channel_id));
@@ -687,19 +815,75 @@ fn agent_channel_action_and_action_message_commit_together() {
         &mut port,
         CreateChannelActionInput {
             channel_id,
-            space_id: space(1),
             audience: [agent].into_iter().collect(),
+            kind: ChannelKind::Private,
+            slug: Some("new-channel".into()),
+            topic: None,
             action_message_id: message(104),
             actor_member_id: agent,
             current_run_id: run_id,
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
+    .await
     .unwrap();
     assert!(port.state.channels.contains_key(&channel_id));
     assert!(matches!(
         port.state.messages[&message(104)].content,
         MessageContent::ChannelCreated(id) if id == channel_id
+    ));
+}
+
+#[tokio::test]
+async fn agent_creation_and_action_message_share_permission_and_transaction() {
+    let actor = member(110);
+    let created_agent = member(111);
+    let focus = thread(112);
+    let run_id = run(113);
+    let computer_id = computer(114);
+    let action_message_id = message(115);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[actor]);
+    port.state
+        .runs
+        .insert(run_id, running_run(run_id, actor, focus, None, Vec::new()));
+
+    let input = || CreateAgentActionInput {
+        agent_member_id: created_agent,
+        display_name: "Implementer".into(),
+        handle: "implementer".into(),
+        role_text: "Implement code".into(),
+        computer_id,
+        driver_kind: DriverKind::Codex,
+        action_message_id,
+        actor_member_id: actor,
+        current_run_id: run_id,
+        now: OffsetDateTime::UNIX_EPOCH,
+    };
+    let denied = CreateAgentAction::execute(&mut port, input())
+        .await
+        .unwrap_err();
+    assert_eq!(denied, ApplicationError::PermissionDenied);
+    assert!(!port.state.agents.contains_key(&created_agent));
+
+    port.state
+        .permissions
+        .insert((actor, PermissionAction::AgentCreate));
+    port.state.reject_message_insert = true;
+    let rolled_back = CreateAgentAction::execute(&mut port, input())
+        .await
+        .unwrap_err();
+    assert_eq!(rolled_back, ApplicationError::Conflict);
+    assert!(!port.state.agents.contains_key(&created_agent));
+
+    port.state.reject_message_insert = false;
+    CreateAgentAction::execute(&mut port, input())
+        .await
+        .unwrap();
+    assert!(port.state.agents.contains_key(&created_agent));
+    assert!(matches!(
+        port.state.messages[&action_message_id].content,
+        MessageContent::AgentCreated(id) if id == created_agent
     ));
 }
 
@@ -762,7 +946,7 @@ fn running_run(
         task_id,
         focus_thread_id: focus,
         status: RunStatus::Running,
-        fencing_token_hash: "token".into(),
+        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
         lease_expires_at: OffsetDateTime::UNIX_EPOCH,
         items: items
             .into_iter()
@@ -814,12 +998,12 @@ fn claim_input(
 ) -> ClaimRunInput {
     ClaimRunInput {
         run_id,
-        space_id: space(1),
+        computer_id: computer(999),
         agent_id: agent,
         task_id,
         focus_thread_id: focus,
         item_ids: Vec::new(),
-        fencing_token_hash: "token".into(),
+        fencing_token: super::ports::RawFencingToken::new("token".into()),
         lease_expires_at: OffsetDateTime::UNIX_EPOCH,
     }
 }
@@ -828,7 +1012,8 @@ fn complete_run_input(run_id: RunId, token: &str, item_id: InboxItemId) -> Compl
     CompleteRunInput {
         event_id: event(80),
         run_id,
-        fencing_token_hash: token.into(),
+        computer_id: computer(999),
+        fencing_token_hash: hex::encode(Sha256::digest(token.as_bytes())),
         outcome: RunOutcome::Completed,
         item_dispositions: vec![ItemDispositionInput {
             item_id,

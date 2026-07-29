@@ -9,36 +9,44 @@ use super::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort}
 pub(in crate::server) struct RetireAgent;
 
 impl RetireAgent {
-    pub(in crate::server) fn execute<P: TransactionPort>(
+    pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         agent_id: MemberId,
         now: OffsetDateTime,
     ) -> Result<Agent, ApplicationError> {
-        port.transact(|transaction| {
-            let mut agent = transaction.agent(agent_id)?;
+        port.transact(async |transaction| {
+            let mut agent = transaction.agent(agent_id).await?;
+            let computer_id = agent.computer_id.ok_or(ApplicationError::Conflict)?;
             agent.retire(now)?;
-            transaction.save_agent(agent.clone())?;
-            transaction.emit(Effect::AgentRetired(agent_id));
+            transaction.save_agent(agent.clone()).await?;
+            transaction.emit(Effect::AgentRetired {
+                agent_id,
+                computer_id,
+            });
             Ok(agent)
         })
+        .await
     }
 }
 
 pub(in crate::server) struct DeleteComputer;
 
 impl DeleteComputer {
-    pub(in crate::server) fn execute<P: TransactionPort>(
+    pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         computer_id: ComputerId,
         now: OffsetDateTime,
     ) -> Result<Computer, ApplicationError> {
-        port.transact(|transaction| {
-            let mut computer = transaction.computer(computer_id)?;
-            let assigned = transaction.computer_has_assigned_agents(computer_id);
+        port.transact(async |transaction| {
+            let mut computer = transaction.computer(computer_id).await?;
+            let assigned = transaction
+                .computer_has_assigned_agents(computer_id)
+                .await?;
             computer.delete(assigned, now)?;
-            transaction.save_computer(computer.clone())?;
+            transaction.save_computer(computer.clone()).await?;
             transaction.emit(Effect::ComputerDeleted(computer_id));
             Ok(computer)
         })
+        .await
     }
 }

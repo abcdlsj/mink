@@ -4,6 +4,21 @@ use crate::ids::{ComputerId, MemberId, SpaceId};
 
 use super::DomainError;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum DriverKind {
+    Codex,
+    Builtin,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct Member {
+    pub(in crate::server) id: MemberId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) display_name: String,
+    pub(in crate::server) handle: String,
+    pub(in crate::server) created_at: OffsetDateTime,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::server) enum PermissionAction {
     ChannelCreate,
@@ -27,6 +42,7 @@ pub(in crate::server) struct Agent {
     pub(in crate::server) role_text: String,
     pub(in crate::server) role_revision: u64,
     pub(in crate::server) lifecycle: AgentLifecycle,
+    pub(in crate::server) driver_kind: DriverKind,
     pub(in crate::server) retired_at: Option<OffsetDateTime>,
 }
 

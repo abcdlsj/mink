@@ -1,9 +1,9 @@
 mod attention;
-mod conversation;
-mod execution;
+pub(in crate::server) mod conversation;
+pub(in crate::server) mod execution;
 mod identity;
-mod ports;
-mod task;
+pub(in crate::server) mod ports;
+pub(in crate::server) mod task;
 
 #[cfg(test)]
 mod tests;

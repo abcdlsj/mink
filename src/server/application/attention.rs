@@ -13,13 +13,13 @@ pub(in crate::server) struct AttachHardItemInput {
 pub(in crate::server) struct AttachHardItem;
 
 impl AttachHardItem {
-    pub(in crate::server) fn execute<P: TransactionPort>(
+    pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         input: AttachHardItemInput,
     ) -> Result<u64, ApplicationError> {
-        port.transact(|transaction| {
-            let mut run = transaction.run(input.run_id)?;
-            let mut item = transaction.inbox_item(input.item_id)?;
+        port.transact(async |transaction| {
+            let mut run = transaction.run(input.run_id).await?;
+            let mut item = transaction.inbox_item(input.item_id).await?;
             if let Some(existing) = run
                 .items
                 .iter()
@@ -32,8 +32,8 @@ impl AttachHardItem {
             }
             let sequence = run.attach(&item)?;
             item.lease(run.id, input.lease_expires_at)?;
-            transaction.save_run(run.clone())?;
-            transaction.save_inbox_item(item)?;
+            transaction.save_run(run.clone()).await?;
+            transaction.save_inbox_item(item).await?;
             transaction.emit(Effect::ItemAttached {
                 run_id: run.id,
                 item_id: input.item_id,
@@ -41,5 +41,6 @@ impl AttachHardItem {
             });
             Ok(sequence)
         })
+        .await
     }
 }
