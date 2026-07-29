@@ -1,0 +1,230 @@
+use crate::ids::{CommandId, RunId, TaskId};
+use sha2::{Digest, Sha256};
+use time::OffsetDateTime;
+
+use crate::computer::core::{
+    input::{AttentionNoticeInput, ClaimedItemInput},
+    session::{ProviderSession, SessionFingerprint},
+    supervisor::LocalRun,
+};
+
+use super::{
+    ApplicationError,
+    ports::{CommandStatus, ComputerTransaction, DriverPort, StoredCommand, TransactionPort},
+    run::RunService,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::computer) enum Command {
+    Start {
+        run: Box<LocalRun>,
+        fingerprint: SessionFingerprint,
+    },
+    Attach {
+        run_id: RunId,
+        sequence: u64,
+        item: ClaimedItemInput,
+    },
+    Notice {
+        run_id: RunId,
+        notice: AttentionNoticeInput,
+    },
+    BindTask {
+        run_id: RunId,
+        task_id: TaskId,
+        fingerprint: SessionFingerprint,
+    },
+    Stop {
+        run_id: RunId,
+    },
+    ResetSession {
+        session: ProviderSession,
+    },
+}
+
+impl Command {
+    pub(super) fn fingerprint(&self) -> String {
+        let semantic = match self {
+            Self::Start { run, fingerprint } => format!(
+                "start:{}:{}:{:?}:{}:{}:{}:{}:{}:{:?}:{}",
+                run.id,
+                run.agent_id,
+                run.task_id,
+                run.focus_thread_id,
+                run.fencing_token.expose(),
+                fingerprint.workspace,
+                fingerprint.role_revision,
+                fingerprint.audience,
+                fingerprint.driver,
+                run.input.content_hash(),
+            ),
+            Self::Attach {
+                run_id,
+                sequence,
+                item,
+            } => format!("attach:{run_id}:{sequence}:{}", item.content_hash()),
+            Self::Notice { run_id, notice } => format!("notice:{run_id}:{notice:?}"),
+            Self::BindTask {
+                run_id,
+                task_id,
+                fingerprint,
+            } => format!(
+                "bind:{run_id}:{task_id}:{:?}:{}:{}:{}",
+                fingerprint.driver,
+                fingerprint.workspace,
+                fingerprint.role_revision,
+                fingerprint.audience,
+            ),
+            Self::Stop { run_id } => format!("stop:{run_id}"),
+            Self::ResetSession { session } => format!(
+                "reset:{}:{:?}:{}",
+                session.agent_id, session.scope, session.generation,
+            ),
+        };
+        hex::encode(Sha256::digest(semantic.as_bytes()))
+    }
+}
+
+pub(in crate::computer) struct CommandService;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::computer) struct CommandExecution {
+    pub(in crate::computer) status: CommandStatus,
+    pub(in crate::computer) error: Option<ApplicationError>,
+}
+
+impl CommandService {
+    pub(in crate::computer) async fn execute<P: TransactionPort, D: DriverPort>(
+        store: &mut P,
+        driver: &mut D,
+        command_id: CommandId,
+        sequence: u64,
+        command: Command,
+    ) -> Result<CommandExecution, ApplicationError> {
+        let fingerprint = command.fingerprint();
+        let accepted = store
+            .transact(async |transaction| {
+                if let Some(stored) = transaction.command(command_id)? {
+                    if stored.sequence != sequence
+                        || stored.fingerprint != fingerprint
+                        || stored.command != command
+                    {
+                        return Err(ApplicationError::Conflict);
+                    }
+                    return Ok(Some(CommandExecution {
+                        status: stored.status,
+                        error: stored.error,
+                    }));
+                }
+                transaction.insert_command(StoredCommand {
+                    id: command_id,
+                    sequence,
+                    fingerprint: fingerprint.clone(),
+                    command: command.clone(),
+                    status: CommandStatus::Pending,
+                    error: None,
+                })?;
+                Ok(None)
+            })
+            .await?;
+        if let Some(execution) = accepted
+            && execution.status != CommandStatus::Pending
+        {
+            return Ok(execution);
+        }
+
+        let result = Self::apply(store, driver, command).await;
+        if result.as_ref().is_err_and(|error| {
+            matches!(
+                error,
+                ApplicationError::DriverUnavailable | ApplicationError::Internal
+            )
+        }) {
+            return Err(result.expect_err("retryable error was checked"));
+        }
+        let already_applied = result == Err(ApplicationError::AlreadyApplied);
+        let execution = if result.is_ok() || already_applied {
+            CommandExecution {
+                status: CommandStatus::Applied,
+                error: None,
+            }
+        } else {
+            CommandExecution {
+                status: CommandStatus::Rejected,
+                error: result.err(),
+            }
+        };
+        store
+            .transact(async |transaction| {
+                let mut stored = transaction
+                    .command(command_id)?
+                    .ok_or(ApplicationError::NotFound)?;
+                stored.status = execution.status;
+                stored.error = execution.error.clone();
+                transaction.save_command(stored)
+            })
+            .await?;
+        Ok(execution)
+    }
+
+    async fn apply<P: TransactionPort, D: DriverPort>(
+        store: &mut P,
+        driver: &mut D,
+        command: Command,
+    ) -> Result<(), ApplicationError> {
+        match command {
+            Command::Start { run, fingerprint } => {
+                let mut run = *run;
+                let run_id = run.id;
+                run.session_fingerprint = Some(fingerprint);
+                store
+                    .transact(async |transaction| {
+                        if let Some(existing) = transaction.run(run_id)? {
+                            if existing != run {
+                                return Err(ApplicationError::Conflict);
+                            }
+                        } else {
+                            transaction.save_run(run)?;
+                        }
+                        Ok(())
+                    })
+                    .await
+            }
+            Command::Attach {
+                run_id,
+                sequence,
+                item,
+            } => {
+                RunService::attach(store, driver, run_id, sequence, item).await?;
+                Ok(())
+            }
+            Command::Notice { run_id, notice } => {
+                RunService::notice(store, driver, run_id, notice).await
+            }
+            Command::BindTask {
+                run_id,
+                task_id,
+                fingerprint,
+            } => RunService::bind_task(store, run_id, task_id, fingerprint).await,
+            Command::Stop { run_id } => {
+                RunService::stop(store, driver, run_id).await?;
+                Ok(())
+            }
+            Command::ResetSession { mut session } => {
+                if matches!(
+                    session.state,
+                    crate::computer::core::session::SessionState::Closed
+                        | crate::computer::core::session::SessionState::Lost
+                ) {
+                    return Ok(());
+                }
+                session.mark_closing();
+                let succeeded = driver.close_session(&session).await.is_ok();
+                session.close(succeeded, OffsetDateTime::now_utc());
+                store
+                    .transact(async |transaction| transaction.save_session(session))
+                    .await
+            }
+        }
+    }
+}
