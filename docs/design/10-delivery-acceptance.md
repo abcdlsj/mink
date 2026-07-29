@@ -17,7 +17,11 @@
 
 ## 2. 实施顺序
 
-目录、模块和依赖调整按[代码组织与依赖边界](./11-code-organization.md)执行。阶段顺序不能成为保留旧模块或兼容路径的理由。
+目录、模块和依赖调整按[代码组织与依赖边界](./11-code-organization.md)执行。
+
+各阶段在未接入运行时前，通过自身端口和定向测试独立验证。阶段之间不得建立临时桥接、兼容 adapter 或双写。
+
+运行时入口只在全部新模块完成后切换。切换任务必须同时删除旧实现，再执行完整集成、故障和端到端验收。
 
 ### 阶段一：领域层
 
@@ -62,6 +66,18 @@
 - 完成桌面、移动端、空态、错误和无障碍。
 
 ## 3. 单元验收
+
+单元测试只验证业务流程、不变量和失败分支。测试对象包括状态转换、用例编排、幂等、租约、重试、恢复、权限判断和 Session 生命周期。
+
+以下实现不单独编写单元测试：
+
+- getter、setter 和构造器。
+- 字符串格式化、大小写转换和字段拼接。
+- struct、DTO、row 和 frame 之间的逐字段搬运。
+- derive、serde 和依赖库已经保证的行为。
+- 没有分支、约束或安全含义的薄封装。
+
+数据转换涉及协议必填字段、授权范围、安全过滤或稳定错误码时，使用 adapter contract test 或集成测试验证边界结果。测试不能逐字段复述实现。
 
 - reply不能创建Task。
 - Root Message创建Task时Source Thread和Task同一行成功或失败。
@@ -148,7 +164,7 @@
 
 ## 9. 提交前验证
 
-文档阶段运行：
+文档任务运行：
 
 ```text
 git diff --check
@@ -156,12 +172,22 @@ Markdown相对链接检查
 旧模型冲突词定向搜索
 ```
 
-Rust阶段还必须运行：
+Rust 模块任务运行该模块的定向测试，并执行：
+
+```text
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+Web 模块任务运行类型检查、lint 和相关流程测试。
+
+最终切换任务运行：
 
 ```text
 cargo test --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
+Web 类型检查、lint、流程测试和 Playwright 核心流程
 ```
 
-Web阶段还必须运行类型检查、组件测试和Playwright核心流程。只有对应阶段的验收全部通过后，才能声明该阶段完成。
+最终整体验收通过后，才能声明新版本完成。

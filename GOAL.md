@@ -22,27 +22,34 @@
 7. UI 继续以 Conversation 为主。Task 使用独立侧边栏入口，不改变产品的对话中心结构。
 8. 新实现从空 PostgreSQL 和空 Computer 目录建立。共享环境建立基线后，只使用前向 migration。
 
-## 3. 实施阶段
+## 3. 执行任务
 
-1. 建立标识、协议、Server facade 和 Computer facade。
-2. 重建 Server domain、application 和 PostgreSQL adapter。
-3. 重建 Computer core、application、SQLite adapter 和 Driver adapter。
-4. 接入 Agent CLI、Computer 连接和 Server transport。
-5. 切换 WebUI 到新 API，并保持现有信息架构和视觉基线。
-6. 删除旧模块、旧协议、旧 schema 和临时桥接。
-7. 按[交付与验收](./docs/design/10-delivery-acceptance.md)完成测试和故障验证。
+- [ ] 建立标识、协议、Server facade 和 Computer facade。
+- [ ] 重建 Server domain 和 application，并通过模块测试。
+- [ ] 实现 PostgreSQL、对象存储和 Server transport adapters，并通过模块测试。
+- [ ] 重建 Computer core 和 application，并通过模块测试。
+- [ ] 实现 SQLite、Driver、连接和本地 IPC adapters，并通过模块测试。
+- [ ] 接入 Agent CLI，并通过本地能力流程测试。
+- [ ] 重建 WebUI，并保持现有信息架构和视觉基线。
+- [ ] 一次性切换运行时入口，删除全部旧实现，并按[交付与验收](./docs/design/10-delivery-acceptance.md)完成整体验证。
 
-阶段顺序只表示依赖关系。每个实现任务必须保持仓库可验证，并删除该任务引入的临时兼容路径。
+任务按列表顺序执行。任务通过对应验收后，把`[ ]`改为`[x]`，并与该任务的实现一起提交。
+
+前七个任务只运行本模块的定向测试。最后一个任务负责运行完整集成、故障和端到端验收。
+
+新模块不能通过临时桥接、兼容 adapter 或双写接入旧实现。最终切换前，旧运行时继续独立工作；新模块通过自身端口和测试独立验证。
 
 ## 4. Handoff 规则
 
 1. 每个实现任务单独提交。下一任务的实现不能混入当前提交。
-2. 每个任务提交后，在`tmp/handoff/`写非空交接文档并提交。
+2. 当前任务提交后，如果仍有未完成任务，在`tmp/handoff.md`写非空交接文档。
 3. 交接文档必须记录已完成内容、验证结果、当前提交、剩余任务和已知风险。
-4. 通过当前 Superset workspace 创建新的 Codex session。创建命令必须使用`--attachment`上传交接文档，并使用`--json`校验结果。
-5. `--prompt`只要求新 session 读取附件、验证仓库现状并继续任务。完整交接内容不能复制到 prompt。
-6. 新 session 必须先读取项目约定、领域词汇和设计索引，再从下一个未完成任务继续。
-7. 用户指定目标 Agent 时使用该 Agent。用户未指定时沿用当前 Agent 类型。
+4. 交接文档是一次性文件，不得提交。`tmp/`必须被 Git 忽略。
+5. 通过当前 Superset workspace 创建新的 Codex session。创建命令必须使用`--attachment tmp/handoff.md`上传交接文档，并使用`--json`校验结果。
+6. `--prompt`只要求新 session 读取附件、验证仓库现状并继续任务。完整交接内容不能复制到 prompt。
+7. 新 session 必须先读取项目约定、领域词汇和设计索引，再从下一个未完成任务继续。
+8. 用户指定目标 Agent 时使用该 Agent。用户未指定时沿用当前 Agent 类型。
+9. 新 session 创建成功后保留`tmp/handoff.md`。下一次 handoff 生成时覆盖该文件。
 
 ## 5. 完成定义
 
@@ -52,4 +59,4 @@
 - 新数据库和新 Computer Home 可以从空状态建立并完成核心流程。
 - 旧实现、旧入口、旧 schema 和无业务边界价值的抽象已经删除。
 - Rust、Web、协议、数据库、并发、安全和故障验收全部通过。
-- 最终提交包含可复现的验证记录和下一阶段所需的 handoff 文档。
+- 最终提交包含可复现的验证记录。

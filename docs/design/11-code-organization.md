@@ -276,30 +276,33 @@ Computer 与 Server 的协议定义归属`protocol/`。协议版本适用于完�
 ## 9. 测试组织
 
 ```text
-src/server/domain/**/tests.rs       领域不变量
-src/server/application/**/tests.rs  用例和事务编排
-src/computer/core/**/tests.rs       本地执行不变量
-src/computer/application/**/tests.rs command、恢复和幂等
+src/server/domain/**/tests.rs       状态转换和领域不变量
+src/server/application/**/tests.rs  用例流程和事务编排
+src/computer/core/**/tests.rs       调度、Run 和 Session 流程
+src/computer/application/**/tests.rs command、恢复和幂等流程
 tests/server/                       PostgreSQL 和 HTTP 集成
 tests/computer/                     SQLite、Driver 和重启集成
-tests/protocol/                     版本、序列化和兼容拒绝
+tests/protocol/                     握手、必填字段和版本拒绝
 tests/end_to_end/                   Server 与 Computer 核心流程
 ```
 
 内层单元测试使用内存端口。SQL 约束、进程生命周期和网络重连只在对应 adapter 或集成测试中验证。
 
+单元测试的取舍规则由[交付与验收](./10-delivery-acceptance.md)定义。测试目录不能按函数或数据类型机械生成。
+
 架构测试必须扫描 Rust 模块依赖，拒绝本文件列出的禁止依赖。`cargo clippy`不能替代该检查。
 
 ## 10. 重组顺序
 
-代码重组与行为重建使用同一条迁移路径：
+代码重组与行为重建使用同一条组装路径：
 
 1. 建立`ids`、`protocol`和两个运行时 facade。
-2. 建立新的 Server domain 和 application，不移动旧业务模型充数。
-3. 建立新的 Server adapters，并通过单一用例入口接入。
+2. 建立新的 Server domain 和 application，并使用内存端口独立测试。
+3. 建立新的 Server adapters，并使用 adapter contract test 独立测试。
 4. 建立 Computer core、application 和本地 ports。
-5. 将 Driver、SQLite、连接和 Agent CLI 接入新端口。
-6. 切换`bootstrap`到新入口。
-7. 删除旧根目录模块、旧协议和兼容路径。
+5. 将 Driver、SQLite、连接和 Agent CLI 接入新端口，并测试 Computer 内部流程。
+6. 完成 WebUI 后，一次性切换`bootstrap`和 Browser API 到新入口。
+7. 在同一切换任务中删除旧根目录模块、旧协议和旧 schema。
+8. 运行完整集成、故障和端到端验收。
 
-每一步必须保持依赖单向。临时桥接只能位于 adapter，并必须在切换完成的同一任务中删除。
+每一步必须保持依赖单向。新旧实现之间不得增加 bridge、兼容 adapter、调用转发或双写。

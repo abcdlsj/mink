@@ -60,6 +60,14 @@ daemon 退出或网络断开只导致 offline。使用同一 Computer Token 重�
 
 Driver 只能访问当前 Agent Home 中明确允许的路径。不同 Agent 不能读取彼此的 Home。
 
+### 3.1 重建期本地基线
+
+当前开发机上已有的`~/.sumi`属于旧版本数据。本次重建可以直接删除该目录，并按本文件定义的新结构重新创建。
+
+删除前必须把目标解析为当前用户`.sumi`目录的绝对路径，并验证目标不是用户主目录或其他父目录。不得使用未解析的`~`、`$HOME`或通配符执行递归删除。
+
+旧目录不需要备份、迁移或兼容读取。首次建立新版本 Agent Home 后，本规则失效；后续删除必须遵守正式的 Computer 和 Agent 生命周期。
+
 ## 4. Agent 持续性
 
 Agent 的持续身份由 Server 的 Member/Agent 记录和本地 Agent Home 共同实现：
