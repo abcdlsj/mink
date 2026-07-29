@@ -7,7 +7,6 @@ import {
   addChannelAgents,
   archiveChannel,
   createMessage,
-  createThread,
   listAgents,
   listChannelMembers,
   listComputers,
@@ -91,13 +90,13 @@ export function MessageWorkspace({
   emptyTitle: string;
   direct?: boolean;
   canArchive?: boolean;
-  spaceSlug?: string;
+  spaceSlug: string;
   setup?: { canPairComputer: boolean; canCreateAgent: boolean };
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const [threadId, setThreadId] = useState<number>();
+  const [threadId, setThreadId] = useState<string>();
   const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
   const [threadPaneWidth, setThreadPaneWidth] = useState(360);
   const [threadPaneMaxWidth, setThreadPaneMaxWidth] = useState(480);
@@ -174,7 +173,7 @@ export function MessageWorkspace({
     setThreadPaneWidth(clampThreadPaneWidth(nextWidth));
   }
 
-  function openThread(nextThreadId: number, trigger?: HTMLButtonElement) {
+  function openThread(nextThreadId: string, trigger?: HTMLButtonElement) {
     if (trigger) threadTrigger.current = trigger;
     channelScrollPosition.current = timeline.current?.scrollTop ?? 0;
     setThreadOpenedAtMainSeq(latestMainMessageSeq);
@@ -247,13 +246,6 @@ export function MessageWorkspace({
     }));
   }
 
-  const threadCreation = useMutation({
-    mutationFn: (rootMessageId: string) => createThread(channel.id, rootMessageId),
-    onSuccess: (thread) => {
-      openThread(thread.thread_id);
-      void queryClient.invalidateQueries({ queryKey: ["messages", channel.id] });
-    },
-  });
   const archive = useMutation({
     mutationFn: () => archiveChannel(channel.id),
     onSuccess: () => {
@@ -339,11 +331,7 @@ export function MessageWorkspace({
         retry={() => void messages.refetch()}
         emptyTitle={emptyTitle}
         channelId={channel.id}
-        creatingThread={threadCreation.isPending}
-        createThread={(messageId, trigger) => {
-          threadTrigger.current = trigger;
-          threadCreation.mutate(messageId);
-        }}
+        spaceSlug={spaceSlug}
         openThread={openThread}
         activityByMemberId={activityByMemberId}
       />
@@ -367,6 +355,7 @@ export function MessageWorkspace({
           spaceId={spaceId}
           threadId={threadId}
           channelSlug={channel.slug}
+          spaceSlug={spaceSlug}
           members={channelMembers.data?.members ?? []}
           latestMainMessageSeq={latestMainMessageSeq}
           openedAtMainSeq={threadOpenedAtMainSeq}

@@ -30,7 +30,7 @@
 - [x] 重建 Computer core 和 application，并通过模块测试。
 - [x] 实现 SQLite、Driver、连接和本地 IPC adapters，并通过模块测试。
 - [x] 接入 Agent CLI，并通过本地能力流程测试。
-- [ ] 重建 WebUI，并保持现有信息架构和视觉基线。
+- [x] 重建 WebUI，并保持现有信息架构和视觉基线。
 - [ ] 一次性切换运行时入口，删除全部旧实现，并按[交付与验收](./docs/design/10-delivery-acceptance.md)完成整体验证。
 
 任务按列表顺序执行。任务通过对应验收后，把`[ ]`改为`[x]`，并与该任务的实现一起提交。

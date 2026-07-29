@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Bell, BellOff, X } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 
@@ -19,6 +20,7 @@ export function ThreadPane({
   spaceId,
   threadId,
   channelSlug,
+  spaceSlug,
   members,
   latestMainMessageSeq,
   openedAtMainSeq,
@@ -32,8 +34,9 @@ export function ThreadPane({
 }: {
   channelId: string;
   spaceId: string;
-  threadId: number;
+  threadId: string;
   channelSlug: string;
+  spaceSlug: string;
   members: Member[];
   latestMainMessageSeq: number;
   openedAtMainSeq: number;
@@ -49,14 +52,14 @@ export function ThreadPane({
   const closeButton = useRef<HTMLButtonElement>(null);
   const channelHasNewMessages = latestMainMessageSeq > openedAtMainSeq;
   const thread = useQuery({
-    queryKey: ["thread", channelId, threadId],
-    queryFn: () => readThread(channelId, threadId),
+    queryKey: ["thread", threadId],
+    queryFn: () => readThread(threadId),
   });
   const subscription = useMutation({
     mutationFn: (isFollowing: boolean) =>
-      setThreadSubscription(channelId, threadId, isFollowing),
+      setThreadSubscription(threadId, isFollowing),
     onSuccess: (result) => {
-      queryClient.setQueryData<ThreadRead>(["thread", channelId, threadId], (current) =>
+      queryClient.setQueryData<ThreadRead>(["thread", threadId], (current) =>
         current ? { ...current, is_following: result.is_following } : current,
       );
     },
@@ -73,14 +76,14 @@ export function ThreadPane({
 
   async function sendReply(input: ComposerInput): Promise<Message> {
     if (!thread.data) throw new Error("Thread is unavailable");
-    return createThreadReply(channelId, threadId, {
+    return createThreadReply(threadId, {
       ...input,
       reply_to_message_id: thread.data.root.id,
     });
   }
 
   function addReply(message: Message) {
-    queryClient.setQueryData<ThreadRead>(["thread", channelId, threadId], (current) =>
+    queryClient.setQueryData<ThreadRead>(["thread", threadId], (current) =>
       current ? { ...current, snapshot_channel_seq: message.seq, replies: [...current.replies, message] } : current,
     );
     void queryClient.invalidateQueries({ queryKey: ["messages", channelId] });
@@ -105,6 +108,12 @@ export function ThreadPane({
           <span>THREAD</span>
           <strong>#{channelSlug}:{threadId}</strong>
         </div>
+        {thread.data?.task && thread.data.task_relation ? (
+          <Link className="thread-task-context" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: thread.data.task.id }} aria-label={`${thread.data.task.title} ${thread.data.task_relation.toUpperCase()}`}>
+            <strong>{thread.data.task.title}</strong>
+            <span>{thread.data.task_relation.toUpperCase()}</span>
+          </Link>
+        ) : null}
         {thread.data ? (
           <button
             className="icon-button"
@@ -135,9 +144,9 @@ export function ThreadPane({
         {thread.data ? (
           <>
             <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} />
+            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} />
             <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} />)}
+            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} />)}
           </>
         ) : null}
       </div>

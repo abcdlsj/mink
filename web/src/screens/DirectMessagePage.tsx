@@ -42,6 +42,7 @@ export function DirectMessagePage() {
             subtitle={`@${dm.other_member.handle} · Direct Message`}
             placeholder={`Message @${dm.other_member.handle}`}
             emptyTitle={`Your DM with ${dm.other_member.display_name} starts here.`}
+            spaceSlug={space.slug}
             direct
           />
         );

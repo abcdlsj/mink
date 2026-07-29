@@ -562,7 +562,7 @@ function InboxNavigation() {
 }
 
 function TasksNavigation() {
-  return <div className="context-groups" aria-label="Task status groups"><span><strong>01</strong> Open</span><span><strong>02</strong> In progress</span><span><strong>03</strong> Done</span><span><strong>04</strong> Canceled</span></div>;
+  return <div className="context-groups" aria-label="Task status groups"><span><strong>01</strong> TODO</span><span><strong>02</strong> In Progress</span><span><strong>03</strong> In Review</span><span><strong>04</strong> Done / Closed</span></div>;
 }
 
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }

@@ -45,7 +45,7 @@ async fn main() -> ExitCode {
         Command::Agent(args) => (legacy_agent_cli::run(args).await, true),
         Command::Schema(args) => {
             let result = match args.command {
-                SchemaCommand::BrowserOpenapi => legacy_server::api_schema::write_browser_openapi(),
+                SchemaCommand::BrowserOpenapi => server::write_browser_openapi(),
             };
             (result, false)
         }

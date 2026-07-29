@@ -271,27 +271,48 @@ describe("ChannelPage", () => {
           snapshot_channel_seq: 1,
           has_more_before: false,
           has_more_after: false,
-          messages: [{ ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1, task: taskSummary() }],
+          messages: [{ ...message(channelId, 1, "First Message"), thread_id: "1", reply_count: 1, task: taskSummary() }],
         });
       }
-      if (path.endsWith(`/channels/${channelId}/threads/1`) && !init?.method) {
+      if (path.endsWith("/threads/1") && !init?.method) {
         return json({
           channel_id: channelId,
-          thread_id: 1,
+          thread_id: "1",
           snapshot_channel_seq: 2,
-          root: { ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1, task: taskSummary() },
-          replies: [message(channelId, 2, "Existing reply")],
+          root: { ...message(channelId, 1, "First Message"), thread_id: "1", reply_count: 1, task: taskSummary() },
+          replies: [agentCreatedMessage(channelId, 2, reviewerId)],
           is_following: false,
+          task: taskSummary(),
+          task_relation: "related",
         });
       }
-      if (path.endsWith(`/channels/${channelId}/threads/1/subscription`) && init?.method === "PUT") {
+      if (path.endsWith("/threads/1/subscription") && init?.method === "PUT") {
         return json({ channel_id: channelId, thread_id: 1, is_following: true });
       }
-      if (path.endsWith(`/channels/${channelId}/threads/1/subscription`) && init?.method === "DELETE") {
+      if (path.endsWith("/threads/1/subscription") && init?.method === "DELETE") {
         return json({ channel_id: channelId, thread_id: 1, is_following: false });
       }
-      if (path.endsWith(`/channels/${channelId}/threads/1/messages`) && init?.method === "POST") {
+      if (path.endsWith("/threads/1/messages") && init?.method === "POST") {
         return json(message(channelId, 3, "New Thread reply"), 201);
+      }
+      if (path.includes("/root-messages/") && path.endsWith("/task") && init?.method === "POST") {
+        const created = taskSummary();
+        return json({
+          ...created,
+          space_id: "019c0000-0000-7000-8000-000000000001",
+          creator_member_id: "019c0000-0000-7000-8000-000000000002",
+          creator_name: "Ada Lovelace",
+          source_thread: { id: "1", channel_id: channelId, channel_slug: "general", root_message_id: "019c0000-0000-7000-8000-000000000102", root_message_seq: 2, relation: "source" },
+          related_threads: [],
+          recent_runs: [],
+          session_continuity: { state: "cold" },
+          created_at: "2026-07-25T00:00:00Z",
+          updated_at: "2026-07-25T00:00:00Z",
+          status: "todo",
+          title: "@lin Please review",
+          assignee_agent_member_id: undefined,
+          assignee_name: undefined,
+        }, 201);
       }
       if (path.endsWith(`/channels/${channelId}/messages`) && init?.method === "POST") {
         const input = JSON.parse(String(init.body)) as { body_markdown: string };
@@ -334,7 +355,7 @@ describe("ChannelPage", () => {
 
     expect(await screen.findByText("First Message")).toBeVisible();
     const taskBadge = screen.getByLabelText("Task: Ship message metadata · in progress · Lin");
-    expect(taskBadge).toHaveTextContent("TASK");
+    expect(taskBadge).toHaveTextContent("Ship message metadata");
     expect(taskBadge).toHaveAttribute("data-tooltip", "Ship message metadata · in progress · Lin");
     const attachmentFile = new File(["pixel notes"], "notes.txt", { type: "text/plain" });
     Object.defineProperty(attachmentFile, "arrayBuffer", {
@@ -365,6 +386,12 @@ describe("ChannelPage", () => {
         attachment_ids: ["019c0000-0000-7000-8000-000000000040"],
       });
     });
+    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/root-messages/019c0000-0000-7000-8000-000000000102/task"),
+      expect.objectContaining({ method: "POST" }),
+    ));
+    expect(await screen.findByRole("link", { name: /Task: @lin Please review/ })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Add Agents to Channel" }));
     const addDialog = screen.getByRole("dialog", { name: "Add Agents" });
@@ -382,10 +409,13 @@ describe("ChannelPage", () => {
     expect(await screen.findByText("3 Members")).toBeVisible();
 
     const preview = await screen.findByRole("region", { name: "1 Thread reply" });
-    expect(within(preview).getByText("Existing reply")).toBeVisible();
+    expect(within(preview).getByText("Created agent Reviewer · active")).toBeVisible();
     fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));
     const threadPane = await screen.findByRole("complementary", { name: /Thread #general:1/ });
-    expect(within(threadPane).getByText("Existing reply")).toBeVisible();
+    expect(threadPane.querySelector(".action-message")).toHaveTextContent("Ada Lovelace Created agent Reviewer active");
+    expect(within(threadPane).getByRole("link", { name: "Ship message metadata RELATED" })).toHaveAttribute("href", "/s/sumi-lab/tasks/019c0000-0000-7000-8000-000000000090");
+    expect(within(threadPane).getByRole("img", { name: "Reviewer avatar" })).toHaveAttribute("data-agent-identicon");
+    expect(within(threadPane).queryByText(/member_id|lifecycle.*active/)).not.toBeInTheDocument();
     expect(within(threadPane).getByLabelText("Task: Ship message metadata · in progress · Lin")).toBeVisible();
     const resizeHandle = within(threadPane).getByRole("separator", { name: "Resize Thread pane" });
     expect(resizeHandle).toHaveAttribute("aria-orientation", "vertical");
@@ -509,7 +539,9 @@ function message(channelId: string, seq: number, body: string) {
       display_name: "Ada Lovelace",
       handle: "ada-lovelace",
     },
-    body_markdown: body,
+    thread_id: "1",
+    placement: "root",
+    content: { type: "text", body_markdown: body },
     mentions: [],
     attachments: [],
     created_at: "2026-07-25T00:00:00Z",
@@ -522,8 +554,20 @@ function taskSummary() {
     id: "019c0000-0000-7000-8000-000000000090",
     title: "Ship message metadata",
     status: "in_progress",
-    assigned_agent_member_id: "019c0000-0000-7000-8000-000000000020",
+    assignee_agent_member_id: "019c0000-0000-7000-8000-000000000020",
     assignee_name: "Lin",
+    working_elsewhere: false,
+  };
+}
+
+function agentCreatedMessage(channelId: string, seq: number, memberId: string) {
+  return {
+    ...message(channelId, seq, ""),
+    placement: "reply",
+    content: {
+      type: "agent_created",
+      agent: { member_id: memberId, name: "Reviewer", lifecycle: "active", available: true },
+    },
   };
 }
 

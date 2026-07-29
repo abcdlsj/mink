@@ -27,7 +27,14 @@ describe("Agent detail", () => {
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") && !init?.method) return json([]);
-      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }, { id: agentId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: ["channel.create"] }]);
+      if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
+        current_task: { id: "task", title: "Rebuild WebUI" },
+        focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" },
+        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" }, status: "running" },
+        another_item_waiting: true,
+        session_continuity: { state: "warm", generation: 2 },
+      });
       if (path.endsWith(`/agents/${agentId}`) && !init?.method) return json(current);
       if (path.endsWith(`/agents/${agentId}`) && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
@@ -45,15 +52,23 @@ describe("Agent detail", () => {
       if (path.endsWith(`/agents/${agentId}/memory/read`) && init?.method === "POST") {
         return json({ ...current.memory_files[0], content: "# Memory\n\nKeep the boundary explicit.\n" });
       }
+      if (path.includes(`/members/${agentId}/permissions/channel.create`) && init?.method === "DELETE") {
+        return json({ id: agentId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] });
+      }
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
-    expect(screen.getByRole("img", { name: "Lin avatar" })).toHaveAttribute("data-agent-identicon");
-    expect(screen.getByRole("status")).toHaveTextContent("Running");
+    expect(screen.getAllByRole("img", { name: "Lin avatar" })[0]).toHaveAttribute("data-agent-identicon");
+    expect(screen.getAllByRole("status").find((status) => status.textContent === "Running")).toBeVisible();
     expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
+    expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
+    expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
+    const channelPermission = screen.getByRole("button", { name: "channel.create: Granted" });
+    fireEvent.click(channelPermission);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/permissions/channel.create`), expect.objectContaining({ method: "DELETE" })));
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();

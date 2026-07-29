@@ -3,3 +3,7 @@
 mod adapters;
 mod application;
 mod domain;
+
+pub(crate) fn write_browser_openapi() -> anyhow::Result<()> {
+    adapters::openapi::write_browser_openapi()
+}

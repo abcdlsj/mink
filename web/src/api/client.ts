@@ -30,14 +30,19 @@ import type {
   Attachment,
   InboxItem,
   Task,
+  CreateTaskInput,
+  UpdateTaskInput,
+  LinkTaskThreadInput,
+  CompleteTaskInput,
+  CloseTaskInput,
+  AgentRuntime,
   Approval,
-  Thread,
   ThreadRead,
   ThreadSubscription,
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Task, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, UpdateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, Approval, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;
@@ -263,36 +268,26 @@ export async function uploadAttachment(spaceId: string, file: File): Promise<Att
   );
 }
 
-export function createThread(channelId: string, rootMessageId: string): Promise<Thread> {
-  return mutate<Thread>(`/api/v1/channels/${encodeURIComponent(channelId)}/threads`, "POST", {
-    root_message_id: rootMessageId,
-  });
-}
-
-export function readThread(channelId: string, threadId: number): Promise<ThreadRead> {
-  return apiRequest<ThreadRead>(
-    `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}`,
-  );
+export function readThread(threadId: string): Promise<ThreadRead> {
+  return apiRequest<ThreadRead>(`/api/v1/threads/${encodeURIComponent(threadId)}`);
 }
 
 export function setThreadSubscription(
-  channelId: string,
-  threadId: number,
+  threadId: string,
   isFollowing: boolean,
 ): Promise<ThreadSubscription> {
   return mutate<ThreadSubscription>(
-    `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}/subscription`,
+    `/api/v1/threads/${encodeURIComponent(threadId)}/subscription`,
     isFollowing ? "PUT" : "DELETE",
   );
 }
 
 export function createThreadReply(
-  channelId: string,
-  threadId: number,
+  threadId: string,
   input: CreateThreadReplyInput,
 ): Promise<Message> {
   return mutate<Message>(
-    `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}/messages`,
+    `/api/v1/threads/${encodeURIComponent(threadId)}/messages`,
     "POST",
     input,
   );
@@ -304,6 +299,64 @@ export function listInbox(memberId: string): Promise<InboxItem[]> {
 
 export function listTasks(spaceId: string): Promise<Task[]> {
   return apiRequest<Task[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`);
+}
+
+export function getTask(taskId: string): Promise<Task> {
+  return apiRequest<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export function createTaskFromRootMessage(messageId: string, input: CreateTaskInput): Promise<Task> {
+  return mutate<Task>(`/api/v1/root-messages/${encodeURIComponent(messageId)}/task`, "POST", input);
+}
+
+export function updateTask(taskId: string, input: UpdateTaskInput): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}`, "PATCH", input);
+}
+
+export function linkTaskThread(taskId: string, input: LinkTaskThreadInput): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/threads`, "POST", input);
+}
+
+export function unlinkTaskThread(taskId: string, threadId: string): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/threads/${encodeURIComponent(threadId)}`, "DELETE");
+}
+
+export function startTask(taskId: string, assigneeAgentMemberId: string): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/start`, "POST", {
+    assignee_agent_member_id: assigneeAgentMemberId,
+  });
+}
+
+export function submitTaskReview(taskId: string): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/submit-review`, "POST");
+}
+
+export function requestTaskChanges(taskId: string): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/request-changes`, "POST");
+}
+
+export function completeTask(taskId: string, input: CompleteTaskInput): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/done`, "POST", input);
+}
+
+export function closeTask(taskId: string, input: CloseTaskInput): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/close`, "POST", input);
+}
+
+export function resetTaskSession(taskId: string): Promise<Task> {
+  return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/reset-session`, "POST");
+}
+
+export function getAgentRuntime(agentId: string): Promise<AgentRuntime> {
+  return apiRequest<AgentRuntime>(`/api/v1/agents/${encodeURIComponent(agentId)}/runs/current`);
+}
+
+export function grantMemberPermission(memberId: string, actionCode: string): Promise<Member> {
+  return mutate<Member>(`/api/v1/members/${encodeURIComponent(memberId)}/permissions/${encodeURIComponent(actionCode)}`, "PUT");
+}
+
+export function revokeMemberPermission(memberId: string, actionCode: string): Promise<Member> {
+  return mutate<Member>(`/api/v1/members/${encodeURIComponent(memberId)}/permissions/${encodeURIComponent(actionCode)}`, "DELETE");
 }
 
 export function listApprovals(spaceId: string): Promise<Approval[]> {

@@ -3,81 +3,98 @@ export type paths = Record<string, never>;
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        AccessLevel: "owner" | "admin" | "member";
+        ActionAgentResponse: {
+            available: boolean;
+            lifecycle: components["schemas"]["AgentLifecycle"];
+            /** Format: uuid */
+            member_id: string;
+            name: string;
+        };
+        ActionChannelResponse: {
+            available: boolean;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            slug: string;
+        };
         AddChannelAgentsRequest: {
             agent_member_ids: string[];
         };
+        /** @enum {string} */
+        AgentAccessLevel: "member" | "admin";
         AgentActivityResponse: {
             kind: string;
             label: string;
-            /** Format: date-time */
             updated_at: string;
         };
+        /** @enum {string} */
+        AgentActivityStatus: "idle" | "queued" | "starting" | "running" | "finalizing" | "stopping" | "unreachable" | "suspended" | "error";
         AgentCreateApprovalPayload: {
-            /** @enum {string} */
-            access_level: "member";
+            access_level: components["schemas"]["AgentAccessLevel"];
             /** Format: uuid */
             computer_id: string;
-            /** @enum {string} */
-            driver_kind: "codex" | "builtin";
+            driver_kind: components["schemas"]["DriverKind"];
             name: string;
             permissions: string[];
             role_text: string;
         };
+        /** @enum {string} */
+        AgentLifecycle: "active" | "suspended" | "retired";
         AgentResponse: {
-            /** @enum {string} */
-            access_level: "member" | "admin";
+            access_level: components["schemas"]["AgentAccessLevel"];
             activity?: null | components["schemas"]["AgentActivityResponse"];
-            /** @enum {string} */
-            activity_status: "idle" | "queued" | "starting" | "running" | "stopping" | "unreachable" | "suspended" | "error";
+            activity_status: components["schemas"]["AgentActivityStatus"];
             attention_config: components["schemas"]["AttentionConfig"];
             /** Format: uuid */
             computer_id: string;
-            /** Format: date-time */
             created_at: string;
-            /** @enum {string} */
-            desired_lifecycle: "active" | "suspended" | "retired";
-            /** @enum {string} */
-            driver_kind: "codex" | "builtin";
+            desired_lifecycle: components["schemas"]["AgentLifecycle"];
+            driver_kind: components["schemas"]["DriverKind"];
             handle: string;
             last_error_code?: string | null;
             /** Format: uuid */
             member_id: string;
             memory_files: components["schemas"]["MemoryFileResponse"][];
             name: string;
-            /** @enum {string} */
-            provision_status: "provisioning" | "ready" | "error";
-            /** Format: date-time */
+            provision_status: components["schemas"]["ProvisionStatus"];
             retired_at?: string | null;
             /** Format: int64 */
             role_revision: number;
             role_text: string;
             /** Format: uuid */
             space_id: string;
-            /** Format: date-time */
             updated_at: string;
         };
+        AgentRuntimeResponse: {
+            another_item_waiting: boolean;
+            current_run?: null | components["schemas"]["RunResponse"];
+            current_task?: null | components["schemas"]["TaskResponse"];
+            focus?: null | components["schemas"]["ThreadReferenceResponse"];
+            session_continuity: components["schemas"]["SessionContinuityResponse"];
+        };
+        /** @enum {string} */
+        ApprovalKind: "agent_create";
         ApprovalResponse: {
-            /** Format: date-time */
             created_at: string;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["ApprovalKind"];
             payload: components["schemas"]["AgentCreateApprovalPayload"];
             /** Format: uuid */
             requested_by_member_id: string;
             requester_name: string;
-            /** Format: date-time */
             resolved_at?: string | null;
             /** Format: uuid */
             resolved_by_member_id?: string | null;
             /** Format: uuid */
             space_id: string;
-            /** @enum {string} */
-            status: "pending" | "approved" | "rejected" | "canceled";
-            /** @enum {string} */
-            type: "agent.create";
+            status: components["schemas"]["ApprovalStatus"];
         };
+        /** @enum {string} */
+        ApprovalStatus: "pending" | "approved" | "rejected" | "canceled";
         AttachmentResponse: {
-            /** Format: date-time */
             created_at: string;
             download_path?: string | null;
             /** Format: uuid */
@@ -89,25 +106,26 @@ export interface components {
             size?: number | null;
             /** Format: uuid */
             space_id: string;
-            /** @enum {string} */
-            status: "uploading" | "ready" | "deleted";
+            status: components["schemas"]["AttachmentStatus"];
             upload_path?: string | null;
             /** Format: uuid */
             uploader_member_id: string;
         };
+        /** @enum {string} */
+        AttachmentStatus: "uploading" | "ready" | "deleted";
         AttentionConfig: {
             /** Format: int32 */
             ambient_debounce_seconds: number;
             ambient_enabled: boolean;
             /** Format: int32 */
             ambient_max_wait_seconds: number;
-            /** @enum {boolean} */
-            dm_immediate: true;
+            dm_immediate: boolean;
             /** Format: int32 */
             max_retry_count: number;
-            /** @enum {boolean} */
-            mention_immediate: true;
+            mention_immediate: boolean;
         };
+        /** @enum {string} */
+        ChannelKind: "public" | "private";
         ChannelListResponse: {
             can_create: boolean;
             channels: components["schemas"]["ChannelResponse"][];
@@ -117,43 +135,52 @@ export interface components {
             members: components["schemas"]["MemberResponse"][];
         };
         ChannelResponse: {
-            /** Format: date-time */
             archived_at?: string | null;
             /** Format: uuid */
             created_by_member_id: string;
             /** Format: uuid */
             id: string;
             joined: boolean;
-            /** @enum {string} */
-            kind: "public" | "private";
+            kind: components["schemas"]["ChannelKind"];
             name: string;
             slug: string;
             /** Format: uuid */
             space_id: string;
             topic?: string | null;
         };
+        /** @enum {string} */
+        CloseReason: "invalid" | "duplicate" | "not_needed" | "obsolete" | "other";
+        CloseTaskRequest: {
+            note?: string | null;
+            reason: components["schemas"]["CloseReason"];
+        };
+        CompleteTaskRequest: {
+            result_markdown: string;
+            /** Format: uuid */
+            result_thread_id: string;
+        };
         CompleteUploadRequest: {
             sha256: string;
             /** Format: int64 */
             size: number;
         };
+        /** @enum {string} */
+        ComputerOs: "macos" | "linux";
         ComputerResponse: {
-            /** Format: date-time */
             created_at: string;
             daemon_version: string;
             hostname: string;
             /** Format: uuid */
             id: string;
-            /** Format: date-time */
             last_seen_at?: string | null;
             name: string;
-            /** @enum {string} */
-            os: "macos" | "linux";
+            os: components["schemas"]["ComputerOs"];
             /** Format: uuid */
             space_id: string;
-            /** @enum {string} */
-            status: "online" | "offline" | "revoked";
+            status: components["schemas"]["ComputerStatus"];
         };
+        /** @enum {string} */
+        ComputerStatus: "online" | "offline" | "revoked";
         ConfirmPairingRequest: {
             code: string;
             name: string;
@@ -161,20 +188,17 @@ export interface components {
             space_id: string;
         };
         CreateAgentRequest: {
-            /** @enum {string} */
-            access_level: "member" | "admin";
+            access_level: components["schemas"]["AgentAccessLevel"];
             /** Format: uuid */
             computer_id: string;
-            /** @enum {string} */
-            driver_kind: "codex" | "builtin";
+            driver_kind: components["schemas"]["DriverKind"];
             handle?: string | null;
             name: string;
             role_text: string;
         };
         CreateChannelRequest: {
             agent_member_ids: string[];
-            /** @enum {string} */
-            kind: "public" | "private";
+            kind: components["schemas"]["ChannelKind"];
             name: string;
             slug: string;
             topic?: string | null;
@@ -188,25 +212,26 @@ export interface components {
             invite_token: string;
         };
         CreateMessageRequest: {
-            attachment_ids?: string[];
+            attachment_ids: string[];
             body_markdown: string;
-            mentions?: string[];
+            mentions: string[];
         };
         CreateSpaceRequest: {
             accent: string;
             name: string;
             slug: string;
         };
+        CreateTaskRequest: {
+            /** Format: uuid */
+            assignee_agent_member_id?: string | null;
+            title?: string | null;
+        };
         CreateThreadMessageRequest: {
-            attachment_ids?: string[];
+            attachment_ids: string[];
             body_markdown: string;
-            mentions?: string[];
+            mentions: string[];
             /** Format: uuid */
             reply_to_message_id?: string | null;
-        };
-        CreateThreadRequest: {
-            /** Format: uuid */
-            root_message_id: string;
         };
         CreateUploadRequest: {
             media_type: string;
@@ -215,22 +240,22 @@ export interface components {
             space_id: string;
         };
         DeferRequest: {
-            /** Format: date-time */
             until: string;
         };
         DirectMessageResponse: {
             /** Format: uuid */
             channel_id: string;
-            /** Format: date-time */
             created_at: string;
             other_member: components["schemas"]["MemberResponse"];
             /** Format: uuid */
             space_id: string;
         };
+        /** @enum {string} */
+        DriverKind: "codex" | "builtin";
         ErrorBody: {
             code: string;
-            details?: unknown;
             message: string;
+            retryable: boolean;
         };
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
@@ -238,35 +263,38 @@ export interface components {
         InboxItemResponse: {
             /** Format: uuid */
             approval_id?: string | null;
-            /** Format: date-time */
             available_at: string;
             /** Format: uuid */
             channel_id?: string | null;
             channel_slug?: string | null;
-            /** Format: date-time */
             created_at: string;
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "direct" | "mention" | "reply" | "thread_activity" | "channel_activity" | "approval" | "system";
+            kind: components["schemas"]["InboxKind"];
             /** Format: uuid */
             member_id: string;
             /** Format: uuid */
             message_id?: string | null;
-            /** @enum {string} */
-            priority: "hard" | "ambient";
+            priority: components["schemas"]["InboxPriority"];
             sender_display_name?: string | null;
             /** Format: uuid */
             sender_member_id?: string | null;
-            /** @enum {string} */
-            status: "pending" | "deferred" | "handled";
-            summary?: string | null;
-            /** Format: int64 */
-            thread_id?: number | null;
+            status: components["schemas"]["InboxStatus"];
+            summary: string;
+            /** Format: uuid */
+            thread_id?: string | null;
         };
+        /** @enum {string} */
+        InboxKind: "direct" | "mention" | "reply" | "thread_activity" | "channel_activity" | "approval" | "system";
+        /** @enum {string} */
+        InboxPriority: "hard" | "ambient";
+        /** @enum {string} */
+        InboxStatus: "pending" | "deferred" | "handled";
         InvitationResponse: {
+            accepted_at?: string | null;
+            /** Format: uuid */
+            accepted_by_member_id?: string | null;
             email: string;
-            /** Format: date-time */
             expires_at: string;
             /** Format: uuid */
             id: string;
@@ -289,6 +317,10 @@ export interface components {
             /** @enum {string} */
             action: "retire";
         };
+        LinkTaskThreadRequest: {
+            /** Format: uuid */
+            thread_id: string;
+        };
         LoginRequest: {
             email: string;
             password: string;
@@ -296,15 +328,15 @@ export interface components {
         LoginResponse: {
             user: components["schemas"]["UserResponse"];
         };
+        /** @enum {string} */
+        MemberKind: "human" | "agent";
         MemberResponse: {
-            /** @enum {string} */
-            access_level: "owner" | "admin" | "member";
+            access_level: components["schemas"]["AccessLevel"];
             display_name: string;
             handle: string;
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "human" | "agent";
+            kind: components["schemas"]["MemberKind"];
             permissions: string[];
         };
         MemoryContentResponse: {
@@ -313,7 +345,6 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size: number;
-            /** Format: date-time */
             updated_at: string;
         };
         MemoryFileResponse: {
@@ -321,7 +352,6 @@ export interface components {
             sha256: string;
             /** Format: int64 */
             size: number;
-            /** Format: date-time */
             updated_at: string;
         };
         MessageAuthor: {
@@ -329,8 +359,20 @@ export interface components {
             handle: string;
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["MemberKind"];
+        };
+        MessageContentResponse: {
+            body_markdown: string;
             /** @enum {string} */
-            kind: "human" | "agent";
+            type: "text";
+        } | {
+            channel: components["schemas"]["ActionChannelResponse"];
+            /** @enum {string} */
+            type: "channel_created";
+        } | {
+            agent: components["schemas"]["ActionAgentResponse"];
+            /** @enum {string} */
+            type: "agent_created";
         };
         MessagePageResponse: {
             /** Format: uuid */
@@ -341,51 +383,53 @@ export interface components {
             /** Format: int64 */
             snapshot_channel_seq: number;
         };
+        /** @enum {string} */
+        MessagePlacement: "root" | "reply";
         MessageResponse: {
             attachments: components["schemas"]["AttachmentResponse"][];
             author: components["schemas"]["MessageAuthor"];
-            body_markdown: string;
             /** Format: uuid */
             channel_id: string;
-            /** Format: date-time */
+            content: components["schemas"]["MessageContentResponse"];
             created_at: string;
-            /** Format: date-time */
             deleted_at?: string | null;
-            /** Format: date-time */
             edited_at?: string | null;
             /** Format: uuid */
             id: string;
             mentions: string[];
+            placement: components["schemas"]["MessagePlacement"];
             /** Format: int64 */
             reply_count: number;
             /** Format: int64 */
             seq: number;
             task?: null | components["schemas"]["MessageTaskSummary"];
-            /** Format: int64 */
-            thread_id?: number | null;
+            /** Format: uuid */
+            thread_id: string;
         };
         MessageTaskSummary: {
             /** Format: uuid */
-            assigned_agent_member_id?: string | null;
+            assignee_agent_member_id?: string | null;
             assignee_name?: string | null;
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            status: "open" | "in_progress" | "done" | "canceled";
+            status: components["schemas"]["TaskStatus"];
             title: string;
+            working_elsewhere: boolean;
         };
         PairingDetailsResponse: {
             daemon_version: string;
-            /** Format: date-time */
             expires_at: string;
             hostname: string;
             os: string;
             /** Format: uuid */
             pairing_id: string;
-            /** @enum {string} */
-            status: "pending" | "confirmed" | "expired";
+            status: components["schemas"]["PairingStatus"];
             token_fingerprint: string;
         };
+        /** @enum {string} */
+        PairingStatus: "pending" | "confirmed" | "expired";
+        /** @enum {string} */
+        ProvisionStatus: "provisioning" | "ready" | "error";
         ReadMemoryRequest: {
             path: string;
         };
@@ -398,6 +442,34 @@ export interface components {
             next: string;
             user: components["schemas"]["UserResponse"];
         };
+        /** @enum {string} */
+        RunOutcome: "completed" | "yielded" | "failed" | "canceled";
+        RunResponse: {
+            /** Format: uuid */
+            agent_member_id: string;
+            agent_name: string;
+            continuation_note?: string | null;
+            error_code?: string | null;
+            finished_at?: string | null;
+            focus: components["schemas"]["ThreadReferenceResponse"];
+            /** Format: uuid */
+            id: string;
+            outcome?: null | components["schemas"]["RunOutcome"];
+            started_at?: string | null;
+            status: components["schemas"]["RunStatus"];
+            /** Format: uuid */
+            task_id?: string | null;
+        };
+        /** @enum {string} */
+        RunStatus: "queued" | "starting" | "running" | "finalizing" | "completed" | "yielded" | "failed" | "stopping" | "canceled";
+        SessionContinuityResponse: {
+            /** Format: int64 */
+            generation?: number | null;
+            reason_code?: string | null;
+            state: components["schemas"]["SessionContinuityState"];
+        };
+        /** @enum {string} */
+        SessionContinuityState: "warm" | "cold" | "reset_required" | "unavailable";
         SpaceResponse: {
             accent: string;
             /** Format: uuid */
@@ -415,30 +487,32 @@ export interface components {
         SuspendMode: "stop_after_current" | "cancel_now";
         TaskResponse: {
             /** Format: uuid */
-            assigned_agent_member_id?: string | null;
+            assignee_agent_member_id?: string | null;
             assignee_name?: string | null;
-            /** Format: uuid */
-            channel_id: string;
-            channel_slug: string;
-            /** Format: date-time */
+            close_reason_code?: null | components["schemas"]["CloseReason"];
+            close_reason_note?: string | null;
             created_at: string;
             /** Format: uuid */
-            created_by_member_id: string;
+            creator_member_id: string;
             creator_name: string;
+            current_run?: null | components["schemas"]["RunResponse"];
+            finished_at?: string | null;
             /** Format: uuid */
             id: string;
-            /** Format: uuid */
-            source_message_id: string;
-            /** Format: int64 */
-            source_seq: number;
+            recent_runs: components["schemas"]["RunResponse"][];
+            related_threads: components["schemas"]["ThreadReferenceResponse"][];
+            result_message?: null | components["schemas"]["MessageResponse"];
+            runtime_issue_code?: string | null;
+            session_continuity: components["schemas"]["SessionContinuityResponse"];
+            source_thread: components["schemas"]["ThreadReferenceResponse"];
             /** Format: uuid */
             space_id: string;
-            /** @enum {string} */
-            status: "open" | "in_progress" | "done" | "canceled";
+            status: components["schemas"]["TaskStatus"];
             title: string;
-            /** Format: date-time */
             updated_at: string;
         };
+        /** @enum {string} */
+        TaskStatus: "todo" | "in_progress" | "in_review" | "done" | "closed";
         ThreadReadResponse: {
             /** Format: uuid */
             channel_id: string;
@@ -447,27 +521,31 @@ export interface components {
             root: components["schemas"]["MessageResponse"];
             /** Format: int64 */
             snapshot_channel_seq: number;
-            /** Format: int64 */
-            thread_id: number;
+            task?: null | components["schemas"]["MessageTaskSummary"];
+            task_relation?: null | components["schemas"]["ThreadRelation"];
+            /** Format: uuid */
+            thread_id: string;
         };
-        ThreadResponse: {
+        ThreadReferenceResponse: {
             /** Format: uuid */
             channel_id: string;
-            /** Format: date-time */
-            created_at: string;
+            channel_slug: string;
             /** Format: uuid */
-            created_by_member_id: string;
+            id: string;
+            relation: components["schemas"]["ThreadRelation"];
             /** Format: uuid */
             root_message_id: string;
             /** Format: int64 */
-            thread_id: number;
+            root_message_seq: number;
         };
+        /** @enum {string} */
+        ThreadRelation: "source" | "related";
         ThreadSubscriptionResponse: {
             /** Format: uuid */
             channel_id: string;
             is_following: boolean;
-            /** Format: int64 */
-            thread_id: number;
+            /** Format: uuid */
+            thread_id: string;
         };
         UpdateAgentRequest: {
             attention_config?: null | components["schemas"]["AttentionConfig"];
@@ -475,8 +553,13 @@ export interface components {
             role_text?: string | null;
         };
         UpdateMemberRequest: {
-            access_level?: string | null;
+            access_level?: null | components["schemas"]["AccessLevel"];
             permissions?: string[] | null;
+        };
+        UpdateTaskRequest: {
+            /** Format: uuid */
+            assignee_agent_member_id?: string | null;
+            title?: string | null;
         };
         UserResponse: {
             display_name: string;
@@ -496,6 +579,7 @@ export type operations = Record<string, never>;
 
 export type AddChannelAgentsInput = components["schemas"]["AddChannelAgentsRequest"];
 export type Agent = components["schemas"]["AgentResponse"];
+export type AgentRuntime = components["schemas"]["AgentRuntimeResponse"];
 export type AgentMemoryContent = components["schemas"]["MemoryContentResponse"];
 export type AgentMemoryFile = components["schemas"]["MemoryFileResponse"];
 export type Approval = components["schemas"]["ApprovalResponse"];
@@ -513,7 +597,7 @@ export type CreateDirectMessageInput = components["schemas"]["CreateDirectMessag
 export type CreateInvitationInput = components["schemas"]["CreateInvitationRequest"];
 export type CreateMessageInput = components["schemas"]["CreateMessageRequest"];
 export type CreateSpaceInput = components["schemas"]["CreateSpaceRequest"];
-export type CreateThreadInput = components["schemas"]["CreateThreadRequest"];
+export type CreateTaskInput = components["schemas"]["CreateTaskRequest"];
 export type CreateThreadReplyInput = components["schemas"]["CreateThreadMessageRequest"];
 export type CreateUploadInput = components["schemas"]["CreateUploadRequest"];
 export type DeferInboxInput = components["schemas"]["DeferRequest"];
@@ -534,9 +618,17 @@ export type RegisterInput = components["schemas"]["RegisterRequest"];
 export type RegisterResponse = components["schemas"]["RegisterResponse"];
 export type Space = components["schemas"]["SpaceResponse"];
 export type Task = components["schemas"]["TaskResponse"];
-export type Thread = components["schemas"]["ThreadResponse"];
+export type TaskStatus = components["schemas"]["TaskStatus"];
+export type Run = components["schemas"]["RunResponse"];
+export type RunStatus = components["schemas"]["RunStatus"];
+export type SessionContinuity = components["schemas"]["SessionContinuityResponse"];
+export type ThreadReference = components["schemas"]["ThreadReferenceResponse"];
 export type ThreadRead = components["schemas"]["ThreadReadResponse"];
 export type ThreadSubscription = components["schemas"]["ThreadSubscriptionResponse"];
 export type UpdateAgentInput = components["schemas"]["UpdateAgentRequest"];
+export type UpdateTaskInput = components["schemas"]["UpdateTaskRequest"];
+export type LinkTaskThreadInput = components["schemas"]["LinkTaskThreadRequest"];
+export type CompleteTaskInput = components["schemas"]["CompleteTaskRequest"];
+export type CloseTaskInput = components["schemas"]["CloseTaskRequest"];
 export type UpdateMemberInput = components["schemas"]["UpdateMemberRequest"];
 export type User = components["schemas"]["UserResponse"];

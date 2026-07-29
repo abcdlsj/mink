@@ -270,7 +270,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                     onChange={(event) =>
                       memberUpdate.mutate({
                         memberId: member.id,
-                        input: { access_level: event.target.value },
+                        input: { access_level: event.target.value as "member" | "admin" },
                       })
                     }
                   >

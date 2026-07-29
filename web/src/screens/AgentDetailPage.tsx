@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { Brain, Eye, Inbox, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
-import { getAgent, readAgentMemory, updateAgent } from "../api/client";
+import { getAgent, getAgentRuntime, grantMemberPermission, listMembers, readAgentMemory, revokeMemberPermission, updateAgent } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
@@ -21,9 +21,10 @@ export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="members">
-      {({ currentMember, openNavigation }) => (
+      {({ space, currentMember, openNavigation }) => (
         <AgentWorkspace
           agentId={agentId}
+          spaceId={space.id}
           spaceSlug={spaceSlug}
           canManage={currentMember.access_level === "owner" || currentMember.access_level === "admin"}
           openNavigation={openNavigation}
@@ -33,11 +34,13 @@ export function AgentDetailPage() {
   );
 }
 
-function AgentWorkspace({ agentId, spaceSlug, canManage, openNavigation }: { agentId: string; spaceSlug: string; canManage: boolean; openNavigation: () => void }) {
+function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation }: { agentId: string; spaceId: string; spaceSlug: string; canManage: boolean; openNavigation: () => void }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<AgentTab>("overview");
   const [cancelNow, setCancelNow] = useState(false);
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
+  const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false });
+  const members = useQuery({ queryKey: ["members", spaceId], queryFn: () => listMembers(spaceId) });
   const update = useMutation({
     mutationFn: (input: Parameters<typeof updateAgent>[1]) => updateAgent(agentId, input),
     onSuccess: (updated) => {
@@ -47,6 +50,10 @@ function AgentWorkspace({ agentId, spaceSlug, canManage, openNavigation }: { age
     },
   });
   const memory = useMutation({ mutationFn: (path: string) => readAgentMemory(agentId, path) });
+  const permission = useMutation({
+    mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => enabled ? grantMemberPermission(agentId, action) : revokeMemberPermission(agentId, action),
+    onSuccess: (member) => queryClient.setQueryData(["members", spaceId], (current: Awaited<ReturnType<typeof listMembers>> | undefined) => current?.map((item) => item.id === member.id ? member : item)),
+  });
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,6 +75,7 @@ function AgentWorkspace({ agentId, spaceSlug, canManage, openNavigation }: { age
   if (agent.isPending) return <div className="detail-skeleton" aria-label="Loading Agent" />;
   if (agent.error || !agent.data) return <p className="route-status route-status--error">Agent unavailable. Check your permission and retry.</p>;
   const value = agent.data;
+  const agentMember = members.data?.find((member) => member.id === value.member_id);
 
   return (
     <section className="agent-workspace" aria-labelledby="agent-heading">
@@ -94,7 +102,8 @@ function AgentWorkspace({ agentId, spaceSlug, canManage, openNavigation }: { age
           <>
             <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} tabular /></dl></DetailSection>
             <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={activityLabel(value.activity_status)} /><Field label="Activity" value={value.activity?.label ?? "No active operation"} /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={activityLabel(value.activity_status)} /><Field label="Activity" value={value.activity?.label ?? "No active operation"} /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl>{runtime.isPending ? <p>Loading current Run…</p> : null}{runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}{runtime.data ? <div className="agent-runtime-facts">{runtime.data.current_task ? <p><strong>Task</strong><Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link></p> : <p><strong>Task</strong>None</p>}{runtime.data.focus ? <p><strong>Focus</strong><Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link></p> : <p><strong>Focus</strong>None</p>}<p><strong>Run</strong>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p><p><strong>Session continuity</strong>{runtime.data.session_continuity.state.replace("_", " ")}</p>{runtime.data.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}</div> : null}</DetailSection>
+            <DetailSection title="Action permissions"><p>Permissions grant one Server action. They do not change the Agent Role or Channel visibility.</p><div className="permission-actions">{["channel.create", "agent.create"].map((action) => { const enabled = agentMember?.permissions.includes(action) ?? false; return <button key={action} className="command-button" type="button" disabled={!canManage || permission.isPending || !agentMember} aria-pressed={enabled} onClick={() => permission.mutate({ action, enabled: !enabled })}>{action}: {enabled ? "Granted" : "Not granted"}</button>; })}</div>{permission.error ? <p className="form-error" role="alert">Permission update failed.</p> : null}</DetailSection>
             <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} tabular /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} tabular /></dl></DetailSection>
           </>
         ) : null}
