@@ -30,6 +30,7 @@
 9. [数据库设计](./design/08-database.md)：原子写模型、约束、事务和持续优化。
 10. [安全与运维](./design/09-security-operations.md)：授权、可见范围、Session 污染和诊断。
 11. [交付与验收](./design/10-delivery-acceptance.md)：重建顺序、测试矩阵和完成条件。
+12. [代码组织与依赖边界](./design/11-code-organization.md)：Server、Computer、协议、目录、依赖方向和可见性。
 
 ## 架构决策
 

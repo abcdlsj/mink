@@ -113,34 +113,7 @@ Browser 只通过 Server API 修改事实。SSE 用于刷新投影，不承担�
 
 ## 6. 模块边界
 
-代码按行为划分，而不是按数据库表或 HTTP 路由划分。每个模块必须有一个明确职责。
-
-```text
-server/
-  identity/        Space、Member、权限
-  conversation/    Channel、Message、Thread、Attachment
-  task/            Task、来源、关联、状态、Result
-  attention/       Inbox Item 生成和领取
-  execution/       Run、租约、命令、结果回执
-  computer/        配对、连接、assignment
-  api/             Browser 与 Computer transport adapter
-
-computer/
-  connection/      Server 连接和重放
-  scheduler/       本机执行槽和 Agent公平性
-  supervisor/      Run 与 Driver 进程
-  session/         Provider Session 生命周期
-  home/            workspace、Memory 和本地目录
-  capability/      Agent CLI 本地鉴权与转发
-
-drivers/
-  codex/
-  builtin/
-```
-
-领域模块不依赖 HTTP DTO、WebSocket frame 或 Driver SDK。Transport adapter 将外部输入转换为领域命令。
-
-Repository 在事务边界内保存聚合，不向上层泄漏 SQL 行结构。
+Server、Computer、Agent CLI 和 Driver 的代码职责、目录与依赖方向由[代码组织与依赖边界](./11-code-organization.md)定义。
 
 以下行为必须各自只有一个入口：
 

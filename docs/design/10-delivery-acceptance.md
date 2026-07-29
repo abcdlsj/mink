@@ -17,6 +17,8 @@
 
 ## 2. 实施顺序
 
+目录、模块和依赖调整按[代码组织与依赖边界](./11-code-organization.md)执行。阶段顺序不能成为保留旧模块或兼容路径的理由。
+
 ### 阶段一：领域层
 
 - 建立Root Message、Thread、Task、TaskThread、Run和Inbox Item类型。
@@ -131,6 +133,12 @@
 ## 8. 代码质量验收
 
 - 领域模块不引用HTTP DTO、WebSocket frame或Driver SDK。
+- Server领域模块不能被Computer、Driver或Agent CLI引用。
+- Computer core不能引用Server领域模块、wire frame或Driver SDK。
+- Server与Computer只能通过`protocol`中的版本化wire类型通信。
+- `protocol`不能包含领域行为、SQL row或运行时实现。
+- Adapter只能依赖application公开用例，不能复制领域判断。
+- 架构依赖检查拒绝设计文件列出的禁止依赖。
 - 每个模块有单一公开职责和领域命名接口。
 - Task创建只有一个transaction service。
 - Session lifecycle只存在于Computer session模块。
