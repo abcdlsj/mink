@@ -2,13 +2,22 @@ mod agent_cli;
 mod agent_config;
 mod agent_core;
 mod cli;
+// 新运行时在最终切换任务前必须保持未接入状态。
+#[allow(dead_code)]
 mod computer;
 mod computer_protocol;
 mod config;
 mod database;
 mod driver;
+#[allow(dead_code)]
+mod ids;
+mod legacy_computer;
+mod legacy_server;
 mod local_protocol;
 mod prompt;
+#[allow(dead_code)]
+mod protocol;
+#[allow(dead_code)]
 mod server;
 mod supervisor;
 
@@ -26,12 +35,12 @@ async fn main() -> ExitCode {
         Err(error) => return handle_parse_error(error),
     };
     let (result, agent_command) = match cli.command {
-        Command::Server(args) => (server::run(args).await, false),
-        Command::Computer(args) => (computer::run(args).await, false),
+        Command::Server(args) => (legacy_server::run(args).await, false),
+        Command::Computer(args) => (legacy_computer::run(args).await, false),
         Command::Agent(args) => (agent_cli::run(args).await, true),
         Command::Schema(args) => {
             let result = match args.command {
-                SchemaCommand::BrowserOpenapi => server::api_schema::write_browser_openapi(),
+                SchemaCommand::BrowserOpenapi => legacy_server::api_schema::write_browser_openapi(),
             };
             (result, false)
         }

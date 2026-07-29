@@ -24,7 +24,7 @@
 
 ## 3. 执行任务
 
-- [ ] 建立标识、协议、Server facade 和 Computer facade。
+- [x] 建立标识、协议、Server facade 和 Computer facade。
 - [ ] 重建 Server domain 和 application，并通过模块测试。
 - [ ] 实现 PostgreSQL、对象存储和 Server transport adapters，并通过模块测试。
 - [ ] 重建 Computer core 和 application，并通过模块测试。
@@ -38,6 +38,10 @@
 前七个任务只运行本模块的定向测试。最后一个任务负责运行完整集成、故障和端到端验收。
 
 新模块不能通过临时桥接、兼容 adapter 或双写接入旧实现。最终切换前，旧运行时继续独立工作；新模块通过自身端口和测试独立验证。
+
+每个任务完成实现和定向测试后，必须按该任务涉及的主题设计文档 review 实现、测试和依赖边界。发现偏差时先修正并重新验证。Review 未通过时不得勾选任务或提交。
+
+不得为字段转换、逐字段搬运或不承载业务、协议或安全约束的字段检查编写单元测试。调试期间临时添加的此类测试或脚手架必须在每次任务交接前删除。
 
 ## 4. Handoff 规则
 

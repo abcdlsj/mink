@@ -235,3 +235,52 @@ pub(crate) struct MemoryFileMetadata {
     #[serde(with = "time::serde::rfc3339")]
     pub(crate) updated_at: OffsetDateTime,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HostedAgent {
+    pub(crate) member_id: Uuid,
+    pub(crate) desired_lifecycle: String,
+    pub(crate) provision_status: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentClaimResponse {
+    pub(crate) claimed: bool,
+    pub(crate) run_id: Option<Uuid>,
+    pub(crate) inbox_item_ids: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentLeaseRequest {
+    pub(crate) run_id: Uuid,
+    pub(crate) fencing_token: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentLeaseResponse {
+    pub(crate) renewed_items: u64,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) lease_expires_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) ownership_lease_expires_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentReleaseRequest {
+    pub(crate) run_id: Uuid,
+    pub(crate) fencing_token: String,
+    pub(crate) error_code: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentReleaseResponse {
+    pub(crate) released: bool,
+    pub(crate) retry_items: u64,
+    pub(crate) dead_items: u64,
+}

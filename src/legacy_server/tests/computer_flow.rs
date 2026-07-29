@@ -2871,7 +2871,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .execute(&pool)
     .await?;
     let mut reconcile_transaction = pool.begin().await?;
-    let reconciled = crate::server::computer_registry::reconcile_expired_run_ownership(
+    let reconciled = crate::legacy_server::computer_registry::reconcile_expired_run_ownership(
         &mut reconcile_transaction,
     )
     .await
