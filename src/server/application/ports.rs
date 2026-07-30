@@ -124,6 +124,13 @@ pub(in crate::server) struct PublishedMessage {
     pub(in crate::server) hard_item_ids: Vec<InboxItemId>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct CreatedSpace {
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) owner_id: MemberId,
+    pub(in crate::server) general_channel_id: ChannelId,
+}
+
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::server) struct RawFencingToken(String);
 
@@ -149,6 +156,20 @@ impl fmt::Debug for RawFencingToken {
 
 #[async_trait]
 pub(in crate::server) trait ServerTransaction {
+    #[allow(clippy::too_many_arguments)]
+    async fn create_space(
+        &mut self,
+        actor_user_id: uuid::Uuid,
+        space_id: crate::ids::SpaceId,
+        owner_id: MemberId,
+        general_channel_id: ChannelId,
+        name: &str,
+        slug: &str,
+        owner_handle: &str,
+        owner_display_name: &str,
+        idempotency_key: IdempotencyKey,
+        now: time::OffsetDateTime,
+    ) -> Result<CreatedSpace, ApplicationError>;
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError>;
     async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError>;

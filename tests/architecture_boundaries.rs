@@ -39,6 +39,25 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     assert_scoped_visibility("src/server");
     assert_scoped_visibility("src/computer");
     assert_scoped_visibility("src/agent_cli");
+    assert_handler_does_not_own_space_transaction();
+}
+
+fn assert_handler_does_not_own_space_transaction() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/server/adapters/runtime.rs");
+    let source = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let start = source
+        .find("async fn create_space(")
+        .expect("runtime must expose the browser Space handler");
+    let end = source[start..]
+        .find("\nasync fn list_spaces(")
+        .map(|offset| start + offset)
+        .expect("Space handler must end before list_spaces");
+    let handler = &source[start..end];
+    assert!(
+        !handler.contains("sqlx::") && !handler.contains("pool.begin()"),
+        "HTTP Space handler must delegate transaction orchestration to application"
+    );
 }
 
 fn assert_forbidden(relative_root: &str, forbidden: &[&str]) {

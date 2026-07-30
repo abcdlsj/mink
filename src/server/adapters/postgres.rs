@@ -22,8 +22,8 @@ use crate::{
     },
     server::{
         application::ports::{
-            ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction,
-            TransactionPort,
+            ApplicationError, CreatedSpace, Effect, MessageDraft, PublishedMessage,
+            ServerTransaction, TransactionPort,
         },
         domain::{
             attention::{
@@ -218,6 +218,126 @@ impl TransactionPort for PostgresAdapter {
 
 #[async_trait]
 impl ServerTransaction for PostgresTransaction {
+    async fn create_space(
+        &mut self,
+        actor_user_id: Uuid,
+        space_id: SpaceId,
+        owner_id: MemberId,
+        general_channel_id: ChannelId,
+        name: &str,
+        slug: &str,
+        owner_handle: &str,
+        owner_display_name: &str,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<CreatedSpace, ApplicationError> {
+        let lock_key = format!(
+            "{}:space.create:{}",
+            actor_user_id,
+            idempotency_key.into_uuid()
+        );
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(lock_key)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        if let Some(row) = sqlx::query(
+            "SELECT s.id,s.owner_member_id,(SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
+             FROM idempotency_records records \
+             JOIN human_members hm ON hm.member_id=records.actor_member_id \
+             JOIN spaces s ON s.id=records.resource_id \
+             WHERE hm.user_id=$1 AND records.action='space.create' AND records.idempotency_key=$2",
+        )
+        .bind(actor_user_id)
+        .bind(idempotency_key.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        {
+            return Ok(CreatedSpace {
+                space_id: SpaceId::from_uuid(row.get("id")),
+                owner_id: MemberId::from_uuid(row.get("owner_member_id")),
+                general_channel_id: ChannelId::from_uuid(row.get("general_channel_id")),
+            });
+        }
+        sqlx::query("SET CONSTRAINTS ALL DEFERRED")
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES($1,$2,$3,$4,$5)",
+        )
+        .bind(space_id.into_uuid())
+        .bind(slug)
+        .bind(name)
+        .bind(owner_id.into_uuid())
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'human',$3,$4,'owner',$5)")
+            .bind(owner_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(owner_display_name)
+            .bind(owner_handle)
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO human_members(member_id,space_id,user_id) VALUES($1,$2,$3)")
+            .bind(owner_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(actor_user_id)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO channels(id,space_id,kind,slug,topic,created_at) VALUES($1,$2,'public','general',NULL,$3)")
+            .bind(general_channel_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) VALUES($1,$2,$3,$4)")
+            .bind(general_channel_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(owner_id.into_uuid())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        let result_hash = Sha256::digest(space_id.into_uuid().as_bytes());
+        sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'space.create',$2,'ok',$3,$4,$5)")
+            .bind(owner_id.into_uuid())
+            .bind(idempotency_key.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(result_hash.as_slice())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) VALUES($1,$2,$3,'space.created','space',$2,$4)")
+            .bind(Uuid::now_v7())
+            .bind(space_id.into_uuid())
+            .bind(owner_id.into_uuid())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'channel.created',$3,$4)")
+            .bind(Uuid::now_v7())
+            .bind(space_id.into_uuid())
+            .bind(json!({"resource_id": general_channel_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(CreatedSpace {
+            space_id,
+            owner_id,
+            general_channel_id,
+        })
+    }
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         let row = sqlx::query(
             "SELECT id, space_id, channel_id, root_message_id FROM threads WHERE id = $1 FOR UPDATE",

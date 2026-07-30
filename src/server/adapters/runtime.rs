@@ -62,7 +62,7 @@ use crate::{
                 CompleteRun, CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
                 RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
-            identity::{DeleteComputer, RetireAgent, SetPermission},
+            identity::{CreateSpace, CreateSpaceInput, DeleteComputer, RetireAgent, SetPermission},
             ports::{AttachmentObjectPort, MessageDraft, RawFencingToken},
         },
         domain::{
@@ -2018,83 +2018,42 @@ async fn create_space(
     if name.is_empty() || slug.is_empty() {
         return Err(ApiError::invalid("Space name and slug are required"));
     }
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(&mut transaction, user.id, "space.create", key).await?;
-    if let Some(row) = sqlx::query(
-        "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
-         (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
-         FROM idempotency_records records \
-         JOIN human_members hm ON hm.member_id=records.actor_member_id \
-         JOIN spaces s ON s.id=records.resource_id \
-         WHERE hm.user_id=$1 AND records.action='space.create' AND records.idempotency_key=$2",
-    )
-    .bind(user.id)
-    .bind(key)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?
-    {
-        transaction.commit().await.map_err(map_sqlx)?;
-        return Ok((StatusCode::OK, Json(space_row(&row))));
-    }
     let space_id = Uuid::now_v7();
     let owner_id = Uuid::now_v7();
     let general_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
-    let handle = unique_handle(&user.display_name, owner_id);
-    sqlx::query("SET CONSTRAINTS ALL DEFERRED")
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    sqlx::query(
-        "INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES($1,$2,$3,$4,$5)",
+    let owner_handle = unique_handle(&user.display_name, owner_id);
+    let mut storage = state.storage.clone();
+    let created = CreateSpace::execute(
+        &mut storage,
+        CreateSpaceInput {
+            actor_user_id: user.id,
+            space_id: SpaceId::from_uuid(space_id),
+            owner_id: MemberId::from_uuid(owner_id),
+            general_channel_id: ChannelId::from_uuid(general_id),
+            name,
+            slug: &slug,
+            owner_handle: &owner_handle,
+            owner_display_name: &user.display_name,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now,
+        },
     )
-    .bind(space_id)
-    .bind(&slug)
-    .bind(name)
-    .bind(owner_id)
-    .bind(now)
-    .execute(&mut *transaction)
     .await
-    .map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'human',$3,$4,'owner',$5)")
-        .bind(owner_id).bind(space_id).bind(&user.display_name).bind(handle).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO human_members(member_id,space_id,user_id) VALUES($1,$2,$3)")
-        .bind(owner_id)
-        .bind(space_id)
-        .bind(user.id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO channels(id,space_id,kind,slug,topic,created_at) VALUES($1,$2,'public','general',NULL,$3)")
-        .bind(general_id).bind(space_id).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query(
-        "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) VALUES($1,$2,$3,$4)",
-    )
-    .bind(general_id)
-    .bind(space_id)
-    .bind(owner_id)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?;
-    let result_hash = Sha256::digest(space_id.as_bytes());
-    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'space.create',$2,'ok',$3,$4,$5)")
-        .bind(owner_id).bind(key).bind(space_id).bind(result_hash.as_slice()).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) VALUES($1,$2,$3,'space.created','space',$2,$4)")
-        .bind(Uuid::now_v7()).bind(space_id).bind(owner_id).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'channel.created',$3,$4)")
-        .bind(Uuid::now_v7()).bind(space_id).bind(json!({"resource_id": general_id})).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
+    .map_err(application_error)?;
     Ok((
-        StatusCode::CREATED,
+        if created.space_id.into_uuid() == space_id {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
         Json(space_json(
-            space_id, name, &slug, owner_id, owner_id, general_id,
+            created.space_id.into_uuid(),
+            name,
+            &slug,
+            created.owner_id.into_uuid(),
+            created.owner_id.into_uuid(),
+            created.general_channel_id.into_uuid(),
         )),
     ))
 }

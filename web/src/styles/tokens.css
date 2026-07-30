@@ -1,0 +1,33 @@
+:root {
+  font-family: "Space Grotesk Variable", "Space Grotesk", "Noto Sans SC", sans-serif;
+  color: #141111;
+  background: var(--paper);
+  font-synthesis: none;
+  letter-spacing: 0;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+  --ink: #141111;
+  --paper: #ffffff;
+  --panel: #fffaef;
+  --rail: #ffd440;
+  --accent: #fe7da8;
+  --accent-soft: #ffe0ea;
+  --cyan: #27ccf3;
+  --green: #a9d877;
+  --yellow: #ffd440;
+  --orange: #f8a16f;
+  --red: #f97264;
+  --stone: #c0b9b1;
+  --status-offline: var(--stone);
+  --muted: #716b67;
+  --text-page-title: 18px;
+  --text-section-title: 11px;
+  --text-body: 14px;
+  --text-system: 12px;
+  --text-meta: 10px;
+  /* Flat classification chip tones — colour carries the category, no border needed. */
+  --chip-runtime: #c9e7e7;
+  --chip-model: #dfe3ff;
+  --chip-reasoning: #f5e2a8;
+  --chip-mode: #f2d3bd;
+  --chip-neutral: #e4e2da;
+}

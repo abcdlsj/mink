@@ -177,6 +177,22 @@ impl TransactionPort for MemoryPort {
 
 #[async_trait::async_trait]
 impl ServerTransaction for MemoryTransaction {
+    async fn create_space(
+        &mut self,
+        _actor_user_id: uuid::Uuid,
+        _space_id: crate::ids::SpaceId,
+        _owner_id: MemberId,
+        _general_channel_id: ChannelId,
+        _name: &str,
+        _slug: &str,
+        _owner_handle: &str,
+        _owner_display_name: &str,
+        _idempotency_key: IdempotencyKey,
+        _now: time::OffsetDateTime,
+    ) -> Result<super::ports::CreatedSpace, ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         self.state
             .threads

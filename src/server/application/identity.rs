@@ -1,13 +1,56 @@
 use time::OffsetDateTime;
 
-use crate::ids::{ComputerId, IdempotencyKey, MemberId};
+use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::{
     attention::{InboxItemDisposition, InboxItemStatus},
     identity::{Agent, AgentLifecycle, Computer, ComputerLifecycle, PermissionAction},
 };
 
-use super::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort};
+use super::ports::{ApplicationError, CreatedSpace, Effect, ServerTransaction, TransactionPort};
+
+pub(in crate::server) struct CreateSpace;
+
+pub(in crate::server) struct CreateSpaceInput<'a> {
+    pub(in crate::server) actor_user_id: uuid::Uuid,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) owner_id: MemberId,
+    pub(in crate::server) general_channel_id: ChannelId,
+    pub(in crate::server) name: &'a str,
+    pub(in crate::server) slug: &'a str,
+    pub(in crate::server) owner_handle: &'a str,
+    pub(in crate::server) owner_display_name: &'a str,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+impl CreateSpace {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: CreateSpaceInput<'_>,
+    ) -> Result<CreatedSpace, ApplicationError> {
+        if input.name.trim().is_empty() || input.slug.trim().is_empty() {
+            return Err(ApplicationError::Conflict);
+        }
+        port.transact(async |transaction| {
+            transaction
+                .create_space(
+                    input.actor_user_id,
+                    input.space_id,
+                    input.owner_id,
+                    input.general_channel_id,
+                    input.name,
+                    input.slug,
+                    input.owner_handle,
+                    input.owner_display_name,
+                    input.idempotency_key,
+                    input.now,
+                )
+                .await
+        })
+        .await
+    }
+}
 
 pub(in crate::server) struct SetPermission;
 

@@ -76,6 +76,8 @@ impl SandboxAdapter {
                 .arg("/lib")
                 .arg("--dir")
                 .arg("/agent")
+                .arg("--dir")
+                .arg("/runtime")
                 .arg("--bind")
                 .arg(agent_home.join("workspace"))
                 .arg("/agent/workspace")
@@ -139,4 +141,16 @@ fn escape(path: &Path) -> Result<String, ApplicationError> {
     path.to_str()
         .map(|value| value.replace('\\', "\\\\").replace('"', "\\\""))
         .ok_or(ApplicationError::Internal)
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sandbox_declares_private_runtime_mount_before_socket() {
+        let source = include_str!("sandbox.rs");
+        assert!(source.contains(".arg(\"/runtime\")"));
+        assert!(source.contains(".arg(\"/runtime/daemon.sock\")"));
+        assert!(source.contains(".arg(\"--unshare-all\")"));
+    }
 }
