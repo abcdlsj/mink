@@ -33,6 +33,7 @@ use uuid::Uuid;
         UpdateMemberRequest,
         CreateInvitationRequest,
         InvitationResponse,
+        CreatedInvitationResponse,
         ChannelResponse,
         ChannelMembersResponse,
         ChannelListResponse,
@@ -338,7 +339,6 @@ pub(super) struct UpdateMemberRequest {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateInvitationRequest {
     email: String,
-    invite_token: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct InvitationResponse {
@@ -350,6 +350,19 @@ pub(super) struct InvitationResponse {
     expires_at: String,
     accepted_at: Option<String>,
     accepted_by_member_id: Option<Uuid>,
+}
+/// 创建响应。`token`只在首次创建时非空，重放不返回明文。
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct CreatedInvitationResponse {
+    id: Uuid,
+    space_id: Uuid,
+    space_name: String,
+    space_slug: String,
+    email: String,
+    expires_at: String,
+    accepted_at: Option<String>,
+    accepted_by_member_id: Option<Uuid>,
+    token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

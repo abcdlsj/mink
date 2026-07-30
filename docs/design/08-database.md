@@ -119,6 +119,35 @@
 
 主键是`(member_id, action_code)`。Permission 只授予一个稳定 Action，不保存 Role、reviewer 或资源可见范围。
 
+### 4.7 `space_invitations`
+
+- `id`
+- `space_id`
+- `email_normalized`
+- `token_hash`
+- `status=pending|accepted|expired`
+- `expires_at`
+- `created_by_member_id`
+- `accepted_by_member_id`
+- `created_at`
+- `accepted_at`
+
+Invitation 是 Human 加入既有 Space 的唯一途径。Space 创建者通过注册成为 Owner，其余 Human 都经由 Invitation 取得 Human Member 身份。
+
+token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`和`computers`一致。明文只在创建响应中返回一次。`token_hash`必须唯一，使按散列查找是点查。
+
+`email_normalized`按`users.email_normalized`的同一规则规范化，因此接受时可以直接比较收件人与登录 User。
+
+`status`与时间字段的一致性由 CHECK 表达：`accepted`必须同时具有`accepted_at`和`accepted_by_member_id`，`pending`和`expired`两者都必须为空。该约束使「已接受」无法在缺少接受者的情况下存在。
+
+`(space_id, email_normalized)`在`status='pending'`上唯一。同一收件人在同一 Space 只能持有一个可用链接，已接受和已过期的记录保留为历史事实并不占用该唯一性。
+
+`created_by_member_id`和`accepted_by_member_id`都使用`(member_id, space_id)`复合外键，保证两个 Member 都属于该 Space。两者必须是 Human Member，该条件由触发器校验，因为复合外键不能表达`kind`。
+
+过期在读取时判定，不依赖后台任务。`expires_at > created_at`由 CHECK 保证。
+
+见`0003_invitations.sql`。
+
 ## 5. 对话
 
 ### 5.1 `channels`

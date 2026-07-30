@@ -74,12 +74,16 @@ use crate::{
                 AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession,
                 AuthorizeAgentAccess, AuthorizeAgentGovernance, AuthorizeAttachmentAccess,
                 AuthorizeChannelAccess, AuthorizeComputerGovernance, AuthorizeSpaceAccess,
-                CloseSession, CreateSpace, CreateSpaceInput, DeleteComputer, RegisterHuman,
-                RegisterHumanInput, RetireAgent, SetPermission,
+                AuthorizeSpaceGovernance, CloseSession, CreateSpace, CreateSpaceInput,
+                DeleteComputer, RegisterHuman, RegisterHumanInput, RetireAgent, SetPermission,
+            },
+            invitation::{
+                AcceptInvitation, AcceptInvitationInput, InviteHuman, InviteHumanInput,
+                ReadInvitation,
             },
             ports::{
-                AuthenticatedHuman, MessageDraft, PairedComputer, RawFencingToken, RawPairingCode,
-                RawSessionToken,
+                AuthenticatedHuman, InvitationView, MessageDraft, PairedComputer, RawFencingToken,
+                RawInvitationToken, RawPairingCode, RawSessionToken,
             },
         },
         domain::{
@@ -93,7 +97,7 @@ use crate::{
 };
 
 use super::{
-    credential::{Argon2Passwords, NumericPairingCodes, UuidSessionTokens},
+    credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     postgres::PostgresAdapter,
 };
@@ -334,6 +338,11 @@ struct ConfirmPairingBody {
 }
 
 #[derive(Deserialize)]
+struct InviteHumanBody {
+    email: String,
+}
+
+#[derive(Deserialize)]
 struct AgentActionRequest {
     context: capability::RunContext,
     action: capability::Action,
@@ -428,6 +437,9 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(list_channels).post(create_channel),
         )
         .route("/spaces/{space_id}/members", get(list_members))
+        .route("/spaces/{space_id}/invites", post(invite_human))
+        .route("/invites/{invite_token}", get(invitation_details))
+        .route("/invites/{invite_token}/accept", post(accept_invitation))
         .route("/spaces/{space_id}/computers", get(list_computers))
         .route("/spaces/{space_id}/dms", get(empty_list))
         .route(
@@ -689,6 +701,162 @@ async fn pairing_status(
         "computer_id": progress.computer_id.map(ComputerId::into_uuid),
         "space_id": progress.space_id.map(SpaceId::into_uuid)
     })))
+}
+
+async fn invite_human(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(space_id): Path<Uuid>,
+    Json(body): Json<InviteHumanBody>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let token = require_session_token(&jar)?;
+    let key = idempotency_header(&headers)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeSpaceGovernance::execute(
+        &mut storage,
+        &token,
+        SpaceId::from_uuid(space_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    let issued = InviteHuman::execute(
+        &mut storage,
+        &UuidInvitationTokens,
+        InviteHumanInput {
+            invitation_id: Uuid::now_v7(),
+            space_id: SpaceId::from_uuid(space_id),
+            actor_id: access.member_id,
+            email: &body.email,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        // 创建路径上调用方唯一能触发的唯一性冲突是「同一 email 已有可用链接」。
+        crate::server::application::ports::ApplicationError::Conflict => ApiError {
+            status: StatusCode::CONFLICT,
+            code: "invitation_already_pending",
+            message: "this email already has a pending invitation to the Space",
+        },
+        other => application_error(other),
+    })?;
+    let mut projection = invitation_json(&issued.view);
+    // 明文 token 只在首次创建时存在，重放不再返回。
+    projection["token"] = issued.token.as_ref().map_or(Value::Null, |token| {
+        Value::String(token.expose().to_owned())
+    });
+    Ok((
+        if issued.token.is_some() {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(projection),
+    ))
+}
+
+async fn invitation_details(
+    State(state): State<RuntimeState>,
+    Path(invite_token): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    // 受邀 Human 点击链接时可能尚无账号，因此该端点不要求认证。
+    let mut storage = state.storage.clone();
+    let invitation = ReadInvitation::execute(
+        &mut storage,
+        &RawInvitationToken::new(invite_token),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(invitation_error)?;
+    Ok(Json(invitation_json(&invitation)))
+}
+
+async fn accept_invitation(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(invite_token): Path<String>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let human = authenticate(&state, &jar).await?;
+    let member_id = Uuid::now_v7();
+    let mut storage = state.storage.clone();
+    let member = AcceptInvitation::execute(
+        &mut storage,
+        AcceptInvitationInput {
+            token: &RawInvitationToken::new(invite_token),
+            member_id: MemberId::from_uuid(member_id),
+            user_id: human.user_id,
+            user_email: &human.email_normalized,
+            display_name: &human.display_name,
+            handle: &unique_handle(&human.display_name, member_id),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(accept_invitation_error)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "id": member.member_id.into_uuid(),
+            "space_id": member.space_id.into_uuid(),
+            "kind": "human",
+            "display_name": member.display_name,
+            "handle": member.handle,
+            "access_level": "member"
+        })),
+    ))
+}
+
+fn invitation_json(invitation: &InvitationView) -> Value {
+    json!({
+        "id": invitation.id,
+        "space_id": invitation.space_id.into_uuid(),
+        "space_name": invitation.space_name,
+        "space_slug": invitation.space_slug,
+        "email": invitation.email,
+        "expires_at": timestamp(invitation.expires_at),
+        "accepted_at": invitation.accepted_at.map(timestamp),
+        "accepted_by_member_id": invitation.accepted_by_member_id.map(MemberId::into_uuid)
+    })
+}
+
+/// 未命中、已过期和已接受返回同一个错误码，使读取端点不能用于探测 token
+/// 是否存在。该端点不要求认证，因此不能区分原因。
+fn invitation_error(error: crate::server::application::ports::ApplicationError) -> ApiError {
+    use crate::server::application::ports::ApplicationError;
+    use crate::server::domain::DomainError;
+    match error {
+        ApplicationError::NotFound | ApplicationError::Domain(DomainError::InvitationLapsed) => {
+            ApiError {
+                status: StatusCode::NOT_FOUND,
+                code: "invitation_unavailable",
+                message: "invitation link is not usable",
+            }
+        }
+        other => application_error(other),
+    }
+}
+
+/// 接受端点要求 Session，因此可以告知收件人不匹配：调用方已经证明了自己的身份，
+/// 该信息不构成新的探测面，且是 Human 纠正登录账号所必需的。
+fn accept_invitation_error(error: crate::server::application::ports::ApplicationError) -> ApiError {
+    use crate::server::application::ports::ApplicationError;
+    use crate::server::domain::DomainError;
+    match error {
+        ApplicationError::Domain(DomainError::InvitationEmailMismatch) => ApiError {
+            status: StatusCode::FORBIDDEN,
+            code: "invitation_email_mismatch",
+            message: "invitation was issued to another email",
+        },
+        ApplicationError::Conflict => ApiError {
+            status: StatusCode::CONFLICT,
+            code: "already_member",
+            message: "signed in Human is already a Member of this Space",
+        },
+        other => invitation_error(other),
+    }
 }
 
 async fn connect_computer(

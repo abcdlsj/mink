@@ -276,6 +276,34 @@ impl AuthorizeAgentAccess {
 }
 
 /// Agent 或 Computer 级请求的治理授权。资源所属 Space 由 Server 推导。
+/// 把 Browser Session 解析为某个 Space 的治理身份。要求 Owner 或 Admin。
+pub(in crate::server) struct AuthorizeSpaceGovernance;
+
+impl AuthorizeSpaceGovernance {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        space_id: SpaceId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            let access = transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                // 非成员不区分“Space 不存在”和“无权访问”。
+                .ok_or(ApplicationError::NotFound)?;
+            access.require_governor()?;
+            Ok(access)
+        })
+        .await
+    }
+}
+
 pub(in crate::server) struct AuthorizeAgentGovernance;
 
 impl AuthorizeAgentGovernance {

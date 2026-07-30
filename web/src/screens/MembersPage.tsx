@@ -65,12 +65,14 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   );
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
-  const canCreateAgent = canInvite || currentMember?.permissions.includes("agent:create");
+  const canCreateAgent = canInvite || currentMember?.permissions.includes("agent.create");
   const invitation = useMutation({
-    mutationFn: ({ email, token }: { email: string; token: string }) =>
-      createInvitation(space.id, { email, invite_token: token }),
-    onSuccess: (_response, variables) => {
-      setInviteLink(`${window.location.origin}/invite/${variables.token}`);
+    mutationFn: (email: string) => createInvitation(space.id, { email }),
+    onSuccess: (created) => {
+      // token 由 Server 生成，明文只在创建响应里出现一次。
+      setInviteLink(
+        created.token ? `${window.location.origin}/invite/${created.token}` : undefined,
+      );
       setCopied(false);
     },
   });
@@ -99,10 +101,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   function submitInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    invitation.mutate({
-      email: String(form.get("email") ?? ""),
-      token: generateInviteToken(),
-    });
+    invitation.mutate(String(form.get("email") ?? ""));
   }
 
   async function copyInviteLink() {
@@ -341,13 +340,6 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
       ) : null}
     </section>
   );
-}
-
-function generateInviteToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
 function capitalize(value: string): string {

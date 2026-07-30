@@ -20,6 +20,7 @@ use crate::server::domain::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
     },
+    invitation::Invitation,
     pairing::{Pairing, PairingStatus},
     task::{CloseReason, Task, TaskStatus},
 };
@@ -50,11 +51,14 @@ use super::{
         AuthorizeSpaceAccess, CloseSession, DeleteComputer, RegisterHuman, RegisterHumanInput,
         RetireAgent, SetPermission,
     },
+    invitation::{
+        AcceptInvitation, AcceptInvitationInput, InviteHuman, InviteHumanInput, ReadInvitation,
+    },
     ports::{
         ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord, Effect,
-        MessageDraft, PairedComputer, PairingCodePort, PasswordPort, PublishedMessage,
-        RawPairingCode, RawSessionToken, ServerTransaction, SessionTokenPort, StoredObject,
-        TransactionPort,
+        HumanMemberRecord, InvitationTokenPort, MessageDraft, PairedComputer, PairingCodePort,
+        PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
+        ServerTransaction, SessionTokenPort, SpaceHumanMember, StoredObject, TransactionPort,
     },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -173,6 +177,9 @@ struct MemoryState {
     agent_spaces: HashMap<MemberId, SpaceId>,
     computer_spaces: HashMap<ComputerId, SpaceId>,
     pairings: HashMap<uuid::Uuid, (Pairing, String)>,
+    invitations: HashMap<uuid::Uuid, Invitation>,
+    spaces: HashMap<SpaceId, (String, String)>,
+    human_members: HashMap<(uuid::Uuid, SpaceId), SpaceHumanMember>,
     paired_computers: Vec<PairedComputer>,
     computer_tokens: HashMap<String, ComputerId>,
     idempotency_locks: Vec<(MemberId, String, IdempotencyKey)>,
@@ -342,6 +349,89 @@ impl ServerTransaction for MemoryTransaction {
         computer_id: ComputerId,
     ) -> Result<Option<SpaceId>, ApplicationError> {
         Ok(self.state.computer_spaces.get(&computer_id).copied())
+    }
+
+    async fn insert_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &Invitation,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .invitations
+            .insert(invitation_id, invitation.clone());
+        Ok(())
+    }
+
+    async fn save_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &Invitation,
+    ) -> Result<(), ApplicationError> {
+        if !self.state.invitations.contains_key(&invitation_id) {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state
+            .invitations
+            .insert(invitation_id, invitation.clone());
+        Ok(())
+    }
+
+    async fn invitation_by_token(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
+        Ok(self
+            .state
+            .invitations
+            .iter()
+            .find(|(_, invitation)| invitation.draft.token_hash == token_hash)
+            .map(|(id, invitation)| (*id, invitation.clone())))
+    }
+
+    async fn invitation_by_token_for_update(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
+        self.invitation_by_token(token_hash).await
+    }
+
+    async fn space_identity(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Option<(String, String)>, ApplicationError> {
+        Ok(self.state.spaces.get(&space_id).cloned())
+    }
+
+    async fn insert_human_member(
+        &mut self,
+        record: &HumanMemberRecord,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .state
+            .human_members
+            .contains_key(&(record.user_id, record.space_id))
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state.human_members.insert(
+            (record.user_id, record.space_id),
+            SpaceHumanMember {
+                member_id: record.member_id,
+                space_id: record.space_id,
+                display_name: record.display_name.clone(),
+                handle: record.handle.clone(),
+            },
+        );
+        Ok(())
+    }
+
+    async fn space_human_member(
+        &mut self,
+        user_id: uuid::Uuid,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
+        Ok(self.state.human_members.get(&(user_id, space_id)).cloned())
     }
 
     async fn insert_pairing(
@@ -3253,6 +3343,234 @@ async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer
             .await
             .err(),
         Some(ApplicationError::Unauthenticated)
+    );
+}
+
+struct StubInvitationTokens;
+
+impl InvitationTokenPort for StubInvitationTokens {
+    fn generate(&self) -> RawInvitationToken {
+        RawInvitationToken::new("invitation-token".into())
+    }
+}
+
+const RECIPIENT: &str = "invitee@example.com";
+
+async fn space_with_governor(port: &mut MemoryPort, space_id: SpaceId, actor_id: MemberId) {
+    port.state
+        .spaces
+        .insert(space_id, ("Design".into(), "design".into()));
+    port.state.members.insert(
+        actor_id,
+        Member {
+            id: actor_id,
+            space_id,
+            display_name: "Owner".into(),
+            handle: "owner".into(),
+            access_level: AccessLevel::Owner,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        },
+    );
+}
+
+#[tokio::test]
+async fn creating_an_invitation_returns_the_token_once_and_replays_without_it() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(6001);
+    let actor_id = member(6002);
+    let key = idempotency(6003);
+    space_with_governor(&mut port, space_id, actor_id).await;
+
+    let issued = InviteHuman::execute(
+        &mut port,
+        &StubInvitationTokens,
+        InviteHumanInput {
+            invitation_id: Uuid::from_u128(6004),
+            space_id,
+            actor_id,
+            email: " Invitee@Example.COM ",
+            idempotency_key: key,
+            now,
+        },
+    )
+    .await
+    .expect("creating an invitation succeeds");
+    assert_eq!(issued.view.email, RECIPIENT);
+    assert_eq!(issued.view.space_name, "Design");
+    assert_eq!(issued.view.space_slug, "design");
+    assert_eq!(
+        issued.token.as_ref().map(RawInvitationToken::expose),
+        Some("invitation-token")
+    );
+
+    // 同一 key 重放返回同一投影，但不再返回明文 token。
+    let replayed = InviteHuman::execute(
+        &mut port,
+        &StubInvitationTokens,
+        InviteHumanInput {
+            invitation_id: Uuid::from_u128(6099),
+            space_id,
+            actor_id,
+            email: RECIPIENT,
+            idempotency_key: key,
+            now,
+        },
+    )
+    .await
+    .expect("replay succeeds");
+    assert!(replayed.token.is_none());
+    assert_eq!(port.state.invitations.len(), 1);
+    // 重放路径取过 idempotency 锁，说明并发创建在同一键上串行。
+    assert!(port.state.idempotency_locks.contains(&(
+        actor_id,
+        "space.invitation.create".into(),
+        key
+    )));
+}
+
+#[tokio::test]
+async fn only_the_named_recipient_accepts_and_becomes_a_member() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(6101);
+    let actor_id = member(6102);
+    space_with_governor(&mut port, space_id, actor_id).await;
+    InviteHuman::execute(
+        &mut port,
+        &StubInvitationTokens,
+        InviteHumanInput {
+            invitation_id: Uuid::from_u128(6103),
+            space_id,
+            actor_id,
+            email: RECIPIENT,
+            idempotency_key: idempotency(6104),
+            now,
+        },
+    )
+    .await
+    .expect("creating an invitation succeeds");
+    let token = StubInvitationTokens.generate();
+    let user_id = Uuid::from_u128(6105);
+
+    // 收件人不符时不建立 Member。
+    assert_eq!(
+        AcceptInvitation::execute(
+            &mut port,
+            AcceptInvitationInput {
+                token: &token,
+                member_id: member(6106),
+                user_id: Uuid::from_u128(6107),
+                user_email: "other@example.com",
+                display_name: "Other",
+                handle: "other-6107",
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::InvitationEmailMismatch
+        ))
+    );
+    assert!(port.state.human_members.is_empty());
+
+    let accepted = AcceptInvitation::execute(
+        &mut port,
+        AcceptInvitationInput {
+            token: &token,
+            member_id: member(6108),
+            user_id,
+            user_email: " Invitee@Example.COM ",
+            display_name: "  Invitee  ",
+            handle: "invitee-6108",
+            now,
+        },
+    )
+    .await
+    .expect("the named recipient accepts");
+    assert_eq!(accepted.member_id, member(6108));
+    assert_eq!(accepted.space_id, space_id);
+    assert_eq!(accepted.display_name, "Invitee");
+
+    // 同一 User 重试返回同一个 Member，不建立第二个。
+    let replayed = AcceptInvitation::execute(
+        &mut port,
+        AcceptInvitationInput {
+            token: &token,
+            member_id: member(6199),
+            user_id,
+            user_email: RECIPIENT,
+            display_name: "Invitee",
+            handle: "invitee-6199",
+            now,
+        },
+    )
+    .await
+    .expect("retrying the same acceptance succeeds");
+    assert_eq!(replayed, accepted);
+    assert_eq!(port.state.human_members.len(), 1);
+}
+
+#[tokio::test]
+async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(6201);
+    let actor_id = member(6202);
+    space_with_governor(&mut port, space_id, actor_id).await;
+    let invitation_id = Uuid::from_u128(6203);
+    InviteHuman::execute(
+        &mut port,
+        &StubInvitationTokens,
+        InviteHumanInput {
+            invitation_id,
+            space_id,
+            actor_id,
+            email: RECIPIENT,
+            idempotency_key: idempotency(6204),
+            now,
+        },
+    )
+    .await
+    .expect("creating an invitation succeeds");
+    let token = StubInvitationTokens.generate();
+    let after = now + time::Duration::days(8);
+
+    ReadInvitation::execute(&mut port, &token, after)
+        .await
+        .expect("reading a lapsed invitation still projects it");
+    // 过期在读取路径落库，后续不再重复判定。
+    assert_eq!(
+        port.state.invitations[&invitation_id].status,
+        crate::server::domain::invitation::InvitationStatus::Expired
+    );
+    assert_eq!(
+        AcceptInvitation::execute(
+            &mut port,
+            AcceptInvitationInput {
+                token: &token,
+                member_id: member(6205),
+                user_id: Uuid::from_u128(6206),
+                user_email: RECIPIENT,
+                display_name: "Invitee",
+                handle: "invitee-6205",
+                now: after,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::InvitationLapsed
+        ))
+    );
+    assert!(port.state.human_members.is_empty());
+    // 未知 token 与已过期的 token 都不建立 Member。
+    assert_eq!(
+        ReadInvitation::execute(&mut port, &RawInvitationToken::new("unknown".into()), now)
+            .await
+            .err(),
+        Some(ApplicationError::NotFound)
     );
 }
 

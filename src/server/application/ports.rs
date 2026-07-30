@@ -160,6 +160,66 @@ pub(in crate::server) struct PairedComputer {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
+/// Invitation token 的生成。明文只在创建时返回一次。
+pub(in crate::server) trait InvitationTokenPort {
+    fn generate(&self) -> RawInvitationToken;
+}
+
+/// Invitation token 的明文。`Debug` 不暴露内容，避免进入日志。
+#[derive(Clone, Eq, PartialEq)]
+pub(in crate::server) struct RawInvitationToken(String);
+
+impl RawInvitationToken {
+    pub(in crate::server) fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(in crate::server) fn expose(&self) -> &str {
+        &self.0
+    }
+
+    pub(in crate::server) fn sha256_hash(&self) -> String {
+        hex::encode(Sha256::digest(self.0.as_bytes()))
+    }
+}
+
+impl fmt::Debug for RawInvitationToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RawInvitationToken([REDACTED])")
+    }
+}
+
+/// Invitation 对调用方可见的事实。不含 token 散列。
+pub(in crate::server) struct InvitationView {
+    pub(in crate::server) id: uuid::Uuid,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_name: String,
+    pub(in crate::server) space_slug: String,
+    pub(in crate::server) email: String,
+    pub(in crate::server) expires_at: time::OffsetDateTime,
+    pub(in crate::server) accepted_at: Option<time::OffsetDateTime>,
+    pub(in crate::server) accepted_by_member_id: Option<MemberId>,
+}
+
+/// 新建 Human Member 的持久化输入。接受 Invitation 是其唯一来源。
+pub(in crate::server) struct HumanMemberRecord {
+    pub(in crate::server) member_id: MemberId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) user_id: uuid::Uuid,
+    pub(in crate::server) display_name: String,
+    pub(in crate::server) handle: String,
+    pub(in crate::server) created_at: time::OffsetDateTime,
+}
+
+/// 某个 User 在某个 Space 中的 Human Member 事实。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct SpaceHumanMember {
+    pub(in crate::server) member_id: MemberId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) display_name: String,
+    pub(in crate::server) handle: String,
+}
+
 /// 配对详情。只暴露 Human 核对所需字段。
 pub(in crate::server) struct PairingView {
     pub(in crate::server) pairing_id: uuid::Uuid,
@@ -378,6 +438,47 @@ pub(in crate::server) trait ServerTransaction {
         pairing_id: uuid::Uuid,
         token_hash: &str,
     ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
+
+    /// 保存待接受邀请。token 只以散列形式进入该层。
+    async fn insert_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &crate::server::domain::invitation::Invitation,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    async fn save_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &crate::server::domain::invitation::Invitation,
+    ) -> Result<(), ApplicationError>;
+    /// 按 token 散列定位邀请。返回其内部 id 供后续写入定位同一行。
+    async fn invitation_by_token(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>;
+    /// 锁定待接受邀请行，保证并发接受只建立一个 Member。
+    async fn invitation_by_token_for_update(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>;
+    /// 读取 Space 的名称与 slug，供 Invitation 投影展示目标 Space。
+    async fn space_identity(
+        &mut self,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Option<(String, String)>, ApplicationError>;
+    /// 建立 Human Member 并加入 general Channel。
+    async fn insert_human_member(
+        &mut self,
+        record: &HumanMemberRecord,
+    ) -> Result<(), ApplicationError>;
+    /// 读取 User 在某个 Space 中已有的 Human Member。接受 Invitation 时用于
+    /// 区分「重放同一次接受」和「用另一个链接重复加入」。
+    async fn space_human_member(
+        &mut self,
+        user_id: uuid::Uuid,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Option<SpaceHumanMember>, ApplicationError>;
+
     async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError>;
     async fn paired_computer(
         &mut self,

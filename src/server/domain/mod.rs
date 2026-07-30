@@ -4,6 +4,7 @@ pub(in crate::server) mod attention;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
 pub(in crate::server) mod identity;
+pub(in crate::server) mod invitation;
 pub(in crate::server) mod pairing;
 pub(in crate::server) mod task;
 
@@ -63,4 +64,10 @@ pub(in crate::server) enum DomainError {
     AttachmentNotReady,
     #[error("attachment size or digest does not match the stored content")]
     AttachmentContentMismatch,
+    #[error("space invitation is not well formed")]
+    InvalidInvitation,
+    #[error("space invitation is no longer pending")]
+    InvitationLapsed,
+    #[error("space invitation was issued to another email")]
+    InvitationEmailMismatch,
 }

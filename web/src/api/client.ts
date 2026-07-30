@@ -18,6 +18,7 @@ import type {
   Member,
   UpdateMemberInput,
   Invitation,
+  CreatedInvitation,
   CreateInvitationInput,
   Channel,
   ChannelList,
@@ -36,13 +37,12 @@ import type {
   CompleteTaskInput,
   CloseTaskInput,
   AgentRuntime,
-  Approval,
   ThreadRead,
   ThreadSubscription,
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, UpdateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, Approval, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, UpdateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;
@@ -171,8 +171,8 @@ export function updateMember(
 export function createInvitation(
   spaceId: string,
   input: CreateInvitationInput,
-): Promise<Invitation> {
-  return mutate<Invitation>(
+): Promise<CreatedInvitation> {
+  return mutate<CreatedInvitation>(
     `/api/v1/spaces/${encodeURIComponent(spaceId)}/invites`,
     "POST",
     input,
@@ -361,20 +361,6 @@ export function grantMemberPermission(memberId: string, actionCode: string): Pro
 
 export function revokeMemberPermission(memberId: string, actionCode: string): Promise<Member> {
   return mutate<Member>(`/api/v1/members/${encodeURIComponent(memberId)}/permissions/${encodeURIComponent(actionCode)}`, "DELETE");
-}
-
-export function listApprovals(spaceId: string): Promise<Approval[]> {
-  return apiRequest<Approval[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/approvals`);
-}
-
-export function resolveApproval(
-  approvalId: string,
-  decision: "approve" | "reject",
-): Promise<Approval> {
-  return mutate<Approval>(
-    `/api/v1/approvals/${encodeURIComponent(approvalId)}/${decision}`,
-    "POST",
-  );
 }
 
 export function ackInboxItem(itemId: string): Promise<InboxItem> {

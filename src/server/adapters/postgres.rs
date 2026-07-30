@@ -23,7 +23,8 @@ use crate::{
     server::{
         application::ports::{
             ApplicationError, AuthenticatedHuman, ComputerRecord, CreatedSpace, Effect,
-            MessageDraft, PairedComputer, PublishedMessage, ServerTransaction, TransactionPort,
+            HumanMemberRecord, MessageDraft, PairedComputer, PublishedMessage, ServerTransaction,
+            SpaceHumanMember, TransactionPort,
         },
         domain::{
             access::{HumanRegistration, SpaceAccess},
@@ -39,6 +40,7 @@ use crate::{
                 AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
                 Member, PermissionAction,
             },
+            invitation::{Invitation, InvitationDraft, InvitationStatus},
             pairing::{ComputerOs, Pairing, PairingRequest, PairingStatus},
             task::{CloseReason, RelatedThread, Task, TaskStatus},
         },
@@ -524,6 +526,160 @@ impl ServerTransaction for PostgresTransaction {
                 .await
                 .map_err(map_sqlx)?;
         Ok(space_id.map(SpaceId::from_uuid))
+    }
+
+    async fn insert_invitation(
+        &mut self,
+        invitation_id: Uuid,
+        invitation: &Invitation,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO space_invitations\
+             (id,space_id,email_normalized,token_hash,status,expires_at,created_by_member_id,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(invitation_id)
+        .bind(invitation.draft.space_id.into_uuid())
+        .bind(&invitation.draft.email_normalized)
+        .bind(&invitation.draft.token_hash)
+        .bind(invitation.status.code())
+        .bind(invitation.expires_at)
+        .bind(invitation.draft.created_by_member_id.into_uuid())
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn save_invitation(
+        &mut self,
+        invitation_id: Uuid,
+        invitation: &Invitation,
+    ) -> Result<(), ApplicationError> {
+        let changed = sqlx::query(
+            "UPDATE space_invitations SET status=$2,accepted_by_member_id=$3,accepted_at=$4 \
+             WHERE id=$1",
+        )
+        .bind(invitation_id)
+        .bind(invitation.status.code())
+        .bind(invitation.accepted_by_member_id.map(MemberId::into_uuid))
+        .bind(invitation.accepted_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if changed.rows_affected() != 1 {
+            return Err(ApplicationError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn invitation_by_token(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(Uuid, Invitation)>, ApplicationError> {
+        let row = sqlx::query("SELECT * FROM space_invitations WHERE token_hash=$1")
+            .bind(token_hash)
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        row.map(|row| invitation_from_row(&row)).transpose()
+    }
+
+    async fn invitation_by_token_for_update(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(Uuid, Invitation)>, ApplicationError> {
+        let row = sqlx::query("SELECT * FROM space_invitations WHERE token_hash=$1 FOR UPDATE")
+            .bind(token_hash)
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        row.map(|row| invitation_from_row(&row)).transpose()
+    }
+
+    async fn space_identity(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Option<(String, String)>, ApplicationError> {
+        let row = sqlx::query("SELECT name,slug FROM spaces WHERE id=$1")
+            .bind(space_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(row.map(|row| (row.get("name"), row.get("slug"))))
+    }
+
+    async fn insert_human_member(
+        &mut self,
+        record: &HumanMemberRecord,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) \
+             VALUES($1,$2,'human',$3,$4,'member',$5)",
+        )
+        .bind(record.member_id.into_uuid())
+        .bind(record.space_id.into_uuid())
+        .bind(&record.display_name)
+        .bind(&record.handle)
+        .bind(record.created_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO human_members(member_id,space_id,user_id) VALUES($1,$2,$3)")
+            .bind(record.member_id.into_uuid())
+            .bind(record.space_id.into_uuid())
+            .bind(record.user_id)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        // 新 Member 加入 general Channel，与 Space Owner 的初始成员身份一致。
+        sqlx::query(
+            "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) \
+             SELECT id,space_id,$2,$3 FROM channels WHERE space_id=$1 AND slug='general'",
+        )
+        .bind(record.space_id.into_uuid())
+        .bind(record.member_id.into_uuid())
+        .bind(record.created_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) \
+             VALUES($1,$2,$3,'space.member.joined','member',$3,$4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(record.space_id.into_uuid())
+        .bind(record.member_id.into_uuid())
+        .bind(record.created_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn space_human_member(
+        &mut self,
+        user_id: Uuid,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT m.id,m.display_name,m.handle FROM human_members hm \
+             JOIN members m ON m.id=hm.member_id \
+             WHERE hm.user_id=$1 AND hm.space_id=$2",
+        )
+        .bind(user_id)
+        .bind(space_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|row| SpaceHumanMember {
+            member_id: MemberId::from_uuid(row.get("id")),
+            space_id,
+            display_name: row.get("display_name"),
+            handle: row.get("handle"),
+        }))
     }
 
     async fn insert_pairing(
@@ -2764,6 +2920,26 @@ fn paired_computer_from_row(
         last_seen_at: row.get("last_seen_at"),
         created_at: row.get("created_at"),
     })
+}
+
+fn invitation_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<(Uuid, Invitation), ApplicationError> {
+    let invitation = Invitation {
+        draft: InvitationDraft {
+            space_id: SpaceId::from_uuid(row.get("space_id")),
+            email_normalized: row.get("email_normalized"),
+            token_hash: row.get("token_hash"),
+            created_by_member_id: MemberId::from_uuid(row.get("created_by_member_id")),
+        },
+        status: InvitationStatus::parse(row.get("status"))?,
+        expires_at: row.get("expires_at"),
+        accepted_by_member_id: row
+            .get::<Option<Uuid>, _>("accepted_by_member_id")
+            .map(MemberId::from_uuid),
+        accepted_at: row.get("accepted_at"),
+    };
+    Ok((row.get("id"), invitation))
 }
 
 fn pairing_from_row(row: &sqlx::postgres::PgRow) -> Result<Pairing, ApplicationError> {

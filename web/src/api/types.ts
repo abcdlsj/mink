@@ -31,15 +31,6 @@ export interface components {
         };
         /** @enum {string} */
         AgentActivityStatus: "idle" | "queued" | "starting" | "running" | "finalizing" | "stopping" | "unreachable" | "suspended" | "error";
-        AgentCreateApprovalPayload: {
-            access_level: components["schemas"]["AgentAccessLevel"];
-            /** Format: uuid */
-            computer_id: string;
-            driver_kind: components["schemas"]["DriverKind"];
-            name: string;
-            permissions: string[];
-            role_text: string;
-        };
         /** @enum {string} */
         AgentLifecycle: "active" | "suspended" | "retired";
         AgentResponse: {
@@ -74,26 +65,6 @@ export interface components {
             focus?: null | components["schemas"]["ThreadReferenceResponse"];
             session_continuity: components["schemas"]["SessionContinuityResponse"];
         };
-        /** @enum {string} */
-        ApprovalKind: "agent_create";
-        ApprovalResponse: {
-            created_at: string;
-            /** Format: uuid */
-            id: string;
-            kind: components["schemas"]["ApprovalKind"];
-            payload: components["schemas"]["AgentCreateApprovalPayload"];
-            /** Format: uuid */
-            requested_by_member_id: string;
-            requester_name: string;
-            resolved_at?: string | null;
-            /** Format: uuid */
-            resolved_by_member_id?: string | null;
-            /** Format: uuid */
-            space_id: string;
-            status: components["schemas"]["ApprovalStatus"];
-        };
-        /** @enum {string} */
-        ApprovalStatus: "pending" | "approved" | "rejected" | "canceled";
         AttachmentResponse: {
             created_at: string;
             download_path?: string | null;
@@ -216,7 +187,6 @@ export interface components {
         };
         CreateInvitationRequest: {
             email: string;
-            invite_token: string;
         };
         CreateMessageRequest: {
             attachment_ids: string[];
@@ -246,6 +216,21 @@ export interface components {
             /** Format: uuid */
             space_id: string;
         };
+        /** @description 创建响应。`token`只在首次创建时非空，重放不返回明文。 */
+        CreatedInvitationResponse: {
+            accepted_at?: string | null;
+            /** Format: uuid */
+            accepted_by_member_id?: string | null;
+            email: string;
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            space_id: string;
+            space_name: string;
+            space_slug: string;
+            token?: string | null;
+        };
         DeferRequest: {
             until: string;
         };
@@ -268,8 +253,6 @@ export interface components {
             error: components["schemas"]["ErrorBody"];
         };
         InboxItemResponse: {
-            /** Format: uuid */
-            approval_id?: string | null;
             available_at: string;
             /** Format: uuid */
             channel_id?: string | null;
@@ -292,7 +275,7 @@ export interface components {
             thread_id?: string | null;
         };
         /** @enum {string} */
-        InboxKind: "direct" | "mention" | "reply" | "thread_activity" | "channel_activity" | "approval" | "system";
+        InboxKind: "direct" | "mention" | "reply" | "task_activity" | "thread_activity" | "channel_activity" | "system";
         /** @enum {string} */
         InboxPriority: "hard" | "ambient";
         /** @enum {string} */
@@ -593,7 +576,6 @@ export type Agent = components["schemas"]["AgentResponse"];
 export type AgentRuntime = components["schemas"]["AgentRuntimeResponse"];
 export type AgentMemoryContent = components["schemas"]["MemoryContentResponse"];
 export type AgentMemoryFile = components["schemas"]["MemoryFileResponse"];
-export type Approval = components["schemas"]["ApprovalResponse"];
 export type Attachment = components["schemas"]["AttachmentResponse"];
 export type AttentionConfig = components["schemas"]["AttentionConfig"];
 export type Channel = components["schemas"]["ChannelResponse"];
@@ -616,6 +598,7 @@ export type DirectMessage = components["schemas"]["DirectMessageResponse"];
 export type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
 export type InboxItem = components["schemas"]["InboxItemResponse"];
 export type Invitation = components["schemas"]["InvitationResponse"];
+export type CreatedInvitation = components["schemas"]["CreatedInvitationResponse"];
 export type LoginInput = components["schemas"]["LoginRequest"];
 export type LoginResponse = components["schemas"]["LoginResponse"];
 export type Member = components["schemas"]["MemberResponse"];

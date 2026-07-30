@@ -82,6 +82,56 @@ Computer 仍有已分配 Agent 时，删除请求返回`computer_has_agents`冲�
 
 Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin 可以授予或撤销 Permission。
 
+### 2.4 Invitation
+
+Invitation 是 Human 加入既有 Space 的唯一途径。Space 创建者通过注册流程成为 Owner，其余 Human 只能通过 Invitation 取得 Human Member 身份。
+
+```text
+POST /api/v1/spaces/{space_id}/invites
+GET  /api/v1/invites/{invite_token}
+POST /api/v1/invites/{invite_token}/accept
+```
+
+#### 2.4.1 创建 Invitation
+
+请求只接受`email`。Server 不接受调用方提供的 token，因为客户端的熵源不可验证。
+
+Server 生成 token，按 `browser_sessions.token_hash` 与 `computers.token_hash` 的既有惯例只持久化其 SHA-256 散列。响应在创建时返回一次明文 token，此后任何读取路径都不能再取得明文。Owner/Admin 丢失链接时只能创建新 Invitation。
+
+只有 Human Owner 或 Admin 可以创建 Invitation。该规则与 `PUT|DELETE /members/{member_id}/permissions/{action_code}` 一致，都属于 [Space 治理动作](09-security-operations.md)。Agent 不能创建 Invitation，因为 Invitation 授予 Human 身份而非 Action 能力。
+
+有效期为 7 天，由 Server 的领域常量决定。请求不接受自定义`expires_at`，避免调用方绕过窗口上限。
+
+请求携带 idempotency key。同一 key 重放返回首次创建的 Invitation 投影，且不返回明文 token，因为明文只在首次生成时存在。
+
+同一 Space 内同一 email 只能存在一个未接受且未过期的 Invitation。重复创建返回`invitation_already_pending`冲突，防止一个 email 持有多个可用链接。
+
+#### 2.4.2 读取 Invitation
+
+`GET /api/v1/invites/{invite_token}` 不要求认证。受邀 Human 点击链接时可能尚无账号，前端 `InvitationPage` 在渲染 Space 名称之前就需要该投影，因此认证要求会使流程无法完成。
+
+Server 对路径中的明文 token 计算散列后按散列查找，不做前缀匹配或模糊查找。未命中和已过期返回同一个`invitation_unavailable`错误，不区分原因，避免该端点成为 token 存在性探测面。
+
+已接受的 Invitation 仍返回投影，其中`accepted_at`非空。前端据此渲染「已接受」而不是「链接失效」，Human 才知道无需再次操作。
+
+响应只包含`id`、`space_id`、`space_name`、`space_slug`、`email`、`expires_at`、`accepted_at`和`accepted_by_member_id`。该端点不返回 Member 名单、Channel、Message 或任何 Space 内容，因为持有 token 的一方尚未获得 Space 授权。
+
+未注册 Human 的完整流程：点击链接后前端并行读取 Invitation 投影和当前 Session。Session 返回 401 时，页面渲染 Register 与 Sign in 入口，并把`redirect=/invite/{invite_token}`带入注册和登录流程。Human 完成注册或登录后被送回同一链接，此时 Session 已建立，页面渲染 Accept 动作。因此 Invitation 不创建 User，只在接受时把既有 User 接入 Space。
+
+#### 2.4.3 接受 Invitation
+
+`POST /api/v1/invites/{invite_token}/accept` 要求 Browser Session。响应返回新建的 Human Member 投影。
+
+接受不携带 idempotency key。token 与 Session 所属 User 共同标识一次接受，重试同一请求返回同一个 Member，因此不需要客户端提供额外的键。Server 用行锁把并发接受串行化。
+
+Server 校验 Session 所属 User 的`email_normalized`与 Invitation 的 email 一致。不一致返回`invitation_email_mismatch`，因为 Invitation 指向一个具体收件人，而非任何持有链接的人。该端点要求 Session，调用方已经证明了自己的身份，因此区分收件人不符是 Human 纠正登录账号所必需的，不构成新的探测面。
+
+已过期的 Invitation 不能接受，返回`invitation_unavailable`。
+
+接受在一个事务内写入 Invitation 的`accepted_at`与`accepted_by_member_id`、新建 `members` 行、新建 `human_members` 行、把新 Member 加入 general Channel 并写入 audit event。新 Member 的`access_level`固定为`member`。提升为 Admin 属于独立的治理动作。
+
+同一 User 已是该 Space 的 Human Member 时，若该 Member 正是本 Invitation 的接受者，则返回同一个 Member，使重试成立。若是通过其他途径已经加入，则返回`already_member`冲突而不新建 Member，该约束由 `human_members` 的 `(space_id, user_id)` 唯一键兜底。
+
 ## 3. Computer API
 
 Computer 使用 Computer Token 认证。

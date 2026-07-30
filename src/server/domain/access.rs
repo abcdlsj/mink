@@ -7,6 +7,12 @@ use super::{DomainError, identity::AccessLevel};
 /// Human 凭据的最小长度。短于该长度的密码不建立账号。
 const MINIMUM_PASSWORD_LENGTH: usize = 12;
 
+/// email 的规范化形式。`users.email_normalized`是账号唯一键,Invitation 的收件人
+/// 必须按同一规则规范化才能与之比较,因此该函数是两处的唯一来源。
+pub(in crate::server) fn normalize_email(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
 /// 注册请求经过规范化后的 Human 身份。规范化后的 email 是账号唯一键。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct HumanRegistration {
@@ -21,7 +27,7 @@ impl HumanRegistration {
         password_length: usize,
     ) -> Result<Self, DomainError> {
         let display_name = display_name.trim();
-        let email_normalized = email.trim().to_lowercase();
+        let email_normalized = normalize_email(email);
         if display_name.is_empty()
             || email_normalized.is_empty()
             || password_length < MINIMUM_PASSWORD_LENGTH
