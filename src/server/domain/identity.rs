@@ -47,6 +47,15 @@ pub(in crate::server) enum PermissionAction {
     AgentCreate,
 }
 
+impl PermissionAction {
+    pub(in crate::server) fn code(self) -> &'static str {
+        match self {
+            Self::ChannelCreate => "channel.create",
+            Self::AgentCreate => "agent.create",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum AgentLifecycle {
     Provisioning,

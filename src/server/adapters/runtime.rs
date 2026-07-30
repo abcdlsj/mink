@@ -27,7 +27,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 use time::{Duration, OffsetDateTime};
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use uuid::Uuid;
 
 use crate::config::ServerConfig;
@@ -45,7 +48,7 @@ use crate::{
         application::conversation::{
             CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
             CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
-            PublishMessage,
+            DeleteMessage, EditMessage, EditMessageInput, PublishMessage,
         },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -55,15 +58,16 @@ use crate::{
         },
         application::{
             execution::{
-                ClaimRun, ClaimRunInput, RecordRunItemDisposition, RecordRunItemDispositionInput,
-                RenewRun, RenewRunInput, StartRun, StartRunInput,
+                AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput,
+                CompleteRun, CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
+                RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
-            identity::{DeleteComputer, RetireAgent},
+            identity::{DeleteComputer, RetireAgent, SetPermission},
             ports::{AttachmentObjectPort, MessageDraft, RawFencingToken},
         },
         domain::{
             conversation::ChannelKind,
-            identity::{AccessLevel, DriverKind},
+            identity::{AccessLevel, DriverKind, PermissionAction},
             task::CloseReason,
         },
     },
@@ -177,6 +181,7 @@ struct CreateSpaceBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateChannelBody {
     name: String,
     slug: String,
@@ -187,6 +192,7 @@ struct CreateChannelBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateAgentBody {
     computer_id: Uuid,
     name: String,
@@ -197,6 +203,7 @@ struct CreateAgentBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateMessageBody {
     body_markdown: String,
     #[serde(default)]
@@ -207,28 +214,52 @@ struct CreateMessageBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateMessageBody {
+    body_markdown: String,
+}
+
+struct MessageWriteContext {
+    idempotency_key: crate::ids::IdempotencyKey,
+    thread_id: Option<Uuid>,
+    handled_item: Option<(Uuid, Uuid)>,
+    expected_snapshot: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateTaskBody {
     title: Option<String>,
     assignee_agent_member_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateTaskBody {
+    title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StartTaskBody {
     assignee_agent_member_id: Uuid,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LinkThreadBody {
     thread_id: Uuid,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CompleteTaskBody {
     result_markdown: String,
     result_thread_id: Uuid,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CloseTaskBody {
     reason: String,
     note: Option<String>,
@@ -323,10 +354,23 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(pairing_status),
         )
         .route("/computers/{computer_id}/connect", get(connect_computer))
+        .route("/computers/{computer_id}/agents", get(computer_agents))
         .route("/computers/{computer_id}/runs/claim", post(claim_run))
+        .route(
+            "/computers/{computer_id}/runs/{run_id}/started",
+            post(run_started),
+        )
         .route(
             "/computers/{computer_id}/runs/{run_id}/renew",
             post(renew_run),
+        )
+        .route(
+            "/computers/{computer_id}/runs/{run_id}/delivery-receipts",
+            post(delivery_receipt),
+        )
+        .route(
+            "/computers/{computer_id}/runs/{run_id}/result",
+            post(run_result),
         )
         .route("/computers/{computer_id}/agent-actions", post(agent_action))
         .route(
@@ -361,11 +405,17 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(list_agents).post(create_agent),
         )
         .route("/agents/{agent_id}", get(get_agent).delete(retire_agent))
+        .route("/agents/{agent_id}/runs/current", get(current_agent_run))
         .route("/spaces/{space_id}/approvals", get(empty_list))
         .route("/spaces/{space_id}/tasks", get(list_tasks))
-        .route("/tasks/{task_id}", get(get_task))
+        .route("/tasks/{task_id}", get(get_task).patch(update_task))
+        .route("/tasks/{task_id}/runs", get(task_runs))
         .route("/root-messages/{message_id}/task", post(create_task))
         .route("/tasks/{task_id}/threads", post(link_task_thread))
+        .route(
+            "/tasks/{task_id}/threads/{thread_id}",
+            axum::routing::delete(unlink_task_thread),
+        )
         .route("/tasks/{task_id}/start", post(start_task))
         .route("/tasks/{task_id}/submit-review", post(submit_task_review))
         .route(
@@ -374,13 +424,23 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         )
         .route("/tasks/{task_id}/done", post(complete_task))
         .route("/tasks/{task_id}/close", post(close_task))
+        .route("/tasks/{task_id}/reset-session", post(reset_task_session))
         .route(
             "/channels/{channel_id}/messages",
             get(list_messages).post(create_root_message),
         )
+        .route("/channels/{channel_id}/members", get(list_channel_members))
         .route("/threads/{thread_id}", get(read_thread))
         .route("/threads/{thread_id}/messages", post(create_thread_reply))
+        .route(
+            "/messages/{message_id}",
+            axum::routing::patch(update_message).delete(delete_message),
+        )
         .route("/members/{member_id}/inbox", get(empty_list))
+        .route(
+            "/members/{member_id}/permissions/{action_code}",
+            axum::routing::put(grant_permission).delete(revoke_permission),
+        )
         .route("/attachments/uploads", post(create_upload))
         .route(
             "/attachments/{attachment_id}/content",
@@ -400,9 +460,9 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     let app = Router::new()
         .nest("/api/v1", api)
         .fallback_service(
-            ServeDir::new(config.web_dist)
+            ServeDir::new(&config.web_dist)
                 .append_index_html_on_directories(true)
-                .fallback(ServeDir::new("web/dist")),
+                .not_found_service(ServeFile::new(config.web_dist.join("index.html"))),
         )
         .layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(config.bind)
@@ -565,12 +625,35 @@ async fn pairing_details(
 async fn confirm_pairing(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
     Json(body): Json<ConfirmPairingBody>,
 ) -> Result<Json<Value>, ApiError> {
-    current_member(&state, &jar, body.space_id).await?;
+    let actor_id = current_member(&state, &jar, body.space_id).await?;
+    let key = idempotency_header(&headers)?;
     expire_pairing(&state.pool, pairing_id).await?;
     let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, actor_id, "computer.pairing.confirm", key).await?;
+    if let Some(row) = sqlx::query(
+        "SELECT computers.* FROM idempotency_records \
+         JOIN computers ON computers.id=idempotency_records.resource_id \
+         WHERE actor_member_id=$1 AND action='computer.pairing.confirm' AND idempotency_key=$2",
+    )
+    .bind(actor_id)
+    .bind(key)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    {
+        transaction.commit().await.map_err(map_sqlx)?;
+        return Ok(Json(json!({
+            "id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),
+            "name":row.get::<String,_>("name"),"hostname":row.get::<String,_>("hostname"),
+            "os":row.get::<String,_>("os"),"daemon_version":row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
+            "status":"offline","last_seen_at":optional_timestamp(row.get("last_seen_at")),
+            "created_at":timestamp(row.get("created_at"))
+        })));
+    }
     let pairing=sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2 AND status='pending' FOR UPDATE").bind(pairing_id).bind(token_hash(&body.code)).fetch_optional(&mut *transaction).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
     let computer_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
@@ -578,6 +661,10 @@ async fn confirm_pairing(
         .bind(computer_id).bind(body.space_id).bind(&body.name).bind(pairing.get::<String,_>("hostname")).bind(pairing.get::<String,_>("os")).bind(pairing.get::<String,_>("token_hash")).bind(pairing.get::<String,_>("daemon_version")).bind(now)
         .execute(&mut *transaction).await.map_err(map_sqlx)?;
     sqlx::query("UPDATE computer_pairings SET status='confirmed',computer_id=$2,space_id=$3,confirmed_at=$4 WHERE id=$1").bind(pairing_id).bind(computer_id).bind(body.space_id).bind(now).execute(&mut *transaction).await.map_err(map_sqlx)?;
+    let result_hash = Sha256::digest(computer_id.as_bytes());
+    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'computer.pairing.confirm',$2,'ok',$3,$4,$5)")
+        .bind(actor_id).bind(key).bind(computer_id).bind(result_hash.as_slice()).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
     transaction.commit().await.map_err(map_sqlx)?;
     Ok(Json(
         json!({"id":computer_id,"space_id":body.space_id,"name":body.name,"hostname":pairing.get::<String,_>("hostname"),"os":pairing.get::<String,_>("os"),"daemon_version":pairing.get::<String,_>("daemon_version"),"status":"offline","last_seen_at":Value::Null,"created_at":timestamp(now)}),
@@ -626,12 +713,12 @@ async fn connect_computer(
         .on_upgrade(move |socket| computer_socket(socket, storage, pool, computer_id, deleted)))
 }
 
-async fn claim_run(
-    State(state): State<RuntimeState>,
-    headers: HeaderMap,
-    Path(computer_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
-    let raw = bearer_token(&headers)?;
+async fn authenticate_computer(
+    state: &RuntimeState,
+    headers: &HeaderMap,
+    computer_id: Uuid,
+) -> Result<(), ApiError> {
+    let raw = bearer_token(headers)?;
     let authorized: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND token_hash=$2 AND deleted_at IS NULL)",
     )
@@ -643,6 +730,169 @@ async fn claim_run(
     if !authorized {
         return Err(ApiError::unauthenticated());
     }
+    Ok(())
+}
+
+async fn computer_agents(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path(computer_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    let rows = sqlx::query(
+        "SELECT a.member_id,a.space_id,a.role_text,a.role_revision,a.lifecycle,a.driver_kind,\
+                a.driver_config_json,m.display_name,m.handle,m.access_level \
+         FROM agents a JOIN members m ON m.id=a.member_id \
+         WHERE a.computer_id=$1 AND a.lifecycle<>'retired' ORDER BY a.created_at,a.member_id",
+    )
+    .bind(computer_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(Value::Array(
+        rows.iter()
+            .map(|row| {
+                json!({
+                    "member_id": row.get::<Uuid,_>("member_id"),
+                    "space_id": row.get::<Uuid,_>("space_id"),
+                    "display_name": row.get::<String,_>("display_name"),
+                    "handle": row.get::<String,_>("handle"),
+                    "access_level": row.get::<String,_>("access_level"),
+                    "role_text": row.get::<String,_>("role_text"),
+                    "role_revision": row.get::<i64,_>("role_revision"),
+                    "lifecycle": row.get::<String,_>("lifecycle"),
+                    "driver_kind": row.get::<String,_>("driver_kind"),
+                    "driver_config": row.get::<Value,_>("driver_config_json"),
+                })
+            })
+            .collect(),
+    )))
+}
+
+async fn run_started(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
+    Json(started): Json<crate::protocol::computer::RunStarted>,
+) -> Result<StatusCode, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    if started.run_id.into_uuid() != run_id {
+        return Err(ApiError::invalid("Run ID does not match the request path"));
+    }
+    let mut storage = state.storage.clone();
+    StartRun::execute(
+        &mut storage,
+        StartRunInput {
+            run_id: started.run_id,
+            computer_id: ComputerId::from_uuid(computer_id),
+            fencing_token_hash: token_hash(started.fencing_token.expose()),
+            now: started.observed_at,
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(StatusCode::OK)
+}
+
+async fn delivery_receipt(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
+    Json(receipt): Json<crate::protocol::computer::DeliveryReceipt>,
+) -> Result<StatusCode, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    if receipt.run_id.into_uuid() != run_id {
+        return Err(ApiError::invalid("Run ID does not match the request path"));
+    }
+    let mut storage = state.storage.clone();
+    AcknowledgeDelivery::execute(
+        &mut storage,
+        AcknowledgeDeliveryInput {
+            run_id: receipt.run_id,
+            computer_id: ComputerId::from_uuid(computer_id),
+            fencing_token_hash: token_hash(receipt.fencing_token.expose()),
+            delivery_sequence: receipt.delivery_sequence.0,
+            accepted: matches!(
+                receipt.outcome,
+                crate::protocol::computer::DeliveryOutcome::Accepted
+            ),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(StatusCode::OK)
+}
+
+async fn apply_run_result(
+    state: &RuntimeState,
+    computer_id: Uuid,
+    result: crate::protocol::computer::RunResult,
+) -> Result<(), ApiError> {
+    use crate::protocol::computer::{ItemDisposition, RunTerminalStatus};
+    let outcome = match result.status {
+        RunTerminalStatus::Completed => crate::server::domain::execution::RunOutcome::Completed,
+        RunTerminalStatus::Yielded => crate::server::domain::execution::RunOutcome::Yielded,
+        RunTerminalStatus::Failed => crate::server::domain::execution::RunOutcome::Failed,
+        RunTerminalStatus::Canceled => crate::server::domain::execution::RunOutcome::Canceled,
+    };
+    let item_dispositions = result
+        .item_outcomes
+        .into_iter()
+        .map(|item| ItemDispositionInput {
+            item_id: item.item_id,
+            disposition: match item.disposition {
+                ItemDisposition::Handled => {
+                    crate::server::domain::attention::InboxItemDisposition::Handled
+                }
+                ItemDisposition::Deferred => {
+                    crate::server::domain::attention::InboxItemDisposition::Deferred
+                }
+                ItemDisposition::Released => {
+                    crate::server::domain::attention::InboxItemDisposition::Released
+                }
+            },
+        })
+        .collect();
+    let mut storage = state.storage.clone();
+    CompleteRun::execute(
+        &mut storage,
+        CompleteRunInput {
+            event_id: result.event_id,
+            run_id: result.run_id,
+            computer_id: ComputerId::from_uuid(computer_id),
+            fencing_token_hash: token_hash(result.fencing_token.expose()),
+            outcome,
+            item_dispositions,
+            continuation_note: result.continuation_note,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(())
+}
+
+async fn run_result(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
+    Json(result): Json<crate::protocol::computer::RunResult>,
+) -> Result<StatusCode, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    if result.run_id.into_uuid() != run_id {
+        return Err(ApiError::invalid("Run ID does not match the request path"));
+    }
+    apply_run_result(&state, computer_id, result).await?;
+    Ok(StatusCode::OK)
+}
+
+async fn claim_run(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path(computer_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
     let candidate = sqlx::query(
         "SELECT i.id,i.agent_id,i.task_id,i.thread_id FROM inbox_items i \
          JOIN agents a ON a.member_id=i.agent_id \
@@ -692,18 +942,7 @@ async fn renew_run(
     Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<RenewRunBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let raw = bearer_token(&headers)?;
-    let authorized: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND token_hash=$2 AND deleted_at IS NULL)",
-    )
-    .bind(computer_id)
-    .bind(token_hash(raw))
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
-    if !authorized {
-        return Err(ApiError::unauthenticated());
-    }
+    authenticate_computer(&state, &headers, computer_id).await?;
     let lease_expires_at = OffsetDateTime::now_utc() + Duration::minutes(2);
     let mut storage = state.storage.clone();
     let run = RenewRun::execute(
@@ -855,16 +1094,34 @@ async fn computer_socket(
                 }
             }
             ComputerFrame::DeliveryReceipt { receipt } => {
-                let _ = send_json(
-                    &mut socket,
-                    &ServerFrame::Receipt {
-                        receipt: crate::protocol::computer::Receipt {
-                            event_id: receipt.event_id,
-                            kind: crate::protocol::computer::ReceiptKind::Delivery,
-                        },
+                let mut application = storage.clone();
+                let applied = AcknowledgeDelivery::execute(
+                    &mut application,
+                    AcknowledgeDeliveryInput {
+                        run_id: receipt.run_id,
+                        computer_id: ComputerId::from_uuid(computer_id),
+                        fencing_token_hash: token_hash(receipt.fencing_token.expose()),
+                        delivery_sequence: receipt.delivery_sequence.0,
+                        accepted: matches!(
+                            receipt.outcome,
+                            crate::protocol::computer::DeliveryOutcome::Accepted
+                        ),
+                        now: OffsetDateTime::now_utc(),
                     },
                 )
                 .await;
+                if applied.is_ok() {
+                    let _ = send_json(
+                        &mut socket,
+                        &ServerFrame::Receipt {
+                            receipt: crate::protocol::computer::Receipt {
+                                event_id: receipt.event_id,
+                                kind: crate::protocol::computer::ReceiptKind::Delivery,
+                            },
+                        },
+                    )
+                    .await;
+                }
             }
             ComputerFrame::CommandResult { result } => {
                 if apply_command_result(&pool, computer_id, &result)
@@ -1083,10 +1340,20 @@ async fn execute_agent_action(
                 state,
                 channel_id,
                 context.agent_id.into_uuid(),
-                thread_id,
-                send.handle_item_id
-                    .map(|item_id| (context.run_id.into_uuid(), item_id.into_uuid())),
-                expected_snapshot,
+                MessageWriteContext {
+                    idempotency_key: request.idempotency_key.ok_or_else(|| {
+                        capability_error(
+                            capability::ErrorCode::InvalidArgument,
+                            "Idempotency key is required",
+                            false,
+                        )
+                    })?,
+                    thread_id,
+                    handled_item: send
+                        .handle_item_id
+                        .map(|item_id| (context.run_id.into_uuid(), item_id.into_uuid())),
+                    expected_snapshot,
+                },
                 CreateMessageBody {
                     body_markdown: send.body,
                     mentions: Vec::new(),
@@ -1140,6 +1407,13 @@ async fn execute_agent_action(
                 .map_err(api_to_capability)
         }
         capability::Action::TaskLinkThread { thread_id } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
             let task_id = context.task_id.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::Conflict,
@@ -1154,6 +1428,7 @@ async fn execute_agent_action(
                     task_id,
                     target_thread_id: thread_id,
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: key,
                     now: OffsetDateTime::now_utc(),
                 },
             )
@@ -1164,6 +1439,13 @@ async fn execute_agent_action(
                 .map_err(api_to_capability)
         }
         capability::Action::TaskUnlinkThread { thread_id } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
             let task_id = context.task_id.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::Conflict,
@@ -1178,6 +1460,7 @@ async fn execute_agent_action(
                     task_id,
                     target_thread_id: thread_id,
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: key,
                     now: OffsetDateTime::now_utc(),
                 },
             )
@@ -1188,6 +1471,13 @@ async fn execute_agent_action(
                 .map_err(api_to_capability)
         }
         capability::Action::TaskUpdate { title } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
             let task_id = context.task_id.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::Conflict,
@@ -1201,6 +1491,7 @@ async fn execute_agent_action(
                 UpdateTaskInput {
                     task_id,
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: key,
                     action: TaskAction::Rename { title },
                     now: OffsetDateTime::now_utc(),
                 },
@@ -1290,6 +1581,13 @@ async fn execute_agent_action(
                     topic: Some(name),
                     action_message_id: MessageId::from_uuid(Uuid::now_v7()),
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: request.idempotency_key.ok_or_else(|| {
+                        capability_error(
+                            capability::ErrorCode::InvalidArgument,
+                            "Idempotency key is required",
+                            false,
+                        )
+                    })?,
                     current_run_id: context.run_id,
                     now: OffsetDateTime::now_utc(),
                 },
@@ -1315,6 +1613,13 @@ async fn execute_agent_action(
                     },
                     action_message_id: MessageId::from_uuid(Uuid::now_v7()),
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: request.idempotency_key.ok_or_else(|| {
+                        capability_error(
+                            capability::ErrorCode::InvalidArgument,
+                            "Idempotency key is required",
+                            false,
+                        )
+                    })?,
                     current_run_id: context.run_id,
                     now: OffsetDateTime::now_utc(),
                 },
@@ -1767,6 +2072,7 @@ async fn list_channels(
 async fn create_channel(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(space_id): Path<Uuid>,
     Json(body): Json<CreateChannelBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -1794,6 +2100,7 @@ async fn create_channel(
             slug: Some(body.slug.trim().to_owned()),
             topic: body.topic.clone(),
             actor_member_id: MemberId::from_uuid(member_id),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now,
         },
     )
@@ -1883,24 +2190,83 @@ async fn get_agent(
     Ok(Json(agent_row(&row)))
 }
 
-async fn retire_agent(
+async fn current_agent_run(
     State(state): State<RuntimeState>,
     jar: CookieJar,
-    headers: HeaderMap,
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    idempotency_header(&headers)?;
     let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
         .bind(agent_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(map_sqlx)?
         .ok_or_else(ApiError::not_found)?;
-    require_space_governor(&state, &jar, space_id).await?;
+    let viewer_id = current_member(&state, &jar, space_id).await?;
+    let run_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT r.id FROM agent_runs r \
+         JOIN threads t ON t.id=r.focus_thread_id \
+         JOIN channel_members cm ON cm.channel_id=t.channel_id AND cm.member_id=$2 \
+         WHERE r.agent_id=$1 AND r.status NOT IN ('completed','yielded','failed','canceled') \
+         ORDER BY r.created_at DESC LIMIT 1",
+    )
+    .bind(agent_id)
+    .bind(viewer_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    let Some(run_id) = run_id else {
+        return Ok(Json(json!({
+            "current_run": Value::Null,
+            "current_task": Value::Null,
+            "focus": Value::Null,
+            "another_item_waiting": false,
+            "session_continuity": {"state":"unavailable","generation":Value::Null,"reason_code":Value::Null}
+        })));
+    };
+    let run = run_projection(&state.pool, run_id).await?;
+    let task_id = run["task_id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let current_task = match task_id {
+        Some(task_id) => task_projection(&state.pool, task_id).await?,
+        None => Value::Null,
+    };
+    let another_item_waiting: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM inbox_items WHERE agent_id=$1 AND status='pending')",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(json!({
+        "focus": run["focus"].clone(),
+        "current_run": run,
+        "current_task": current_task,
+        "another_item_waiting": another_item_waiting,
+        "session_continuity": {"state":"unavailable","generation":Value::Null,"reason_code":Value::Null}
+    })))
+}
+
+async fn retire_agent(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(agent_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
+        .bind(agent_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor_id = require_space_governor(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
     RetireAgent::execute(
         &mut storage,
+        MemberId::from_uuid(actor_id),
         MemberId::from_uuid(agent_id),
+        key,
         OffsetDateTime::now_utc(),
     )
     .await
@@ -1924,18 +2290,20 @@ async fn delete_computer(
     headers: HeaderMap,
     Path(computer_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    idempotency_header(&headers)?;
+    let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
     let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM computers WHERE id=$1")
         .bind(computer_id)
         .fetch_optional(&state.pool)
         .await
         .map_err(map_sqlx)?
         .ok_or_else(ApiError::not_found)?;
-    require_space_governor(&state, &jar, space_id).await?;
+    let actor_id = require_space_governor(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
     DeleteComputer::execute(
         &mut storage,
+        MemberId::from_uuid(actor_id),
         ComputerId::from_uuid(computer_id),
+        key,
         OffsetDateTime::now_utc(),
     )
     .await
@@ -1957,6 +2325,7 @@ async fn delete_computer(
 async fn create_agent(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(space_id): Path<Uuid>,
     Json(body): Json<CreateAgentBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -2010,6 +2379,7 @@ async fn create_agent(
                 DriverKind::Builtin
             },
             actor_member_id: MemberId::from_uuid(actor_id),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now,
         },
     )
@@ -2105,14 +2475,55 @@ async fn list_messages(
     ))
 }
 
+async fn list_channel_members(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let viewer_id = channel_member(&state, &jar, channel_id).await?;
+    let can_manage: bool =
+        sqlx::query_scalar("SELECT access_level IN ('owner','admin') FROM members WHERE id=$1")
+            .bind(viewer_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(map_sqlx)?;
+    let rows = sqlx::query(
+        "SELECT members.id,members.kind,members.display_name,members.handle,members.access_level \
+         FROM channel_members JOIN members ON members.id=channel_members.member_id \
+         WHERE channel_members.channel_id=$1 ORDER BY channel_members.joined_at,members.id",
+    )
+    .bind(channel_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    let mut members = Vec::with_capacity(rows.len());
+    for row in &rows {
+        members.push(member_row(&state.pool, row).await?);
+    }
+    Ok(Json(json!({"members":members,"can_manage":can_manage})))
+}
+
 async fn create_root_message(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(channel_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let member_id = channel_member(&state, &jar, channel_id).await?;
-    let message_id = insert_message(&state, channel_id, member_id, None, None, None, body).await?;
+    let message_id = insert_message(
+        &state,
+        channel_id,
+        member_id,
+        MessageWriteContext {
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            thread_id: None,
+            handled_item: None,
+            expected_snapshot: None,
+        },
+        body,
+    )
+    .await?;
     let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
         .bind(message_id)
         .fetch_one(&state.pool)
@@ -2160,6 +2571,7 @@ async fn read_thread(
 async fn create_thread_reply(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(thread_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -2175,9 +2587,12 @@ async fn create_thread_reply(
         &state,
         channel_id,
         member_id,
-        Some(thread_id),
-        None,
-        None,
+        MessageWriteContext {
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            thread_id: Some(thread_id),
+            handled_item: None,
+            expected_snapshot: None,
+        },
         body,
     )
     .await?;
@@ -2190,6 +2605,134 @@ async fn create_thread_reply(
         StatusCode::CREATED,
         Json(message_row(&state.pool, &row, member_id).await?),
     ))
+}
+
+async fn update_message(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(message_id): Path<Uuid>,
+    Json(body): Json<UpdateMessageBody>,
+) -> Result<Json<Value>, ApiError> {
+    let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = channel_member(&state, &jar, channel_id).await?;
+    let mut storage = state.storage.clone();
+    EditMessage::execute(
+        &mut storage,
+        EditMessageInput {
+            message_id: MessageId::from_uuid(message_id),
+            actor_member_id: MemberId::from_uuid(actor),
+            body_markdown: body.body_markdown,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(Json(message_row(&state.pool, &row, actor).await?))
+}
+
+async fn delete_message(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(message_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = channel_member(&state, &jar, channel_id).await?;
+    let mut storage = state.storage.clone();
+    DeleteMessage::execute(
+        &mut storage,
+        MessageId::from_uuid(message_id),
+        MemberId::from_uuid(actor),
+        crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(Json(message_row(&state.pool, &row, actor).await?))
+}
+
+fn permission_action(action_code: &str) -> Result<PermissionAction, ApiError> {
+    match action_code {
+        "channel.create" => Ok(PermissionAction::ChannelCreate),
+        "agent.create" => Ok(PermissionAction::AgentCreate),
+        _ => Err(ApiError::invalid("Permission action code is not supported")),
+    }
+}
+
+async fn set_permission(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    headers: &HeaderMap,
+    member_id: Uuid,
+    action_code: &str,
+    enabled: bool,
+) -> Result<Json<Value>, ApiError> {
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM members WHERE id=$1")
+        .bind(member_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = current_member(state, jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    SetPermission::execute(
+        &mut storage,
+        MemberId::from_uuid(actor),
+        MemberId::from_uuid(member_id),
+        permission_action(action_code)?,
+        enabled,
+        crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    let row =
+        sqlx::query("SELECT id,kind,display_name,handle,access_level FROM members WHERE id=$1")
+            .bind(member_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(map_sqlx)?;
+    Ok(Json(member_row(&state.pool, &row).await?))
+}
+
+async fn grant_permission(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path((member_id, action_code)): Path<(Uuid, String)>,
+) -> Result<Json<Value>, ApiError> {
+    set_permission(&state, &jar, &headers, member_id, &action_code, true).await
+}
+
+async fn revoke_permission(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path((member_id, action_code)): Path<(Uuid, String)>,
+) -> Result<Json<Value>, ApiError> {
+    set_permission(&state, &jar, &headers, member_id, &action_code, false).await
 }
 
 async fn list_tasks(
@@ -2225,6 +2768,26 @@ async fn get_task(
         .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, space_id).await?;
     Ok(Json(task_projection(&state.pool, task_id).await?))
+}
+
+async fn task_runs(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(task_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    task_actor(&state, &jar, task_id).await?;
+    let ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM agent_runs WHERE task_id=$1 ORDER BY created_at DESC,id DESC",
+    )
+    .bind(task_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    let mut runs = Vec::with_capacity(ids.len());
+    for id in ids {
+        runs.push(run_projection(&state.pool, id).await?);
+    }
+    Ok(Json(Value::Array(runs)))
 }
 
 async fn create_task(
@@ -2288,6 +2851,7 @@ async fn create_task(
 async fn link_task_thread(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<LinkThreadBody>,
 ) -> Result<Json<Value>, ApiError> {
@@ -2299,6 +2863,7 @@ async fn link_task_thread(
             task_id: TaskId::from_uuid(task_id),
             target_thread_id: ThreadId::from_uuid(body.thread_id),
             actor_member_id: MemberId::from_uuid(actor),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -2307,15 +2872,60 @@ async fn link_task_thread(
     Ok(Json(task_projection(&state.pool, task_id).await?))
 }
 
+async fn unlink_task_thread(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path((task_id, thread_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = task_actor(&state, &jar, task_id).await?;
+    let mut storage = state.storage.clone();
+    UnlinkThreadFromTask::execute(
+        &mut storage,
+        LinkThreadInput {
+            task_id: TaskId::from_uuid(task_id),
+            target_thread_id: ThreadId::from_uuid(thread_id),
+            actor_member_id: MemberId::from_uuid(actor),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(task_projection(&state.pool, task_id).await?))
+}
+
+async fn update_task(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(task_id): Path<Uuid>,
+    Json(body): Json<UpdateTaskBody>,
+) -> Result<Json<Value>, ApiError> {
+    if body.title.trim().is_empty() {
+        return Err(ApiError::invalid("Task title is required"));
+    }
+    update_task_action(
+        &state,
+        &jar,
+        &headers,
+        task_id,
+        TaskAction::Rename { title: body.title },
+    )
+    .await
+}
+
 async fn start_task(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<StartTaskBody>,
 ) -> Result<Json<Value>, ApiError> {
     update_task_action(
         &state,
         &jar,
+        &headers,
         task_id,
         TaskAction::Start {
             assignee: MemberId::from_uuid(body.assignee_agent_member_id),
@@ -2327,22 +2937,25 @@ async fn start_task(
 async fn submit_task_review(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    update_task_action(&state, &jar, task_id, TaskAction::SubmitReview).await
+    update_task_action(&state, &jar, &headers, task_id, TaskAction::SubmitReview).await
 }
 
 async fn request_task_changes(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    update_task_action(&state, &jar, task_id, TaskAction::RequestChanges).await
+    update_task_action(&state, &jar, &headers, task_id, TaskAction::RequestChanges).await
 }
 
 async fn close_task(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<CloseTaskBody>,
 ) -> Result<Json<Value>, ApiError> {
@@ -2357,6 +2970,7 @@ async fn close_task(
     update_task_action(
         &state,
         &jar,
+        &headers,
         task_id,
         TaskAction::Close {
             reason,
@@ -2366,9 +2980,19 @@ async fn close_task(
     .await
 }
 
+async fn reset_task_session(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(task_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    update_task_action(&state, &jar, &headers, task_id, TaskAction::ResetSession).await
+}
+
 async fn complete_task(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<Json<Value>, ApiError> {
@@ -2379,6 +3003,7 @@ async fn complete_task(
         CompleteTaskInput {
             task_id: TaskId::from_uuid(task_id),
             actor_member_id: MemberId::from_uuid(actor),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             result_message_id: MessageId::from_uuid(Uuid::now_v7()),
             result_thread_id: ThreadId::from_uuid(body.result_thread_id),
             result_markdown: body.result_markdown,
@@ -2393,6 +3018,7 @@ async fn complete_task(
 async fn update_task_action(
     state: &RuntimeState,
     jar: &CookieJar,
+    headers: &HeaderMap,
     task_id: Uuid,
     action: TaskAction,
 ) -> Result<Json<Value>, ApiError> {
@@ -2403,6 +3029,7 @@ async fn update_task_action(
         UpdateTaskInput {
             task_id: TaskId::from_uuid(task_id),
             actor_member_id: MemberId::from_uuid(actor),
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
             action,
             now: OffsetDateTime::now_utc(),
         },
@@ -2423,16 +3050,31 @@ async fn task_actor(
         .await
         .map_err(map_sqlx)?
         .ok_or_else(ApiError::not_found)?;
-    current_member(state, jar, space_id).await
+    let actor = current_member(state, jar, space_id).await?;
+    let can_read: bool = sqlx::query_scalar(
+        "SELECT EXISTS(\
+           SELECT 1 FROM tasks task \
+           JOIN threads source ON source.id=task.source_thread_id \
+           JOIN channel_members membership ON membership.channel_id=source.channel_id \
+           WHERE task.id=$1 AND membership.member_id=$2\
+         )",
+    )
+    .bind(task_id)
+    .bind(actor)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    if !can_read {
+        return Err(ApiError::not_found());
+    }
+    Ok(actor)
 }
 
 async fn insert_message(
     state: &RuntimeState,
     channel_id: Uuid,
     author: Uuid,
-    thread_id: Option<Uuid>,
-    handled_item: Option<(Uuid, Uuid)>,
-    expected_snapshot: Option<u64>,
+    context: MessageWriteContext,
     body: CreateMessageBody,
 ) -> Result<Uuid, ApiError> {
     if body.body_markdown.trim().is_empty() {
@@ -2446,7 +3088,8 @@ async fn insert_message(
             message_id,
             channel_id: ChannelId::from_uuid(channel_id),
             author_member_id: MemberId::from_uuid(author),
-            thread_id: thread_id.map(ThreadId::from_uuid),
+            idempotency_key: context.idempotency_key,
+            thread_id: context.thread_id.map(ThreadId::from_uuid),
             reply_to_message_id: body.reply_to_message_id.map(MessageId::from_uuid),
             body_markdown: body.body_markdown,
             mentions: body.mentions.into_iter().map(MemberId::from_uuid).collect(),
@@ -2455,10 +3098,10 @@ async fn insert_message(
                 .into_iter()
                 .map(AttachmentId::from_uuid)
                 .collect(),
-            handled_item: handled_item.map(|(run_id, item_id)| {
+            handled_item: context.handled_item.map(|(run_id, item_id)| {
                 (RunId::from_uuid(run_id), InboxItemId::from_uuid(item_id))
             }),
-            expected_snapshot,
+            expected_snapshot: context.expected_snapshot,
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -2472,7 +3115,7 @@ async fn insert_message(
             tracing::warn!(%item_id, error = %error, "hard Inbox Item remains pending after immediate routing failed");
         }
     }
-    Ok(message_id.into_uuid())
+    Ok(published.message_id.into_uuid())
 }
 
 async fn require_active_agent_run(
@@ -3189,8 +3832,40 @@ async fn message_row(
     .await
     .map_err(map_sqlx)?;
     let attachments=sqlx::query("SELECT a.* FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=$1 ORDER BY ma.position").bind(id).fetch_all(pool).await.map_err(map_sqlx)?;
+    let content = match row.get::<&str, _>("content_kind") {
+        "text" => {
+            json!({"type":"text","body_markdown":row.get::<Option<String>,_>("body_markdown").unwrap_or_default()})
+        }
+        "channel_created" => {
+            let target = sqlx::query("SELECT id,slug,topic,archived_at FROM channels WHERE id=$1")
+                .bind(row.get::<Uuid, _>("action_channel_id"))
+                .fetch_one(pool)
+                .await
+                .map_err(map_sqlx)?;
+            let slug = target.get::<String, _>("slug");
+            json!({"type":"channel_created","channel":{
+                "id":target.get::<Uuid,_>("id"),"slug":slug,
+                "name":target.get::<Option<String>,_>("topic").unwrap_or_else(|| slug.clone()),
+                "available":target.get::<Option<OffsetDateTime>,_>("archived_at").is_none()
+            }})
+        }
+        "agent_created" => {
+            let target = sqlx::query("SELECT a.member_id,a.lifecycle,m.display_name,m.retired_at FROM agents a JOIN members m ON m.id=a.member_id WHERE a.member_id=$1")
+                .bind(row.get::<Uuid,_>("action_agent_member_id"))
+                .fetch_one(pool)
+                .await
+                .map_err(map_sqlx)?;
+            json!({"type":"agent_created","agent":{
+                "member_id":target.get::<Uuid,_>("member_id"),
+                "name":target.get::<String,_>("display_name"),
+                "lifecycle":target.get::<String,_>("lifecycle"),
+                "available":target.get::<Option<OffsetDateTime>,_>("retired_at").is_none()
+            }})
+        }
+        _ => return Err(ApiError::internal()),
+    };
     Ok(
-        json!({"id":id,"channel_id":row.get::<Uuid,_>("channel_id"),"thread_id":row.get::<Uuid,_>("thread_id"),"seq":row.get::<i64,_>("channel_seq"),"placement":row.get::<String,_>("placement"),"content":{"type":"text","body_markdown":row.get::<Option<String>,_>("body_markdown").unwrap_or_default()},"author":{"id":author.get::<Uuid,_>("id"),"kind":author.get::<String,_>("kind"),"display_name":author.get::<String,_>("display_name"),"handle":author.get::<String,_>("handle")},"mentions":[],"attachments":attachments.iter().map(attachment_row).collect::<Vec<_>>(),"reply_count":replies,"task":Value::Null,"created_at":timestamp(row.get("created_at")),"edited_at":optional_timestamp(row.get("edited_at")),"deleted_at":optional_timestamp(row.get("deleted_at"))}),
+        json!({"id":id,"channel_id":row.get::<Uuid,_>("channel_id"),"thread_id":row.get::<Uuid,_>("thread_id"),"seq":row.get::<i64,_>("channel_seq"),"placement":row.get::<String,_>("placement"),"content":content,"author":{"id":author.get::<Uuid,_>("id"),"kind":author.get::<String,_>("kind"),"display_name":author.get::<String,_>("display_name"),"handle":author.get::<String,_>("handle")},"mentions":[],"attachments":attachments.iter().map(attachment_row).collect::<Vec<_>>(),"reply_count":replies,"task":Value::Null,"created_at":timestamp(row.get("created_at")),"edited_at":optional_timestamp(row.get("edited_at")),"deleted_at":optional_timestamp(row.get("deleted_at"))}),
     )
 }
 fn attachment_row(row: &sqlx::postgres::PgRow) -> Value {
@@ -3220,13 +3895,66 @@ async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<Value, ApiError
     } else {
         None
     };
+    let run_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM agent_runs WHERE task_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx)?;
+    let mut runs = Vec::with_capacity(run_ids.len());
+    for run_id in run_ids {
+        runs.push(run_projection(pool, run_id).await?);
+    }
+    let current_run = runs
+        .iter()
+        .find(|run| {
+            !matches!(
+                run["status"].as_str(),
+                Some("completed" | "yielded" | "failed" | "canceled")
+            )
+        })
+        .cloned();
     Ok(json!({
         "id":task_id,"space_id":row.get::<Uuid,_>("space_id"),"title":row.get::<String,_>("title"),"status":row.get::<String,_>("status"),
         "source_thread":source,"related_threads":related,"creator_member_id":row.get::<Uuid,_>("creator_member_id"),"creator_name":row.get::<String,_>("creator_name"),
         "assignee_agent_member_id":row.get::<Option<Uuid>,_>("assignee_agent_member_id"),"assignee_name":row.get::<Option<String>,_>("assignee_name"),
         "result_message":result_message,"close_reason_code":row.get::<Option<String>,_>("close_reason_code"),"close_reason_note":row.get::<Option<String>,_>("close_reason_note"),
-        "current_run":Value::Null,"recent_runs":[],"session_continuity":{"state":"unavailable","generation":Value::Null,"reason_code":Value::Null},"runtime_issue_code":Value::Null,
+        "current_run":current_run,"recent_runs":runs,"session_continuity":{"state":"unavailable","generation":Value::Null,"reason_code":Value::Null},"runtime_issue_code":Value::Null,
         "created_at":timestamp(row.get("created_at")),"updated_at":timestamp(row.get("updated_at")),"finished_at":optional_timestamp(row.get("finished_at"))
+    }))
+}
+
+async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<Value, ApiError> {
+    let row = sqlx::query(
+        "SELECT r.*,m.display_name AS agent_name,\
+                CASE WHEN task.id IS NULL OR task.source_thread_id=r.focus_thread_id THEN 'source' ELSE 'related' END AS relation \
+         FROM agent_runs r JOIN members m ON m.id=r.agent_id \
+         LEFT JOIN tasks task ON task.id=r.task_id WHERE r.id=$1",
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    let focus = thread_reference(
+        pool,
+        row.get("focus_thread_id"),
+        row.get::<&str, _>("relation"),
+    )
+    .await?;
+    Ok(json!({
+        "id": run_id,
+        "task_id": row.get::<Option<Uuid>,_>("task_id"),
+        "agent_member_id": row.get::<Uuid,_>("agent_id"),
+        "agent_name": row.get::<String,_>("agent_name"),
+        "focus": focus,
+        "status": row.get::<String,_>("status"),
+        "outcome": row.get::<Option<String>,_>("outcome_code"),
+        "continuation_note": row.get::<Option<String>,_>("continuation_note"),
+        "error_code": Value::Null,
+        "started_at": optional_timestamp(row.get("started_at")),
+        "finished_at": optional_timestamp(row.get("finished_at")),
     }))
 }
 async fn thread_reference(
@@ -3507,9 +4235,12 @@ mod tests {
             &fixture.state,
             fixture.channel_id,
             fixture.owner_id,
-            Some(focus_id),
-            None,
-            None,
+            MessageWriteContext {
+                idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+                thread_id: Some(focus_id),
+                handled_item: None,
+                expected_snapshot: None,
+            },
             CreateMessageBody {
                 body_markdown: "same Focus".into(),
                 mentions: vec![fixture.context.agent_id.into_uuid()],
@@ -3553,9 +4284,12 @@ mod tests {
             &fixture.state,
             fixture.channel_id,
             fixture.owner_id,
-            None,
-            None,
-            None,
+            MessageWriteContext {
+                idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+                thread_id: None,
+                handled_item: None,
+                expected_snapshot: None,
+            },
             CreateMessageBody {
                 body_markdown: "different Focus".into(),
                 mentions: vec![fixture.context.agent_id.into_uuid()],
@@ -3587,9 +4321,12 @@ mod tests {
             &fixture.state,
             fixture.channel_id,
             fixture.owner_id,
-            Some(focus_id),
-            None,
-            None,
+            MessageWriteContext {
+                idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+                thread_id: Some(focus_id),
+                handled_item: None,
+                expected_snapshot: None,
+            },
             CreateMessageBody {
                 body_markdown: "finalizing race".into(),
                 mentions: vec![fixture.context.agent_id.into_uuid()],
@@ -3643,7 +4380,9 @@ mod tests {
         let mut storage = fixture.state.storage.clone();
         RetireAgent::execute(
             &mut storage,
+            MemberId::from_uuid(fixture.owner_id),
             MemberId::from_uuid(fixture.context.agent_id.into_uuid()),
+            crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
             OffsetDateTime::now_utc(),
         )
         .await
@@ -3662,7 +4401,9 @@ mod tests {
 
         DeleteComputer::execute(
             &mut storage,
+            MemberId::from_uuid(fixture.owner_id),
             ComputerId::from_uuid(fixture.computer_id),
+            crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
             OffsetDateTime::now_utc(),
         )
         .await

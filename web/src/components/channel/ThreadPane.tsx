@@ -55,6 +55,7 @@ export function ThreadPane({
     queryKey: ["thread", threadId],
     queryFn: () => readThread(threadId),
   });
+  const threadLabel = thread.data?.root.seq ?? threadId;
   const subscription = useMutation({
     mutationFn: (isFollowing: boolean) =>
       setThreadSubscription(threadId, isFollowing),
@@ -90,7 +91,7 @@ export function ThreadPane({
   }
 
   return (
-    <aside className="thread-pane" aria-label={`Thread #${channelSlug}:${threadId}`}>
+    <aside className="thread-pane" aria-label={`Thread #${channelSlug}:${threadLabel}`}>
       <div
         className="thread-resize-handle"
         role="separator"
@@ -106,7 +107,7 @@ export function ThreadPane({
       <header className="thread-header">
         <div>
           <span>THREAD</span>
-          <strong>#{channelSlug}:{threadId}</strong>
+          <strong>#{channelSlug}:{threadLabel}</strong>
         </div>
         {thread.data?.task && thread.data.task_relation ? (
           <Link className="thread-task-context" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: thread.data.task.id }} aria-label={`${thread.data.task.title} ${thread.data.task_relation.toUpperCase()}`}>

@@ -34,6 +34,8 @@ pub(in crate::server) enum DomainError {
     StaleFencingToken,
     #[error("action messages must be replies")]
     ActionMustBeReply,
+    #[error("message cannot be edited or deleted in its current state")]
+    InvalidMessageMutation,
     #[error("channel kind and slug do not form a valid channel")]
     InvalidChannel,
     #[error("agent is already retired")]

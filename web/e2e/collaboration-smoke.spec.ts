@@ -25,6 +25,9 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   page.on("console", (message) => {
     if (message.type() === "error") pageErrors.push(message.text());
   });
+  page.on("response", (response) => {
+    if (!response.ok()) pageErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+  });
   const nonce = `${testInfo.project.name.split("-")[0]}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const slug = `sumi-${nonce}`;
   await page.goto("/");

@@ -210,6 +210,8 @@ impl FinishAgentTaskRun {
                         placement: MessagePlacement::Reply,
                         content: MessageContent::Text(body),
                         created_at: input.now,
+                        edited_at: None,
+                        deleted_at: None,
                     })
                 }
                 FinishAgentTaskAction::Done {
@@ -228,6 +230,8 @@ impl FinishAgentTaskRun {
                         placement: MessagePlacement::Reply,
                         content: MessageContent::Text(result),
                         created_at: input.now,
+                        edited_at: None,
+                        deleted_at: None,
                     })
                 }
                 FinishAgentTaskAction::Close { reason, note } => {
@@ -331,6 +335,7 @@ pub(in crate::server) struct LinkThreadInput {
     pub(in crate::server) task_id: TaskId,
     pub(in crate::server) target_thread_id: ThreadId,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -343,15 +348,30 @@ pub(in crate::server) enum TaskAction {
     },
     SubmitReview,
     RequestChanges,
+    ResetSession,
     Close {
         reason: CloseReason,
         note: Option<String>,
     },
 }
 
+impl TaskAction {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Rename { .. } => "task.rename",
+            Self::Start { .. } => "task.start",
+            Self::SubmitReview => "task.submit_review",
+            Self::RequestChanges => "task.request_changes",
+            Self::ResetSession => "task.reset_session",
+            Self::Close { .. } => "task.close",
+        }
+    }
+}
+
 pub(in crate::server) struct UpdateTaskInput {
     pub(in crate::server) task_id: TaskId,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) action: TaskAction,
     pub(in crate::server) now: OffsetDateTime,
 }
@@ -364,6 +384,13 @@ impl UpdateTask {
         input: UpdateTaskInput,
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
+            let action_name = input.action.name();
+            if let Some(task_id) = transaction
+                .task_for_idempotency(input.actor_member_id, action_name, input.idempotency_key)
+                .await?
+            {
+                return transaction.task(task_id).await;
+            }
             let mut task = transaction.task(input.task_id).await?;
             let source = transaction.thread(task.source_thread_id).await?;
             if !transaction
@@ -372,19 +399,36 @@ impl UpdateTask {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            match input.action {
-                TaskAction::Rename { title } => task.rename(title, input.now),
+            let task_changed = match input.action {
+                TaskAction::Rename { title } => {
+                    task.rename(title, input.now);
+                    true
+                }
                 TaskAction::Start { assignee } => {
                     if !transaction.can_assign_agent(assignee, &source).await? {
                         return Err(ApplicationError::PermissionDenied);
                     }
                     task.start(assignee, input.now)?;
+                    true
                 }
                 TaskAction::SubmitReview => {
                     task.request_review(input.actor_member_id, input.now)?;
+                    true
                 }
                 TaskAction::RequestChanges => {
                     task.return_from_review(input.actor_member_id, true, input.now)?;
+                    true
+                }
+                TaskAction::ResetSession => {
+                    if task.status.is_finished()
+                        || !transaction
+                            .can_govern_task(input.actor_member_id, &task)
+                            .await?
+                    {
+                        return Err(ApplicationError::PermissionDenied);
+                    }
+                    transaction.emit(Effect::SessionReset(task.id));
+                    false
                 }
                 TaskAction::Close { reason, note } => {
                     let allowed = task.creator_member_id == input.actor_member_id
@@ -396,10 +440,21 @@ impl UpdateTask {
                         return Err(ApplicationError::PermissionDenied);
                     }
                     task.close(reason, note, input.now)?;
+                    true
                 }
+            };
+            if task_changed {
+                transaction.save_task(task.clone()).await?;
+                transaction.emit(Effect::TaskUpdated(task.id));
             }
-            transaction.save_task(task.clone()).await?;
-            transaction.emit(Effect::TaskUpdated(task.id));
+            transaction
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    action_name,
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
             Ok(task)
         })
         .await
@@ -414,6 +469,16 @@ impl LinkThreadToTask {
         input: LinkThreadInput,
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(task_id) = transaction
+                .task_for_idempotency(
+                    input.actor_member_id,
+                    "task.link_thread",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.task(task_id).await;
+            }
             let mut task = transaction.task(input.task_id).await?;
             let source = transaction.thread(task.source_thread_id).await?;
             let target = transaction.thread(input.target_thread_id).await?;
@@ -438,15 +503,22 @@ impl LinkThreadToTask {
             {
                 return Err(ApplicationError::Conflict);
             }
-            if task.linked_to(target.id) {
-                return Ok(task);
+            if !task.linked_to(target.id) {
+                task.add_related_thread(&source, &target, input.actor_member_id, input.now)?;
+                transaction.save_task(task.clone()).await?;
+                transaction.emit(Effect::ThreadLinked {
+                    task_id: task.id,
+                    thread_id: target.id,
+                });
             }
-            task.add_related_thread(&source, &target, input.actor_member_id, input.now)?;
-            transaction.save_task(task.clone()).await?;
-            transaction.emit(Effect::ThreadLinked {
-                task_id: task.id,
-                thread_id: target.id,
-            });
+            transaction
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    "task.link_thread",
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
             Ok(task)
         })
         .await
@@ -461,6 +533,16 @@ impl UnlinkThreadFromTask {
         input: LinkThreadInput,
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(task_id) = transaction
+                .task_for_idempotency(
+                    input.actor_member_id,
+                    "task.unlink_thread",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.task(task_id).await;
+            }
             let mut task = transaction.task(input.task_id).await?;
             let target = transaction.thread(input.target_thread_id).await?;
             if !transaction
@@ -469,15 +551,22 @@ impl UnlinkThreadFromTask {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            if !task.linked_to(target.id) {
-                return Ok(task);
+            if task.linked_to(target.id) {
+                task.remove_related_thread(target.id, input.now)?;
+                transaction.save_task(task.clone()).await?;
+                transaction.emit(Effect::ThreadUnlinked {
+                    task_id: task.id,
+                    thread_id: target.id,
+                });
             }
-            task.remove_related_thread(target.id, input.now)?;
-            transaction.save_task(task.clone()).await?;
-            transaction.emit(Effect::ThreadUnlinked {
-                task_id: task.id,
-                thread_id: target.id,
-            });
+            transaction
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    "task.unlink_thread",
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
             Ok(task)
         })
         .await
@@ -487,6 +576,7 @@ impl UnlinkThreadFromTask {
 pub(in crate::server) struct CompleteTaskInput {
     pub(in crate::server) task_id: TaskId,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) result_message_id: MessageId,
     pub(in crate::server) result_thread_id: ThreadId,
     pub(in crate::server) result_markdown: String,
@@ -501,6 +591,12 @@ impl CompleteTask {
         input: CompleteTaskInput,
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(task_id) = transaction
+                .task_for_idempotency(input.actor_member_id, "task.done", input.idempotency_key)
+                .await?
+            {
+                return transaction.task(task_id).await;
+            }
             let mut task = transaction.task(input.task_id).await?;
             if task.result_message_id == Some(input.result_message_id)
                 && task.status == crate::server::domain::task::TaskStatus::Done
@@ -521,10 +617,20 @@ impl CompleteTask {
                 placement: MessagePlacement::Reply,
                 content: MessageContent::Text(input.result_markdown),
                 created_at: input.now,
+                edited_at: None,
+                deleted_at: None,
             };
             task.finish(input.actor_member_id, true, result.id, input.now)?;
             transaction.insert_message(result).await?;
             transaction.save_task(task.clone()).await?;
+            transaction
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    "task.done",
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
             transaction.emit(Effect::TaskCompleted {
                 task_id: task.id,
                 result_message_id: input.result_message_id,

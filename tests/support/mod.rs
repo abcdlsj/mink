@@ -198,7 +198,7 @@ impl SumiProcess {
         Ok(())
     }
 
-    fn log_text(&self) -> String {
+    pub fn log_text(&self) -> String {
         self.logs
             .lock()
             .map(|logs| logs.join("\n"))

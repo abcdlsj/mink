@@ -98,6 +98,219 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     let replayed = create_space(&client, &server_url, &cookie, "sumi-lab", create_key).await?;
     ensure!(replayed.id == created.id);
 
+    let channel_key = Uuid::now_v7();
+    let create_channel = || {
+        client
+            .post(
+                server_url
+                    .join(&format!("/api/v1/spaces/{}/channels", created.id))
+                    .expect("valid Channel URL"),
+            )
+            .header("idempotency-key", channel_key.to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({
+                "name": "Design",
+                "slug": "design",
+                "kind": "private",
+                "agent_member_ids": []
+            }))
+    };
+    let channel: serde_json::Value = create_channel()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let replayed_channel: serde_json::Value = create_channel()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(channel["id"] == replayed_channel["id"]);
+
+    let message_key = Uuid::now_v7();
+    let create_message = || {
+        client
+            .post(
+                server_url
+                    .join(&format!(
+                        "/api/v1/channels/{}/messages",
+                        created.general_channel_id
+                    ))
+                    .expect("valid Message URL"),
+            )
+            .header("idempotency-key", message_key.to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({"body_markdown":"Idempotent Root Message"}))
+    };
+    let message_response = create_message().send().await?;
+    ensure!(
+        message_response.status().is_success(),
+        "{}",
+        server.log_text()
+    );
+    let message: serde_json::Value = message_response.json().await?;
+    let replayed_message_response = create_message().send().await?;
+    ensure!(
+        replayed_message_response.status().is_success(),
+        "{}",
+        server.log_text()
+    );
+    let replayed_message: serde_json::Value = replayed_message_response.json().await?;
+    ensure!(message["id"] == replayed_message["id"]);
+
+    let task_key = Uuid::now_v7();
+    let create_task = || {
+        client
+            .post(
+                server_url
+                    .join(&format!(
+                        "/api/v1/root-messages/{}/task",
+                        message["id"].as_str().expect("Message ID")
+                    ))
+                    .expect("valid Task URL"),
+            )
+            .header("idempotency-key", task_key.to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({"title":"Idempotent Task"}))
+    };
+    let task: serde_json::Value = create_task()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let replayed_task: serde_json::Value = create_task()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(task["id"] == replayed_task["id"]);
+
+    let runs: serde_json::Value = client
+        .get(server_url.join(&format!(
+            "/api/v1/tasks/{}/runs",
+            task["id"].as_str().unwrap()
+        ))?)
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(runs.as_array().is_some_and(Vec::is_empty));
+
+    let derived_source = client
+        .post(server_url.join(&format!(
+            "/api/v1/root-messages/{}/task",
+            message["id"].as_str().expect("Message ID")
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({
+            "title":"Invalid Task",
+            "source_thread_id": message["thread_id"]
+        }))
+        .send()
+        .await?;
+    ensure!(derived_source.status() == StatusCode::UNPROCESSABLE_ENTITY);
+
+    let edit_key = Uuid::now_v7();
+    let edit_message = || {
+        client
+            .patch(
+                server_url
+                    .join(&format!(
+                        "/api/v1/messages/{}",
+                        message["id"].as_str().expect("Message ID")
+                    ))
+                    .expect("valid Message URL"),
+            )
+            .header("idempotency-key", edit_key.to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({"body_markdown":"Edited Root Message"}))
+    };
+    let edited: serde_json::Value = edit_message()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let replayed_edit: serde_json::Value = edit_message()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(edited["content"] == replayed_edit["content"]);
+
+    let permission_key = Uuid::now_v7();
+    let permission_url = server_url.join(&format!(
+        "/api/v1/members/{}/permissions/channel.create",
+        created.owner_member_id
+    ))?;
+    let granted: serde_json::Value = client
+        .put(permission_url.clone())
+        .header("idempotency-key", permission_key.to_string())
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(granted["permissions"] == serde_json::json!(["channel.create"]));
+    let replayed_grant: serde_json::Value = client
+        .put(permission_url.clone())
+        .header("idempotency-key", permission_key.to_string())
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(replayed_grant["permissions"] == granted["permissions"]);
+    let revoked: serde_json::Value = client
+        .delete(permission_url)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(revoked["permissions"] == serde_json::json!([]));
+
+    let delete_key = Uuid::now_v7();
+    let delete_message = || {
+        client
+            .delete(
+                server_url
+                    .join(&format!(
+                        "/api/v1/messages/{}",
+                        message["id"].as_str().expect("Message ID")
+                    ))
+                    .expect("valid Message URL"),
+            )
+            .header("idempotency-key", delete_key.to_string())
+            .header(header::COOKIE, &cookie)
+    };
+    let deleted: serde_json::Value = delete_message()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let replayed_delete: serde_json::Value = delete_message()
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(deleted["deleted_at"].is_string());
+    ensure!(deleted["deleted_at"] == replayed_delete["deleted_at"]);
+
     let fetched: SpaceResponse = client
         .get(server_url.join("/api/v1/spaces/by-slug/sumi-lab")?)
         .header(header::COOKIE, &cookie)
@@ -176,6 +389,17 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
             .fetch_one(&pool)
             .await?;
     ensure!(conflicting_space_count == 0);
+
+    let idempotent_resources: (i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+           (SELECT count(*) FROM channels WHERE slug='design'), \
+           (SELECT count(*) FROM messages WHERE id=$1 AND body_markdown='' AND deleted_at IS NOT NULL), \
+           (SELECT count(*) FROM tasks WHERE title='Idempotent Task')",
+    )
+    .bind(Uuid::parse_str(message["id"].as_str().expect("Message ID"))?)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(idempotent_resources == (1, 1, 1));
 
     pool.close().await;
     server.ensure_running()?;

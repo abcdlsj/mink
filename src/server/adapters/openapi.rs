@@ -46,6 +46,7 @@ use uuid::Uuid;
         MessageResponse,
         MessagePageResponse,
         CreateMessageRequest,
+        UpdateMessageRequest,
         AttachmentResponse,
         CreateUploadRequest,
         CompleteUploadRequest,
@@ -478,6 +479,11 @@ pub(super) struct CreateMessageRequest {
     body_markdown: String,
     mentions: Vec<Uuid>,
     attachment_ids: Vec<Uuid>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct UpdateMessageRequest {
+    body_markdown: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

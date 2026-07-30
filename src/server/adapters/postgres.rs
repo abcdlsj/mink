@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, pool::PoolConnection};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
@@ -241,7 +242,7 @@ impl ServerTransaction for PostgresTransaction {
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError> {
         let row = sqlx::query(
             "SELECT id, thread_id, author_member_id, placement, content_kind, body_markdown, \
-                    action_channel_id, action_agent_member_id, created_at \
+                    action_channel_id, action_agent_member_id, created_at, edited_at, deleted_at \
              FROM messages WHERE thread_id = $1 AND placement = 'root' FOR UPDATE",
         )
         .bind(thread_id.into_uuid())
@@ -249,6 +250,41 @@ impl ServerTransaction for PostgresTransaction {
         .await
         .map_err(map_sqlx)?;
         message_from_row(&row)
+    }
+
+    async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError> {
+        let row = sqlx::query("SELECT * FROM messages WHERE id=$1 FOR UPDATE")
+            .bind(id.into_uuid())
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        message_from_row(&row)
+    }
+
+    async fn channel(&mut self, id: ChannelId) -> Result<Channel, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,space_id,kind,slug,topic,created_at FROM channels WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let members = sqlx::query_scalar::<_, Uuid>(
+            "SELECT member_id FROM channel_members WHERE channel_id=$1 ORDER BY member_id",
+        )
+        .bind(id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(Channel {
+            id,
+            space_id: SpaceId::from_uuid(row.get("space_id")),
+            audience: members.into_iter().map(MemberId::from_uuid).collect(),
+            kind: channel_kind_from_str(row.get("kind"))?,
+            slug: row.get("slug"),
+            topic: row.get("topic"),
+            created_at: row.get("created_at"),
+        })
     }
 
     async fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError> {
@@ -397,6 +433,11 @@ impl ServerTransaction for PostgresTransaction {
         action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<TaskId>, ApplicationError> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("{}:{action}:{}", actor, key))
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
         let value = sqlx::query_scalar::<_, Uuid>(
             "SELECT resource_id FROM idempotency_records \
              WHERE actor_member_id = $1 AND action = $2 AND idempotency_key = $3",
@@ -408,6 +449,29 @@ impl ServerTransaction for PostgresTransaction {
         .await
         .map_err(map_sqlx)?;
         Ok(value.map(TaskId::from_uuid))
+    }
+
+    async fn resource_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<Option<Uuid>, ApplicationError> {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("{}:{action}:{}", actor, key))
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query_scalar(
+            "SELECT resource_id FROM idempotency_records \
+             WHERE actor_member_id=$1 AND action=$2 AND idempotency_key=$3",
+        )
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(key.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)
     }
 
     async fn active_run_for_agent(
@@ -522,6 +586,26 @@ impl ServerTransaction for PostgresTransaction {
         )
         .bind(actor.into_uuid())
         .bind(permission_str(action))
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)
+    }
+
+    async fn can_manage_permissions(
+        &mut self,
+        actor: MemberId,
+        target: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(\
+               SELECT 1 FROM members actor JOIN members target ON target.space_id=actor.space_id \
+               WHERE actor.id=$1 AND target.id=$2 AND actor.kind='human' \
+                 AND actor.access_level IN ('owner','admin') AND actor.retired_at IS NULL \
+                 AND target.retired_at IS NULL\
+             )",
+        )
+        .bind(actor.into_uuid())
+        .bind(target.into_uuid())
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)
@@ -922,6 +1006,64 @@ impl ServerTransaction for PostgresTransaction {
         Ok(())
     }
 
+    async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError> {
+        let MessageContent::Text(body) = message.content else {
+            return Err(ApplicationError::Conflict);
+        };
+        let changed = sqlx::query(
+            "UPDATE messages SET body_markdown=$2,edited_at=$3,deleted_at=$4 \
+             WHERE id=$1 AND content_kind='text'",
+        )
+        .bind(message.id.into_uuid())
+        .bind(body)
+        .bind(message.edited_at)
+        .bind(message.deleted_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if changed.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(ApplicationError::NotFound)
+        }
+    }
+
+    async fn grant_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+        granted_by: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO member_permissions(member_id,space_id,action_code,granted_by_member_id,created_at) \
+             SELECT target.id,target.space_id,$2,$3,$4 FROM members target WHERE target.id=$1 \
+             ON CONFLICT(member_id,action_code) DO NOTHING",
+        )
+        .bind(target.into_uuid())
+        .bind(action.code())
+        .bind(granted_by.into_uuid())
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn revoke_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query("DELETE FROM member_permissions WHERE member_id=$1 AND action_code=$2")
+            .bind(target.into_uuid())
+            .bind(action.code())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         sqlx::query(
             "INSERT INTO channels (id,space_id,kind,slug,topic,next_seq,created_at) \
@@ -1072,6 +1214,29 @@ impl ServerTransaction for PostgresTransaction {
         Ok(())
     }
 
+    async fn record_resource_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        resource_id: Uuid,
+    ) -> Result<(), ApplicationError> {
+        let hash = Sha256::digest(resource_id.as_bytes());
+        sqlx::query(
+            "INSERT INTO idempotency_records (actor_member_id,action,idempotency_key,response_code, \
+             resource_id,result_hash,created_at) VALUES ($1,$2,$3,'ok',$4,$5,now())",
+        )
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(key.into_uuid())
+        .bind(resource_id)
+        .bind(hash.as_slice())
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     async fn record_task_audit(
         &mut self,
         actor: MemberId,
@@ -1168,6 +1333,8 @@ impl PostgresTransaction {
     ) -> Result<(SpaceId, &'static str, serde_json::Value), ApplicationError> {
         let (kind, subject_id) = match effect {
             Effect::MessageCreated(id) => ("message.created", id.into_uuid()),
+            Effect::MessageUpdated(id) => ("message.updated", id.into_uuid()),
+            Effect::MessageDeleted(id) => ("message.deleted", id.into_uuid()),
             Effect::TaskCreated(id) => ("task.created", id.into_uuid()),
             Effect::RunTaskBound { run_id, task_id } => {
                 let computer_id = self.computer_for_run(run_id).await?;
@@ -1274,6 +1441,20 @@ impl PostgresTransaction {
                 }
                 ("session.close", id.into_uuid())
             }
+            Effect::SessionReset(id) => {
+                if let Some((agent_id, computer_id)) = self.task_assignment(id).await? {
+                    self.queue_command(
+                        computer_id,
+                        Command::SessionReset(SessionCommand {
+                            agent_id: AgentId::from_uuid(agent_id.into_uuid()),
+                            scope: SessionScope::Task(id),
+                            reason: SessionChangeReason::ExplicitReset,
+                        }),
+                    )
+                    .await?;
+                }
+                ("session.reset", id.into_uuid())
+            }
             Effect::AgentRetired {
                 agent_id,
                 computer_id,
@@ -1299,6 +1480,7 @@ impl PostgresTransaction {
                     .await?;
                 ("agent.created", agent_id.into_uuid())
             }
+            Effect::PermissionChanged(id) => ("member.changed", id.into_uuid()),
         };
         let space_id = self.space_for_subject(kind, subject_id).await?;
         Ok((space_id, kind, json!({"resource_id": subject_id})))
@@ -1601,19 +1783,22 @@ impl PostgresTransaction {
         kind: &str,
         id: Uuid,
     ) -> Result<SpaceId, ApplicationError> {
-        let query = if kind.starts_with("task.") || kind == "session.close" {
-            "SELECT space_id FROM tasks WHERE id=$1"
-        } else if kind.starts_with("message.") {
-            "SELECT space_id FROM messages WHERE id=$1"
-        } else if kind.starts_with("run.") {
-            "SELECT space_id FROM agent_runs WHERE id=$1"
-        } else if kind.starts_with("agent.") {
-            "SELECT space_id FROM agents WHERE member_id=$1"
-        } else if kind.starts_with("computer.") {
-            "SELECT space_id FROM computers WHERE id=$1"
-        } else {
-            "SELECT space_id FROM channels WHERE id=$1"
-        };
+        let query =
+            if kind.starts_with("task.") || matches!(kind, "session.close" | "session.reset") {
+                "SELECT space_id FROM tasks WHERE id=$1"
+            } else if kind.starts_with("message.") {
+                "SELECT space_id FROM messages WHERE id=$1"
+            } else if kind.starts_with("run.") {
+                "SELECT space_id FROM agent_runs WHERE id=$1"
+            } else if kind.starts_with("agent.") {
+                "SELECT space_id FROM agents WHERE member_id=$1"
+            } else if kind.starts_with("member.") {
+                "SELECT space_id FROM members WHERE id=$1"
+            } else if kind.starts_with("computer.") {
+                "SELECT space_id FROM computers WHERE id=$1"
+            } else {
+                "SELECT space_id FROM channels WHERE id=$1"
+            };
         self.space_by_query(query, id).await
     }
 
@@ -1675,6 +1860,8 @@ fn message_from_row(row: &sqlx::postgres::PgRow) -> Result<Message, ApplicationE
         placement: placement_from_str(row.get("placement"))?,
         content,
         created_at: row.get("created_at"),
+        edited_at: row.get("edited_at"),
+        deleted_at: row.get("deleted_at"),
     })
 }
 
@@ -1879,6 +2066,15 @@ fn channel_kind_str(value: ChannelKind) -> &'static str {
         ChannelKind::Direct => "direct",
     }
 }
+
+fn channel_kind_from_str(value: &str) -> Result<ChannelKind, ApplicationError> {
+    match value {
+        "public" => Ok(ChannelKind::Public),
+        "private" => Ok(ChannelKind::Private),
+        "direct" => Ok(ChannelKind::Direct),
+        _ => Err(ApplicationError::Internal),
+    }
+}
 text_enum!(agent_lifecycle_str, agent_lifecycle_from_str, AgentLifecycle, {
     AgentLifecycle::Provisioning => "provisioning", AgentLifecycle::Active => "active", AgentLifecycle::Suspended => "suspended", AgentLifecycle::Retired => "retired", AgentLifecycle::Error => "error"
 });
@@ -1887,10 +2083,7 @@ text_enum!(driver_kind_str, driver_kind_from_str, DriverKind, {
 });
 
 fn permission_str(value: PermissionAction) -> &'static str {
-    match value {
-        PermissionAction::ChannelCreate => "channel.create",
-        PermissionAction::AgentCreate => "agent.create",
-    }
+    value.code()
 }
 
 fn access_level_str(value: AccessLevel) -> &'static str {
@@ -2100,6 +2293,7 @@ mod tests {
                 driver_kind: DriverKind::Codex,
                 action_message_id: MessageId::from_uuid(Uuid::now_v7()),
                 actor_member_id: MemberId::from_uuid(actor_agent),
+                idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
                 current_run_id: RunId::from_uuid(run_id),
                 now: OffsetDateTime::now_utc(),
             },

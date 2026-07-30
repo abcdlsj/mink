@@ -76,6 +76,8 @@ pub(in crate::server) struct Message {
     pub(in crate::server) placement: MessagePlacement,
     pub(in crate::server) content: MessageContent,
     pub(in crate::server) created_at: OffsetDateTime,
+    pub(in crate::server) edited_at: Option<OffsetDateTime>,
+    pub(in crate::server) deleted_at: Option<OffsetDateTime>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,6 +123,39 @@ impl Message {
             placement: MessagePlacement::Reply,
             content,
             created_at,
+            edited_at: None,
+            deleted_at: None,
         })
+    }
+
+    pub(in crate::server) fn edit_text(
+        &mut self,
+        body: String,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if body.trim().is_empty()
+            || self.deleted_at.is_some()
+            || !matches!(self.content, MessageContent::Text(_))
+        {
+            return Err(DomainError::InvalidMessageMutation);
+        }
+        self.content = MessageContent::Text(body);
+        self.edited_at = Some(now);
+        Ok(())
+    }
+
+    pub(in crate::server) fn soft_delete(
+        &mut self,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.deleted_at.is_some() {
+            return Ok(());
+        }
+        if !matches!(self.content, MessageContent::Text(_)) {
+            return Err(DomainError::InvalidMessageMutation);
+        }
+        self.content = MessageContent::Text(String::new());
+        self.deleted_at = Some(now);
+        Ok(())
     }
 }

@@ -52,6 +52,8 @@ pub(in crate::server) trait AttachmentObjectPort: Send + Sync {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) enum Effect {
     MessageCreated(MessageId),
+    MessageUpdated(MessageId),
+    MessageDeleted(MessageId),
     TaskCreated(TaskId),
     RunTaskBound {
         run_id: RunId,
@@ -87,6 +89,7 @@ pub(in crate::server) enum Effect {
     },
     TaskFinished(TaskId),
     SessionClose(TaskId),
+    SessionReset(TaskId),
     AgentRetired {
         agent_id: MemberId,
         computer_id: ComputerId,
@@ -98,12 +101,14 @@ pub(in crate::server) enum Effect {
         agent_id: MemberId,
         computer_id: ComputerId,
     },
+    PermissionChanged(MemberId),
 }
 
 pub(in crate::server) struct MessageDraft {
     pub(in crate::server) message_id: MessageId,
     pub(in crate::server) channel_id: ChannelId,
     pub(in crate::server) author_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) thread_id: Option<ThreadId>,
     pub(in crate::server) reply_to_message_id: Option<MessageId>,
     pub(in crate::server) body_markdown: String,
@@ -146,6 +151,8 @@ impl fmt::Debug for RawFencingToken {
 pub(in crate::server) trait ServerTransaction {
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError>;
+    async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError>;
+    async fn channel(&mut self, id: ChannelId) -> Result<Channel, ApplicationError>;
     async fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError>;
     async fn run(&mut self, id: RunId) -> Result<Run, ApplicationError>;
     async fn inbox_item(&mut self, id: InboxItemId) -> Result<InboxItem, ApplicationError>;
@@ -166,6 +173,12 @@ pub(in crate::server) trait ServerTransaction {
         action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<TaskId>, ApplicationError>;
+    async fn resource_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<Option<uuid::Uuid>, ApplicationError>;
     async fn active_run_for_agent(
         &mut self,
         agent_id: MemberId,
@@ -205,6 +218,11 @@ pub(in crate::server) trait ServerTransaction {
         actor: MemberId,
         action: crate::server::domain::identity::PermissionAction,
     ) -> Result<bool, ApplicationError>;
+    async fn can_manage_permissions(
+        &mut self,
+        actor: MemberId,
+        target: MemberId,
+    ) -> Result<bool, ApplicationError>;
     async fn can_operate_agent(
         &mut self,
         computer_id: ComputerId,
@@ -234,6 +252,19 @@ pub(in crate::server) trait ServerTransaction {
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError>;
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError>;
+    async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError>;
+    async fn grant_permission(
+        &mut self,
+        target: MemberId,
+        action: crate::server::domain::identity::PermissionAction,
+        granted_by: MemberId,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    async fn revoke_permission(
+        &mut self,
+        target: MemberId,
+        action: crate::server::domain::identity::PermissionAction,
+    ) -> Result<(), ApplicationError>;
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError>;
     async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError>;
     async fn save_agent(&mut self, agent: Agent) -> Result<(), ApplicationError>;
@@ -249,6 +280,13 @@ pub(in crate::server) trait ServerTransaction {
         action: &str,
         key: IdempotencyKey,
         task_id: TaskId,
+    ) -> Result<(), ApplicationError>;
+    async fn record_resource_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        resource_id: uuid::Uuid,
     ) -> Result<(), ApplicationError>;
     async fn record_task_audit(
         &mut self,

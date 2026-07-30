@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use time::OffsetDateTime;
 
-use crate::ids::{ChannelId, ComputerId, MemberId, MessageId, RunId, SpaceId};
+use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, MessageId, RunId, SpaceId};
 use crate::server::domain::{
     conversation::{Channel, ChannelKind, Message, MessageContent},
     execution::RunStatus,
@@ -24,9 +24,125 @@ impl PublishMessage {
             return Err(ApplicationError::Conflict);
         }
         port.transact(async |transaction| {
+            if let Some(message_id) = transaction
+                .resource_for_idempotency(
+                    draft.author_member_id,
+                    "message.create",
+                    draft.idempotency_key,
+                )
+                .await?
+            {
+                return Ok(PublishedMessage {
+                    message_id: MessageId::from_uuid(message_id),
+                    hard_item_ids: Vec::new(),
+                });
+            }
+            let actor = draft.author_member_id;
+            let key = draft.idempotency_key;
             let published = transaction.publish_message(draft).await?;
+            transaction
+                .record_resource_idempotency(
+                    actor,
+                    "message.create",
+                    key,
+                    published.message_id.into_uuid(),
+                )
+                .await?;
             transaction.emit(Effect::MessageCreated(published.message_id));
             Ok(published)
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct EditMessageInput {
+    pub(in crate::server) message_id: MessageId,
+    pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) body_markdown: String,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct EditMessage;
+
+impl EditMessage {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: EditMessageInput,
+    ) -> Result<Message, ApplicationError> {
+        port.transact(async |transaction| {
+            if let Some(message_id) = transaction
+                .resource_for_idempotency(
+                    input.actor_member_id,
+                    "message.edit",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.message(MessageId::from_uuid(message_id)).await;
+            }
+            let mut message = transaction.message(input.message_id).await?;
+            let thread = transaction.thread(message.thread_id).await?;
+            let access = transaction
+                .member_access_level(input.actor_member_id, thread.space_id)
+                .await?;
+            if input.actor_member_id != message.author_member_id && !access.can_manage_space() {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            message.edit_text(input.body_markdown, input.now)?;
+            transaction.save_message(message.clone()).await?;
+            transaction
+                .record_resource_idempotency(
+                    input.actor_member_id,
+                    "message.edit",
+                    input.idempotency_key,
+                    message.id.into_uuid(),
+                )
+                .await?;
+            transaction.emit(Effect::MessageUpdated(message.id));
+            Ok(message)
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct DeleteMessage;
+
+impl DeleteMessage {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        message_id: MessageId,
+        actor_member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<Message, ApplicationError> {
+        port.transact(async |transaction| {
+            if let Some(message_id) = transaction
+                .resource_for_idempotency(actor_member_id, "message.delete", idempotency_key)
+                .await?
+            {
+                return transaction.message(MessageId::from_uuid(message_id)).await;
+            }
+            let mut message = transaction.message(message_id).await?;
+            let thread = transaction.thread(message.thread_id).await?;
+            let access = transaction
+                .member_access_level(actor_member_id, thread.space_id)
+                .await?;
+            if actor_member_id != message.author_member_id && !access.can_manage_space() {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            message.soft_delete(now)?;
+            transaction.save_message(message.clone()).await?;
+            transaction
+                .record_resource_idempotency(
+                    actor_member_id,
+                    "message.delete",
+                    idempotency_key,
+                    message.id.into_uuid(),
+                )
+                .await?;
+            transaction.emit(Effect::MessageDeleted(message.id));
+            Ok(message)
         })
         .await
     }
@@ -40,6 +156,7 @@ pub(in crate::server) struct CreateChannelActionInput {
     pub(in crate::server) topic: Option<String>,
     pub(in crate::server) action_message_id: MessageId,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) current_run_id: RunId,
     pub(in crate::server) now: OffsetDateTime,
 }
@@ -53,6 +170,7 @@ pub(in crate::server) struct CreateAgentActionInput {
     pub(in crate::server) driver_kind: DriverKind,
     pub(in crate::server) action_message_id: MessageId,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) current_run_id: RunId,
     pub(in crate::server) now: OffsetDateTime,
 }
@@ -65,6 +183,7 @@ pub(in crate::server) struct CreateChannelInput {
     pub(in crate::server) slug: Option<String>,
     pub(in crate::server) topic: Option<String>,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -78,6 +197,7 @@ pub(in crate::server) struct CreateAgentInput {
     pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) driver_kind: DriverKind,
     pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -89,6 +209,16 @@ impl CreateChannel {
         input: CreateChannelInput,
     ) -> Result<Channel, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(channel_id) = transaction
+                .resource_for_idempotency(
+                    input.actor_member_id,
+                    "channel.create",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.channel(ChannelId::from_uuid(channel_id)).await;
+            }
             let access = transaction
                 .member_access_level(input.actor_member_id, input.space_id)
                 .await?;
@@ -105,6 +235,14 @@ impl CreateChannel {
                 input.now,
             )?;
             transaction.insert_channel(channel.clone()).await?;
+            transaction
+                .record_resource_idempotency(
+                    input.actor_member_id,
+                    "channel.create",
+                    input.idempotency_key,
+                    channel.id.into_uuid(),
+                )
+                .await?;
             transaction.emit(Effect::ChannelCreated(channel.id));
             Ok(channel)
         })
@@ -120,6 +258,16 @@ impl CreateAgent {
         input: CreateAgentInput,
     ) -> Result<Agent, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(agent_id) = transaction
+                .resource_for_idempotency(
+                    input.actor_member_id,
+                    "agent.create",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.agent(MemberId::from_uuid(agent_id)).await;
+            }
             let actor_access = transaction
                 .member_access_level(input.actor_member_id, input.space_id)
                 .await?;
@@ -151,6 +299,14 @@ impl CreateAgent {
                 retired_at: None,
             };
             transaction.insert_agent(member, agent.clone()).await?;
+            transaction
+                .record_resource_idempotency(
+                    input.actor_member_id,
+                    "agent.create",
+                    input.idempotency_key,
+                    agent.member_id.into_uuid(),
+                )
+                .await?;
             transaction.emit(Effect::AgentCreated {
                 agent_id: agent.member_id,
                 computer_id: input.computer_id,
@@ -169,6 +325,16 @@ impl CreateAgentAction {
         input: CreateAgentActionInput,
     ) -> Result<Agent, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(agent_id) = transaction
+                .resource_for_idempotency(
+                    input.actor_member_id,
+                    "agent.create",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.agent(MemberId::from_uuid(agent_id)).await;
+            }
             let run = transaction.run(input.current_run_id).await?;
             if run.agent_id != input.actor_member_id || run.status != RunStatus::Running {
                 return Err(ApplicationError::ContextChanged);
@@ -209,6 +375,14 @@ impl CreateAgentAction {
             )?;
             transaction.insert_agent(member, agent.clone()).await?;
             transaction.insert_message(action).await?;
+            transaction
+                .record_resource_idempotency(
+                    input.actor_member_id,
+                    "agent.create",
+                    input.idempotency_key,
+                    agent.member_id.into_uuid(),
+                )
+                .await?;
             transaction.emit(Effect::AgentCreated {
                 agent_id: agent.member_id,
                 computer_id: input.computer_id,
@@ -227,6 +401,16 @@ impl CreateChannelAction {
         input: CreateChannelActionInput,
     ) -> Result<Channel, ApplicationError> {
         port.transact(async |transaction| {
+            if let Some(channel_id) = transaction
+                .resource_for_idempotency(
+                    input.actor_member_id,
+                    "channel.create",
+                    input.idempotency_key,
+                )
+                .await?
+            {
+                return transaction.channel(ChannelId::from_uuid(channel_id)).await;
+            }
             let run = transaction.run(input.current_run_id).await?;
             if run.agent_id != input.actor_member_id || run.status != RunStatus::Running {
                 return Err(ApplicationError::ContextChanged);
@@ -258,6 +442,14 @@ impl CreateChannelAction {
             )?;
             transaction.insert_channel(channel.clone()).await?;
             transaction.insert_message(action).await?;
+            transaction
+                .record_resource_idempotency(
+                    input.actor_member_id,
+                    "channel.create",
+                    input.idempotency_key,
+                    channel.id.into_uuid(),
+                )
+                .await?;
             transaction.emit(Effect::ChannelCreated(channel.id));
             Ok(channel)
         })

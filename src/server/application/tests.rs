@@ -25,14 +25,15 @@ use super::{
     attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
     conversation::{
         CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
-        CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
+        CreateChannelAction, CreateChannelActionInput, CreateChannelInput, DeleteMessage,
+        EditMessage, EditMessageInput,
     },
     execution::{
-        ClaimRun, ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput,
-        RecordRunItemDisposition, RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun,
-        StartRunInput,
+        AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput, CompleteRun,
+        CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
+        RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
     },
-    identity::{DeleteComputer, RetireAgent},
+    identity::{DeleteComputer, RetireAgent, SetPermission},
     ports::{
         ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction,
         TransactionPort,
@@ -83,6 +84,7 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
             slug: Some("private".into()),
             topic: None,
             actor_member_id: owner_id,
+            idempotency_key: idempotency(209),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -101,6 +103,7 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
             computer_id,
             driver_kind: DriverKind::Builtin,
             actor_member_id: owner_id,
+            idempotency_key: idempotency(210),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -137,6 +140,7 @@ struct MemoryState {
     members: HashMap<MemberId, Member>,
     computers: HashMap<ComputerId, Computer>,
     idempotency: HashMap<(MemberId, String, IdempotencyKey), TaskId>,
+    resource_idempotency: HashMap<(MemberId, String, IdempotencyKey), uuid::Uuid>,
     task_audits: Vec<(MemberId, String, TaskId)>,
     completed_run_events: HashMap<EventId, RunId>,
     assignable_agents: HashSet<MemberId>,
@@ -185,6 +189,23 @@ impl ServerTransaction for MemoryTransaction {
         self.state
             .roots
             .get(&thread_id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError> {
+        self.state
+            .messages
+            .get(&id)
+            .or_else(|| self.state.roots.values().find(|message| message.id == id))
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn channel(&mut self, id: ChannelId) -> Result<Channel, ApplicationError> {
+        self.state
+            .channels
+            .get(&id)
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
@@ -266,6 +287,19 @@ impl ServerTransaction for MemoryTransaction {
             .copied())
     }
 
+    async fn resource_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<Option<uuid::Uuid>, ApplicationError> {
+        Ok(self
+            .state
+            .resource_idempotency
+            .get(&(actor, action.to_owned(), key))
+            .copied())
+    }
+
     async fn active_run_for_agent(
         &mut self,
         agent_id: MemberId,
@@ -342,6 +376,20 @@ impl ServerTransaction for MemoryTransaction {
         Ok(self.state.permissions.contains(&(actor, action)))
     }
 
+    async fn can_manage_permissions(
+        &mut self,
+        actor: MemberId,
+        target: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        let Some(actor) = self.state.members.get(&actor) else {
+            return Ok(false);
+        };
+        let Some(target) = self.state.members.get(&target) else {
+            return Ok(false);
+        };
+        Ok(actor.space_id == target.space_id && actor.access_level.can_manage_space())
+    }
+
     async fn can_operate_agent(
         &mut self,
         computer_id: ComputerId,
@@ -405,6 +453,8 @@ impl ServerTransaction for MemoryTransaction {
             },
             content: MessageContent::Text(draft.body_markdown),
             created_at: draft.now,
+            edited_at: None,
+            deleted_at: None,
         })
         .await?;
         Ok(PublishedMessage {
@@ -440,6 +490,45 @@ impl ServerTransaction for MemoryTransaction {
             return Err(ApplicationError::Conflict);
         }
         self.state.messages.insert(message.id, message);
+        Ok(())
+    }
+
+    async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError> {
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.state.messages.entry(message.id)
+        {
+            entry.insert(message);
+            return Ok(());
+        }
+        if let Some(root) = self
+            .state
+            .roots
+            .values_mut()
+            .find(|root| root.id == message.id)
+        {
+            *root = message;
+            return Ok(());
+        }
+        Err(ApplicationError::NotFound)
+    }
+
+    async fn grant_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+        _granted_by: MemberId,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state.permissions.insert((target, action));
+        Ok(())
+    }
+
+    async fn revoke_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+    ) -> Result<(), ApplicationError> {
+        self.state.permissions.remove(&(target, action));
         Ok(())
     }
 
@@ -490,6 +579,19 @@ impl ServerTransaction for MemoryTransaction {
         self.state
             .idempotency
             .insert((actor, action.to_owned(), key), task_id);
+        Ok(())
+    }
+
+    async fn record_resource_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        resource_id: uuid::Uuid,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .resource_idempotency
+            .insert((actor, action.to_owned(), key), resource_id);
         Ok(())
     }
 
@@ -623,6 +725,7 @@ async fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
             task_id: task(25),
             target_thread_id: incompatible,
             actor_member_id: actor,
+            idempotency_key: idempotency(202),
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
@@ -639,6 +742,7 @@ async fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
             task_id: task(25),
             target_thread_id: occupied,
             actor_member_id: actor,
+            idempotency_key: idempotency(208),
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
@@ -738,6 +842,19 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
         StartRun::execute(&mut port, input()).await.unwrap(),
         started
     );
+    let stale = StartRun::execute(
+        &mut port,
+        StartRunInput {
+            fencing_token_hash: hex::encode(Sha256::digest(b"stale")),
+            ..input()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        stale,
+        ApplicationError::Domain(crate::server::domain::DomainError::StaleFencingToken)
+    ));
 
     let error = StartRun::execute(
         &mut port,
@@ -1016,6 +1133,7 @@ async fn result_message_failure_rolls_back_task_completion() {
         CompleteTaskInput {
             task_id,
             actor_member_id: assignee,
+            idempotency_key: idempotency(203),
             result_message_id: result_id,
             result_thread_id: focus,
             result_markdown: "完成".into(),
@@ -1152,9 +1270,15 @@ async fn computer_delete_requires_explicit_agent_retirement() {
         running_run(run_id, agent_id, focus, None, vec![item_id]),
     );
 
-    let blocked = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
-        .await
-        .unwrap_err();
+    let blocked = DeleteComputer::execute(
+        &mut port,
+        agent_id,
+        computer_id,
+        idempotency(211),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(
         blocked,
         ApplicationError::Domain(crate::server::domain::DomainError::ComputerHasAgents)
@@ -1164,14 +1288,26 @@ async fn computer_delete_requires_explicit_agent_retirement() {
         ComputerLifecycle::Offline
     );
 
-    RetireAgent::execute(&mut port, agent_id, OffsetDateTime::UNIX_EPOCH)
-        .await
-        .unwrap();
+    RetireAgent::execute(
+        &mut port,
+        agent_id,
+        agent_id,
+        idempotency(212),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
     assert_eq!(port.state.runs[&run_id].status, RunStatus::Canceled);
     assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
-    let deleted = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
-        .await
-        .unwrap();
+    let deleted = DeleteComputer::execute(
+        &mut port,
+        agent_id,
+        computer_id,
+        idempotency(213),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
     assert_eq!(deleted.lifecycle, ComputerLifecycle::Deleted);
     assert!(deleted.token_hash.is_none());
 }
@@ -1195,6 +1331,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
         UpdateTaskInput {
             task_id,
             actor_member_id: assignee,
+            idempotency_key: idempotency(204),
             action: TaskAction::SubmitReview,
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -1206,6 +1343,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
         UpdateTaskInput {
             task_id,
             actor_member_id: assignee,
+            idempotency_key: idempotency(205),
             action: TaskAction::RequestChanges,
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -1221,6 +1359,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
         UpdateTaskInput {
             task_id,
             actor_member_id: reviewer,
+            idempotency_key: idempotency(206),
             action: TaskAction::RequestChanges,
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -1234,6 +1373,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
         UpdateTaskInput {
             task_id,
             actor_member_id: assignee,
+            idempotency_key: idempotency(207),
             action: TaskAction::Close {
                 reason: CloseReason::Obsolete,
                 note: None,
@@ -1273,6 +1413,7 @@ async fn agent_channel_action_and_action_message_commit_together() {
             topic: None,
             action_message_id: message(104),
             actor_member_id: agent,
+            idempotency_key: idempotency(214),
             current_run_id: run_id,
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -1293,6 +1434,7 @@ async fn agent_channel_action_and_action_message_commit_together() {
             topic: None,
             action_message_id: message(104),
             actor_member_id: agent,
+            idempotency_key: idempotency(214),
             current_run_id: run_id,
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -1329,6 +1471,7 @@ async fn agent_creation_and_action_message_share_permission_and_transaction() {
         driver_kind: DriverKind::Codex,
         action_message_id,
         actor_member_id: actor,
+        idempotency_key: idempotency(215),
         current_run_id: run_id,
         now: OffsetDateTime::UNIX_EPOCH,
     };
@@ -1359,6 +1502,168 @@ async fn agent_creation_and_action_message_share_permission_and_transaction() {
     ));
 }
 
+#[tokio::test]
+async fn message_edit_and_delete_are_authorized_idempotent_text_mutations() {
+    let mut port = MemoryPort::default();
+    let author = member(1600);
+    let thread_id = thread(1601);
+    port.state.members.insert(
+        author,
+        Member {
+            id: author,
+            space_id: space(1),
+            display_name: "Author".into(),
+            handle: "author".into(),
+            access_level: AccessLevel::Member,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        },
+    );
+    insert_thread(&mut port, thread_id, &[author]);
+    let message_id = message(thread_id.into_uuid().as_u128());
+    let edit = EditMessageInput {
+        message_id,
+        actor_member_id: author,
+        body_markdown: "edited".into(),
+        idempotency_key: idempotency(1602),
+        now: OffsetDateTime::UNIX_EPOCH,
+    };
+    let edited = EditMessage::execute(&mut port, edit).await.unwrap();
+    assert_eq!(edited.content, MessageContent::Text("edited".into()));
+
+    DeleteMessage::execute(
+        &mut port,
+        message_id,
+        author,
+        idempotency(1603),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    let replayed = DeleteMessage::execute(
+        &mut port,
+        message_id,
+        author,
+        idempotency(1603),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replayed.deleted_at, Some(OffsetDateTime::UNIX_EPOCH));
+    assert_eq!(
+        port.state.effects,
+        vec![
+            Effect::MessageUpdated(message_id),
+            Effect::MessageDeleted(message_id)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn permission_changes_require_a_space_governor_and_are_idempotent() {
+    let mut port = MemoryPort::default();
+    let owner = member(1610);
+    let target = member(1611);
+    for (id, access_level) in [(owner, AccessLevel::Owner), (target, AccessLevel::Member)] {
+        port.state.members.insert(
+            id,
+            Member {
+                id,
+                space_id: space(1),
+                display_name: id.to_string(),
+                handle: id.to_string(),
+                access_level,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+            },
+        );
+    }
+    SetPermission::execute(
+        &mut port,
+        owner,
+        target,
+        PermissionAction::ChannelCreate,
+        true,
+        idempotency(1612),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    SetPermission::execute(
+        &mut port,
+        owner,
+        target,
+        PermissionAction::ChannelCreate,
+        true,
+        idempotency(1612),
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .unwrap();
+    assert!(
+        port.state
+            .permissions
+            .contains(&(target, PermissionAction::ChannelCreate))
+    );
+    assert_eq!(port.state.effects, vec![Effect::PermissionChanged(target)]);
+}
+
+#[tokio::test]
+async fn rejected_delivery_releases_the_item_once() {
+    let mut port = MemoryPort::default();
+    let run_id = run(53);
+    let item_id = item(1620);
+    let agent_id = member(1621);
+    let focus = thread(1622);
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent_id, focus, None, vec![item_id]),
+    );
+    port.state.items.insert(
+        item_id,
+        inbox(item_id, agent_id, focus, None, InboxItemStatus::Leased),
+    );
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    let input = || AcknowledgeDeliveryInput {
+        run_id,
+        computer_id: computer(999),
+        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+        delivery_sequence: 1,
+        accepted: false,
+        now: OffsetDateTime::UNIX_EPOCH,
+    };
+    AcknowledgeDelivery::execute(&mut port, input())
+        .await
+        .unwrap();
+    AcknowledgeDelivery::execute(&mut port, input())
+        .await
+        .unwrap();
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert_eq!(
+        port.state.runs[&run_id].items[0].disposition,
+        Some(InboxItemDisposition::Released)
+    );
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            event_id: event(1623),
+            run_id,
+            computer_id: computer(999),
+            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+            outcome: RunOutcome::Completed,
+            item_dispositions: vec![ItemDispositionInput {
+                item_id,
+                disposition: InboxItemDisposition::Released,
+            }],
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(port.state.runs[&run_id].status, RunStatus::Completed);
+}
+
 fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
     let root_id = message(id.into_uuid().as_u128());
     let audience = members.iter().copied().collect::<BTreeSet<_>>();
@@ -1381,6 +1686,8 @@ fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
             placement: MessagePlacement::Root,
             content: MessageContent::Text("来源".into()),
             created_at: OffsetDateTime::UNIX_EPOCH,
+            edited_at: None,
+            deleted_at: None,
         },
     );
 }

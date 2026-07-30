@@ -20,6 +20,7 @@ GET    /api/v1/spaces/{space_id}/channels
 POST   /api/v1/spaces/{space_id}/channels
 GET    /api/v1/channels/{channel_id}/messages
 POST   /api/v1/channels/{channel_id}/messages
+GET    /api/v1/channels/{channel_id}/members
 GET    /api/v1/threads/{thread_id}
 POST   /api/v1/threads/{thread_id}/messages
 PATCH  /api/v1/messages/{message_id}
@@ -29,6 +30,8 @@ DELETE /api/v1/messages/{message_id}
 向 Channel 发送 Message 时，Server 创建 Root Message 和对应 Thread。向 Thread 发送 Message 时，Server 创建 reply。
 
 Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影。Browser 不能从正文解析 Action Message。
+
+Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
 
 ### 2.2 Task
 
@@ -90,6 +93,8 @@ POST /api/v1/computers/{computer_id}/agent-actions
 ```
 
 Server 必须验证 Agent assignment 和 fencing token。Computer 不能操作其他 Computer 的 Agent。
+
+`started`、`delivery-receipts`和`result`使用请求中的稳定`event_id`执行幂等重放。
 
 `agent-actions`接收版本化 tagged union。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message。
 

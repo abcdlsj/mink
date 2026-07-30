@@ -556,6 +556,9 @@ export interface components {
             access_level?: null | components["schemas"]["AccessLevel"];
             permissions?: string[] | null;
         };
+        UpdateMessageRequest: {
+            body_markdown: string;
+        };
         UpdateTaskRequest: {
             /** Format: uuid */
             assignee_agent_member_id?: string | null;

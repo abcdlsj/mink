@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use crate::ids::{ComputerId, EventId, InboxItemId, MemberId, RunId, TaskId, ThreadId};
 
 use crate::server::domain::{
-    attention::InboxItemDisposition,
+    attention::{InboxItemDisposition, InboxItemStatus},
     execution::{Run, RunItem, RunOutcome, RunStatus},
 };
 
@@ -143,6 +143,7 @@ impl StartRun {
                 return Err(ApplicationError::PermissionDenied);
             }
             if run.status == RunStatus::Running {
+                run.validate_fencing(&input.fencing_token_hash)?;
                 return Ok(run);
             }
             run.start(&input.fencing_token_hash, input.now)?;
@@ -214,6 +215,51 @@ impl RecordRunItemDisposition {
     }
 }
 
+pub(in crate::server) struct AcknowledgeDeliveryInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) computer_id: ComputerId,
+    pub(in crate::server) fencing_token_hash: String,
+    pub(in crate::server) delivery_sequence: u64,
+    pub(in crate::server) accepted: bool,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct AcknowledgeDelivery;
+
+impl AcknowledgeDelivery {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: AcknowledgeDeliveryInput,
+    ) -> Result<Run, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut run = transaction.run(input.run_id).await?;
+            if !transaction
+                .can_operate_agent(input.computer_id, run.agent_id)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            run.validate_fencing(&input.fencing_token_hash)?;
+            let item = run
+                .items
+                .iter()
+                .find(|item| item.delivery_sequence == input.delivery_sequence)
+                .cloned()
+                .ok_or(ApplicationError::NotFound)?;
+            if input.accepted || item.disposition == Some(InboxItemDisposition::Released) {
+                return Ok(run);
+            }
+            run.set_item_disposition(item.inbox_item_id, InboxItemDisposition::Released)?;
+            let mut inbox_item = transaction.inbox_item(item.inbox_item_id).await?;
+            inbox_item.apply_disposition(run.id, InboxItemDisposition::Released, input.now)?;
+            transaction.save_inbox_item(inbox_item).await?;
+            transaction.save_run(run.clone()).await?;
+            Ok(run)
+        })
+        .await
+    }
+}
+
 pub(in crate::server) struct RenewRun;
 
 impl RenewRun {
@@ -257,6 +303,7 @@ impl CompleteRun {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
+            run.validate_fencing(&input.fencing_token_hash)?;
             if let Some(run_id) = transaction.completed_run_for_event(input.event_id).await? {
                 if run_id != run.id {
                     return Err(ApplicationError::Conflict);
@@ -267,8 +314,12 @@ impl CompleteRun {
             for item_input in input.item_dispositions {
                 run.set_item_disposition(item_input.item_id, item_input.disposition)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
-                item.apply_disposition(run.id, item_input.disposition, input.now)?;
-                transaction.save_inbox_item(item).await?;
+                if item.status == InboxItemStatus::Leased {
+                    item.apply_disposition(run.id, item_input.disposition, input.now)?;
+                    transaction.save_inbox_item(item).await?;
+                } else if item_input.disposition != InboxItemDisposition::Released {
+                    return Err(ApplicationError::Conflict);
+                }
             }
             run.finish(
                 &input.fencing_token_hash,
