@@ -111,12 +111,14 @@ use super::{
     credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     openapi::{
-        AccessLevel as AccessLevelCode, AttachmentResponse, AttachmentStatus,
-        ChannelKind as ChannelKindCode, ChannelListResponse, ChannelMembersResponse,
-        ChannelResponse, ComputerOs, ComputerResponse, ComputerStatus, CreatedInvitationResponse,
-        DirectMessageResponse, InboxItemResponse, InboxKind, InboxPriority, InboxStatus,
-        InvitationResponse, LoginResponse, MemberKind as MemberKindCode, MemberResponse,
-        RegisterResponse, SpaceResponse, UserResponse,
+        AccessLevel as AccessLevelCode, AgentAccessLevel, AgentActivityResponse,
+        AgentActivityStatus, AgentLifecycle, AgentResponse, AttachmentResponse, AttachmentStatus,
+        AttentionConfig, ChannelKind as ChannelKindCode, ChannelListResponse,
+        ChannelMembersResponse, ChannelResponse, ComputerOs, ComputerResponse, ComputerStatus,
+        CreatedInvitationResponse, DirectMessageResponse, DriverKind as DriverKindCode,
+        InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
+        LoginResponse, MemberKind as MemberKindCode, MemberResponse, MemoryFileResponse,
+        ProvisionStatus, RegisterResponse, SpaceResponse, UserResponse,
     },
     postgres::PostgresAdapter,
     query::QueryRegistry,
@@ -2499,7 +2501,7 @@ async fn list_agents(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<AgentResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
     let rows = sqlx::query(
         &format!(
@@ -2513,14 +2515,18 @@ async fn list_agents(
     .fetch_all(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(Value::Array(rows.iter().map(agent_row).collect())))
+    let mut agents = Vec::with_capacity(rows.len());
+    for row in &rows {
+        agents.push(agent_row(row)?);
+    }
+    Ok(Json(agents))
 }
 
 async fn get_agent(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(agent_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AgentResponse>, ApiError> {
     let row = sqlx::query(
         &format!(
             "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
@@ -2535,8 +2541,8 @@ async fn get_agent(
     .map_err(map_sqlx)?
     .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, row.get("space_id")).await?;
-    let mut agent = agent_row(&row);
-    agent["memory_files"] = memory_files(&state, row.get("computer_id"), agent_id).await;
+    let mut agent = agent_row(&row)?;
+    agent.memory_files = memory_files(&state, row.get("computer_id"), agent_id).await;
     Ok(Json(agent))
 }
 
@@ -2607,7 +2613,7 @@ async fn retire_agent(
     jar: CookieJar,
     headers: HeaderMap,
     Path(agent_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AgentResponse>, ApiError> {
     let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
     let actor_id = require_agent_governor(&state, &jar, agent_id).await?;
     let mut storage = state.storage.clone();
@@ -2630,7 +2636,7 @@ async fn retire_agent(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(agent_row(&row)))
+    Ok(Json(agent_row(&row)?))
 }
 
 async fn delete_computer(
@@ -2663,7 +2669,7 @@ async fn create_agent(
     headers: HeaderMap,
     Path(space_id): Path<Uuid>,
     Json(body): Json<CreateAgentBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<AgentResponse>), ApiError> {
     let actor_id = current_member(&state, &jar, space_id).await?;
     let requested_access = match body.access_level.as_str() {
         "member" => AccessLevel::Member,
@@ -2733,7 +2739,7 @@ async fn create_agent(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok((StatusCode::CREATED, Json(agent_row(&row))))
+    Ok((StatusCode::CREATED, Json(agent_row(&row)?)))
 }
 
 /// Agent activity 与 last_error_code 的事实来源。
@@ -2772,15 +2778,15 @@ const ACTIVITY_JOINS: &str = "\
 
 /// Attention 策略。当前是 Server 的固定策略,不是每个 Agent 的可配置字段:
 /// 没有任何表保存它,写入路径也不存在。投影为只读值,使 Browser 知道生效参数。
-fn attention_policy_json() -> Value {
-    json!({
-        "dm_immediate": true,
-        "mention_immediate": true,
-        "ambient_enabled": true,
-        "ambient_debounce_seconds": 30,
-        "ambient_max_wait_seconds": 300,
-        "max_retry_count": 5
-    })
+fn attention_policy() -> AttentionConfig {
+    AttentionConfig {
+        dm_immediate: true,
+        mention_immediate: true,
+        ambient_enabled: true,
+        ambient_debounce_seconds: 30,
+        ambient_max_wait_seconds: 300,
+        max_retry_count: 5,
+    }
 }
 
 /// Focus 的可读地址。`#design:42`定位到 Channel 与 Root Message 序号，
@@ -2792,10 +2798,11 @@ fn focus_address(row: &sqlx::postgres::PgRow) -> Option<String> {
 }
 
 /// activity 只描述可验证动作，见 [09-security-operations](../../../docs/design/09-security-operations.md)。
-fn agent_activity(row: &sqlx::postgres::PgRow, activity_status: &str) -> Value {
-    let Some(run_status) = row.get::<Option<String>, _>("run_status") else {
-        return Value::Null;
-    };
+fn agent_activity(
+    row: &sqlx::postgres::PgRow,
+    activity_status: AgentActivityStatus,
+) -> Option<AgentActivityResponse> {
+    let run_status = row.get::<Option<String>, _>("run_status")?;
     let address = focus_address(row);
     let task_title: Option<String> = row.get("run_task_title");
     let label = match (run_status.as_str(), address.as_deref()) {
@@ -2811,62 +2818,83 @@ fn agent_activity(row: &sqlx::postgres::PgRow, activity_status: &str) -> Value {
         },
         (_, None) => "Working on a Run".to_owned(),
     };
-    json!({
-        "kind": run_status,
-        "label": label,
-        // Run 状态本身没有独立时间戳，activity 与 activity_status 同源。
-        "status": activity_status
+    Some(AgentActivityResponse {
+        kind: run_status,
+        label,
+        status: activity_status,
     })
 }
 
-fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
+/// Run status 到 Agent activity 取值域的映射。未知 status 视为 idle:
+/// 该字段只描述当前可见动作，不能因为新增 Run status 就让整个投影失败。
+fn run_activity_status(status: Option<&str>) -> AgentActivityStatus {
+    match status {
+        Some("queued") => AgentActivityStatus::Queued,
+        Some("starting") => AgentActivityStatus::Starting,
+        Some("running") => AgentActivityStatus::Running,
+        Some("finalizing") => AgentActivityStatus::Finalizing,
+        Some("stopping") => AgentActivityStatus::Stopping,
+        _ => AgentActivityStatus::Idle,
+    }
+}
+
+fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, ApiError> {
     let lifecycle: &str = row.get("lifecycle");
     let connection: Option<String> = row.get("connection_status");
     let run_status: Option<String> = row.get("run_status");
     let retired = lifecycle == "retired";
     let desired_lifecycle = match lifecycle {
-        "suspended" => "suspended",
-        "retired" => "retired",
-        _ => "active",
+        "suspended" => AgentLifecycle::Suspended,
+        "retired" => AgentLifecycle::Retired,
+        _ => AgentLifecycle::Active,
     };
     let provision_status = match lifecycle {
-        "provisioning" => "provisioning",
-        "error" => "error",
-        _ => "ready",
+        "provisioning" => ProvisionStatus::Provisioning,
+        "error" => ProvisionStatus::Error,
+        _ => ProvisionStatus::Ready,
     };
-    let activity_status = if matches!(lifecycle, "provisioning" | "error") {
-        if lifecycle == "error" {
-            "error"
+    let activity_status = match lifecycle {
+        "error" => AgentActivityStatus::Error,
+        "provisioning" => AgentActivityStatus::Unreachable,
+        "suspended" => AgentActivityStatus::Suspended,
+        _ if connection.as_deref() != Some("online") => AgentActivityStatus::Unreachable,
+        _ => run_activity_status(run_status.as_deref()),
+    };
+    Ok(AgentResponse {
+        member_id: row.get("member_id"),
+        space_id: row.get("space_id"),
+        computer_id: row.get("computer_id"),
+        name: row.get("display_name"),
+        handle: row.get("handle"),
+        // Agent 不能是 Owner:Space 治理者只能是 Human。
+        access_level: match row.get::<&str, _>("access_level") {
+            "admin" => AgentAccessLevel::Admin,
+            "member" => AgentAccessLevel::Member,
+            _ => return Err(ApiError::internal()),
+        },
+        role_text: row.get("role_text"),
+        role_revision: u64::try_from(row.get::<i64, _>("role_revision"))
+            .map_err(|_| ApiError::internal())?,
+        desired_lifecycle,
+        provision_status,
+        activity_status,
+        driver_kind: match row.get::<&str, _>("driver_kind") {
+            "codex" => DriverKindCode::Codex,
+            "builtin" => DriverKindCode::Builtin,
+            _ => return Err(ApiError::internal()),
+        },
+        attention_config: attention_policy(),
+        activity: agent_activity(row, activity_status),
+        last_error_code: row.get("last_error_code"),
+        // Memory 投影来自在线 Computer，由单资源读取补齐。
+        memory_files: Vec::new(),
+        created_at: timestamp(row.get("created_at")),
+        updated_at: timestamp(row.get("created_at")),
+        retired_at: if retired {
+            optional_timestamp(row.get("retired_at"))
         } else {
-            "unreachable"
-        }
-    } else if lifecycle == "suspended" {
-        "suspended"
-    } else if connection.as_deref() != Some("online") {
-        "unreachable"
-    } else {
-        run_status.as_deref().unwrap_or("idle")
-    };
-    json!({
-        "member_id": row.get::<Uuid,_>("member_id"),
-        "space_id": row.get::<Uuid,_>("space_id"),
-        "computer_id": row.get::<Option<Uuid>,_>("computer_id"),
-        "name": row.get::<String,_>("display_name"),
-        "handle": row.get::<String,_>("handle"),
-        "access_level": row.get::<String,_>("access_level"),
-        "role_text": row.get::<String,_>("role_text"),
-        "role_revision": row.get::<i64,_>("role_revision"),
-        "desired_lifecycle": desired_lifecycle,
-        "provision_status": provision_status,
-        "activity_status": activity_status,
-        "driver_kind": row.get::<String,_>("driver_kind"),
-        "attention_config": attention_policy_json(),
-        "activity": agent_activity(row, activity_status),
-        "last_error_code": row.get::<Option<String>,_>("last_error_code"),
-        "memory_files": [],
-        "created_at": timestamp(row.get("created_at")),
-        "updated_at": timestamp(row.get("created_at")),
-        "retired_at": if retired {optional_timestamp(row.get("retired_at"))} else {None}
+            None
+        },
     })
 }
 
@@ -4814,7 +4842,7 @@ async fn update_agent(
     jar: CookieJar,
     Path(agent_id): Path<Uuid>,
     Json(body): Json<UpdateAgentBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AgentResponse>, ApiError> {
     let actor_id = require_agent_governor(&state, &jar, agent_id).await?;
     let lifecycle = body.lifecycle.as_ref().map(lifecycle_action).transpose()?;
     let mut storage = state.storage.clone();
@@ -4850,7 +4878,7 @@ fn lifecycle_action(body: &LifecycleActionBody) -> Result<AgentLifecycleAction, 
 async fn read_agent_projection(
     state: &RuntimeState,
     agent_id: Uuid,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AgentResponse>, ApiError> {
     let row = sqlx::query(&format!(
         "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
          c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
@@ -4861,16 +4889,20 @@ async fn read_agent_projection(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    let mut agent = agent_row(&row);
-    agent["memory_files"] = memory_files(state, row.get("computer_id"), agent_id).await;
+    let mut agent = agent_row(&row)?;
+    agent.memory_files = memory_files(state, row.get("computer_id"), agent_id).await;
     Ok(Json(agent))
 }
 
 /// Memory 文件投影来自在线 Computer。Server 不保存投影,Computer 不可达时返回空列表:
 /// 该端点的其他事实仍然可用。
-async fn memory_files(state: &RuntimeState, computer_id: Option<Uuid>, agent_id: Uuid) -> Value {
+async fn memory_files(
+    state: &RuntimeState,
+    computer_id: Option<Uuid>,
+    agent_id: Uuid,
+) -> Vec<MemoryFileResponse> {
     let Some(computer_id) = computer_id else {
-        return Value::Array(Vec::new());
+        return Vec::new();
     };
     let result = state
         .queries
@@ -4882,20 +4914,17 @@ async fn memory_files(state: &RuntimeState, computer_id: Option<Uuid>, agent_id:
         )
         .await;
     match result {
-        QueryResult::MemoryList(list) => Value::Array(
-            list.files
-                .iter()
-                .map(|file| {
-                    json!({
-                        "path": file.path,
-                        "size": file.size,
-                        "sha256": file.sha256,
-                        "updated_at": timestamp(file.updated_at)
-                    })
-                })
-                .collect(),
-        ),
-        _ => Value::Array(Vec::new()),
+        QueryResult::MemoryList(list) => list
+            .files
+            .iter()
+            .map(|file| MemoryFileResponse {
+                path: file.path.clone(),
+                size: file.size,
+                sha256: file.sha256.clone(),
+                updated_at: timestamp(file.updated_at),
+            })
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -5285,7 +5314,7 @@ mod tests {
         let agent_id = fixture.context.agent_id.into_uuid();
         let focus_id = fixture.context.focus_thread_id.into_uuid();
 
-        async fn read_agent(fixture: &CapabilityFixture, agent_id: Uuid) -> Value {
+        async fn read_agent(fixture: &CapabilityFixture, agent_id: Uuid) -> AgentResponse {
             let row = sqlx::query(&format!(
                 "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
                  c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
@@ -5297,21 +5326,24 @@ mod tests {
             .fetch_one(&fixture.state.pool)
             .await
             .unwrap();
-            agent_row(&row)
+            agent_row(&row).unwrap()
         }
 
         // 没有失败事实时 last_error_code 为空，不再由 lifecycle 猜测。
         let initial = read_agent(&fixture, agent_id).await;
-        assert_eq!(initial["last_error_code"], Value::Null);
+        assert_eq!(initial.last_error_code, None);
 
         // 活跃 Run 的 status 与 Focus 地址进入 activity。fixture 已建立该 Run。
         let run_id = fixture.context.run_id.into_uuid();
         let running = read_agent(&fixture, agent_id).await;
-        assert_eq!(running["activity"]["kind"], "running");
-        let label = running["activity"]["label"].as_str().unwrap();
+        let activity = running.activity.as_ref().unwrap();
+        assert_eq!(activity.kind, "running");
         // Focus 地址定位 Channel 与 Root Message 序号，不含 Message 正文。
-        assert!(label.contains("#general:1"), "{label}");
-        assert_eq!(running["activity_status"], "running");
+        assert!(activity.label.contains("#general:1"), "{}", activity.label);
+        assert!(matches!(
+            running.activity_status,
+            AgentActivityStatus::Running
+        ));
 
         // pending Item 上的领取错误在没有失败 Run 时作为 last_error_code。
         let item_id = Uuid::now_v7();
@@ -5328,7 +5360,10 @@ mod tests {
         .await
         .unwrap();
         let with_item_error = read_agent(&fixture, agent_id).await;
-        assert_eq!(with_item_error["last_error_code"], "run_claim_unavailable");
+        assert_eq!(
+            with_item_error.last_error_code.as_deref(),
+            Some("run_claim_unavailable")
+        );
 
         // 失败 Run 的错误码优先于 Item 上的领取错误。
         sqlx::query(
@@ -5340,9 +5375,9 @@ mod tests {
         .await
         .unwrap();
         let failed = read_agent(&fixture, agent_id).await;
-        assert_eq!(failed["last_error_code"], "session_lost");
+        assert_eq!(failed.last_error_code.as_deref(), Some("session_lost"));
         // 终态 Run 不再是活跃 Run，activity 回到空。
-        assert_eq!(failed["activity"], Value::Null);
+        assert!(failed.activity.is_none());
 
         fixture.destroy().await;
     }

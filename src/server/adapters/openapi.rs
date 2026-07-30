@@ -185,12 +185,12 @@ pub(super) enum PairingStatus {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct AttentionConfig {
-    dm_immediate: bool,
-    mention_immediate: bool,
-    ambient_enabled: bool,
-    ambient_debounce_seconds: u32,
-    ambient_max_wait_seconds: u32,
-    max_retry_count: u32,
+    pub(super) dm_immediate: bool,
+    pub(super) mention_immediate: bool,
+    pub(super) ambient_enabled: bool,
+    pub(super) ambient_debounce_seconds: u32,
+    pub(super) ambient_max_wait_seconds: u32,
+    pub(super) max_retry_count: u32,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateAgentRequest {
@@ -215,31 +215,32 @@ pub(super) enum AgentAccessLevel {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct AgentActivityResponse {
-    kind: String,
-    label: String,
-    updated_at: String,
+    pub(super) kind: String,
+    pub(super) label: String,
+    /// Run status 没有独立时间戳，因此 activity 与 Agent 的 activity_status 同源。
+    pub(super) status: AgentActivityStatus,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct AgentResponse {
-    member_id: Uuid,
-    space_id: Uuid,
-    computer_id: Option<Uuid>,
-    name: String,
-    handle: String,
-    access_level: AgentAccessLevel,
-    role_text: String,
-    role_revision: u64,
-    desired_lifecycle: AgentLifecycle,
-    provision_status: ProvisionStatus,
-    activity_status: AgentActivityStatus,
-    driver_kind: DriverKind,
-    attention_config: AttentionConfig,
-    activity: Option<AgentActivityResponse>,
-    last_error_code: Option<String>,
-    memory_files: Vec<MemoryFileResponse>,
-    created_at: String,
-    updated_at: String,
-    retired_at: Option<String>,
+    pub(super) member_id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) computer_id: Option<Uuid>,
+    pub(super) name: String,
+    pub(super) handle: String,
+    pub(super) access_level: AgentAccessLevel,
+    pub(super) role_text: String,
+    pub(super) role_revision: u64,
+    pub(super) desired_lifecycle: AgentLifecycle,
+    pub(super) provision_status: ProvisionStatus,
+    pub(super) activity_status: AgentActivityStatus,
+    pub(super) driver_kind: DriverKind,
+    pub(super) attention_config: AttentionConfig,
+    pub(super) activity: Option<AgentActivityResponse>,
+    pub(super) last_error_code: Option<String>,
+    pub(super) memory_files: Vec<MemoryFileResponse>,
+    pub(super) created_at: String,
+    pub(super) updated_at: String,
+    pub(super) retired_at: Option<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -255,7 +256,7 @@ pub(super) enum ProvisionStatus {
     Ready,
     Error,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum AgentActivityStatus {
     Idle,
@@ -270,10 +271,10 @@ pub(super) enum AgentActivityStatus {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct MemoryFileResponse {
-    path: String,
-    size: u64,
-    sha256: String,
-    updated_at: String,
+    pub(super) path: String,
+    pub(super) size: u64,
+    pub(super) sha256: String,
+    pub(super) updated_at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ReadMemoryRequest {
@@ -281,11 +282,11 @@ pub(super) struct ReadMemoryRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct MemoryContentResponse {
-    path: String,
-    size: u64,
-    sha256: String,
-    updated_at: String,
-    content: String,
+    pub(super) path: String,
+    pub(super) size: u64,
+    pub(super) sha256: String,
+    pub(super) updated_at: String,
+    pub(super) content: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 /// Attention 策略是 Server 的固定策略,没有存储也没有写入路径,因此不可修改。

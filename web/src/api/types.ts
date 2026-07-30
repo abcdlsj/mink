@@ -27,7 +27,8 @@ export interface components {
         AgentActivityResponse: {
             kind: string;
             label: string;
-            updated_at: string;
+            /** @description Run status 没有独立时间戳，因此 activity 与 Agent 的 activity_status 同源。 */
+            status: components["schemas"]["AgentActivityStatus"];
         };
         /** @enum {string} */
         AgentActivityStatus: "idle" | "queued" | "starting" | "running" | "finalizing" | "stopping" | "unreachable" | "suspended" | "error";
