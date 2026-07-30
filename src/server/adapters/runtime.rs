@@ -43,7 +43,8 @@ use crate::{
         },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
-            LinkThreadInput, LinkThreadToTask, TaskAction, TaskSource, UnlinkThreadFromTask,
+            FinishAgentTaskAction, FinishAgentTaskInput, FinishAgentTaskRun, LinkThreadInput,
+            LinkThreadToTask, TaskAction, TaskPostTarget, TaskSource, UnlinkThreadFromTask,
             UpdateTask, UpdateTaskInput,
         },
         application::{
@@ -106,6 +107,14 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
             message: "Server could not complete the request",
+        }
+    }
+
+    fn context_changed() -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "context_changed",
+            message: "Message context changed before the write",
         }
     }
 }
@@ -213,6 +222,12 @@ struct CreateUploadBody {
 }
 
 #[derive(Deserialize)]
+struct AgentCreateUploadBody {
+    original_name: String,
+    media_type: String,
+}
+
+#[derive(Deserialize)]
 struct CompleteUploadBody {
     size: u64,
     sha256: String,
@@ -292,6 +307,22 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             post(renew_run),
         )
         .route("/computers/{computer_id}/agent-actions", post(agent_action))
+        .route(
+            "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/uploads",
+            post(agent_create_upload),
+        )
+        .route(
+            "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/content",
+            axum::routing::put(agent_upload_content),
+        )
+        .route(
+            "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/complete",
+            post(agent_complete_upload),
+        )
+        .route(
+            "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/download",
+            get(agent_download_attachment),
+        )
         .route("/spaces", get(list_spaces).post(create_space))
         .route("/spaces/by-slug/{slug}", get(space_by_slug))
         .route(
@@ -899,6 +930,43 @@ async fn execute_agent_action(
         ));
     }
     let context = &request.context;
+    if let Some(key) = request.idempotency_key
+        && matches!(
+            &request.action,
+            capability::Action::TaskSubmitReview { .. }
+                | capability::Action::TaskDone { .. }
+                | capability::Action::TaskClose { .. }
+        )
+    {
+        let replayed = sqlx::query_scalar::<_, Uuid>(
+            "SELECT records.resource_id FROM idempotency_records records \
+             JOIN tasks ON tasks.id=records.resource_id \
+             JOIN agents ON agents.member_id=records.actor_member_id \
+             WHERE records.actor_member_id=$1 AND records.action=$2 \
+             AND records.idempotency_key=$3 AND tasks.id=$4 AND tasks.space_id=$5 \
+             AND agents.computer_id=$6",
+        )
+        .bind(context.agent_id.into_uuid())
+        .bind(request.action.name())
+        .bind(key.into_uuid())
+        .bind(context.task_id.map(TaskId::into_uuid))
+        .bind(context.space_id.into_uuid())
+        .bind(computer_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Task action replay could not be checked",
+                false,
+            )
+        })?;
+        if let Some(task_id) = replayed {
+            return task_projection(&state.pool, task_id)
+                .await
+                .map_err(api_to_capability);
+        }
+    }
     let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM agent_runs r JOIN agents a ON a.member_id=r.agent_id WHERE r.id=$1 AND r.agent_id=$2 AND r.space_id=$3 AND r.task_id IS NOT DISTINCT FROM $4 AND r.focus_thread_id=$5 AND r.status='running' AND r.fencing_token_hash=$6 AND r.lease_expires_at>now() AND a.computer_id=$7)")
         .bind(context.run_id.into_uuid()).bind(context.agent_id.into_uuid()).bind(context.space_id.into_uuid()).bind(context.task_id.map(|id|id.into_uuid())).bind(context.focus_thread_id.into_uuid()).bind(token_hash(&context.fencing_token)).bind(computer_id)
         .fetch_one(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Run context validation failed",false))?;
@@ -930,7 +998,32 @@ async fn execute_agent_action(
         capability::Action::ThreadRead { thread_id, page } => {
             agent_read_thread(state, thread_id.into_uuid(), page).await
         }
+        capability::Action::ChannelRead {
+            channel_id,
+            around_message_id,
+            limit,
+        } => {
+            if limit == 0 || limit > 100 {
+                return Err(capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "limit must be between 1 and 100",
+                    false,
+                ));
+            }
+            agent_read_channel(
+                state,
+                context.agent_id.into_uuid(),
+                channel_id.into_uuid(),
+                around_message_id.map(MessageId::into_uuid),
+                limit,
+            )
+            .await
+        }
         capability::Action::MessageSend(send) => {
+            let expected_snapshot = send.snapshot_sequence.or_else(|| {
+                matches!(&send.target, capability::MessageTarget::Focus)
+                    .then_some(context.message_snapshot_sequence)
+            });
             let (channel_id, thread_id) = match send.target {
                 capability::MessageTarget::Focus => {
                     thread_channel(&state.pool, context.focus_thread_id.into_uuid())
@@ -967,6 +1060,7 @@ async fn execute_agent_action(
                 thread_id,
                 send.handle_item_id
                     .map(|item_id| (context.run_id.into_uuid(), item_id.into_uuid())),
+                expected_snapshot,
                 CreateMessageBody {
                     body_markdown: send.body,
                     mentions: Vec::new(),
@@ -1091,6 +1185,51 @@ async fn execute_agent_action(
                 .await
                 .map_err(api_to_capability)
         }
+        capability::Action::TaskSubmitReview { body, post_to } => {
+            finish_agent_task(
+                state,
+                computer_id,
+                context,
+                request.idempotency_key,
+                FinishAgentTaskAction::SubmitReview {
+                    message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    body,
+                    post_to: task_post_target(post_to),
+                },
+            )
+            .await
+        }
+        capability::Action::TaskDone { result, post_to } => {
+            finish_agent_task(
+                state,
+                computer_id,
+                context,
+                request.idempotency_key,
+                FinishAgentTaskAction::Done {
+                    message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    result,
+                    post_to: task_post_target(post_to),
+                },
+            )
+            .await
+        }
+        capability::Action::TaskClose { reason, note } => {
+            let reason = match reason {
+                capability::CloseReason::Invalid => CloseReason::Invalid,
+                capability::CloseReason::Duplicate => CloseReason::Duplicate,
+                capability::CloseReason::NotNeeded => CloseReason::NotNeeded,
+                capability::CloseReason::Obsolete => CloseReason::Obsolete,
+                capability::CloseReason::Other => CloseReason::Other,
+            };
+            finish_agent_task(
+                state,
+                computer_id,
+                context,
+                request.idempotency_key,
+                FinishAgentTaskAction::Close { reason, note },
+            )
+            .await
+        }
         capability::Action::ChannelCreate { name, private } => {
             let audience = if private {
                 sqlx::query_scalar::<_, Uuid>(
@@ -1196,6 +1335,55 @@ async fn execute_agent_action(
     }
 }
 
+fn task_post_target(target: capability::PostTarget) -> TaskPostTarget {
+    match target {
+        capability::PostTarget::Focus => TaskPostTarget::Focus,
+        capability::PostTarget::Source => TaskPostTarget::Source,
+    }
+}
+
+async fn finish_agent_task(
+    state: &RuntimeState,
+    computer_id: Uuid,
+    context: &capability::RunContext,
+    idempotency_key: Option<crate::ids::IdempotencyKey>,
+    action: FinishAgentTaskAction,
+) -> Result<Value, capability::Error> {
+    let task_id = context.task_id.ok_or_else(|| {
+        capability_error(
+            capability::ErrorCode::Conflict,
+            "Run is not bound to a Task",
+            false,
+        )
+    })?;
+    let idempotency_key = idempotency_key.ok_or_else(|| {
+        capability_error(
+            capability::ErrorCode::InvalidArgument,
+            "idempotency key is required",
+            false,
+        )
+    })?;
+    let mut storage = state.storage.clone();
+    FinishAgentTaskRun::execute(
+        &mut storage,
+        FinishAgentTaskInput {
+            run_id: context.run_id,
+            computer_id: ComputerId::from_uuid(computer_id),
+            actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+            fencing_token_hash: token_hash(&context.fencing_token),
+            idempotency_key,
+            message_snapshot_sequence: context.message_snapshot_sequence,
+            action,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(app_to_capability)?;
+    task_projection(&state.pool, task_id.into_uuid())
+        .await
+        .map_err(api_to_capability)
+}
+
 async fn record_agent_item_disposition(
     state: &RuntimeState,
     computer_id: Uuid,
@@ -1234,6 +1422,115 @@ async fn agent_read_thread(
     )
 }
 
+async fn agent_read_channel(
+    state: &RuntimeState,
+    agent_id: Uuid,
+    channel_id: Uuid,
+    around_message_id: Option<Uuid>,
+    limit: u16,
+) -> Result<Value, capability::Error> {
+    let member: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id=$1 AND member_id=$2)",
+    )
+    .bind(channel_id)
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Channel membership could not be checked",
+            false,
+        )
+    })?;
+    if !member {
+        return Err(capability_error(
+            capability::ErrorCode::PermissionDenied,
+            "Channel is not visible to the Agent",
+            false,
+        ));
+    }
+    let around_sequence = match around_message_id {
+        Some(message_id) => Some(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT channel_seq FROM messages WHERE id=$1 AND channel_id=$2",
+            )
+            .bind(message_id)
+            .bind(channel_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                capability_error(
+                    capability::ErrorCode::Internal,
+                    "Channel cursor could not be read",
+                    false,
+                )
+            })?
+            .ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::NotFound,
+                    "Around Message was not found in the Channel",
+                    false,
+                )
+            })?,
+        ),
+        None => None,
+    };
+    let rows = if let Some(sequence) = around_sequence {
+        sqlx::query(
+            "SELECT * FROM messages WHERE channel_id=$1 AND deleted_at IS NULL \
+             ORDER BY abs(channel_seq-$2),channel_seq LIMIT $3",
+        )
+        .bind(channel_id)
+        .bind(sequence)
+        .bind(i64::from(limit))
+        .fetch_all(&state.pool)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT * FROM messages WHERE channel_id=$1 AND deleted_at IS NULL \
+             ORDER BY channel_seq DESC LIMIT $2",
+        )
+        .bind(channel_id)
+        .bind(i64::from(limit))
+        .fetch_all(&state.pool)
+        .await
+    }
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Channel Messages could not be read",
+            false,
+        )
+    })?;
+    let mut rows = rows;
+    rows.sort_by_key(|row| row.get::<i64, _>("channel_seq"));
+    let mut messages = Vec::with_capacity(rows.len());
+    for row in &rows {
+        messages.push(
+            message_row(&state.pool, row, agent_id)
+                .await
+                .map_err(api_to_capability)?,
+        );
+    }
+    let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
+        .bind(channel_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Channel snapshot could not be read",
+                false,
+            )
+        })?;
+    Ok(json!({
+        "channel_id": channel_id,
+        "messages": messages,
+        "snapshot_channel_seq": snapshot
+    }))
+}
+
 async fn thread_channel(pool: &PgPool, thread_id: Uuid) -> Result<Option<Uuid>, ApiError> {
     sqlx::query_scalar("SELECT channel_id FROM threads WHERE id=$1")
         .bind(thread_id)
@@ -1254,11 +1551,15 @@ fn capability_error(
     }
 }
 fn api_to_capability(error: ApiError) -> capability::Error {
-    let code = match error.status {
-        StatusCode::NOT_FOUND => capability::ErrorCode::NotFound,
-        StatusCode::FORBIDDEN => capability::ErrorCode::PermissionDenied,
-        StatusCode::CONFLICT => capability::ErrorCode::Conflict,
-        _ => capability::ErrorCode::Internal,
+    let code = if error.code == "context_changed" {
+        capability::ErrorCode::ContextChanged
+    } else {
+        match error.status {
+            StatusCode::NOT_FOUND => capability::ErrorCode::NotFound,
+            StatusCode::FORBIDDEN => capability::ErrorCode::PermissionDenied,
+            StatusCode::CONFLICT => capability::ErrorCode::Conflict,
+            _ => capability::ErrorCode::Internal,
+        }
     };
     capability_error(code, error.message, false)
 }
@@ -1273,7 +1574,7 @@ async fn send_json(
     socket: &mut WebSocket,
     value: &impl serde::Serialize,
 ) -> Result<(), axum::Error> {
-    let encoded = serde_json::to_string(value).map_err(|error| axum::Error::new(error))?;
+    let encoded = serde_json::to_string(value).map_err(axum::Error::new)?;
     socket.send(WebSocketMessage::Text(encoded.into())).await
 }
 
@@ -1620,7 +1921,7 @@ async fn create_agent(
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_sqlx)?
-    .ok_or_else(|| ApiError {
+    .ok_or(ApiError {
         status: StatusCode::CONFLICT,
         code: "conflict",
         message: "Computer is no longer available",
@@ -1728,7 +2029,7 @@ async fn create_root_message(
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let member_id = channel_member(&state, &jar, channel_id).await?;
-    let message_id = insert_message(&state, channel_id, member_id, None, None, body).await?;
+    let message_id = insert_message(&state, channel_id, member_id, None, None, None, body).await?;
     let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
         .bind(message_id)
         .fetch_one(&state.pool)
@@ -1787,8 +2088,16 @@ async fn create_thread_reply(
         .ok_or_else(ApiError::not_found)?;
     let channel_id: Uuid = row.get("channel_id");
     let member_id = channel_member(&state, &jar, channel_id).await?;
-    let message_id =
-        insert_message(&state, channel_id, member_id, Some(thread_id), None, body).await?;
+    let message_id = insert_message(
+        &state,
+        channel_id,
+        member_id,
+        Some(thread_id),
+        None,
+        None,
+        body,
+    )
+    .await?;
     let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
         .bind(message_id)
         .fetch_one(&state.pool)
@@ -2040,6 +2349,7 @@ async fn insert_message(
     author: Uuid,
     thread_id: Option<Uuid>,
     handled_item: Option<(Uuid, Uuid)>,
+    expected_snapshot: Option<u64>,
     body: CreateMessageBody,
 ) -> Result<Uuid, ApiError> {
     if body.body_markdown.trim().is_empty() {
@@ -2053,15 +2363,24 @@ async fn insert_message(
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx)?;
-    let channel = sqlx::query(
-        "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING space_id,next_seq-1 AS seq",
+    let channel =
+        sqlx::query("SELECT space_id,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE")
+            .bind(channel_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx)?;
+    let space_id: Uuid = channel.get("space_id");
+    let snapshot: i64 = channel.get("snapshot");
+    if expected_snapshot.is_some_and(|expected| u64::try_from(snapshot).ok() != Some(expected)) {
+        return Err(ApiError::context_changed());
+    }
+    let seq: i64 = sqlx::query_scalar(
+        "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
     )
     .bind(channel_id)
     .fetch_one(&mut *transaction)
     .await
     .map_err(map_sqlx)?;
-    let space_id: Uuid = channel.get("space_id");
-    let seq: i64 = channel.get("seq");
     sqlx::query("INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,reply_to_message_id,author_member_id,body_markdown,created_at) VALUES($1,$2,$3,$4,$5,$6,'text',$7,$8,$9,$10)")
         .bind(message_id).bind(space_id).bind(channel_id).bind(effective_thread).bind(seq)
         .bind(if thread_id.is_some(){"reply"}else{"root"}).bind(body.reply_to_message_id)
@@ -2109,6 +2428,252 @@ async fn insert_message(
     }
     transaction.commit().await.map_err(map_sqlx)?;
     Ok(message_id)
+}
+
+async fn require_active_agent_run(
+    state: &RuntimeState,
+    headers: &HeaderMap,
+    computer_id: Uuid,
+    agent_id: Uuid,
+    run_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    let computer_token = bearer_token(headers)?;
+    let fencing_token = headers
+        .get("x-sumi-fencing-token")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(ApiError::unauthenticated)?;
+    sqlx::query_scalar(
+        "SELECT runs.space_id FROM agent_runs runs \
+         JOIN agents ON agents.member_id=runs.agent_id \
+         JOIN computers ON computers.id=agents.computer_id \
+         WHERE computers.id=$1 AND computers.token_hash=$2 AND computers.deleted_at IS NULL \
+         AND agents.member_id=$3 AND runs.id=$4 AND runs.status='running' \
+         AND runs.fencing_token_hash=$5 AND runs.lease_expires_at>now()",
+    )
+    .bind(computer_id)
+    .bind(token_hash(computer_token))
+    .bind(agent_id)
+    .bind(run_id)
+    .bind(token_hash(fencing_token))
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::unauthenticated)
+}
+
+async fn agent_create_upload(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id)): Path<(Uuid, Uuid, Uuid)>,
+    Json(body): Json<AgentCreateUploadBody>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let space_id =
+        require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    if body.original_name.trim().is_empty() || body.media_type.trim().is_empty() {
+        return Err(ApiError::invalid(
+            "Attachment name and media type are required",
+        ));
+    }
+    let key = idempotency_header(&headers)?;
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT resource_id FROM idempotency_records \
+         WHERE actor_member_id=$1 AND action='attachment.upload.create' AND idempotency_key=$2",
+    )
+    .bind(agent_id)
+    .bind(key)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    {
+        let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
+            .bind(existing_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx)?;
+        transaction.commit().await.map_err(map_sqlx)?;
+        return Ok((StatusCode::OK, Json(attachment_row(&row))));
+    }
+    let id = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc();
+    let object_key = format!("spaces/{space_id}/attachments/{id}");
+    sqlx::query("INSERT INTO attachments(id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,'uploading',$7)")
+        .bind(id).bind(space_id).bind(agent_id).bind(body.original_name.trim()).bind(body.media_type.trim()).bind(object_key).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
+    insert_attachment_write_records(
+        &mut transaction,
+        space_id,
+        agent_id,
+        "attachment.upload.create",
+        key,
+        id,
+        "attachment.created",
+        now,
+    )
+    .await?;
+    transaction.commit().await.map_err(map_sqlx)?;
+    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
+    Ok((StatusCode::CREATED, Json(attachment_row(&row))))
+}
+
+async fn agent_upload_content(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+    body: Bytes,
+) -> Result<StatusCode, ApiError> {
+    require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    let object_key = sqlx::query_scalar::<_, String>(
+        "SELECT object_key FROM attachments \
+         WHERE id=$1 AND uploader_member_id=$2 AND status='uploading'",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    state
+        .objects
+        .put(&object_key, body.to_vec())
+        .await
+        .map_err(application_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn agent_complete_upload(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+    Json(body): Json<CompleteUploadBody>,
+) -> Result<Json<Value>, ApiError> {
+    let space_id =
+        require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    let key = idempotency_header(&headers)?;
+    let row = sqlx::query(
+        "SELECT object_key,status FROM attachments WHERE id=$1 AND uploader_member_id=$2",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    let content = state
+        .objects
+        .get(row.get("object_key"))
+        .await
+        .map_err(application_error)?;
+    let digest = Sha256::digest(&content);
+    if content.len() as u64 != body.size || hex::encode(digest) != body.sha256.to_lowercase() {
+        return Err(ApiError::invalid(
+            "Attachment size or SHA-256 does not match uploaded content",
+        ));
+    }
+    let now = OffsetDateTime::now_utc();
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    let already_applied: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM idempotency_records \
+         WHERE actor_member_id=$1 AND action='attachment.upload.complete' AND idempotency_key=$2)",
+    )
+    .bind(agent_id)
+    .bind(key)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
+    if !already_applied {
+        let changed = sqlx::query("UPDATE attachments SET length=$2,sha256=$3,status='ready',ready_at=$4 WHERE id=$1 AND uploader_member_id=$5 AND status='uploading'")
+            .bind(attachment_id).bind(i64::try_from(body.size).map_err(|_|ApiError::invalid("Attachment is too large"))?).bind(digest.as_slice()).bind(now).bind(agent_id)
+            .execute(&mut *transaction).await.map_err(map_sqlx)?;
+        if changed.rows_affected() != 1 {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                code: "conflict",
+                message: "Attachment upload is not open",
+            });
+        }
+        insert_attachment_write_records(
+            &mut transaction,
+            space_id,
+            agent_id,
+            "attachment.upload.complete",
+            key,
+            attachment_id,
+            "attachment.ready",
+            now,
+        )
+        .await?;
+    }
+    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
+        .bind(attachment_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(map_sqlx)?;
+    transaction.commit().await.map_err(map_sqlx)?;
+    Ok(Json(attachment_row(&row)))
+}
+
+async fn agent_download_attachment(
+    State(state): State<RuntimeState>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+) -> Result<Bytes, ApiError> {
+    require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    let row = sqlx::query(
+        "SELECT object_key FROM attachments WHERE id=$1 AND status='ready' AND ( \
+         uploader_member_id=$2 OR EXISTS(SELECT 1 FROM message_attachments links \
+         JOIN messages ON messages.id=links.message_id \
+         JOIN channel_members members ON members.channel_id=messages.channel_id \
+         WHERE links.attachment_id=attachments.id AND members.member_id=$2))",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    state
+        .objects
+        .get(row.get("object_key"))
+        .await
+        .map(Bytes::from)
+        .map_err(application_error)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_attachment_write_records(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    space_id: Uuid,
+    actor_id: Uuid,
+    action: &str,
+    key: Uuid,
+    attachment_id: Uuid,
+    event_kind: &str,
+    now: OffsetDateTime,
+) -> Result<(), ApiError> {
+    let result_hash = Sha256::digest(attachment_id.as_bytes());
+    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,$2,$3,'ok',$4,$5,$6)")
+        .bind(actor_id).bind(action).bind(key).bind(attachment_id).bind(result_hash.as_slice()).bind(now)
+        .execute(&mut **transaction).await.map_err(map_sqlx)?;
+    sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) VALUES($1,$2,$3,$4,'attachment',$5,$6)")
+        .bind(Uuid::now_v7()).bind(space_id).bind(actor_id).bind(action).bind(attachment_id).bind(now)
+        .execute(&mut **transaction).await.map_err(map_sqlx)?;
+    sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,$3,$4,$5)")
+        .bind(Uuid::now_v7()).bind(space_id).bind(event_kind).bind(json!({"attachment_id":attachment_id})).bind(now)
+        .execute(&mut **transaction).await.map_err(map_sqlx)?;
+    Ok(())
+}
+
+fn idempotency_header(headers: &HeaderMap) -> Result<Uuid, ApiError> {
+    headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or_else(|| ApiError::invalid("Idempotency-Key must be a UUID"))
 }
 
 async fn create_upload(
@@ -2415,9 +2980,8 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
             code: "permission_denied",
             message: "actor is not allowed to perform this action",
         },
-        ApplicationError::Domain(_)
-        | ApplicationError::Conflict
-        | ApplicationError::ContextChanged => ApiError {
+        ApplicationError::ContextChanged => ApiError::context_changed(),
+        ApplicationError::Domain(_) | ApplicationError::Conflict => ApiError {
             status: StatusCode::CONFLICT,
             code: "conflict",
             message: "request conflicts with current state",
@@ -2595,6 +3159,18 @@ mod tests {
         }
 
         async fn execute(&self, action: capability::Action) -> Result<Value, capability::Error> {
+            self.execute_with_key(
+                action,
+                crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+            )
+            .await
+        }
+
+        async fn execute_with_key(
+            &self,
+            action: capability::Action,
+            idempotency_key: crate::ids::IdempotencyKey,
+        ) -> Result<Value, capability::Error> {
             execute_agent_action(
                 &self.state,
                 &self.headers,
@@ -2602,10 +3178,24 @@ mod tests {
                 AgentActionRequest {
                     context: self.context.clone(),
                     action,
-                    idempotency_key: Some(crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7())),
+                    idempotency_key: Some(idempotency_key),
                 },
             )
             .await
+        }
+
+        async fn bind_task(&mut self) -> TaskId {
+            let created = self
+                .execute(capability::Action::TaskCreate {
+                    title: Some("Capability Task".into()),
+                    assignee: None,
+                })
+                .await
+                .unwrap();
+            let task_id =
+                TaskId::from_uuid(Uuid::parse_str(created["id"].as_str().unwrap()).unwrap());
+            self.context.task_id = Some(task_id);
+            task_id
         }
 
         async fn destroy(mut self) {
@@ -2764,6 +3354,291 @@ mod tests {
                 "deferred".into()
             )
         );
+        fixture.destroy().await;
+    }
+
+    #[tokio::test]
+    async fn capability_task_done_commits_collaboration_facts_and_replays() {
+        let mut fixture = CapabilityFixture::create().await;
+        let task_id = fixture.bind_task().await;
+        let key = crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7());
+        let action = capability::Action::TaskDone {
+            result: "Task Result".into(),
+            post_to: capability::PostTarget::Focus,
+        };
+
+        sqlx::raw_sql(
+            "CREATE FUNCTION test_reject_task_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN RAISE EXCEPTION 'forced Task transaction rollback'; END $$;
+             CREATE CONSTRAINT TRIGGER test_reject_task_audit
+             AFTER INSERT ON audit_events DEFERRABLE INITIALLY DEFERRED
+             FOR EACH ROW EXECUTE FUNCTION test_reject_task_audit();",
+        )
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+        let failed = fixture
+            .execute_with_key(action.clone(), key)
+            .await
+            .unwrap_err();
+        assert_eq!(failed.code, capability::ErrorCode::Internal);
+        let rolled_back: (String, String, i64, i64) = sqlx::query_as(
+            "SELECT tasks.status,runs.status, \
+             (SELECT count(*) FROM messages WHERE body_markdown='Task Result'), \
+             (SELECT count(*) FROM inbox_items WHERE status='leased' AND lease_run_id=$2) \
+             FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+        )
+        .bind(task_id.into_uuid())
+        .bind(fixture.context.run_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(rolled_back, ("in_progress".into(), "running".into(), 0, 2));
+        sqlx::raw_sql(
+            "DROP TRIGGER test_reject_task_audit ON audit_events;
+             DROP FUNCTION test_reject_task_audit();",
+        )
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+
+        fixture.execute_with_key(action.clone(), key).await.unwrap();
+        fixture.execute_with_key(action, key).await.unwrap();
+
+        let facts: (String, String, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT tasks.status,runs.status, \
+             (SELECT count(*) FROM inbox_items WHERE lease_run_id IS NULL AND status='handled' AND id IN ($2,$3)), \
+             (SELECT count(*) FROM messages WHERE body_markdown='Task Result'), \
+             (SELECT count(*) FROM audit_events WHERE action='task.done' AND subject_id=$1), \
+             (SELECT count(*) FROM idempotency_records WHERE action='task.done' AND resource_id=$1), \
+             (SELECT count(*) FROM computer_commands WHERE kind='session.close') \
+             FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+        )
+        .bind(task_id.into_uuid())
+        .bind(fixture.handled_item_id.into_uuid())
+        .bind(fixture.deferred_item_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(facts, ("done".into(), "completed".into(), 2, 1, 1, 1, 1));
+        fixture.destroy().await;
+    }
+
+    #[tokio::test]
+    async fn capability_task_submit_review_and_close_use_terminal_transaction() {
+        let mut review = CapabilityFixture::create().await;
+        let review_task = review.bind_task().await;
+        review
+            .execute(capability::Action::TaskSubmitReview {
+                body: "Ready for review".into(),
+                post_to: capability::PostTarget::Source,
+            })
+            .await
+            .unwrap();
+        let review_facts: (String, String, i64) = sqlx::query_as(
+            "SELECT tasks.status,runs.status, \
+             (SELECT count(*) FROM messages WHERE body_markdown='Ready for review') \
+             FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+        )
+        .bind(review_task.into_uuid())
+        .fetch_one(&review.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(review_facts, ("in_review".into(), "completed".into(), 1));
+        review.destroy().await;
+
+        let mut close = CapabilityFixture::create().await;
+        let close_task = close.bind_task().await;
+        close
+            .execute(capability::Action::TaskClose {
+                reason: capability::CloseReason::Obsolete,
+                note: Some("No longer needed".into()),
+            })
+            .await
+            .unwrap();
+        let close_facts: (String, String, String, Option<String>, i64) = sqlx::query_as(
+            "SELECT tasks.status,runs.status,tasks.close_reason_code,tasks.close_reason_note, \
+             (SELECT count(*) FROM audit_events WHERE action='task.close' AND subject_id=$1) \
+             FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+        )
+        .bind(close_task.into_uuid())
+        .fetch_one(&close.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            close_facts,
+            (
+                "closed".into(),
+                "completed".into(),
+                "obsolete".into(),
+                Some("No longer needed".into()),
+                1
+            )
+        );
+        close.destroy().await;
+    }
+
+    #[tokio::test]
+    async fn agent_attachment_stream_uses_active_run_and_commits_metadata() {
+        let fixture = CapabilityFixture::create().await;
+        let mut headers = fixture.headers.clone();
+        headers.insert(
+            "x-sumi-fencing-token",
+            HeaderValue::from_str(&fixture.context.fencing_token).unwrap(),
+        );
+        let key = Uuid::now_v7();
+        headers.insert(
+            "idempotency-key",
+            HeaderValue::from_str(&key.to_string()).unwrap(),
+        );
+        let path = (
+            fixture.computer_id,
+            fixture.context.agent_id.into_uuid(),
+            fixture.context.run_id.into_uuid(),
+        );
+        let created = agent_create_upload(
+            State(fixture.state.clone()),
+            headers.clone(),
+            Path(path),
+            Json(AgentCreateUploadBody {
+                original_name: "result.txt".into(),
+                media_type: "text/plain".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        let attachment_id = Uuid::parse_str(created.1.0["id"].as_str().unwrap()).unwrap();
+        let replayed = agent_create_upload(
+            State(fixture.state.clone()),
+            headers.clone(),
+            Path(path),
+            Json(AgentCreateUploadBody {
+                original_name: "result.txt".into(),
+                media_type: "text/plain".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(replayed.1.0["id"], attachment_id.to_string());
+
+        let content = Bytes::from_static(b"agent attachment payload");
+        let attachment_path = (path.0, path.1, path.2, attachment_id);
+        agent_upload_content(
+            State(fixture.state.clone()),
+            headers.clone(),
+            Path(attachment_path),
+            content.clone(),
+        )
+        .await
+        .unwrap();
+        let digest = hex::encode(Sha256::digest(&content));
+        let _ = agent_complete_upload(
+            State(fixture.state.clone()),
+            headers.clone(),
+            Path(attachment_path),
+            Json(CompleteUploadBody {
+                size: content.len() as u64,
+                sha256: digest.clone(),
+            }),
+        )
+        .await
+        .unwrap();
+        let completed_again = agent_complete_upload(
+            State(fixture.state.clone()),
+            headers.clone(),
+            Path(attachment_path),
+            Json(CompleteUploadBody {
+                size: content.len() as u64,
+                sha256: digest,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(completed_again.0["status"], "ready");
+        let downloaded =
+            agent_download_attachment(State(fixture.state.clone()), headers, Path(attachment_path))
+                .await
+                .unwrap();
+        assert_eq!(downloaded, content);
+
+        let records: (i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM idempotency_records WHERE resource_id=$1), \
+             (SELECT count(*) FROM audit_events WHERE subject_id=$1), \
+             (SELECT count(*) FROM outbox_events WHERE payload_json->>'attachment_id'=$1::text)",
+        )
+        .bind(attachment_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(records, (2, 2, 2));
+        fixture.destroy().await;
+    }
+
+    #[tokio::test]
+    async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
+        let mut fixture = CapabilityFixture::create().await;
+        let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM threads WHERE id=$1")
+            .bind(fixture.context.focus_thread_id.into_uuid())
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+        let read = fixture
+            .execute(capability::Action::ChannelRead {
+                channel_id: crate::ids::ChannelId::from_uuid(channel_id),
+                around_message_id: None,
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        assert_eq!(read["snapshot_channel_seq"], 1);
+        assert_eq!(read["messages"].as_array().unwrap().len(), 1);
+
+        let task_id = fixture.bind_task().await;
+        let new_message_id = Uuid::now_v7();
+        sqlx::query("UPDATE channels SET next_seq=next_seq+1 WHERE id=$1")
+            .bind(channel_id)
+            .execute(&fixture.state.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES($1,$2,$3,$4,2,'reply','text',$5,'new context',now())")
+            .bind(new_message_id)
+            .bind(fixture.context.space_id.into_uuid())
+            .bind(channel_id)
+            .bind(fixture.context.focus_thread_id.into_uuid())
+            .bind(fixture.context.agent_id.into_uuid())
+            .execute(&fixture.state.pool)
+            .await
+            .unwrap();
+
+        let stale_message = fixture
+            .execute(capability::Action::MessageSend(capability::MessageSend {
+                target: capability::MessageTarget::Focus,
+                body: "must not commit".into(),
+                handle_item_id: None,
+                snapshot_sequence: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(stale_message.code, capability::ErrorCode::ContextChanged);
+        let stale_done = fixture
+            .execute(capability::Action::TaskDone {
+                result: "must not finish".into(),
+                post_to: capability::PostTarget::Focus,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(stale_done.code, capability::ErrorCode::ContextChanged);
+        let facts: (String, String, i64) = sqlx::query_as(
+            "SELECT tasks.status,runs.status, \
+             (SELECT count(*) FROM messages WHERE body_markdown IN ('must not commit','must not finish')) \
+             FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+        )
+        .bind(task_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(facts, ("in_progress".into(), "running".into(), 0));
         fixture.destroy().await;
     }
 }

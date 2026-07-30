@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::Digest;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::{
     computer::application::{
         ApplicationError,
         capability::{CapabilityService, ScopeRequirement},
-        ports::TransactionPort,
+        ports::{AgentHomePort, TransactionPort},
     },
     protocol::capability as wire,
 };
@@ -85,9 +86,10 @@ impl LocalIpcAdapter {
     }
 
     #[cfg(unix)]
-    pub(in crate::computer) async fn serve_capability<P: TransactionPort>(
+    pub(in crate::computer) async fn serve_capability<P: TransactionPort, H: AgentHomePort>(
         &self,
         store: &mut P,
+        homes: &mut H,
         on_yield: impl FnOnce(crate::ids::RunId),
         forward: impl AsyncFnOnce(
             wire::RunContext,
@@ -128,6 +130,42 @@ impl LocalIpcAdapter {
                     Err(error) => return application_failure(error),
                 };
             let action = request.action;
+            match &action {
+                wire::Action::MemoryRead { path } => {
+                    let content = match homes.read_memory(context.agent_id, Path::new(path)).await {
+                        Ok(content) => content,
+                        Err(error) => return application_failure(error),
+                    };
+                    let content = match String::from_utf8(content) {
+                        Ok(content) => content,
+                        Err(_) => {
+                            return failure(
+                                wire::ErrorCode::Conflict,
+                                "Memory file is not valid UTF-8",
+                                false,
+                            );
+                        }
+                    };
+                    return wire::Response::success(serde_json::json!({
+                        "path": path,
+                        "content": content
+                    }));
+                }
+                wire::Action::MemoryWrite { path, content } => {
+                    if let Err(error) = homes
+                        .write_memory(context.agent_id, Path::new(path), content.as_bytes())
+                        .await
+                    {
+                        return application_failure(error);
+                    }
+                    return wire::Response::success(serde_json::json!({
+                        "path": path,
+                        "size": content.len(),
+                        "sha256": hex::encode(sha2::Sha256::digest(content.as_bytes()))
+                    }));
+                }
+                _ => {}
+            }
             if let wire::Action::RunYield { note } = action {
                 return match crate::computer::application::run::RunService::yield_run(
                     store,
@@ -232,11 +270,12 @@ mod tests {
     use crate::{
         agent_cli::client,
         computer::{
-            adapters::sqlite::SqliteAdapter,
+            adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::{
-                AgentInput, ClaimedItemInput, FencingToken, LocalRun, LocalRunState, NewRun,
-                RunContextInput, RunInput, RunPriority, TaskInput, WorkInput, WorkStrength,
-                ports::{ComputerTransaction, LocalEvent, TransactionPort},
+                AgentInput, ClaimedItemInput, DriverKind, FencingToken, LocalAgent,
+                LocalAgentState, LocalRun, LocalRunState, NewRun, RunContextInput, RunInput,
+                RunPriority, TaskInput, WorkInput, WorkStrength,
+                ports::{AgentHomePort, ComputerTransaction, LocalEvent, TransactionPort},
             },
         },
         ids::{AgentId, RunId, SpaceId, TaskId, ThreadId},
@@ -330,10 +369,25 @@ mod tests {
             .transact(async |transaction| transaction.save_run(run))
             .await
             .unwrap();
+        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None);
+        homes
+            .provision(LocalAgent {
+                agent_id,
+                space_id,
+                name: "Agent".into(),
+                handle: "agent".into(),
+                role_revision: 1,
+                role: "role".into(),
+                driver: DriverKind::Codex,
+                state: LocalAgentState::Active,
+            })
+            .await
+            .unwrap();
 
         let server =
             adapter.serve_capability(
                 &mut store,
+                &mut homes,
                 |_| {},
                 |context: crate::protocol::capability::RunContext,
                  action: Action,
@@ -364,6 +418,7 @@ mod tests {
 
         let rejected_server = adapter.serve_capability(
             &mut store,
+            &mut homes,
             |_| {},
             |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unauthenticated capability must not be forwarded")
@@ -386,6 +441,7 @@ mod tests {
 
         let path_server = adapter.serve_capability(
             &mut store,
+            &mut homes,
             |_| {},
             |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unsafe local path must not be forwarded")
@@ -407,9 +463,67 @@ mod tests {
             wire::ErrorCode::InvalidArgument
         );
 
+        let memory_write_server = adapter.serve_capability(
+            &mut store,
+            &mut homes,
+            |_| {},
+            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+                panic!("Memory writes must stay on the Computer")
+            },
+        );
+        let memory_write_client = client::call_with(
+            &socket_path,
+            "run-secret".to_owned(),
+            Action::MemoryWrite {
+                path: "projects/sumi.md".to_owned(),
+                content: "Only local Memory".to_owned(),
+            },
+            None,
+        );
+        let (served, response) = tokio::join!(memory_write_server, memory_write_client);
+        served.unwrap();
+        let response = response.unwrap();
+        assert!(response.ok);
+        assert_eq!(response.data.unwrap()["size"], 17);
+
+        let memory_read_server = adapter.serve_capability(
+            &mut store,
+            &mut homes,
+            |_| {},
+            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+                panic!("Memory reads must stay on the Computer")
+            },
+        );
+        let memory_read_client = client::call_with(
+            &socket_path,
+            "run-secret".to_owned(),
+            Action::MemoryRead {
+                path: "projects/sumi.md".to_owned(),
+            },
+            None,
+        );
+        let (served, response) = tokio::join!(memory_read_server, memory_read_client);
+        served.unwrap();
+        let response = response.unwrap();
+        assert_eq!(response.data.unwrap()["content"], "Only local Memory");
+        let memory_path = directory
+            .path()
+            .join("computer/agents")
+            .join(agent_id.to_string())
+            .join("memory/projects/sumi.md");
+        assert_eq!(
+            tokio::fs::read_to_string(&memory_path).await.unwrap(),
+            "Only local Memory"
+        );
+        assert_eq!(
+            std::fs::metadata(memory_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
         let interrupted = Cell::new(None);
         let yield_server = adapter.serve_capability(
             &mut store,
+            &mut homes,
             |yielded_run_id| interrupted.set(Some(yielded_run_id)),
             |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("run yield must be committed locally before Server result delivery")

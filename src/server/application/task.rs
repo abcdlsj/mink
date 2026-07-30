@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::ids::{IdempotencyKey, MemberId, MessageId, RunId, TaskId, ThreadId};
+use crate::ids::{ComputerId, IdempotencyKey, MemberId, MessageId, RunId, TaskId, ThreadId};
 
 use crate::server::domain::{
     conversation::{Message, MessageContent, MessagePlacement},
@@ -34,7 +34,7 @@ impl CreateTaskFromRootMessage {
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
             if let Some(task_id) = transaction
-                .task_for_idempotency(input.actor_member_id, input.idempotency_key)
+                .task_for_idempotency(input.actor_member_id, "task.create", input.idempotency_key)
                 .await?
             {
                 return transaction.task(task_id).await;
@@ -81,6 +81,7 @@ impl CreateTaskFromRootMessage {
                 running_agent.is_some(),
                 input.now,
             )?;
+            transaction.insert_task(task.clone()).await?;
 
             if let Some(mut run) = running_agent {
                 run.bind_task(&task)?;
@@ -95,15 +96,235 @@ impl CreateTaskFromRootMessage {
                     task_id: task.id,
                 });
             }
-            transaction.insert_task(task.clone()).await?;
             transaction
-                .record_task_idempotency(input.actor_member_id, input.idempotency_key, task.id)
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    "task.create",
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
+            transaction
+                .record_task_audit(input.actor_member_id, "task.create", task.id, input.now)
                 .await?;
             transaction.emit(Effect::TaskCreated(task.id));
             Ok(task)
         })
         .await
     }
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::server) enum TaskPostTarget {
+    Focus,
+    Source,
+}
+
+pub(in crate::server) enum FinishAgentTaskAction {
+    SubmitReview {
+        message_id: MessageId,
+        body: String,
+        post_to: TaskPostTarget,
+    },
+    Done {
+        message_id: MessageId,
+        result: String,
+        post_to: TaskPostTarget,
+    },
+    Close {
+        reason: CloseReason,
+        note: Option<String>,
+    },
+}
+
+impl FinishAgentTaskAction {
+    fn action_name(&self) -> &'static str {
+        match self {
+            Self::SubmitReview { .. } => "task.submit_review",
+            Self::Done { .. } => "task.done",
+            Self::Close { .. } => "task.close",
+        }
+    }
+}
+
+pub(in crate::server) struct FinishAgentTaskInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) computer_id: ComputerId,
+    pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) fencing_token_hash: String,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
+    pub(in crate::server) message_snapshot_sequence: u64,
+    pub(in crate::server) action: FinishAgentTaskAction,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct FinishAgentTaskRun;
+
+impl FinishAgentTaskRun {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: FinishAgentTaskInput,
+    ) -> Result<Task, ApplicationError> {
+        port.transact(async |transaction| {
+            let action_name = input.action.action_name();
+            if let Some(task_id) = transaction
+                .task_for_idempotency(input.actor_member_id, action_name, input.idempotency_key)
+                .await?
+            {
+                return transaction.task(task_id).await;
+            }
+
+            let mut run = transaction.run(input.run_id).await?;
+            if run.agent_id != input.actor_member_id
+                || !transaction
+                    .can_operate_agent(input.computer_id, run.agent_id)
+                    .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            run.validate_fencing(&input.fencing_token_hash)?;
+            let task_id = run.task_id.ok_or(ApplicationError::ContextChanged)?;
+            let mut task = transaction.task(task_id).await?;
+            if transaction
+                .thread_message_sequence(run.focus_thread_id)
+                .await?
+                != input.message_snapshot_sequence
+            {
+                return Err(ApplicationError::ContextChanged);
+            }
+
+            let message = match input.action {
+                FinishAgentTaskAction::SubmitReview {
+                    message_id,
+                    body,
+                    post_to,
+                } => {
+                    let thread_id = post_thread(&task, &run, post_to);
+                    ensure_post_allowed(transaction, input.actor_member_id, &task, thread_id)
+                        .await?;
+                    task.request_review(input.actor_member_id, input.now)?;
+                    Some(Message {
+                        id: message_id,
+                        thread_id,
+                        author_member_id: input.actor_member_id,
+                        placement: MessagePlacement::Reply,
+                        content: MessageContent::Text(body),
+                        created_at: input.now,
+                    })
+                }
+                FinishAgentTaskAction::Done {
+                    message_id,
+                    result,
+                    post_to,
+                } => {
+                    let thread_id = post_thread(&task, &run, post_to);
+                    ensure_post_allowed(transaction, input.actor_member_id, &task, thread_id)
+                        .await?;
+                    task.finish(input.actor_member_id, true, message_id, input.now)?;
+                    Some(Message {
+                        id: message_id,
+                        thread_id,
+                        author_member_id: input.actor_member_id,
+                        placement: MessagePlacement::Reply,
+                        content: MessageContent::Text(result),
+                        created_at: input.now,
+                    })
+                }
+                FinishAgentTaskAction::Close { reason, note } => {
+                    let allowed = task.creator_member_id == input.actor_member_id
+                        || task.assignee_agent_member_id == Some(input.actor_member_id)
+                        || transaction
+                            .can_govern_task(input.actor_member_id, &task)
+                            .await?;
+                    if !allowed {
+                        return Err(ApplicationError::PermissionDenied);
+                    }
+                    task.close(reason, note, input.now)?;
+                    None
+                }
+            };
+
+            run.begin_finalizing(&input.fencing_token_hash)?;
+            for index in 0..run.items.len() {
+                let item_id = run.items[index].inbox_item_id;
+                let disposition = run.items[index]
+                    .disposition
+                    .unwrap_or(crate::server::domain::attention::InboxItemDisposition::Handled);
+                run.set_item_disposition(item_id, disposition)?;
+                let mut item = transaction.inbox_item(item_id).await?;
+                item.apply_disposition(run.id, disposition, input.now)?;
+                transaction.save_inbox_item(item).await?;
+            }
+            run.finish(
+                &input.fencing_token_hash,
+                crate::server::domain::execution::RunOutcome::Completed,
+                None,
+                input.now,
+            )?;
+
+            if let Some(message) = message {
+                let message_id = message.id;
+                transaction.insert_message(message).await?;
+                transaction.emit(Effect::MessageCreated(message_id));
+            }
+            transaction.save_task(task.clone()).await?;
+            transaction.save_run(run.clone()).await?;
+            transaction
+                .record_task_idempotency(
+                    input.actor_member_id,
+                    action_name,
+                    input.idempotency_key,
+                    task.id,
+                )
+                .await?;
+            transaction
+                .record_task_audit(input.actor_member_id, action_name, task.id, input.now)
+                .await?;
+            transaction.emit(Effect::RunCompleted(run.id));
+            match action_name {
+                "task.submit_review" => {
+                    transaction.emit(Effect::TaskUpdated(task.id));
+                }
+                "task.done" => {
+                    transaction.emit(Effect::TaskCompleted {
+                        task_id: task.id,
+                        result_message_id: task.result_message_id.expect("done Task has Result"),
+                    });
+                    transaction.emit(Effect::SessionClose(task.id));
+                }
+                "task.close" => {
+                    transaction.emit(Effect::TaskFinished(task.id));
+                    transaction.emit(Effect::SessionClose(task.id));
+                }
+                _ => unreachable!("agent Task action has a stable name"),
+            }
+            Ok(task)
+        })
+        .await
+    }
+}
+
+fn post_thread(
+    task: &Task,
+    run: &crate::server::domain::execution::Run,
+    target: TaskPostTarget,
+) -> ThreadId {
+    match target {
+        TaskPostTarget::Focus => run.focus_thread_id,
+        TaskPostTarget::Source => task.source_thread_id,
+    }
+}
+
+async fn ensure_post_allowed(
+    transaction: &mut impl ServerTransaction,
+    actor: MemberId,
+    task: &Task,
+    thread_id: ThreadId,
+) -> Result<(), ApplicationError> {
+    if !task.linked_to(thread_id) || !transaction.can_read_thread(actor, thread_id).await? {
+        return Err(ApplicationError::PermissionDenied);
+    }
+    Ok(())
 }
 
 pub(in crate::server) struct LinkThreadInput {

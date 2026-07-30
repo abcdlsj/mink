@@ -388,13 +388,15 @@ impl ServerTransaction for PostgresTransaction {
     async fn task_for_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<TaskId>, ApplicationError> {
         let value = sqlx::query_scalar::<_, Uuid>(
             "SELECT resource_id FROM idempotency_records \
-             WHERE actor_member_id = $1 AND action = 'task.create' AND idempotency_key = $2",
+             WHERE actor_member_id = $1 AND action = $2 AND idempotency_key = $3",
         )
         .bind(actor.into_uuid())
+        .bind(action)
         .bind(key.into_uuid())
         .fetch_optional(&mut *self.connection)
         .await
@@ -533,6 +535,22 @@ impl ServerTransaction for PostgresTransaction {
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)
+    }
+
+    async fn thread_message_sequence(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<u64, ApplicationError> {
+        let sequence = sqlx::query_scalar::<_, i64>(
+            "SELECT channels.next_seq-1 FROM threads \
+             JOIN channels ON channels.id=threads.channel_id \
+             WHERE threads.id=$1 FOR UPDATE OF channels",
+        )
+        .bind(thread_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        u64::try_from(sequence).map_err(|_| ApplicationError::Internal)
     }
 
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
@@ -812,18 +830,50 @@ impl ServerTransaction for PostgresTransaction {
     async fn record_task_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
         task_id: TaskId,
     ) -> Result<(), ApplicationError> {
         let hash = Sha256::digest(task_id.into_uuid().as_bytes());
+        let response_code = if action == "task.create" {
+            "created"
+        } else {
+            "ok"
+        };
         sqlx::query(
             "INSERT INTO idempotency_records (actor_member_id,action,idempotency_key,response_code, \
-             resource_id,result_hash,created_at) VALUES ($1,'task.create',$2,'created',$3,$4,now())",
+             resource_id,result_hash,created_at) VALUES ($1,$2,$3,$4,$5,$6,now())",
         )
         .bind(actor.into_uuid())
+        .bind(action)
         .bind(key.into_uuid())
+        .bind(response_code)
         .bind(task_id.into_uuid())
         .bind(hash.as_slice())
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn record_task_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        task_id: TaskId,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let space_id = self.space_for_task(task_id).await?;
+        sqlx::query(
+            "INSERT INTO audit_events (id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) \
+             VALUES ($1,$2,$3,$4,'task',$5,'{}',$6)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(space_id.into_uuid())
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(task_id.into_uuid())
+        .bind(now)
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
@@ -901,6 +951,7 @@ impl PostgresTransaction {
         effect: Effect,
     ) -> Result<(SpaceId, &'static str, serde_json::Value), ApplicationError> {
         let (kind, subject_id) = match effect {
+            Effect::MessageCreated(id) => ("message.created", id.into_uuid()),
             Effect::TaskCreated(id) => ("task.created", id.into_uuid()),
             Effect::RunTaskBound { run_id, task_id } => {
                 let computer_id = self.computer_for_run(run_id).await?;
@@ -974,6 +1025,7 @@ impl PostgresTransaction {
                     json!({"task_id": task_id, "result_message_id": result_message_id}),
                 ));
             }
+            Effect::TaskFinished(id) => ("task.finished", id.into_uuid()),
             Effect::SessionClose(id) => {
                 if let Some((agent_id, computer_id)) = self.task_assignment(id).await? {
                     self.queue_command(
@@ -1287,6 +1339,8 @@ impl PostgresTransaction {
     ) -> Result<SpaceId, ApplicationError> {
         let query = if kind.starts_with("task.") || kind == "session.close" {
             "SELECT space_id FROM tasks WHERE id=$1"
+        } else if kind.starts_with("message.") {
+            "SELECT space_id FROM messages WHERE id=$1"
         } else if kind.starts_with("run.") {
             "SELECT space_id FROM agent_runs WHERE id=$1"
         } else if kind.starts_with("agent.") {

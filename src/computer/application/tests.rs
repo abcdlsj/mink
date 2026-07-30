@@ -190,9 +190,10 @@ impl ComputerTransaction for MemoryTransaction {
 #[derive(Default)]
 struct MemoryHome {
     agents: BTreeMap<AgentId, LocalAgent>,
+    memory: BTreeMap<(AgentId, std::path::PathBuf), Vec<u8>>,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AgentHomePort for MemoryHome {
     async fn agent(&mut self, agent_id: AgentId) -> Result<LocalAgent, ApplicationError> {
         self.agents
@@ -227,6 +228,28 @@ impl AgentHomePort for MemoryHome {
 
     async fn workspace_fingerprint(&mut self, _: AgentId) -> Result<String, ApplicationError> {
         Ok("workspace".to_owned())
+    }
+
+    async fn read_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &std::path::Path,
+    ) -> Result<Vec<u8>, ApplicationError> {
+        self.memory
+            .get(&(agent_id, path.to_path_buf()))
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn write_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &std::path::Path,
+        content: &[u8],
+    ) -> Result<(), ApplicationError> {
+        self.memory
+            .insert((agent_id, path.to_path_buf()), content.to_vec());
+        Ok(())
     }
 }
 

@@ -34,7 +34,8 @@ use super::{
     ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
-        LinkThreadInput, LinkThreadToTask, TaskAction, TaskSource, UpdateTask, UpdateTaskInput,
+        FinishAgentTaskAction, FinishAgentTaskInput, FinishAgentTaskRun, LinkThreadInput,
+        LinkThreadToTask, TaskAction, TaskPostTarget, TaskSource, UpdateTask, UpdateTaskInput,
     },
 };
 
@@ -50,7 +51,8 @@ struct MemoryState {
     agents: HashMap<MemberId, Agent>,
     members: HashMap<MemberId, Member>,
     computers: HashMap<ComputerId, Computer>,
-    idempotency: HashMap<(MemberId, IdempotencyKey), TaskId>,
+    idempotency: HashMap<(MemberId, String, IdempotencyKey), TaskId>,
+    task_audits: Vec<(MemberId, String, TaskId)>,
     completed_run_events: HashMap<EventId, RunId>,
     assignable_agents: HashSet<MemberId>,
     permissions: HashSet<(MemberId, PermissionAction)>,
@@ -169,9 +171,14 @@ impl ServerTransaction for MemoryTransaction {
     async fn task_for_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<TaskId>, ApplicationError> {
-        Ok(self.state.idempotency.get(&(actor, key)).copied())
+        Ok(self
+            .state
+            .idempotency
+            .get(&(actor, action.to_owned(), key))
+            .copied())
     }
 
     async fn active_run_for_agent(
@@ -261,6 +268,13 @@ impl ServerTransaction for MemoryTransaction {
             .contains(&(computer_id, agent_id)))
     }
 
+    async fn thread_message_sequence(
+        &mut self,
+        _thread_id: ThreadId,
+    ) -> Result<u64, ApplicationError> {
+        Ok(0)
+    }
+
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
         if self.state.tasks.insert(task.id, task).is_some() {
             return Err(ApplicationError::Conflict);
@@ -331,10 +345,26 @@ impl ServerTransaction for MemoryTransaction {
     async fn record_task_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
         task_id: TaskId,
     ) -> Result<(), ApplicationError> {
-        self.state.idempotency.insert((actor, key), task_id);
+        self.state
+            .idempotency
+            .insert((actor, action.to_owned(), key), task_id);
+        Ok(())
+    }
+
+    async fn record_task_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        task_id: TaskId,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .task_audits
+            .push((actor, action.to_owned(), task_id));
         Ok(())
     }
 
@@ -793,6 +823,88 @@ async fn result_message_failure_rolls_back_task_completion() {
     assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
     assert!(!port.state.messages.contains_key(&result_id));
     assert!(port.state.effects.is_empty());
+}
+
+#[tokio::test]
+async fn agent_task_done_atomically_finishes_run_items_and_replays() {
+    let agent = member(160);
+    let focus = thread(161);
+    let task_id = task(162);
+    let run_id = run(163);
+    let handled_item = item(164);
+    let deferred_item = item(165);
+    let result_id = message(166);
+    let key = idempotency(167);
+    let computer_id = computer(999);
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    port.state.computer_assignments.insert((computer_id, agent));
+    port.state.tasks.insert(
+        task_id,
+        make_task(task_id, focus, agent, TaskStatus::InProgress),
+    );
+    for item_id in [handled_item, deferred_item] {
+        let mut inbox_item = inbox(
+            item_id,
+            agent,
+            focus,
+            Some(task_id),
+            InboxItemStatus::Leased,
+        );
+        inbox_item.lease_run_id = Some(run_id);
+        port.state.items.insert(item_id, inbox_item);
+    }
+    let mut current_run = running_run(
+        run_id,
+        agent,
+        focus,
+        Some(task_id),
+        vec![handled_item, deferred_item],
+    );
+    current_run.items[1].disposition = Some(InboxItemDisposition::Deferred);
+    port.state.runs.insert(run_id, current_run);
+
+    let input = || FinishAgentTaskInput {
+        run_id,
+        computer_id,
+        actor_member_id: agent,
+        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+        idempotency_key: key,
+        message_snapshot_sequence: 0,
+        action: FinishAgentTaskAction::Done {
+            message_id: result_id,
+            result: "完成".into(),
+            post_to: TaskPostTarget::Focus,
+        },
+        now,
+    };
+    let completed = FinishAgentTaskRun::execute(&mut port, input())
+        .await
+        .unwrap();
+
+    assert_eq!(completed.status, TaskStatus::Done);
+    assert_eq!(port.state.runs[&run_id].status, RunStatus::Completed);
+    assert_eq!(
+        port.state.items[&handled_item].status,
+        InboxItemStatus::Handled
+    );
+    assert_eq!(
+        port.state.items[&deferred_item].status,
+        InboxItemStatus::Deferred
+    );
+    assert!(port.state.messages.contains_key(&result_id));
+    assert_eq!(
+        port.state.task_audits,
+        vec![(agent, "task.done".into(), task_id)]
+    );
+
+    let replayed = FinishAgentTaskRun::execute(&mut port, input())
+        .await
+        .unwrap();
+    assert_eq!(replayed, completed);
+    assert_eq!(port.state.messages.len(), 1);
+    assert_eq!(port.state.task_audits.len(), 1);
 }
 
 #[tokio::test]

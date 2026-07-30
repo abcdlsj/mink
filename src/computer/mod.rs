@@ -108,37 +108,81 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         "api/v1/computers/{}/agent-actions",
         secrets.computer_id
     ))?;
+    let capability_server_url = config.server_url.clone();
+    let capability_computer_id = secrets.computer_id;
+    let capability_computer_home = computer_home.clone();
     let capability_token = secrets.token.clone();
     let capability_client = reqwest::Client::new();
+    let mut capability_homes = adapters::filesystem::AgentHomeAdapter::new(
+        computer_home.clone(),
+        config.codex_config_source.clone(),
+        config.codex_auth_source.clone(),
+    );
     let (yield_interrupt_tx, mut yield_interrupt_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
             let endpoint = capability_endpoint.clone();
             let token = capability_token.clone();
             let client = capability_client.clone();
+            let server_url = capability_server_url.clone();
+            let computer_home = capability_computer_home.clone();
             let result = ipc
                 .serve_capability(
                     &mut capability_store,
+                    &mut capability_homes,
                     |run_id| {
                         let _ = yield_interrupt_tx.send(run_id);
                     },
                     move |context, action, idempotency_key| async move {
-                        let response = client
-                            .post(endpoint)
-                            .bearer_auth(token)
-                            .json(&AgentActionRequest {
-                                context,
-                                action,
-                                idempotency_key,
-                            })
-                            .send()
-                            .await;
-                        match response {
-                            Ok(response) => response
-                                .json()
-                                .await
-                                .unwrap_or_else(|_| capability_failure()),
-                            Err(_) => capability_failure(),
+                        match action {
+                            capability::Action::AttachmentUpload { path } => {
+                                return proxy_attachment_upload(
+                                    &client,
+                                    &server_url,
+                                    capability_computer_id,
+                                    &token,
+                                    &computer_home,
+                                    &context,
+                                    &path,
+                                    idempotency_key,
+                                )
+                                .await;
+                            }
+                            capability::Action::AttachmentDownload {
+                                attachment_id,
+                                output,
+                            } => {
+                                return proxy_attachment_download(
+                                    &client,
+                                    &server_url,
+                                    capability_computer_id,
+                                    &token,
+                                    &computer_home,
+                                    &context,
+                                    attachment_id,
+                                    &output,
+                                )
+                                .await;
+                            }
+                            action => {
+                                let response = client
+                                    .post(endpoint)
+                                    .bearer_auth(token)
+                                    .json(&AgentActionRequest {
+                                        context,
+                                        action,
+                                        idempotency_key,
+                                    })
+                                    .send()
+                                    .await;
+                                match response {
+                                    Ok(response) => response
+                                        .json()
+                                        .await
+                                        .unwrap_or_else(|_| capability_failure()),
+                                    Err(_) => capability_failure(),
+                                }
+                            }
                         }
                     },
                 )
@@ -172,6 +216,218 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         &mut yield_interrupt_rx,
     )
     .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn proxy_attachment_upload(
+    client: &reqwest::Client,
+    server_url: &url::Url,
+    computer_id: Uuid,
+    token: &str,
+    computer_home: &Path,
+    context: &capability::RunContext,
+    path: &str,
+    idempotency_key: Option<crate::ids::IdempotencyKey>,
+) -> capability::Response<serde_json::Value> {
+    let Some(idempotency_key) = idempotency_key else {
+        return capability_error_response(
+            capability::ErrorCode::InvalidArgument,
+            "idempotency key is required",
+            false,
+        );
+    };
+    let homes =
+        adapters::filesystem::AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
+    let (name, content) = match homes
+        .read_attachment_source(context.agent_id, Path::new(path))
+        .await
+    {
+        Ok(source) => source,
+        Err(error) => return local_attachment_error(error),
+    };
+    let base = match server_url.join(&format!(
+        "api/v1/computers/{computer_id}/agents/{}/runs/{}/attachments/",
+        context.agent_id, context.run_id
+    )) {
+        Ok(base) => base,
+        Err(_) => return capability_failure(),
+    };
+    let created = match client
+        .post(
+            base.join("uploads")
+                .expect("relative Attachment URL is valid"),
+        )
+        .bearer_auth(token)
+        .header("x-sumi-fencing-token", &context.fencing_token)
+        .header("idempotency-key", idempotency_key.to_string())
+        .json(&serde_json::json!({
+            "original_name": name,
+            "media_type": "application/octet-stream"
+        }))
+        .send()
+        .await
+    {
+        Ok(response) => match attachment_json(response).await {
+            Ok(value) => value,
+            Err(error) => return error,
+        },
+        Err(_) => return capability_failure(),
+    };
+    let Some(attachment_id) = created
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok())
+    else {
+        return capability_failure();
+    };
+    let content_url = base
+        .join(&format!("{attachment_id}/content"))
+        .expect("relative Attachment URL is valid");
+    let uploaded = client
+        .put(content_url)
+        .bearer_auth(token)
+        .header("x-sumi-fencing-token", &context.fencing_token)
+        .body(content.clone())
+        .send()
+        .await;
+    match uploaded {
+        Ok(response) if response.status().is_success() => {}
+        Ok(response) => return attachment_http_error(response).await,
+        Err(_) => return capability_failure(),
+    }
+    let digest = hex::encode(Sha256::digest(&content));
+    match client
+        .post(
+            base.join(&format!("{attachment_id}/complete"))
+                .expect("relative Attachment URL is valid"),
+        )
+        .bearer_auth(token)
+        .header("x-sumi-fencing-token", &context.fencing_token)
+        .header("idempotency-key", idempotency_key.to_string())
+        .json(&serde_json::json!({"size":content.len(),"sha256":digest}))
+        .send()
+        .await
+    {
+        Ok(response) => match attachment_json(response).await {
+            Ok(value) => capability::Response::success(value),
+            Err(error) => error,
+        },
+        Err(_) => capability_failure(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn proxy_attachment_download(
+    client: &reqwest::Client,
+    server_url: &url::Url,
+    computer_id: Uuid,
+    token: &str,
+    computer_home: &Path,
+    context: &capability::RunContext,
+    attachment_id: crate::ids::AttachmentId,
+    output: &str,
+) -> capability::Response<serde_json::Value> {
+    let endpoint = match server_url.join(&format!(
+        "api/v1/computers/{computer_id}/agents/{}/runs/{}/attachments/{attachment_id}/download",
+        context.agent_id, context.run_id
+    )) {
+        Ok(endpoint) => endpoint,
+        Err(_) => return capability_failure(),
+    };
+    let response = match client
+        .get(endpoint)
+        .bearer_auth(token)
+        .header("x-sumi-fencing-token", &context.fencing_token)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return capability_failure(),
+    };
+    if !response.status().is_success() {
+        return attachment_http_error(response).await;
+    }
+    let content = match response.bytes().await {
+        Ok(content) => content,
+        Err(_) => return capability_failure(),
+    };
+    let homes =
+        adapters::filesystem::AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
+    if let Err(error) = homes
+        .write_attachment_output(context.agent_id, Path::new(output), &content)
+        .await
+    {
+        return local_attachment_error(error);
+    }
+    capability::Response::success(serde_json::json!({
+        "attachment_id": attachment_id,
+        "output": output,
+        "size": content.len(),
+        "sha256": hex::encode(Sha256::digest(&content))
+    }))
+}
+
+async fn attachment_json(
+    response: reqwest::Response,
+) -> Result<serde_json::Value, capability::Response<serde_json::Value>> {
+    if !response.status().is_success() {
+        return Err(attachment_http_error(response).await);
+    }
+    response.json().await.map_err(|_| capability_failure())
+}
+
+async fn attachment_http_error(
+    response: reqwest::Response,
+) -> capability::Response<serde_json::Value> {
+    let retryable = response.status().is_server_error();
+    let payload = response.json::<serde_json::Value>().await.ok();
+    let code = payload
+        .as_ref()
+        .and_then(|value| value.pointer("/error/code"))
+        .and_then(serde_json::Value::as_str)
+        .map(capability_error_code)
+        .unwrap_or(capability::ErrorCode::Internal);
+    capability_error_response(code, "Attachment operation failed", retryable)
+}
+
+fn capability_error_code(code: &str) -> capability::ErrorCode {
+    match code {
+        "invalid_argument" => capability::ErrorCode::InvalidArgument,
+        "unauthenticated" => capability::ErrorCode::Unauthenticated,
+        "permission_denied" => capability::ErrorCode::PermissionDenied,
+        "not_found" => capability::ErrorCode::NotFound,
+        "conflict" => capability::ErrorCode::Conflict,
+        "context_changed" => capability::ErrorCode::ContextChanged,
+        "rate_limited" => capability::ErrorCode::RateLimited,
+        "unavailable" => capability::ErrorCode::Unavailable,
+        _ => capability::ErrorCode::Internal,
+    }
+}
+
+fn local_attachment_error(
+    error: application::ApplicationError,
+) -> capability::Response<serde_json::Value> {
+    let code = match error {
+        application::ApplicationError::NotFound => capability::ErrorCode::NotFound,
+        application::ApplicationError::Conflict | application::ApplicationError::Core(_) => {
+            capability::ErrorCode::Conflict
+        }
+        _ => capability::ErrorCode::Internal,
+    };
+    capability_error_response(code, "Attachment file operation failed", false)
+}
+
+fn capability_error_response(
+    code: capability::ErrorCode,
+    message: &str,
+    retryable: bool,
+) -> capability::Response<serde_json::Value> {
+    capability::Response::failure(capability::Error {
+        code,
+        message: message.into(),
+        retryable,
+        details: Default::default(),
+    })
 }
 
 fn capability_failure() -> capability::Response<serde_json::Value> {

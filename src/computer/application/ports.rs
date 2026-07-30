@@ -103,8 +103,8 @@ pub(in crate::computer) trait ComputerTransaction {
     fn acknowledge_event(&mut self, event_id: EventId) -> Result<(), ApplicationError>;
 }
 
-#[async_trait(?Send)]
-pub(in crate::computer) trait AgentHomePort {
+#[async_trait]
+pub(in crate::computer) trait AgentHomePort: Send {
     async fn agent(&mut self, agent_id: AgentId) -> Result<LocalAgent, ApplicationError>;
     async fn provision(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
     async fn configure(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
@@ -114,6 +114,17 @@ pub(in crate::computer) trait AgentHomePort {
         &mut self,
         agent_id: AgentId,
     ) -> Result<String, ApplicationError>;
+    async fn read_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &std::path::Path,
+    ) -> Result<Vec<u8>, ApplicationError>;
+    async fn write_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &std::path::Path,
+        content: &[u8],
+    ) -> Result<(), ApplicationError>;
 }
 
 pub(in crate::computer) trait TransactionPort {

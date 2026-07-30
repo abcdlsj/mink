@@ -52,6 +52,7 @@ pub(in crate::server) trait AttachmentObjectPort: Send + Sync {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) enum Effect {
+    MessageCreated(MessageId),
     TaskCreated(TaskId),
     RunTaskBound {
         run_id: RunId,
@@ -80,6 +81,7 @@ pub(in crate::server) enum Effect {
         task_id: TaskId,
         result_message_id: MessageId,
     },
+    TaskFinished(TaskId),
     SessionClose(TaskId),
     AgentRetired {
         agent_id: MemberId,
@@ -138,6 +140,7 @@ pub(in crate::server) trait ServerTransaction {
     async fn task_for_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<TaskId>, ApplicationError>;
     async fn active_run_for_agent(
@@ -184,6 +187,10 @@ pub(in crate::server) trait ServerTransaction {
         computer_id: ComputerId,
         agent_id: MemberId,
     ) -> Result<bool, ApplicationError>;
+    async fn thread_message_sequence(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<u64, ApplicationError>;
 
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError>;
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError>;
@@ -202,8 +209,16 @@ pub(in crate::server) trait ServerTransaction {
     async fn record_task_idempotency(
         &mut self,
         actor: MemberId,
+        action: &str,
         key: IdempotencyKey,
         task_id: TaskId,
+    ) -> Result<(), ApplicationError>;
+    async fn record_task_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        task_id: TaskId,
+        now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
     fn emit(&mut self, effect: Effect);
 }

@@ -122,12 +122,84 @@ impl AgentHomeAdapter {
         self.agent_home_for_id(agent.agent_id)
     }
 
+    pub(in crate::computer) async fn read_attachment_source(
+        &self,
+        agent_id: AgentId,
+        path: &Path,
+    ) -> Result<(String, Vec<u8>), ApplicationError> {
+        validate_attachment_path(path)?;
+        let home = tokio::fs::canonicalize(self.agent_home_for_id(agent_id))
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        let target = tokio::fs::canonicalize(home.join(path))
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        if !target.starts_with(&home) {
+            return Err(ApplicationError::Conflict);
+        }
+        let metadata = tokio::fs::symlink_metadata(&target)
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(ApplicationError::Conflict);
+        }
+        let name = target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or(ApplicationError::Conflict)?
+            .to_owned();
+        let content = tokio::fs::read(target)
+            .await
+            .map_err(|_| ApplicationError::Internal)?;
+        Ok((name, content))
+    }
+
+    pub(in crate::computer) async fn write_attachment_output(
+        &self,
+        agent_id: AgentId,
+        path: &Path,
+        content: &[u8],
+    ) -> Result<(), ApplicationError> {
+        validate_attachment_path(path)?;
+        let home = tokio::fs::canonicalize(self.agent_home_for_id(agent_id))
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        let relative_parent = path.parent().unwrap_or_else(|| Path::new(""));
+        let requested_parent = home.join(relative_parent);
+        create_private_dir(&requested_parent).await?;
+        let parent = tokio::fs::canonicalize(&requested_parent)
+            .await
+            .map_err(|_| ApplicationError::Internal)?;
+        if !parent.starts_with(&home) {
+            return Err(ApplicationError::Conflict);
+        }
+        let target = parent.join(path.file_name().ok_or(ApplicationError::Conflict)?);
+        write_new_private_file(&target, content).await
+    }
+
     fn agent_home_for_id(&self, agent_id: AgentId) -> PathBuf {
         self.computer_home.join("agents").join(agent_id.to_string())
     }
 }
 
-#[async_trait(?Send)]
+fn validate_attachment_path(path: &Path) -> Result<(), ApplicationError> {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+        || !matches!(
+            path.components().next(),
+            Some(std::path::Component::Normal(root))
+                if matches!(root.to_str(), Some("workspace" | "memory" | "runs"))
+        )
+    {
+        return Err(ApplicationError::Conflict);
+    }
+    Ok(())
+}
+
+#[async_trait]
 impl AgentHomePort for AgentHomeAdapter {
     async fn agent(&mut self, agent_id: AgentId) -> Result<LocalAgent, ApplicationError> {
         let bytes = tokio::fs::read(self.agent_home_for_id(agent_id).join("profile.json"))
@@ -174,6 +246,61 @@ impl AgentHomePort for AgentHomeAdapter {
         agent_id: AgentId,
     ) -> Result<String, ApplicationError> {
         self.fingerprint(agent_id).await
+    }
+
+    async fn read_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &Path,
+    ) -> Result<Vec<u8>, ApplicationError> {
+        let memory_root = self.agent_home_for_id(agent_id).join("memory");
+        let root = tokio::fs::canonicalize(&memory_root)
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        let target = tokio::fs::canonicalize(memory_root.join(path))
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        if !target.starts_with(&root) {
+            return Err(ApplicationError::Conflict);
+        }
+        let metadata = tokio::fs::symlink_metadata(&target)
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(ApplicationError::Conflict);
+        }
+        tokio::fs::read(target)
+            .await
+            .map_err(|_| ApplicationError::Internal)
+    }
+
+    async fn write_memory(
+        &mut self,
+        agent_id: AgentId,
+        path: &Path,
+        content: &[u8],
+    ) -> Result<(), ApplicationError> {
+        let memory_root = self.agent_home_for_id(agent_id).join("memory");
+        let root = tokio::fs::canonicalize(&memory_root)
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        let relative_parent = path.parent().unwrap_or_else(|| Path::new(""));
+        let requested_parent = memory_root.join(relative_parent);
+        create_private_dir(&requested_parent).await?;
+        let parent = tokio::fs::canonicalize(&requested_parent)
+            .await
+            .map_err(|_| ApplicationError::Internal)?;
+        if !parent.starts_with(&root) {
+            return Err(ApplicationError::Conflict);
+        }
+        let name = path.file_name().ok_or(ApplicationError::Conflict)?;
+        let target = parent.join(name);
+        if let Ok(metadata) = tokio::fs::symlink_metadata(&target).await
+            && (!metadata.file_type().is_file() || metadata.file_type().is_symlink())
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        write_private_file(&target, content).await
     }
 }
 
@@ -269,6 +396,27 @@ async fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), Applicat
     restrict_file(path).await
 }
 
+async fn write_new_private_file(path: &Path, contents: &[u8]) -> Result<(), ApplicationError> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            ApplicationError::Conflict
+        } else {
+            ApplicationError::Internal
+        }
+    })?;
+    file.write_all(contents)
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    file.sync_all()
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    restrict_file(path).await
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -332,6 +480,70 @@ mod tests {
         homes.retire(agent_id).await.unwrap();
         assert!(!profile_path.exists());
         assert!(computer_home.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn attachment_files_stay_in_allowed_agent_directories() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
+        let agent = LocalAgent {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(Uuid::now_v7()),
+            name: "agent".to_owned(),
+            handle: "agent".to_owned(),
+            role_revision: 1,
+            role: "role".to_owned(),
+            driver: DriverKind::Codex,
+            state: LocalAgentState::Active,
+        };
+        let agent_id = agent.agent_id;
+        homes.provision(agent).await.unwrap();
+        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        tokio::fs::write(agent_home.join("workspace/result.txt"), b"result")
+            .await
+            .unwrap();
+
+        let (name, content) = homes
+            .read_attachment_source(agent_id, Path::new("workspace/result.txt"))
+            .await
+            .unwrap();
+        assert_eq!(name, "result.txt");
+        assert_eq!(content, b"result");
+        assert!(matches!(
+            homes
+                .read_attachment_source(agent_id, Path::new("drivers/codex/auth.json"))
+                .await,
+            Err(ApplicationError::Conflict)
+        ));
+
+        let outside = directory.path().join("outside.txt");
+        tokio::fs::write(&outside, b"secret").await.unwrap();
+        symlink(&outside, agent_home.join("workspace/link.txt")).unwrap();
+        assert!(matches!(
+            homes
+                .read_attachment_source(agent_id, Path::new("workspace/link.txt"))
+                .await,
+            Err(ApplicationError::Conflict)
+        ));
+
+        homes
+            .write_attachment_output(agent_id, Path::new("workspace/download.txt"), b"download")
+            .await
+            .unwrap();
+        assert!(matches!(
+            homes
+                .write_attachment_output(
+                    agent_id,
+                    Path::new("workspace/download.txt"),
+                    b"overwrite"
+                )
+                .await,
+            Err(ApplicationError::Conflict)
+        ));
     }
 
     #[tokio::test]
