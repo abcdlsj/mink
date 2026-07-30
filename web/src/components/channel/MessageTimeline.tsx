@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CircleCheck, CircleDot, Hash, ListTodo, MessageSquareReply, Paperclip, Plus, Search, XCircle } from "lucide-react";
-import { type ReactNode, type RefObject } from "react";
+import { CircleCheck, CircleDot, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip, Search, XCircle } from "lucide-react";
+import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
+import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
 import { formatBytes } from "../../format";
 import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
 
@@ -19,6 +19,7 @@ export function MessageTimeline({
   spaceSlug,
   openThread,
   activityByMemberId,
+  members,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
   header?: ReactNode;
@@ -31,15 +32,18 @@ export function MessageTimeline({
   spaceSlug: string;
   openThread: (threadId: string, trigger: HTMLButtonElement) => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
+  members: Member[];
 }) {
   return (
       <div ref={timelineRef} className="message-timeline" aria-live="polite">
         {header}
         {pending ? <div className="timeline-status">Loading Messages...</div> : null}
         {error ? (
-          <div className="timeline-status timeline-status--error" role="alert">
-            <span>{error.message}</span>
-            <button className="compact-action" type="button" onClick={retry}>Retry</button>
+          <div className="system-event system-event--standalone" role="alert">
+            <div className="system-event-heading">
+              <span>{error.message}</span>
+              <button type="button" onClick={retry}>Retry</button>
+            </div>
           </div>
         ) : null}
         {page?.messages.length === 0 ? (
@@ -80,24 +84,11 @@ export function MessageTimeline({
                       <span className="message-seq">@{message.seq}</span>
                     </header>
                   )}
-                  <MessageBody message={message} spaceSlug={spaceSlug} />
+                  <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
                   {!message.deleted_at && message.attachments?.length ? (
                     <AttachmentList attachments={message.attachments} />
                   ) : null}
-                  {!message.deleted_at && message.placement === "root" && !message.task ? (
-                    <CreateTaskAction message={message} channelId={channelId} />
-                  ) : null}
-                  {!message.deleted_at ? (
-                    <button
-                      className="thread-action"
-                      type="button"
-                      title="Reply in Thread"
-                      onClick={(event) => openThread(message.thread_id, event.currentTarget)}
-                    >
-                      <MessageSquareReply aria-hidden="true" />
-                      <span className="visually-hidden">Reply in Thread</span>
-                    </button>
-                  ) : null}
+                  <AttentionFailureNotice message={message} />
                   {!message.deleted_at && message.thread_id && message.reply_count > 0 ? (
                     <InlineThreadPreview
                       threadId={message.thread_id}
@@ -106,6 +97,13 @@ export function MessageTimeline({
                     />
                   ) : null}
                 </div>
+                {!message.deleted_at ? (
+                  <MessageActions
+                    message={message}
+                    channelId={channelId}
+                    openThread={openThread}
+                  />
+                ) : null}
               </article>
             </div>
           );
@@ -114,7 +112,7 @@ export function MessageTimeline({
   );
 }
 
-export function CompactMessage({ message, activityStatus, spaceSlug }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string }) {
+export function CompactMessage({ message, activityStatus, spaceSlug, members }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[] }) {
   return (
     <article className="thread-message">
       <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityStatus} />
@@ -125,7 +123,8 @@ export function CompactMessage({ message, activityStatus, spaceSlug }: { message
           {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
           <span className="message-seq">@{message.seq}</span>
         </header>
-        <MessageBody message={message} spaceSlug={spaceSlug} />
+        <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+        <AttentionFailureNotice message={message} />
         {!message.deleted_at && message.attachments?.length ? (
           <AttachmentList attachments={message.attachments} />
         ) : null}
@@ -185,7 +184,7 @@ function InlineThreadPreview({ threadId, replyCount, open }: { threadId: string;
   );
 }
 
-function CreateTaskAction({ message, channelId }: { message: Message; channelId: string }) {
+function MessageActions({ message, channelId, openThread }: { message: Message; channelId: string; openThread: (threadId: string, trigger: HTMLButtonElement) => void }) {
   const queryClient = useQueryClient();
   const create = useMutation({
     mutationFn: () => createTaskFromRootMessage(message.id, { title: textBody(message).trim().slice(0, 120) || undefined }),
@@ -207,23 +206,116 @@ function CreateTaskAction({ message, channelId }: { message: Message; channelId:
       void queryClient.invalidateQueries({ queryKey: ["tasks", task.space_id] });
     },
   });
+  const taskUnavailableReason = message.placement !== "root"
+    ? "Task can only be created from a Root Message"
+    : message.task
+      ? "This Message already has a Task"
+      : undefined;
   return (
-    <span className="create-task-control">
-      <button type="button" className="create-task-action" disabled={create.isPending} onClick={() => create.mutate()}>
-        <Plus aria-hidden="true" />{create.isPending ? "Creating Task…" : "Create Task"}
+    <div className="message-actions" role="toolbar" aria-label="Message actions">
+      <button
+        className="message-action-button"
+        type="button"
+        title="Reply to thread"
+        aria-label="Reply in Thread"
+        onClick={(event) => openThread(message.thread_id, event.currentTarget)}
+      >
+        <MessageSquareReply aria-hidden="true" />
       </button>
-      {create.error ? <span role="alert">Task creation failed. Retry.</span> : null}
-    </span>
+      <button
+        type="button"
+        className="message-action-button"
+        disabled={create.isPending}
+        aria-disabled={taskUnavailableReason ? true : undefined}
+        aria-label={taskUnavailableReason ?? "Create Task"}
+        title={taskUnavailableReason ?? "Create Task"}
+        onClick={() => {
+          if (!taskUnavailableReason) create.mutate();
+        }}
+      >
+        {create.isPending ? <LoaderCircle className="spin" aria-hidden="true" /> : <ListTodo aria-hidden="true" />}
+      </button>
+      {create.error ? <span className="message-action-error" role="alert">Task creation failed. Retry.</span> : null}
+    </div>
   );
 }
 
-function MessageBody({ message, spaceSlug }: { message: Message; spaceSlug: string }) {
+function MessageBody({ message, spaceSlug, members }: { message: Message; spaceSlug: string; members: Member[] }) {
   if (message.deleted_at) return <p>Message 已删除</p>;
-  if (message.content.type === "text") return <p>{message.content.body_markdown}</p>;
+  if (message.content.type === "text") {
+    const mentionedMemberIds = new Set(message.mentions);
+    const mentionedHandles = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.handle.toLowerCase()));
+    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedHandles={mentionedHandles} />;
+  }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
   }
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
+}
+
+export function ExpandableMessageText({ messageId, body, mentionedHandles }: { messageId: string; body: string; mentionedHandles: ReadonlySet<string> }) {
+  const paragraph = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const bodyId = `message-body-${messageId}`;
+
+  useLayoutEffect(() => {
+    const node = paragraph.current;
+    if (!node || expanded) return;
+    const measure = () => setOverflowing(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [body, expanded]);
+
+  return (
+    <div className="message-body-wrap">
+      <p ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
+        {highlightMentions(body, mentionedHandles)}
+      </p>
+      {overflowing || expanded ? (
+        <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function AttentionFailureNotice({ message }: { message: Message }) {
+  if (message.attention_failures.length === 0) return null;
+  if (message.attention_failures.length === 1) {
+    const failure = message.attention_failures[0];
+    return (
+      <div className="system-event" role="alert">
+        <div className="system-event-heading">
+          <span>Could not start <strong>@{failure.agent_handle}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code></span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <details className="system-event" role="alert">
+      <summary className="system-event-heading"><span>{message.attention_failures.length} system errors · Show details</span></summary>
+      <div className="system-event-details">
+        {message.attention_failures.map((failure) => (
+          <p key={failure.agent_member_id}>
+            Could not start <strong>@{failure.agent_handle}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code>
+          </p>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
+  return body.split(/(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi).map((part, index) =>
+    part.startsWith("@") && mentionedHandles.has(part.slice(1).toLowerCase())
+      ? <mark className="message-mention" key={`${part}-${index}`}>{part}</mark>
+      : part,
+  );
 }
 
 function textBody(message: Message): string {

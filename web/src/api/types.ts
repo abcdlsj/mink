@@ -124,6 +124,13 @@ export interface components {
             max_retry_count: number;
             mention_immediate: boolean;
         };
+        AttentionFailureResponse: {
+            agent_handle: string;
+            /** Format: uuid */
+            agent_member_id: string;
+            error_code: string;
+            retrying: boolean;
+        };
         /** @enum {string} */
         ChannelKind: "public" | "private";
         ChannelListResponse: {
@@ -387,6 +394,7 @@ export interface components {
         MessagePlacement: "root" | "reply";
         MessageResponse: {
             attachments: components["schemas"]["AttachmentResponse"][];
+            attention_failures: components["schemas"]["AttentionFailureResponse"][];
             author: components["schemas"]["MessageAuthor"];
             /** Format: uuid */
             channel_id: string;

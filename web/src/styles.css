@@ -19,6 +19,11 @@
   --stone: #c0b9b1;
   --status-offline: var(--stone);
   --muted: #716b67;
+  --text-page-title: 18px;
+  --text-section-title: 11px;
+  --text-body: 14px;
+  --text-system: 12px;
+  --text-meta: 10px;
   /* Flat classification chip tones — colour carries the category, no border needed. */
   --chip-runtime: #c9e7e7;
   --chip-model: #dfe3ff;
@@ -6162,5 +6167,579 @@ h1 {
     min-height: 30px;
     justify-content: center;
     padding: 0;
+  }
+}
+
+/* Shared type scale and the current collaboration-management surfaces. */
+.nav-empty,
+.section-empty,
+.timeline-status {
+  color: var(--muted);
+  font-size: var(--text-system);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.message-block:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent-soft) 32%, var(--paper));
+}
+
+.message-content {
+  position: static;
+}
+
+.message-row {
+  position: relative;
+}
+
+.message-content p,
+.thread-message p {
+  font-size: var(--text-body);
+}
+
+.message-content > header,
+.message-row--grouped .message-content > p,
+.message-row--grouped .message-body {
+  padding-right: 50px;
+}
+
+.message-actions {
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  right: 8px;
+  display: inline-flex;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  background: var(--paper);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 100ms linear, transform 100ms linear;
+}
+
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.message-action-button {
+  display: grid;
+  width: 21px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid rgb(20 17 17 / 24%);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.message-action-button:last-of-type {
+  border-right: 0;
+}
+
+.message-action-button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.message-action-button:disabled,
+.message-action-button[aria-disabled="true"] {
+  background: var(--panel);
+  color: color-mix(in srgb, var(--stone) 70%, var(--ink));
+  cursor: not-allowed;
+}
+
+.message-action-button svg {
+  width: 10px;
+  height: 10px;
+}
+
+.message-action-error {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -2px;
+  width: max-content;
+  max-width: 220px;
+  padding: 5px 7px;
+  border: 2px solid var(--ink);
+  background: color-mix(in srgb, var(--red) 30%, var(--paper));
+  color: var(--ink);
+  font-size: var(--text-system);
+  font-weight: 600;
+}
+
+.message-mention {
+  padding: 0 2px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.message-body-wrap {
+  min-width: 0;
+}
+
+.message-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-body--collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+}
+
+.message-expand {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-expand:hover {
+  color: var(--ink);
+}
+
+.system-event {
+  margin: 8px 0 2px;
+  color: color-mix(in srgb, var(--red) 58%, var(--muted));
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 500;
+}
+
+.system-event--standalone {
+  margin: 14px 20px 6px;
+}
+
+.system-event-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+  list-style: none;
+  text-align: center;
+}
+
+summary.system-event-heading {
+  cursor: pointer;
+}
+
+.system-event-heading::-webkit-details-marker {
+  display: none;
+}
+
+.system-event-heading::before,
+.system-event-heading::after {
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  content: "";
+}
+
+.system-event-heading > span {
+  max-width: min(72ch, 80%);
+}
+
+.system-event-heading code,
+.system-event-details code {
+  color: inherit;
+  font-size: inherit;
+}
+
+.system-event-heading button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.system-event-details {
+  width: min(680px, calc(100% - 32px));
+  margin: 6px auto 0;
+  padding-left: 18px;
+  border-left: 1px solid color-mix(in srgb, var(--red) 22%, transparent);
+}
+
+.system-event-details p,
+.message-content .system-event-details p {
+  margin: 3px 0;
+  color: inherit;
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+
+.mention-suggestions button {
+  min-height: 40px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 5px 8px;
+}
+
+.mention-suggestions .pixel-identity {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+
+.mention-suggestions strong {
+  font-size: var(--text-system);
+  line-height: 1.2;
+}
+
+.mention-suggestions small {
+  font-size: var(--text-meta);
+}
+
+/* Permission switches state the action and expose why Admin/Owner rows are inactive. */
+.permission-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr)) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-controls .permission-toggle {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  height: auto;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid rgb(20 17 17 / 28%);
+  background: var(--paper);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.permission-controls .permission-toggle::before {
+  display: none;
+}
+
+.permission-copy,
+.permission-copy strong,
+.permission-copy small {
+  display: block;
+  min-width: 0;
+}
+
+.permission-copy strong {
+  font-size: var(--text-system);
+  line-height: 1.2;
+}
+
+.permission-copy small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-switch {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 18px;
+  border: 2px solid var(--ink);
+  background: var(--stone);
+}
+
+.permission-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  background: var(--paper);
+  transition: transform 100ms linear;
+}
+
+.permission-toggle:has(input:checked) {
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.permission-toggle:has(input:checked) .permission-switch {
+  background: var(--green);
+}
+
+.permission-toggle:has(input:checked) .permission-switch i {
+  transform: translateX(14px);
+}
+
+.permission-controls .permission-toggle input:focus-visible + .permission-switch {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.permission-inherited {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 9px;
+  border-left: 3px solid var(--stone);
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.permission-inherited > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.permission-inherited strong,
+.permission-inherited small {
+  display: block;
+  font-size: var(--text-meta);
+  line-height: 1.3;
+}
+
+.permission-inherited small {
+  font-weight: 400;
+}
+
+.permission-controls--inherited .permission-toggle {
+  border-color: rgb(20 17 17 / 16%);
+  background: rgb(192 185 177 / 16%);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+/* Agent overview uses a denser two-column fact layout with one type scale. */
+.agent-workspace .entity-detail-title h1,
+.computer-detail .entity-detail-title h2 {
+  font-size: var(--text-page-title);
+}
+
+.agent-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-overview-grid > .detail-section {
+  min-width: 0;
+  padding: 18px 20px;
+  border-right: 1px solid rgb(20 17 17 / 22%);
+}
+
+.agent-overview-grid > .detail-section:nth-child(even) {
+  border-right: 0;
+}
+
+.agent-overview-grid > .detail-section:nth-child(3) {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
+
+.agent-detail-scroll .detail-section > h2,
+.agent-detail-scroll .agent-lifecycle > h2,
+.computer-detail .detail-section > h3 {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: var(--text-section-title);
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.agent-detail-scroll .detail-grid,
+.computer-detail .detail-grid {
+  gap: 12px 22px;
+}
+
+.agent-overview-grid > .detail-section:nth-child(3) .detail-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.agent-detail-scroll .detail-grid dt,
+.computer-detail .detail-grid dt {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.agent-detail-scroll .detail-grid dd,
+.computer-detail .detail-grid dd {
+  font-size: var(--text-body);
+  line-height: 1.35;
+}
+
+.agent-runtime-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 14px;
+  background: rgb(20 17 17 / 18%);
+}
+
+.agent-runtime-facts p {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 9px 10px;
+  background: var(--panel);
+  font-size: var(--text-system);
+}
+
+.agent-runtime-facts strong {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.agent-overview-grid > .detail-section > p,
+.agent-memory > p,
+.agent-inbox-state > p {
+  font-size: var(--text-system);
+  line-height: 1.45;
+}
+
+.memory-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgb(20 17 17 / 22%);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--text-system);
+}
+
+.memory-empty > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.memory-empty strong,
+.memory-empty small {
+  display: block;
+}
+
+.memory-empty strong {
+  color: var(--ink);
+}
+
+.memory-empty small {
+  margin-top: 2px;
+  font-size: var(--text-meta);
+}
+
+/* Computer details follow the same fact and system-information hierarchy. */
+.computer-detail .detail-section {
+  padding: 18px 20px;
+}
+
+.computer-detail .section-title-row {
+  margin-bottom: 10px;
+}
+
+.computer-detail .section-title-row > h3 {
+  margin: 0;
+  font-size: var(--text-section-title);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.hosted-agent-list a {
+  min-height: 52px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.hosted-agent-list .pixel-identity {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+}
+
+.hosted-agent-list strong {
+  font-size: var(--text-body);
+}
+
+.hosted-agent-list small {
+  font-size: var(--text-meta);
+}
+
+.hosted-agent-list .agent-state {
+  font-size: var(--text-meta);
+}
+
+@media (max-width: 900px) {
+  .agent-overview-grid,
+  .agent-overview-grid > .detail-section:nth-child(3) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-column: auto;
+  }
+
+  .agent-overview-grid > .detail-section {
+    border-right: 0;
+  }
+
+  .agent-overview-grid > .detail-section:nth-child(3) .detail-grid,
+  .agent-runtime-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .message-actions {
+    top: 2px;
+    right: 8px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .permission-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .permission-inherited {
+    grid-column: auto;
+  }
+
+  .agent-overview-grid > .detail-section:nth-child(3) .detail-grid,
+  .agent-runtime-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

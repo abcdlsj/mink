@@ -334,6 +334,7 @@ export function MessageWorkspace({
         spaceSlug={spaceSlug}
         openThread={openThread}
         activityByMemberId={activityByMemberId}
+        members={channelMembers.data?.members ?? []}
       />
       <MessageComposer
         spaceId={spaceId}

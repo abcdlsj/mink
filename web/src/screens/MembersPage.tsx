@@ -28,6 +28,10 @@ import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
 const explicitPermissions = ["channel:create", "agent:create"] as const;
+const permissionLabels: Record<(typeof explicitPermissions)[number], { title: string; description: string }> = {
+  "channel:create": { title: "Create Channels", description: "Add a Channel to this Space" },
+  "agent:create": { title: "Create Agents", description: "Provision an Agent in this Space" },
+};
 
 export function MembersPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/members" });
@@ -281,26 +285,33 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                   <strong>{capitalize(member.access_level)}</strong>
                 )}
               </div>
-              <div className="permission-controls">
-                {explicitPermissions.map((permission) => (
-                  <label key={permission}>
-                    <input
-                      type="checkbox"
-                      checked={member.permissions.includes(permission)}
-                      disabled={!canSetPermissions || memberUpdate.isPending}
-                      onChange={(event) => {
-                        const next = event.target.checked
-                          ? [...member.permissions, permission]
-                          : member.permissions.filter((value) => value !== permission);
-                        memberUpdate.mutate({
-                          memberId: member.id,
-                          input: { permissions: next },
-                        });
-                      }}
-                    />
-                    <span>{permission}</span>
-                  </label>
-                ))}
+              <div className={`permission-controls${member.access_level !== "member" ? " permission-controls--inherited" : ""}`}>
+                {member.access_level !== "member" ? (
+                  <p className="permission-inherited"><ShieldCheck aria-hidden="true" /><span><strong>Included with {capitalize(member.access_level)} access</strong><small>Individual action permissions do not apply.</small></span></p>
+                ) : null}
+                {explicitPermissions.map((permission) => {
+                  const label = permissionLabels[permission];
+                  return (
+                    <label className="permission-toggle" key={permission}>
+                      <span className="permission-copy"><strong>{label.title}</strong><small>{label.description}</small></span>
+                      <input
+                        type="checkbox"
+                        checked={member.permissions.includes(permission)}
+                        disabled={!canSetPermissions || memberUpdate.isPending}
+                        onChange={(event) => {
+                          const next = event.target.checked
+                            ? [...member.permissions, permission]
+                            : member.permissions.filter((value) => value !== permission);
+                          memberUpdate.mutate({
+                            memberId: member.id,
+                            input: { permissions: next },
+                          });
+                        }}
+                      />
+                      <span className="permission-switch" aria-hidden="true"><i /></span>
+                    </label>
+                  );
+                })}
                 {member.id !== currentMember?.id ? (
                   <button
                     className="member-message-button"

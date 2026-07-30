@@ -271,7 +271,16 @@ describe("ChannelPage", () => {
           snapshot_channel_seq: 1,
           has_more_before: false,
           has_more_after: false,
-          messages: [{ ...message(channelId, 1, "First Message"), thread_id: "1", reply_count: 1, task: taskSummary() }],
+          messages: [{
+            ...message(channelId, 1, "First Message"),
+            thread_id: "1",
+            reply_count: 1,
+            task: taskSummary(),
+            attention_failures: [
+              { agent_member_id: linId, agent_handle: "lin", error_code: "run_claim_unavailable", retrying: true },
+              { agent_member_id: reviewerId, agent_handle: "reviewer", error_code: "computer_offline", retrying: false },
+            ],
+          }],
         });
       }
       if (path.endsWith("/threads/1") && !init?.method) {
@@ -317,7 +326,7 @@ describe("ChannelPage", () => {
       if (path.endsWith(`/channels/${channelId}/messages`) && init?.method === "POST") {
         const input = JSON.parse(String(init.body)) as { body_markdown: string };
         const seq = input.body_markdown === "Channel moved" ? 4 : 2;
-        return json(message(channelId, seq, input.body_markdown), 201);
+        return json({ ...message(channelId, seq, input.body_markdown), mentions: input.body_markdown.includes("@lin") ? [linId] : [] }, 201);
       }
       if (path === "/api/v1/attachments/uploads" && init?.method === "POST") {
         return json({
@@ -354,6 +363,12 @@ describe("ChannelPage", () => {
     renderRoute("/s/sumi-lab/channels/general");
 
     expect(await screen.findByText("First Message")).toBeVisible();
+    const systemErrors = screen.getByRole("alert");
+    expect(systemErrors).toHaveTextContent("2 system errors · Show details");
+    expect(systemErrors).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("2 system errors · Show details"));
+    expect(systemErrors).toHaveAttribute("open");
+    expect(within(systemErrors).getByText((_, element) => element?.tagName === "P" && element.textContent?.includes("Could not start @lin") === true)).toBeVisible();
     const taskBadge = screen.getByLabelText("Task: Ship message metadata · in progress · Lin");
     expect(taskBadge).toHaveTextContent("Ship message metadata");
     expect(taskBadge).toHaveAttribute("data-tooltip", "Ship message metadata · in progress · Lin");
@@ -374,8 +389,8 @@ describe("ChannelPage", () => {
     fireEvent.change(input, { target: { value: "@lin Please review", selectionStart: 18 } });
     fireEvent.submit(input.closest("form")!);
 
-    expect(await screen.findByText("@lin Please review")).toBeVisible();
-    expect(input).toHaveValue("");
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(await screen.findByText("@lin", { selector: "mark" })).toHaveClass("message-mention");
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
         ([path, init]) => String(path).endsWith("/messages") && init?.method === "POST",
@@ -544,6 +559,7 @@ function message(channelId: string, seq: number, body: string) {
     content: { type: "text", body_markdown: body },
     mentions: [],
     attachments: [],
+    attention_failures: [],
     created_at: "2026-07-25T00:00:00Z",
     reply_count: 0,
   };

@@ -39,6 +39,18 @@ Channel 不增加 Tasks tab。Composer 不增加`As Task`。全局 shell 不为 
 - Agent使用由member ID生成的8×8对称像素印章，并显示`AGENT`标签。
 - Human和Agent的Message视觉层级相同。
 
+字体层级固定为：
+
+| 层级 | 字号 | 默认字重 | 用途 |
+| --- | --- | --- | --- |
+| 页面标题 | `18px` | `700` | 页面和实体名称 |
+| 区域标题 | `11px` | `700` | 区域名称；使用大写和`0.08em`字距 |
+| 正文 | `14px` | `400` | Message正文、字段值和表单内容 |
+| 辅助信息 | `12px` | `400` | 说明、空态和系统信息 |
+| 元数据 | `10px` | `600` | 时间、handle、计数和状态元数据 |
+
+系统信息统一使用辅助信息字号。普通系统信息使用`muted`颜色和`400`字重；警告使用`orange`相关背景和`600`字重；错误使用`red`相关背景和`600`字重。页面不得通过放大空态文字表达重要性。
+
 ## 3. 现有页面结构
 
 ```text
@@ -78,6 +90,12 @@ UI不显示bind步骤、Source Thread选择器或来源确认。Thread reply不�
 
 Human创建的Task初始为`TODO`。Agent在当前Run中创建Task时，因为Server同时绑定当前Agent和Run，初始状态为`In Progress`。
 
+每条Message在hover或键盘focus时，右上角显示Message动作面板。面板固定包含`Reply to thread`和Task动作两个icon button。图标和控件高度使用元数据层级，与日期分隔文案保持同一视觉尺度。面板贴齐Message行的上边和右边，不能占用正文右侧的独立栏位。只有未绑定Task的Root Message启用Task动作；reply上的Task动作保持禁用，并说明Task只能从Root Message创建；已经绑定Task时该动作保持禁用。动作面板不得重复显示文字按钮。
+
+普通Message正文超过8个视觉行时默认折叠到8行，并显示`Show more`。展开后显示`Show less`。Browser必须按实际排版高度判断是否超过8行，不能按字符数量推断。
+
+Message投递或attention失败使用与日期分隔相同的居中系统信息行。错误文字使用低饱和红色和元数据字号，不使用红色面板、粗边框或错误图标。一个Message只有一项失败时直接显示失败事实；有多项失败时合并为一行数量摘要，默认收起，点击后展开每项失败。错误代码只在展开内容或单项失败中显示。
+
 ## 5. Message 投影
 
 ### 5.1 Task 标识
@@ -115,6 +133,12 @@ Action Message 使用紧凑的结构化行，不显示为普通 Markdown 气泡�
 Action Message 从目标资源读取当前名称。目标已退役或删除时保留 Message，并显示不可用占位。
 
 Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message composer 不能选择 action kind。
+
+### 5.3 Agent 启动失败提示
+
+来源Message存在Agent attention错误时，Message下方显示inline notice。提示必须包含目标Agent、稳定错误码和自动重试状态，不显示数据库错误、Message正文副本或凭据。错误清除后，提示随Message投影刷新而消失。
+
+该提示是运行状态，不显示作者、时间或Message序号，也不计入Thread reply数量。
 
 ## 6. Tasks页面
 
@@ -190,6 +214,7 @@ Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或�
 - Entity row使用扁平列表，不增加卡片层级。
 - 持久阻断使用inline notice，短期结果使用toast。
 - 空态只写事实和至多一个下一步动作，不使用大插画。
+- 空态和`No DMs yet`等系统信息使用辅助信息字号。
 - Composer只包含Markdown、Attachment、mention和Send，不包含Task或Session控制。
 
 ## 11. 响应式与无障碍

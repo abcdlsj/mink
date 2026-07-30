@@ -145,9 +145,9 @@ export function ThreadPane({
         {thread.data ? (
           <>
             <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} />
+            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} />
             <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} />)}
+            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} />)}
           </>
         ) : null}
       </div>
