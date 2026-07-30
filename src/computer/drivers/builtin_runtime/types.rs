@@ -1,28 +1,28 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
-pub struct Message {
+pub(super) struct Message {
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub id: String,
-    pub role: String,
+    pub(super) id: String,
+    pub(super) role: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub content: String,
+    pub(super) content: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<Attachment>,
+    pub(super) attachments: Vec<Attachment>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub reasoning: String,
+    pub(super) reasoning: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tool_calls: Vec<ToolCall>,
+    pub(super) tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tool_results: Vec<ToolResult>,
+    pub(super) tool_results: Vec<ToolResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<TokenUsage>,
+    pub(super) usage: Option<TokenUsage>,
     #[serde(skip)]
-    pub cache_breakpoint: bool,
+    pub(super) cache_breakpoint: bool,
 }
 
 impl Message {
-    pub fn user(content: impl Into<String>) -> Self {
+    pub(super) fn user(content: impl Into<String>) -> Self {
         Self {
             role: "user".into(),
             content: content.into(),
@@ -30,7 +30,7 @@ impl Message {
         }
     }
 
-    pub fn tool(results: Vec<ToolResult>) -> Self {
+    pub(super) fn tool(results: Vec<ToolResult>) -> Self {
         Self {
             role: "tool".into(),
             tool_results: results,
@@ -38,7 +38,7 @@ impl Message {
         }
     }
 
-    pub fn system(content: impl Into<String>) -> Self {
+    pub(super) fn system(content: impl Into<String>) -> Self {
         Self {
             role: "system".into(),
             content: content.into(),
@@ -46,7 +46,7 @@ impl Message {
         }
     }
 
-    pub fn cacheable_system(content: impl Into<String>) -> Self {
+    pub(super) fn cacheable_system(content: impl Into<String>) -> Self {
         Self {
             role: "system".into(),
             content: content.into(),
@@ -57,63 +57,63 @@ impl Message {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ToolCall {
-    pub id: String,
-    pub name: String,
+pub(super) struct ToolCall {
+    pub(super) id: String,
+    pub(super) name: String,
     #[serde(default)]
-    pub args: serde_json::Value,
+    pub(super) args: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ToolResult {
-    pub tool_call_id: String,
+pub(super) struct ToolResult {
+    pub(super) tool_call_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub content: String,
+    pub(super) content: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub error: String,
+    pub(super) error: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Attachment {
+pub(super) struct Attachment {
     #[serde(default)]
-    pub kind: String,
+    pub(super) kind: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub label: String,
+    pub(super) label: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
+    pub(super) name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub mime: String,
+    pub(super) mime: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub data: String,
+    pub(super) data: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub url: String,
+    pub(super) url: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct TokenUsage {
+pub(super) struct TokenUsage {
     #[serde(default)]
-    pub input_tokens: i32,
+    pub(super) input_tokens: i32,
     #[serde(default)]
-    pub output_tokens: i32,
+    pub(super) output_tokens: i32,
     #[serde(default)]
-    pub total_tokens: i32,
+    pub(super) total_tokens: i32,
     #[serde(default)]
-    pub cached_input_tokens: i32,
+    pub(super) cached_input_tokens: i32,
     #[serde(default)]
-    pub cache_write_tokens: i32,
+    pub(super) cache_write_tokens: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub source: String,
+    pub(super) source: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ToolDef {
-    pub name: String,
-    pub description: String,
-    pub parameters: serde_json::Value,
+pub(super) struct ToolDef {
+    pub(super) name: String,
+    pub(super) description: String,
+    pub(super) parameters: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
-pub enum Chunk {
+pub(super) enum Chunk {
     Text { delta: String },
     Reasoning { delta: String },
     ToolCall { call: ToolCall },
@@ -122,15 +122,15 @@ pub enum Chunk {
 }
 
 #[derive(Clone, Debug)]
-pub struct Response {
-    pub content: String,
-    pub reasoning: String,
-    pub tool_calls: Vec<ToolCall>,
-    pub usage: Option<TokenUsage>,
+pub(super) struct Response {
+    pub(super) content: String,
+    pub(super) reasoning: String,
+    pub(super) tool_calls: Vec<ToolCall>,
+    pub(super) usage: Option<TokenUsage>,
 }
 
 impl Response {
-    pub fn has_tool_calls(&self) -> bool {
+    pub(super) fn has_tool_calls(&self) -> bool {
         !self.tool_calls.is_empty()
     }
 }

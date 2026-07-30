@@ -197,7 +197,8 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         config.codex_config_source.clone(),
         config.codex_auth_source.clone(),
     );
-    let mut driver = drivers::runtime(&computer_home);
+    let mut driver =
+        drivers::runtime(&computer_home, &config).map_err(|error| anyhow::anyhow!(error))?;
     application::recovery::RecoveryService::recover(
         &mut storage,
         &mut driver,

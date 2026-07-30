@@ -135,23 +135,4 @@ impl InboxItem {
         self.available_at = until;
         Ok(())
     }
-
-    pub(in crate::server) fn release_after_failure(
-        &mut self,
-        run_id: RunId,
-        retry_limit: u32,
-    ) -> Result<(), DomainError> {
-        if self.status != InboxItemStatus::Leased || self.lease_run_id != Some(run_id) {
-            return Err(DomainError::InvalidTransition);
-        }
-        self.retry_count += 1;
-        self.status = if self.retry_count >= retry_limit {
-            InboxItemStatus::Dead
-        } else {
-            InboxItemStatus::Pending
-        };
-        self.lease_run_id = None;
-        self.lease_expires_at = None;
-        Ok(())
-    }
 }

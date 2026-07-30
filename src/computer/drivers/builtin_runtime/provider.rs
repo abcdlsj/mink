@@ -7,18 +7,18 @@ use reqwest::Client;
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::mpsc;
 
-use crate::agent_core::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
+use super::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
 
 #[derive(Clone)]
-pub struct ProviderConfig {
-    pub api_key: SecretString,
-    pub base_url: Option<String>,
-    pub model: String,
-    pub prompt_cache_key: Option<String>,
+pub(super) struct ProviderConfig {
+    pub(super) api_key: SecretString,
+    pub(super) base_url: Option<String>,
+    pub(super) model: String,
+    pub(super) prompt_cache_key: Option<String>,
 }
 
 impl ProviderConfig {
-    pub fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
+    pub(super) fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: None,
@@ -27,12 +27,12 @@ impl ProviderConfig {
         }
     }
 
-    pub fn with_base_url(mut self, url: String) -> Self {
+    pub(super) fn with_base_url(mut self, url: String) -> Self {
         self.base_url = Some(url);
         self
     }
 
-    pub fn with_prompt_cache_key(mut self, key: String) -> Self {
+    pub(super) fn with_prompt_cache_key(mut self, key: String) -> Self {
         if !key.is_empty() {
             self.prompt_cache_key = Some(key);
         }
@@ -61,7 +61,7 @@ fn is_gpt_5_6_or_later(model: &str) -> bool {
 }
 
 #[async_trait]
-pub trait Provider: Send + Sync {
+pub(super) trait Provider: Send + Sync {
     async fn chat_stream(
         &self,
         messages: &[Message],
@@ -69,14 +69,14 @@ pub trait Provider: Send + Sync {
     ) -> Result<mpsc::Receiver<Chunk>>;
 }
 
-pub struct OpenAiProvider {
+pub(super) struct OpenAiProvider {
     client: Client,
     config: ProviderConfig,
     chat_url: String,
 }
 
 impl OpenAiProvider {
-    pub fn new(config: ProviderConfig) -> Result<Self> {
+    pub(super) fn new(config: ProviderConfig) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(300))
             .connect_timeout(Duration::from_secs(10))

@@ -20,7 +20,10 @@ use crate::{
         SessionScope, TaskSnapshot, TaskStatus as WireTaskStatus,
     },
     server::{
-        application::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
+        application::ports::{
+            ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction,
+            TransactionPort,
+        },
         domain::{
             attention::{
                 AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
@@ -30,8 +33,8 @@ use crate::{
             },
             execution::{Run, RunItem, RunOutcome, RunStatus},
             identity::{
-                Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
-                PermissionAction,
+                AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
+                Member, PermissionAction,
             },
             task::{CloseReason, RelatedThread, Task, TaskStatus},
         },
@@ -336,7 +339,7 @@ impl ServerTransaction for PostgresTransaction {
 
     async fn computer(&mut self, id: ComputerId) -> Result<Computer, ApplicationError> {
         let row = sqlx::query(
-            "SELECT id, space_id, token_hash, deleted_at FROM computers WHERE id = $1 FOR UPDATE",
+            "SELECT id, space_id, connection_status, token_hash, deleted_at FROM computers WHERE id = $1 FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -348,6 +351,8 @@ impl ServerTransaction for PostgresTransaction {
             space_id: SpaceId::from_uuid(row.get("space_id")),
             lifecycle: if deleted_at.is_some() {
                 ComputerLifecycle::Deleted
+            } else if row.get::<&str, _>("connection_status") == "online" {
+                ComputerLifecycle::Online
             } else {
                 ComputerLifecycle::Offline
             },
@@ -538,6 +543,38 @@ impl ServerTransaction for PostgresTransaction {
         .map_err(map_sqlx)
     }
 
+    async fn member_access_level(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<AccessLevel, ApplicationError> {
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT access_level FROM members WHERE id=$1 AND space_id=$2 AND retired_at IS NULL",
+        )
+        .bind(member_id.into_uuid())
+        .bind(space_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        access_level_from_str(&value)
+    }
+
+    async fn computer_accepts_agent(
+        &mut self,
+        computer_id: ComputerId,
+        space_id: SpaceId,
+    ) -> Result<bool, ApplicationError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND space_id=$2 \
+             AND deleted_at IS NULL AND connection_status='online')",
+        )
+        .bind(computer_id.into_uuid())
+        .bind(space_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)
+    }
+
     async fn thread_message_sequence(
         &mut self,
         thread_id: ThreadId,
@@ -552,6 +589,177 @@ impl ServerTransaction for PostgresTransaction {
         .await
         .map_err(map_sqlx)?;
         u64::try_from(sequence).map_err(|_| ApplicationError::Internal)
+    }
+
+    async fn publish_message(
+        &mut self,
+        draft: MessageDraft,
+    ) -> Result<PublishedMessage, ApplicationError> {
+        sqlx::query("SET CONSTRAINTS ALL DEFERRED")
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        let channel = sqlx::query(
+            "SELECT space_id,kind,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE",
+        )
+        .bind(draft.channel_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let space_id: Uuid = channel.get("space_id");
+        let channel_kind: String = channel.get("kind");
+        let snapshot = u64::try_from(channel.get::<i64, _>("snapshot"))
+            .map_err(|_| ApplicationError::Internal)?;
+        if draft
+            .expected_snapshot
+            .is_some_and(|expected| expected != snapshot)
+        {
+            return Err(ApplicationError::ContextChanged);
+        }
+        let thread_id = draft
+            .thread_id
+            .unwrap_or_else(|| ThreadId::from_uuid(draft.message_id.into_uuid()));
+        let channel_sequence: i64 = sqlx::query_scalar(
+            "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
+        )
+        .bind(draft.channel_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,\
+             content_kind,reply_to_message_id,author_member_id,body_markdown,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,'text',$7,$8,$9,$10)",
+        )
+        .bind(draft.message_id.into_uuid())
+        .bind(space_id)
+        .bind(draft.channel_id.into_uuid())
+        .bind(thread_id.into_uuid())
+        .bind(channel_sequence)
+        .bind(if draft.thread_id.is_some() {
+            "reply"
+        } else {
+            "root"
+        })
+        .bind(draft.reply_to_message_id.map(MessageId::into_uuid))
+        .bind(draft.author_member_id.into_uuid())
+        .bind(&draft.body_markdown)
+        .bind(draft.now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if draft.thread_id.is_none() {
+            sqlx::query(
+                "INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) \
+                 VALUES($1,$2,$3,$1,$4)",
+            )
+            .bind(thread_id.into_uuid())
+            .bind(space_id)
+            .bind(draft.channel_id.into_uuid())
+            .bind(draft.now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        for (position, attachment_id) in draft.attachment_ids.into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO message_attachments(message_id,attachment_id,space_id,position) \
+                 VALUES($1,$2,$3,$4)",
+            )
+            .bind(draft.message_id.into_uuid())
+            .bind(attachment_id.into_uuid())
+            .bind(space_id)
+            .bind(i32::try_from(position).map_err(|_| ApplicationError::Conflict)?)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        if let Some((run_id, item_id)) = draft.handled_item {
+            let changed = sqlx::query(
+                "UPDATE run_items SET disposition='handled' WHERE run_id=$1 AND inbox_item_id=$2 \
+                 AND (disposition IS NULL OR disposition='handled')",
+            )
+            .bind(run_id.into_uuid())
+            .bind(item_id.into_uuid())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+            if changed.rows_affected() != 1 {
+                return Err(ApplicationError::ContextChanged);
+            }
+        }
+        let task_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM tasks WHERE status NOT IN ('done','closed') AND \
+             (source_thread_id=$1 OR EXISTS(SELECT 1 FROM task_threads \
+              WHERE task_id=tasks.id AND thread_id=$1)) LIMIT 1",
+        )
+        .bind(thread_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let reply_author = if let Some(reply_to) = draft.reply_to_message_id {
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT author_member_id FROM messages WHERE id=$1 AND thread_id=$2",
+            )
+            .bind(reply_to.into_uuid())
+            .bind(thread_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+        } else {
+            None
+        };
+        let recipients = sqlx::query_scalar::<_, Uuid>(
+            "SELECT members.id FROM channel_members JOIN members \
+             ON members.id=channel_members.member_id WHERE channel_members.channel_id=$1 \
+             AND members.kind='agent' AND members.id<>$2",
+        )
+        .bind(draft.channel_id.into_uuid())
+        .bind(draft.author_member_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
+        let mut hard_item_ids = Vec::new();
+        for recipient in recipients {
+            let agent_id = MemberId::from_uuid(recipient);
+            let (kind, strength) = if task_id.is_some() {
+                ("task_activity", "hard")
+            } else if channel_kind == "direct" {
+                ("direct", "hard")
+            } else if mentioned.contains(&agent_id) {
+                ("mention", "hard")
+            } else if reply_author == Some(recipient) {
+                ("reply", "hard")
+            } else {
+                ("channel_activity", "ambient")
+            };
+            let item_id = InboxItemId::from_uuid(Uuid::now_v7());
+            sqlx::query(
+                "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+                 strength,status,available_at,created_at) \
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$9)",
+            )
+            .bind(item_id.into_uuid())
+            .bind(space_id)
+            .bind(recipient)
+            .bind(draft.message_id.into_uuid())
+            .bind(thread_id.into_uuid())
+            .bind(task_id)
+            .bind(kind)
+            .bind(strength)
+            .bind(draft.now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+            if strength == "hard" {
+                hard_item_ids.push(item_id);
+            }
+        }
+        Ok(PublishedMessage {
+            message_id: draft.message_id,
+            hard_item_ids,
+        })
     }
 
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
@@ -746,12 +954,13 @@ impl ServerTransaction for PostgresTransaction {
     async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError> {
         sqlx::query(
             "INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) \
-             VALUES ($1,$2,'agent',$3,$4,'member',$5)",
+             VALUES ($1,$2,'agent',$3,$4,$5,$6)",
         )
         .bind(member.id.into_uuid())
         .bind(member.space_id.into_uuid())
         .bind(&member.display_name)
         .bind(&member.handle)
+        .bind(access_level_str(member.access_level))
         .bind(member.created_at)
         .execute(&mut *self.connection)
         .await
@@ -1641,18 +1850,35 @@ text_enum!(disposition_str, disposition_from_str, InboxItemDisposition, {
 text_enum!(inbox_status_str, inbox_status_from_str, InboxItemStatus, {
     InboxItemStatus::Pending => "pending", InboxItemStatus::Leased => "leased", InboxItemStatus::Deferred => "deferred", InboxItemStatus::Handled => "handled", InboxItemStatus::Dead => "dead"
 });
-text_enum!(inbox_kind_str, inbox_kind_from_str, InboxItemKind, {
-    InboxItemKind::Direct => "direct", InboxItemKind::Mention => "mention", InboxItemKind::Reply => "reply", InboxItemKind::TaskActivity => "task_activity", InboxItemKind::ThreadActivity => "thread_activity", InboxItemKind::ChannelActivity => "channel_activity", InboxItemKind::System => "system"
-});
-text_enum!(strength_str, strength_from_str, AttentionStrength, {
-    AttentionStrength::Hard => "hard", AttentionStrength::Ambient => "ambient"
-});
+fn inbox_kind_from_str(value: &str) -> Result<InboxItemKind, ApplicationError> {
+    match value {
+        "direct" => Ok(InboxItemKind::Direct),
+        "mention" => Ok(InboxItemKind::Mention),
+        "reply" => Ok(InboxItemKind::Reply),
+        "task_activity" => Ok(InboxItemKind::TaskActivity),
+        "thread_activity" => Ok(InboxItemKind::ThreadActivity),
+        "channel_activity" => Ok(InboxItemKind::ChannelActivity),
+        "system" => Ok(InboxItemKind::System),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+fn strength_from_str(value: &str) -> Result<AttentionStrength, ApplicationError> {
+    match value {
+        "hard" => Ok(AttentionStrength::Hard),
+        "ambient" => Ok(AttentionStrength::Ambient),
+        _ => Err(ApplicationError::Internal),
+    }
+}
 text_enum!(placement_str, placement_from_str, MessagePlacement, {
     MessagePlacement::Root => "root", MessagePlacement::Reply => "reply"
 });
-text_enum!(channel_kind_str, channel_kind_from_str, ChannelKind, {
-    ChannelKind::Public => "public", ChannelKind::Private => "private", ChannelKind::Direct => "direct"
-});
+fn channel_kind_str(value: ChannelKind) -> &'static str {
+    match value {
+        ChannelKind::Public => "public",
+        ChannelKind::Private => "private",
+        ChannelKind::Direct => "direct",
+    }
+}
 text_enum!(agent_lifecycle_str, agent_lifecycle_from_str, AgentLifecycle, {
     AgentLifecycle::Provisioning => "provisioning", AgentLifecycle::Active => "active", AgentLifecycle::Suspended => "suspended", AgentLifecycle::Retired => "retired", AgentLifecycle::Error => "error"
 });
@@ -1664,6 +1890,23 @@ fn permission_str(value: PermissionAction) -> &'static str {
     match value {
         PermissionAction::ChannelCreate => "channel.create",
         PermissionAction::AgentCreate => "agent.create",
+    }
+}
+
+fn access_level_str(value: AccessLevel) -> &'static str {
+    match value {
+        AccessLevel::Owner => "owner",
+        AccessLevel::Admin => "admin",
+        AccessLevel::Member => "member",
+    }
+}
+
+fn access_level_from_str(value: &str) -> Result<AccessLevel, ApplicationError> {
+    match value {
+        "owner" => Ok(AccessLevel::Owner),
+        "admin" => Ok(AccessLevel::Admin),
+        "member" => Ok(AccessLevel::Member),
+        _ => Err(ApplicationError::Internal),
     }
 }
 

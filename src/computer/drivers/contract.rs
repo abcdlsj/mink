@@ -33,6 +33,7 @@ pub(in crate::computer) trait ProviderBackend {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
+        run_token: &str,
     ) -> Result<(), ApplicationError>;
     async fn steer(
         &mut self,
@@ -63,6 +64,7 @@ pub(in crate::computer) trait StructuredProviderClient {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
+        run_token: &str,
     ) -> Result<(), ApplicationError>;
     async fn steer(
         &mut self,

@@ -10,10 +10,10 @@ use axum::{
     Json, Router,
     body::Bytes,
     extract::{
-        Path, Query, State, WebSocketUpgrade,
+        DefaultBodyLimit, Path, Query, State, WebSocketUpgrade,
         ws::{Message as WebSocketMessage, WebSocket},
     },
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{
         IntoResponse, Response, Sse,
         sse::{Event as SseEvent, KeepAlive},
@@ -33,21 +33,19 @@ use uuid::Uuid;
 use crate::config::ServerConfig;
 use crate::{
     ids::{
-        AgentId, CommandId, ComputerId, InboxItemId, MemberId, MessageId, RunId, SpaceId, TaskId,
-        ThreadId,
+        AttachmentId, ChannelId, ComputerId, InboxItemId, MemberId, MessageId, RunId, SpaceId,
+        TaskId, ThreadId,
     },
     protocol::{
         capability,
-        computer::{
-            AgentConfiguration, Command as ComputerCommand, ComputerFrame, ComputerHello,
-            DriverKind as ComputerDriverKind, RoleSnapshot, ServerFrame,
-        },
+        computer::{ComputerFrame, ComputerHello, ServerFrame},
     },
     server::{
         application::attention::{RouteHardItem, RouteHardItemInput},
         application::conversation::{
-            CreateAgentAction, CreateAgentActionInput, CreateChannelAction,
-            CreateChannelActionInput,
+            CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
+            CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
+            PublishMessage,
         },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -61,9 +59,13 @@ use crate::{
                 RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
             identity::{DeleteComputer, RetireAgent},
-            ports::{AttachmentObjectPort, RawFencingToken},
+            ports::{AttachmentObjectPort, MessageDraft, RawFencingToken},
         },
-        domain::{conversation::ChannelKind, identity::DriverKind, task::CloseReason},
+        domain::{
+            conversation::ChannelKind,
+            identity::{AccessLevel, DriverKind},
+            task::CloseReason,
+        },
     },
 };
 
@@ -77,6 +79,7 @@ struct RuntimeState {
     storage: PostgresAdapter,
     objects: Arc<AttachmentObjectStore>,
     session_ttl_hours: i64,
+    attachment_max_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -100,6 +103,14 @@ impl ApiError {
             status: StatusCode::BAD_REQUEST,
             code: "invalid_argument",
             message,
+        }
+    }
+
+    fn permission_denied() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "permission_denied",
+            message: "Member cannot access this resource",
         }
     }
 
@@ -287,11 +298,13 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     let object_store =
         object_store::local::LocalFileSystem::new_with_prefix(&config.attachment_dir)
             .context("failed to open Attachment directory")?;
+    let attachment_body_limit = 100 * 1024 * 1024;
     let state = RuntimeState {
         pool,
         storage,
         objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
         session_ttl_hours: config.session_ttl_hours,
+        attachment_max_bytes: config.attachment_max_bytes,
     };
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -322,7 +335,8 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         )
         .route(
             "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/content",
-            axum::routing::put(agent_upload_content),
+            axum::routing::put(agent_upload_content)
+                .layer(DefaultBodyLimit::max(attachment_body_limit)),
         )
         .route(
             "/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/complete",
@@ -370,7 +384,8 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         .route("/attachments/uploads", post(create_upload))
         .route(
             "/attachments/{attachment_id}/content",
-            axum::routing::put(upload_content),
+            axum::routing::put(upload_content)
+                .layer(DefaultBodyLimit::max(attachment_body_limit)),
         )
         .route(
             "/attachments/{attachment_id}/complete",
@@ -1597,20 +1612,40 @@ async fn expire_pairing(pool: &PgPool, pairing_id: Uuid) -> Result<(), ApiError>
 async fn create_space(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Json(body): Json<CreateSpaceBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let user = authenticate(&state, &jar).await?;
+    let key = idempotency_header(&headers)?;
     let name = body.name.trim();
     let slug = body.slug.trim().to_lowercase();
     if name.is_empty() || slug.is_empty() {
         return Err(ApiError::invalid("Space name and slug are required"));
+    }
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, user.id, "space.create", key).await?;
+    if let Some(row) = sqlx::query(
+        "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
+         (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
+         FROM idempotency_records records \
+         JOIN human_members hm ON hm.member_id=records.actor_member_id \
+         JOIN spaces s ON s.id=records.resource_id \
+         WHERE hm.user_id=$1 AND records.action='space.create' AND records.idempotency_key=$2",
+    )
+    .bind(user.id)
+    .bind(key)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    {
+        transaction.commit().await.map_err(map_sqlx)?;
+        return Ok((StatusCode::OK, Json(space_row(&row))));
     }
     let space_id = Uuid::now_v7();
     let owner_id = Uuid::now_v7();
     let general_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
     let handle = unique_handle(&user.display_name, owner_id);
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
     sqlx::query("SET CONSTRAINTS ALL DEFERRED")
         .execute(&mut *transaction)
         .await
@@ -1649,6 +1684,16 @@ async fn create_space(
     .execute(&mut *transaction)
     .await
     .map_err(map_sqlx)?;
+    let result_hash = Sha256::digest(space_id.as_bytes());
+    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'space.create',$2,'ok',$3,$4,$5)")
+        .bind(owner_id).bind(key).bind(space_id).bind(result_hash.as_slice()).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
+    sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) VALUES($1,$2,$3,'space.created','space',$2,$4)")
+        .bind(Uuid::now_v7()).bind(space_id).bind(owner_id).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
+    sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'channel.created',$3,$4)")
+        .bind(Uuid::now_v7()).bind(space_id).bind(json!({"resource_id": general_id})).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
     transaction.commit().await.map_err(map_sqlx)?;
     Ok((
         StatusCode::CREATED,
@@ -1726,37 +1771,39 @@ async fn create_channel(
     Json(body): Json<CreateChannelBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let member_id = current_member(&state, &jar, space_id).await?;
-    if !matches!(body.kind.as_str(), "public" | "private") || body.slug.trim().is_empty() {
+    let kind = match body.kind.as_str() {
+        "public" => ChannelKind::Public,
+        "private" => ChannelKind::Private,
+        _ => return Err(ApiError::invalid("Channel kind and slug are invalid")),
+    };
+    if body.slug.trim().is_empty() {
         return Err(ApiError::invalid("Channel kind and slug are invalid"));
     }
-    let channel_id = Uuid::now_v7();
+    let channel_id = ChannelId::from_uuid(Uuid::now_v7());
     let now = OffsetDateTime::now_utc();
-    let mut audience = BTreeSet::from([member_id]);
-    audience.extend(body.agent_member_ids);
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    sqlx::query(
-        "INSERT INTO channels(id,space_id,kind,slug,topic,created_at) VALUES($1,$2,$3,$4,$5,$6)",
+    let mut audience = BTreeSet::from([MemberId::from_uuid(member_id)]);
+    audience.extend(body.agent_member_ids.into_iter().map(MemberId::from_uuid));
+    let mut storage = state.storage.clone();
+    let channel = CreateChannel::execute(
+        &mut storage,
+        CreateChannelInput {
+            channel_id,
+            space_id: SpaceId::from_uuid(space_id),
+            audience,
+            kind,
+            slug: Some(body.slug.trim().to_owned()),
+            topic: body.topic.clone(),
+            actor_member_id: MemberId::from_uuid(member_id),
+            now,
+        },
     )
-    .bind(channel_id)
-    .bind(space_id)
-    .bind(&body.kind)
-    .bind(body.slug.trim())
-    .bind(body.topic)
-    .bind(now)
-    .execute(&mut *transaction)
     .await
-    .map_err(map_sqlx)?;
-    for audience_member in audience {
-        sqlx::query("INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) VALUES($1,$2,$3,$4)")
-            .bind(channel_id).bind(space_id).bind(audience_member).bind(now)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    }
-    transaction.commit().await.map_err(map_sqlx)?;
+    .map_err(application_error)?;
     Ok((
         StatusCode::CREATED,
         Json(json!({
-            "id": channel_id, "space_id": space_id, "name": body.name, "slug": body.slug,
-            "topic": Value::Null, "kind": body.kind, "created_by_member_id": member_id,
+            "id": channel.id, "space_id": space_id, "name": body.name, "slug": body.slug,
+            "topic": body.topic, "kind": body.kind, "created_by_member_id": member_id,
             "joined": true, "archived_at": Value::Null
         })),
     ))
@@ -1914,20 +1961,11 @@ async fn create_agent(
     Json(body): Json<CreateAgentBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let actor_id = current_member(&state, &jar, space_id).await?;
-    let actor_level: String =
-        sqlx::query_scalar("SELECT access_level FROM members WHERE id=$1 AND space_id=$2")
-            .bind(actor_id)
-            .bind(space_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(map_sqlx)?;
-    if !matches!(actor_level.as_str(), "owner" | "admin") {
-        return Err(ApiError {
-            status: StatusCode::FORBIDDEN,
-            code: "permission_denied",
-            message: "Space Owner or Admin access is required",
-        });
-    }
+    let requested_access = match body.access_level.as_str() {
+        "member" => AccessLevel::Member,
+        "admin" => AccessLevel::Admin,
+        _ => return Err(ApiError::invalid("Agent configuration is invalid")),
+    };
     let name = body.name.trim();
     let role = body.role_text.trim();
     if name.is_empty()
@@ -1936,24 +1974,8 @@ async fn create_agent(
         || role.chars().count() > 12_000
         || !matches!(body.driver_kind.as_str(), "codex" | "builtin")
         || !matches!(body.access_level.as_str(), "member" | "admin")
-        || (body.access_level == "admin" && actor_level != "owner")
     {
         return Err(ApiError::invalid("Agent configuration is invalid"));
-    }
-    let computer_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL AND connection_status='online')",
-    )
-    .bind(body.computer_id)
-    .bind(space_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
-    if !computer_exists {
-        return Err(ApiError {
-            status: StatusCode::CONFLICT,
-            code: "conflict",
-            message: "Computer must be online in this Space",
-        });
     }
     let agent_id = Uuid::now_v7();
     let handle = body.handle.map_or_else(
@@ -1971,49 +1993,28 @@ async fn create_agent(
         return Err(ApiError::invalid("Agent handle is invalid"));
     }
     let now = OffsetDateTime::now_utc();
-    let configuration = AgentConfiguration {
-        agent_id: AgentId::from_uuid(agent_id),
-        space_id: SpaceId::from_uuid(space_id),
-        name: name.to_owned(),
-        handle: handle.clone(),
-        role: RoleSnapshot {
-            revision: 1,
-            text: role.to_owned(),
+    let mut storage = state.storage.clone();
+    CreateAgent::execute(
+        &mut storage,
+        CreateAgentInput {
+            agent_member_id: MemberId::from_uuid(agent_id),
+            space_id: SpaceId::from_uuid(space_id),
+            display_name: name.to_owned(),
+            handle: handle.clone(),
+            access_level: requested_access,
+            role_text: role.to_owned(),
+            computer_id: ComputerId::from_uuid(body.computer_id),
+            driver_kind: if body.driver_kind == "codex" {
+                DriverKind::Codex
+            } else {
+                DriverKind::Builtin
+            },
+            actor_member_id: MemberId::from_uuid(actor_id),
+            now,
         },
-        driver: if body.driver_kind == "codex" {
-            ComputerDriverKind::Codex
-        } else {
-            ComputerDriverKind::Builtin
-        },
-    };
-    let command = ComputerCommand::AgentProvision(configuration);
-    let payload = serde_json::to_value(&command).map_err(|_| ApiError::internal())?;
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'agent',$3,$4,$5,$6)")
-        .bind(agent_id).bind(space_id).bind(name).bind(&handle).bind(&body.access_level).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES($1,$2,$3,$4,1,'provisioning',$5,$6)")
-        .bind(agent_id).bind(space_id).bind(body.computer_id).bind(role).bind(&body.driver_kind).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    let command_sequence: i64 = sqlx::query_scalar(
-        "UPDATE computers SET next_command_seq=next_command_seq+1 WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL AND connection_status='online' RETURNING next_command_seq-1",
     )
-    .bind(body.computer_id)
-    .bind(space_id)
-    .fetch_optional(&mut *transaction)
     .await
-    .map_err(map_sqlx)?
-    .ok_or(ApiError {
-        status: StatusCode::CONFLICT,
-        code: "conflict",
-        message: "Computer is no longer available",
-    })?;
-    sqlx::query("INSERT INTO computer_commands(id,computer_id,computer_seq,kind,payload_json,created_at) VALUES($1,$2,$3,'agent.provision',$4,$5)")
-        .bind(CommandId::from_uuid(Uuid::now_v7()).into_uuid())
-        .bind(ComputerId::from_uuid(body.computer_id).into_uuid())
-        .bind(command_sequence).bind(payload).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
+    .map_err(application_error)?;
 
     let row = sqlx::query(
         "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at,NULL::TEXT AS run_status \
@@ -2437,129 +2438,33 @@ async fn insert_message(
     if body.body_markdown.trim().is_empty() {
         return Err(ApiError::invalid("Message body is required"));
     }
-    let message_id = Uuid::now_v7();
-    let effective_thread = thread_id.unwrap_or(message_id);
-    let now = OffsetDateTime::now_utc();
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    sqlx::query("SET CONSTRAINTS ALL DEFERRED")
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    let channel = sqlx::query(
-        "SELECT space_id,kind,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE",
+    let message_id = MessageId::from_uuid(Uuid::now_v7());
+    let mut storage = state.storage.clone();
+    let published = PublishMessage::execute(
+        &mut storage,
+        MessageDraft {
+            message_id,
+            channel_id: ChannelId::from_uuid(channel_id),
+            author_member_id: MemberId::from_uuid(author),
+            thread_id: thread_id.map(ThreadId::from_uuid),
+            reply_to_message_id: body.reply_to_message_id.map(MessageId::from_uuid),
+            body_markdown: body.body_markdown,
+            mentions: body.mentions.into_iter().map(MemberId::from_uuid).collect(),
+            attachment_ids: body
+                .attachment_ids
+                .into_iter()
+                .map(AttachmentId::from_uuid)
+                .collect(),
+            handled_item: handled_item.map(|(run_id, item_id)| {
+                (RunId::from_uuid(run_id), InboxItemId::from_uuid(item_id))
+            }),
+            expected_snapshot,
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
     .await
-    .map_err(map_sqlx)?;
-    let space_id: Uuid = channel.get("space_id");
-    let channel_kind: String = channel.get("kind");
-    let snapshot: i64 = channel.get("snapshot");
-    if expected_snapshot.is_some_and(|expected| u64::try_from(snapshot).ok() != Some(expected)) {
-        return Err(ApiError::context_changed());
-    }
-    let seq: i64 = sqlx::query_scalar(
-        "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
-    )
-    .bind(channel_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,reply_to_message_id,author_member_id,body_markdown,created_at) VALUES($1,$2,$3,$4,$5,$6,'text',$7,$8,$9,$10)")
-        .bind(message_id).bind(space_id).bind(channel_id).bind(effective_thread).bind(seq)
-        .bind(if thread_id.is_some(){"reply"}else{"root"}).bind(body.reply_to_message_id)
-        .bind(author).bind(body.body_markdown).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    if thread_id.is_none() {
-        sqlx::query("INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES($1,$2,$3,$1,$4)")
-            .bind(message_id).bind(space_id).bind(channel_id).bind(now)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    }
-    for (position, attachment_id) in body.attachment_ids.into_iter().enumerate() {
-        sqlx::query("INSERT INTO message_attachments(message_id,attachment_id,space_id,position) VALUES($1,$2,$3,$4)")
-            .bind(message_id).bind(attachment_id).bind(space_id).bind(position as i32)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    }
-    if let Some((run_id, item_id)) = handled_item {
-        let updated = sqlx::query(
-            "UPDATE run_items SET disposition='handled' \
-             WHERE run_id=$1 AND inbox_item_id=$2 \
-               AND (disposition IS NULL OR disposition='handled') RETURNING inbox_item_id",
-        )
-        .bind(run_id)
-        .bind(item_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-        if updated.is_none() {
-            return Err(ApiError {
-                status: StatusCode::CONFLICT,
-                code: "conflict",
-                message: "Inbox Item is not leased by the current Run",
-            });
-        }
-    }
-    let task_id = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM tasks WHERE status NOT IN ('done','closed') AND \
-         (source_thread_id=$1 OR EXISTS(SELECT 1 FROM task_threads WHERE task_id=tasks.id AND thread_id=$1)) \
-         LIMIT 1",
-    )
-    .bind(effective_thread)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?;
-    let reply_author = match body.reply_to_message_id {
-        Some(reply_to) => sqlx::query_scalar::<_, Uuid>(
-            "SELECT author_member_id FROM messages WHERE id=$1 AND thread_id=$2",
-        )
-        .bind(reply_to)
-        .bind(effective_thread)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?,
-        None => None,
-    };
-    let recipients = sqlx::query("SELECT m.id FROM channel_members cm JOIN members m ON m.id=cm.member_id WHERE cm.channel_id=$1 AND m.kind='agent' AND m.id<>$2")
-        .bind(channel_id).bind(author).fetch_all(&mut *transaction).await.map_err(map_sqlx)?;
-    let mentioned = body.mentions.into_iter().collect::<BTreeSet<_>>();
-    let mut hard_item_ids = Vec::new();
-    for recipient in recipients {
-        let agent_id: Uuid = recipient.get("id");
-        let (kind, strength) = if task_id.is_some() {
-            ("task_activity", "hard")
-        } else if channel_kind == "direct" {
-            ("direct", "hard")
-        } else if mentioned.contains(&agent_id) {
-            ("mention", "hard")
-        } else if reply_author == Some(agent_id) {
-            ("reply", "hard")
-        } else {
-            ("channel_activity", "ambient")
-        };
-        let item_id = Uuid::now_v7();
-        sqlx::query("INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,available_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$9)")
-            .bind(item_id).bind(space_id).bind(agent_id).bind(message_id).bind(effective_thread).bind(task_id)
-            .bind(kind).bind(strength).bind(now)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-        if strength == "hard" {
-            hard_item_ids.push(InboxItemId::from_uuid(item_id));
-        }
-    }
-    sqlx::query(
-        "INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) \
-         VALUES($1,$2,'message.created',$3,$4)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(
-        json!({"message_id": message_id, "channel_id": channel_id, "thread_id": effective_thread}),
-    )
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    for item_id in hard_item_ids {
+    .map_err(application_error)?;
+    for item_id in published.hard_item_ids {
         let mut storage = state.storage.clone();
         if let Err(error) =
             RouteHardItem::execute(&mut storage, RouteHardItemInput { item_id }).await
@@ -2567,7 +2472,7 @@ async fn insert_message(
             tracing::warn!(%item_id, error = %error, "hard Inbox Item remains pending after immediate routing failed");
         }
     }
-    Ok(message_id)
+    Ok(message_id.into_uuid())
 }
 
 async fn require_active_agent_run(
@@ -2616,6 +2521,7 @@ async fn agent_create_upload(
     }
     let key = idempotency_header(&headers)?;
     let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, agent_id, "attachment.upload.create", key).await?;
     if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
         "SELECT resource_id FROM idempotency_records \
          WHERE actor_member_id=$1 AND action='attachment.upload.create' AND idempotency_key=$2",
@@ -2667,6 +2573,9 @@ async fn agent_upload_content(
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
     require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    if body.len() as u64 > state.attachment_max_bytes {
+        return Err(ApiError::invalid("Attachment is too large"));
+    }
     let object_key = sqlx::query_scalar::<_, String>(
         "SELECT object_key FROM attachments \
          WHERE id=$1 AND uploader_member_id=$2 AND status='uploading'",
@@ -2716,6 +2625,13 @@ async fn agent_complete_upload(
     }
     let now = OffsetDateTime::now_utc();
     let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(
+        &mut transaction,
+        agent_id,
+        "attachment.upload.complete",
+        key,
+    )
+    .await?;
     let already_applied: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM idempotency_records \
          WHERE actor_member_id=$1 AND action='attachment.upload.complete' AND idempotency_key=$2)",
@@ -2808,6 +2724,21 @@ async fn insert_attachment_write_records(
     Ok(())
 }
 
+async fn lock_idempotency(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor_id: Uuid,
+    action: &str,
+    key: Uuid,
+) -> Result<(), ApiError> {
+    let lock_key = format!("{actor_id}:{action}:{key}");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(lock_key)
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(())
+}
+
 fn idempotency_header(headers: &HeaderMap) -> Result<Uuid, ApiError> {
     headers
         .get("idempotency-key")
@@ -2819,6 +2750,7 @@ fn idempotency_header(headers: &HeaderMap) -> Result<Uuid, ApiError> {
 async fn create_upload(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Json(body): Json<CreateUploadBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let member = current_member(&state, &jar, body.space_id).await?;
@@ -2827,17 +2759,52 @@ async fn create_upload(
             "Attachment name and media type are required",
         ));
     }
+    let key = idempotency_header(&headers)?;
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, member, "attachment.upload.create", key).await?;
+    if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT resource_id FROM idempotency_records \
+         WHERE actor_member_id=$1 AND action='attachment.upload.create' AND idempotency_key=$2",
+    )
+    .bind(member)
+    .bind(key)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    {
+        let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
+            .bind(existing_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx)?;
+        transaction.commit().await.map_err(map_sqlx)?;
+        let mut value = attachment_row(&row);
+        value["upload_path"] = json!(format!("/api/v1/attachments/{existing_id}/content"));
+        return Ok((StatusCode::OK, Json(value)));
+    }
     let id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
     let object_key = format!("spaces/{}/attachments/{}", body.space_id, id);
     sqlx::query("INSERT INTO attachments(id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,'uploading',$7)")
-        .bind(id).bind(body.space_id).bind(member).bind(body.original_name).bind(body.media_type).bind(object_key).bind(now)
-        .execute(&state.pool).await.map_err(map_sqlx)?;
+        .bind(id).bind(body.space_id).bind(member).bind(body.original_name.trim()).bind(body.media_type.trim()).bind(object_key).bind(now)
+        .execute(&mut *transaction).await.map_err(map_sqlx)?;
+    insert_attachment_write_records(
+        &mut transaction,
+        body.space_id,
+        member,
+        "attachment.upload.create",
+        key,
+        id,
+        "attachment.created",
+        now,
+    )
+    .await?;
     let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *transaction)
         .await
         .map_err(map_sqlx)?;
+    transaction.commit().await.map_err(map_sqlx)?;
     let mut value = attachment_row(&row);
     value["upload_path"] = json!(format!("/api/v1/attachments/{id}/content"));
     Ok((StatusCode::CREATED, Json(value)))
@@ -2849,13 +2816,21 @@ async fn upload_content(
     Path(attachment_id): Path<Uuid>,
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
-    let row = sqlx::query("SELECT space_id,object_key,status FROM attachments WHERE id=$1")
-        .bind(attachment_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    current_member(&state, &jar, row.get("space_id")).await?;
+    if body.len() as u64 > state.attachment_max_bytes {
+        return Err(ApiError::invalid("Attachment is too large"));
+    }
+    let row = sqlx::query(
+        "SELECT space_id,uploader_member_id,object_key,status FROM attachments WHERE id=$1",
+    )
+    .bind(attachment_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    let member = current_member(&state, &jar, row.get("space_id")).await?;
+    if row.get::<Uuid, _>("uploader_member_id") != member {
+        return Err(ApiError::permission_denied());
+    }
     if row.get::<&str, _>("status") != "uploading" {
         return Err(ApiError {
             status: StatusCode::CONFLICT,
@@ -2874,16 +2849,24 @@ async fn upload_content(
 async fn complete_upload(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Path(attachment_id): Path<Uuid>,
     Json(body): Json<CompleteUploadBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = sqlx::query("SELECT space_id,object_key,status FROM attachments WHERE id=$1")
-        .bind(attachment_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    current_member(&state, &jar, row.get("space_id")).await?;
+    let row = sqlx::query(
+        "SELECT space_id,uploader_member_id,object_key,status FROM attachments WHERE id=$1",
+    )
+    .bind(attachment_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    let space_id = row.get("space_id");
+    let member = current_member(&state, &jar, space_id).await?;
+    if row.get::<Uuid, _>("uploader_member_id") != member {
+        return Err(ApiError::permission_denied());
+    }
+    let key = idempotency_header(&headers)?;
     let content = state
         .objects
         .get(row.get("object_key"))
@@ -2895,14 +2878,47 @@ async fn complete_upload(
             "Attachment size or SHA-256 does not match uploaded content",
         ));
     }
-    sqlx::query("UPDATE attachments SET length=$2,sha256=$3,status='ready',ready_at=$4 WHERE id=$1 AND status='uploading'")
-        .bind(attachment_id).bind(i64::try_from(body.size).map_err(|_|ApiError::invalid("Attachment is too large"))?).bind(digest.as_slice()).bind(OffsetDateTime::now_utc())
-        .execute(&state.pool).await.map_err(map_sqlx)?;
+    let now = OffsetDateTime::now_utc();
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, member, "attachment.upload.complete", key).await?;
+    let already_applied: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM idempotency_records \
+         WHERE actor_member_id=$1 AND action='attachment.upload.complete' AND idempotency_key=$2)",
+    )
+    .bind(member)
+    .bind(key)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
+    if !already_applied {
+        let changed = sqlx::query("UPDATE attachments SET length=$2,sha256=$3,status='ready',ready_at=$4 WHERE id=$1 AND uploader_member_id=$5 AND status='uploading'")
+            .bind(attachment_id).bind(i64::try_from(body.size).map_err(|_|ApiError::invalid("Attachment is too large"))?).bind(digest.as_slice()).bind(now).bind(member)
+            .execute(&mut *transaction).await.map_err(map_sqlx)?;
+        if changed.rows_affected() != 1 {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                code: "conflict",
+                message: "Attachment upload is not open",
+            });
+        }
+        insert_attachment_write_records(
+            &mut transaction,
+            space_id,
+            member,
+            "attachment.upload.complete",
+            key,
+            attachment_id,
+            "attachment.ready",
+            now,
+        )
+        .await?;
+    }
     let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
         .bind(attachment_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *transaction)
         .await
         .map_err(map_sqlx)?;
+    transaction.commit().await.map_err(map_sqlx)?;
     let mut value = attachment_row(&row);
     value["download_path"] = json!(format!("/api/v1/attachments/{attachment_id}/download"));
     Ok(Json(value))
@@ -2912,23 +2928,54 @@ async fn download_attachment(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(attachment_id): Path<Uuid>,
-) -> Result<Bytes, ApiError> {
-    let row = sqlx::query("SELECT space_id,object_key,status FROM attachments WHERE id=$1")
-        .bind(attachment_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    current_member(&state, &jar, row.get("space_id")).await?;
+) -> Result<Response, ApiError> {
+    let row = sqlx::query(
+        "SELECT space_id,object_key,status,name,media_type FROM attachments WHERE id=$1",
+    )
+    .bind(attachment_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    let member = current_member(&state, &jar, row.get("space_id")).await?;
     if row.get::<&str, _>("status") != "ready" {
         return Err(ApiError::not_found());
     }
-    state
+    let linked: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM message_attachments links \
+         JOIN messages ON messages.id=links.message_id \
+         JOIN channel_members members ON members.channel_id=messages.channel_id \
+         WHERE links.attachment_id=$1 AND members.member_id=$2)",
+    )
+    .bind(attachment_id)
+    .bind(member)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    if !linked {
+        return Err(ApiError::permission_denied());
+    }
+    let content = state
         .objects
         .get(row.get("object_key"))
         .await
         .map(Bytes::from)
-        .map_err(application_error)
+        .map_err(application_error)?;
+    let filename = row
+        .get::<String, _>("name")
+        .replace(['\\', '"', '\r', '\n'], "_");
+    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+        .map_err(|_| ApiError::invalid("Attachment name cannot be represented in a header"))?;
+    let media_type = HeaderValue::from_str(row.get("media_type"))
+        .map_err(|_| ApiError::invalid("Attachment media type is invalid"))?;
+    Ok((
+        [
+            (header::CONTENT_DISPOSITION, disposition),
+            (header::CONTENT_TYPE, media_type),
+        ],
+        content,
+    )
+        .into_response())
 }
 
 struct BrowserUser {
@@ -3094,8 +3141,21 @@ fn space_row(row: &sqlx::postgres::PgRow) -> Value {
     )
 }
 fn channel_row(row: &sqlx::postgres::PgRow, creator: Uuid) -> Value {
-    let slug: String = row.get("slug");
-    json!({"id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),"name":slug,"slug":row.get::<String,_>("slug"),"topic":row.get::<Option<String>,_>("topic"),"kind":row.get::<String,_>("kind"),"created_by_member_id":creator,"joined":row.get::<bool,_>("joined"),"archived_at":optional_timestamp(row.get("archived_at"))})
+    let kind = match row.get::<&str, _>("kind") {
+        "public" => ChannelKind::Public,
+        "private" => ChannelKind::Private,
+        "direct" => ChannelKind::Direct,
+        _ => ChannelKind::Private,
+    };
+    let kind = match kind {
+        ChannelKind::Public => "public",
+        ChannelKind::Private => "private",
+        ChannelKind::Direct => "direct",
+    };
+    let slug: Option<String> = row.get("slug");
+    let topic: Option<String> = row.get("topic");
+    let name = topic.clone().or_else(|| slug.clone()).unwrap_or_default();
+    json!({"id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),"name":name,"slug":slug,"topic":topic,"kind":kind,"created_by_member_id":creator,"joined":row.get::<bool,_>("joined"),"archived_at":optional_timestamp(row.get("archived_at"))})
 }
 async fn member_row(pool: &PgPool, row: &sqlx::postgres::PgRow) -> Result<Value, ApiError> {
     let id: Uuid = row.get("id");
@@ -3277,6 +3337,7 @@ mod tests {
     use url::Url;
 
     use super::*;
+    use crate::ids::AgentId;
 
     struct CapabilityFixture {
         state: RuntimeState,
@@ -3356,6 +3417,7 @@ mod tests {
                 storage,
                 objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
                 session_ttl_hours: 1,
+                attachment_max_bytes: 100 * 1024 * 1024,
             };
             let mut headers = HeaderMap::new();
             headers.insert(

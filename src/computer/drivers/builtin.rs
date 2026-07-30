@@ -54,8 +54,11 @@ impl<C: StructuredProviderClient> ProviderBackend for BuiltinAdapter<C> {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
+        run_token: &str,
     ) -> Result<(), ApplicationError> {
-        self.client.start_turn(run_id, locator, input).await
+        self.client
+            .start_turn(run_id, locator, input, run_token)
+            .await
     }
 
     async fn steer(

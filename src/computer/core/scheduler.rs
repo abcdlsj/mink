@@ -99,6 +99,7 @@ impl Scheduler {
         None
     }
 
+    #[cfg(test)]
     pub(in crate::computer) fn release(&mut self, run_id: RunId) {
         self.active_agents.retain(|_, active| *active != run_id);
     }

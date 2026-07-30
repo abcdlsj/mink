@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use crate::agent_core::types::{ToolCall, ToolResult};
+use super::types::{ToolCall, ToolResult};
 
 /// Events published during tool execution.
 #[derive(Clone, Debug)]
-pub enum ToolEvent {
+pub(super) enum ToolEvent {
     Started { tool: String },
     Finished { tool: String },
     Failed { tool: String },
@@ -17,21 +17,21 @@ pub enum ToolEvent {
 
 /// Trait for executing tools by name.
 #[async_trait]
-pub trait ToolRunner: Send + Sync {
+pub(super) trait ToolRunner: Send + Sync {
     async fn run(&self, name: &str, args: &Value) -> Result<String>;
 }
 
 #[derive(Clone)]
-pub struct ToolExecutor {
+pub(super) struct ToolExecutor {
     tools: Arc<dyn ToolRunner>,
 }
 
 impl ToolExecutor {
-    pub fn new(tools: Arc<dyn ToolRunner>) -> Self {
+    pub(super) fn new(tools: Arc<dyn ToolRunner>) -> Self {
         Self { tools }
     }
 
-    pub async fn run(
+    pub(super) async fn run(
         &self,
         calls: &[ToolCall],
         blocked_tools: &std::collections::HashMap<String, String>,

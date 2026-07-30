@@ -16,7 +16,29 @@ pub(in crate::server) struct Member {
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) display_name: String,
     pub(in crate::server) handle: String,
+    pub(in crate::server) access_level: AccessLevel,
     pub(in crate::server) created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum AccessLevel {
+    Owner,
+    Admin,
+    Member,
+}
+
+impl AccessLevel {
+    pub(in crate::server) fn can_manage_space(self) -> bool {
+        matches!(self, Self::Owner | Self::Admin)
+    }
+
+    pub(in crate::server) fn can_grant(self, requested: Self) -> bool {
+        match requested {
+            Self::Owner => false,
+            Self::Admin => self == Self::Owner,
+            Self::Member => self.can_manage_space(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -60,7 +82,6 @@ impl Agent {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum ComputerLifecycle {
-    Pairing,
     Online,
     Offline,
     Deleted,

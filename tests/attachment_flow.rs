@@ -114,7 +114,7 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
         "must roll back before ready",
     )
     .await?;
-    ensure!(premature.status() == StatusCode::BAD_REQUEST);
+    ensure!(premature.status() == StatusCode::CONFLICT);
     assert_channel_unchanged(&pool, space.general_channel_id).await?;
 
     let oversized = client
@@ -134,7 +134,7 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
     ensure!(content.status() == StatusCode::NO_CONTENT);
 
     let unlinked_download = download(&client, &server_url, &owner_cookie, uploading.id).await?;
-    ensure!(unlinked_download.status() == StatusCode::FORBIDDEN);
+    ensure!(unlinked_download.status() == StatusCode::NOT_FOUND);
 
     let declared_sha = hex::encode(Sha256::digest(ATTACHMENT_BODY));
     let mismatch = complete(
@@ -150,7 +150,7 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
     ensure!(mismatch.status() == StatusCode::BAD_REQUEST);
     let incomplete_facts: (String, i64) = sqlx::query_as(
         "SELECT status, (SELECT count(*) FROM outbox_events \
-         WHERE topic = 'attachment.ready' AND aggregate_id = attachments.id) \
+         WHERE kind = 'attachment.ready' AND payload_json->>'attachment_id' = attachments.id::text) \
          FROM attachments WHERE id = $1",
     )
     .bind(uploading.id)
@@ -217,7 +217,7 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
     );
     ensure!(owner_download.bytes().await?.as_ref() == ATTACHMENT_BODY);
     let outsider_download = download(&client, &server_url, &outsider_cookie, ready.id).await?;
-    ensure!(outsider_download.status() == StatusCode::FORBIDDEN);
+    ensure!(outsider_download.status() == StatusCode::NOT_FOUND);
 
     let duplicate_link = send_message(
         &client,
@@ -228,15 +228,15 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
         "must not link twice",
     )
     .await?;
-    ensure!(duplicate_link.status() == StatusCode::BAD_REQUEST);
+    ensure!(duplicate_link.status() == StatusCode::CONFLICT);
 
     let facts: (String, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT attachments.status, \
            (SELECT count(*) FROM message_attachments WHERE attachment_id = $1), \
            (SELECT count(*) FROM messages WHERE channel_id = $2), \
            (SELECT next_seq FROM channels WHERE id = $2), \
-           (SELECT count(*) FROM outbox_events WHERE topic = 'attachment.ready' AND aggregate_id = $1), \
-           (SELECT count(*) FROM outbox_events WHERE topic = 'message.created' AND aggregate_id = $3) \
+           (SELECT count(*) FROM outbox_events WHERE kind = 'attachment.ready' AND payload_json->>'attachment_id' = $1::text), \
+           (SELECT count(*) FROM outbox_events WHERE kind = 'message.created' AND payload_json->>'resource_id' = $3::text) \
          FROM attachments WHERE attachments.id = $1",
     )
     .bind(ready.id)
@@ -244,7 +244,10 @@ async fn run_attachment_flow(database: &TestDatabase) -> Result<()> {
     .bind(linked.id)
     .fetch_one(&pool)
     .await?;
-    ensure!(facts == ("ready".to_owned(), 1, 1, 2, 1, 1));
+    ensure!(
+        facts == ("ready".to_owned(), 1, 1, 2, 1, 1),
+        "unexpected persisted facts: {facts:?}"
+    );
     ensure!(!server.logs_contain("exact-payload"));
 
     server.ensure_running()?;

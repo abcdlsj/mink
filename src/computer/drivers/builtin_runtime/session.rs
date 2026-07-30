@@ -1,16 +1,18 @@
-use crate::agent_core::types::{Message, TokenUsage};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default)]
-pub struct Session {
-    pub messages: Vec<Message>,
+use super::types::{Message, TokenUsage};
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(super) struct Session {
+    pub(super) messages: Vec<Message>,
 }
 
 impl Session {
-    pub fn add(&mut self, message: Message) {
+    pub(super) fn add(&mut self, message: Message) {
         self.messages.push(message);
     }
 
-    pub fn token_usage(&self) -> TokenUsage {
+    pub(super) fn token_usage(&self) -> TokenUsage {
         self.messages
             .iter()
             .filter_map(|message| message.usage.as_ref())
@@ -26,7 +28,7 @@ impl Session {
 
     /// Strips image attachments from all user messages.
     /// Returns true if any images were removed.
-    pub fn strip_image_attachments(&mut self, add_note: bool) -> bool {
+    pub(super) fn strip_image_attachments(&mut self, add_note: bool) -> bool {
         let mut changed = false;
         for m in &mut self.messages {
             if m.role != "user" || m.attachments.is_empty() {

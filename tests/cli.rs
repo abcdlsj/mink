@@ -61,7 +61,7 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
         .output()
         .unwrap();
     assert_eq!(invalid_arguments.status.code(), Some(2));
-    assert_json_error(&invalid_arguments.stdout, "invalid_arguments", false);
+    assert_json_error(&invalid_arguments.stdout, "invalid_argument", false);
 
     let parse_error = Command::cargo_bin("sumi")
         .unwrap()
@@ -69,35 +69,36 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
         .output()
         .unwrap();
     assert_eq!(parse_error.status.code(), Some(2));
-    assert_json_error(&parse_error.stdout, "invalid_arguments", false);
+    assert_json_error(&parse_error.stdout, "invalid_argument", false);
 
     let missing_capability = Command::cargo_bin("sumi")
         .unwrap()
-        .args(["agent", "whoami", "--json"])
+        .args(["agent", "context", "current", "--json"])
         .env_remove("SUMI_RUN_TOKEN")
         .env_remove("SUMI_SOCKET")
         .output()
         .unwrap();
-    assert_eq!(missing_capability.status.code(), Some(3));
-    assert_json_error(&missing_capability.stdout, "permission_denied", false);
+    assert_eq!(missing_capability.status.code(), Some(1));
+    assert_json_error(&missing_capability.stdout, "unauthenticated", false);
 
     let unavailable = Command::cargo_bin("sumi")
         .unwrap()
-        .args(["agent", "whoami", "--json"])
+        .args(["agent", "context", "current", "--json"])
         .env("SUMI_RUN_TOKEN", "run-token")
         .env("SUMI_SOCKET", "/definitely/missing/sumi.sock")
         .output()
         .unwrap();
-    assert_eq!(unavailable.status.code(), Some(6));
-    assert_json_error(&unavailable.stdout, "daemon_unavailable", true);
+    assert_eq!(unavailable.status.code(), Some(1));
+    assert_json_error(&unavailable.stdout, "unavailable", true);
 
-    for (error_code, retryable, expected_exit) in [
-        ("permission_denied", false, 3),
-        ("message_not_found", false, 4),
-        ("channel_not_found", false, 4),
-        ("context_changed", false, 5),
-        ("server_unavailable", true, 6),
-        ("internal_error", false, 7),
+    for (error_code, retryable) in [
+        ("permission_denied", false),
+        ("not_found", false),
+        ("conflict", false),
+        ("context_changed", false),
+        ("rate_limited", true),
+        ("unavailable", true),
+        ("internal", false),
     ] {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("daemon.sock");
@@ -110,18 +111,22 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
                 "code": error_code,
                 "message": "classified failure",
                 "retryable": retryable,
-                "details": (error_code == "context_changed").then(|| serde_json::json!({
-                    "snapshot_channel_seq": 10,
-                    "latest_channel_seq": 11,
-                    "changes": [{
-                        "id": "01969f98-bcee-7da0-a150-e0d0de169c00",
-                        "seq": 11,
-                        "address": "#general:1",
-                        "thread_id": 1,
-                        "author": { "id": "01969f98-bcee-7da0-a150-e0d0de169c01" }
-                    }],
-                    "has_more": false
-                }))
+                "details": if error_code == "context_changed" {
+                    serde_json::json!({
+                        "snapshot_channel_seq": 10,
+                        "latest_channel_seq": 11,
+                        "changes": [{
+                            "id": "01969f98-bcee-7da0-a150-e0d0de169c00",
+                            "seq": 11,
+                            "address": "#general:1",
+                            "thread_id": 1,
+                            "author": { "id": "01969f98-bcee-7da0-a150-e0d0de169c01" }
+                        }],
+                        "has_more": false
+                    })
+                } else {
+                    serde_json::json!({})
+                }
             }
         });
         let server = std::thread::spawn(move || {
@@ -135,13 +140,13 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
         });
         let output = Command::cargo_bin("sumi")
             .unwrap()
-            .args(["agent", "whoami", "--json"])
+            .args(["agent", "context", "current", "--json"])
             .env("SUMI_RUN_TOKEN", "run-token")
             .env("SUMI_SOCKET", &socket)
             .output()
             .unwrap();
         server.join().unwrap();
-        assert_eq!(output.status.code(), Some(expected_exit));
+        assert_eq!(output.status.code(), Some(1));
         let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(envelope["error"]["code"], error_code);
         if error_code == "context_changed" {

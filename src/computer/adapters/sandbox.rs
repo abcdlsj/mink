@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 
 use tokio::process::Command;
 
@@ -33,11 +36,17 @@ impl SandboxAdapter {
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
                   (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
-                  (literal \"{}\") (subpath \"{}\"))\
+                  (literal \"{}\") (literal \"{}\") \
+                  (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
+                  (literal \"{}\"))\
                  (allow file-write* (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))",
                 escape(executable)?,
                 escape(agent_home)?,
+                escape(&agent_home.join("workspace"))?,
+                escape(&agent_home.join("memory"))?,
+                escape(&agent_home.join("runs"))?,
+                escape(socket)?,
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("runs"))?,
                 escape(socket)?,
@@ -65,9 +74,20 @@ impl SandboxAdapter {
                 .arg("--ro-bind")
                 .arg("/lib")
                 .arg("/lib")
-                .arg("--bind")
-                .arg(agent_home)
+                .arg("--dir")
                 .arg("/agent")
+                .arg("--bind")
+                .arg(agent_home.join("workspace"))
+                .arg("/agent/workspace")
+                .arg("--bind")
+                .arg(agent_home.join("memory"))
+                .arg("/agent/memory")
+                .arg("--bind")
+                .arg(agent_home.join("runs"))
+                .arg("/agent/runs")
+                .arg("--ro-bind")
+                .arg(driver_home)
+                .arg("/agent/driver")
                 .arg("--ro-bind")
                 .arg(socket)
                 .arg("/runtime/daemon.sock")
@@ -112,11 +132,6 @@ fn executable_on_path(name: &str) -> Option<PathBuf> {
             .map(|directory| directory.join(name))
             .find(|candidate| candidate.is_file())
     })
-}
-
-#[cfg(not(target_os = "linux"))]
-fn executable_on_path(_: &str) -> Option<PathBuf> {
-    None
 }
 
 #[cfg(target_os = "macos")]

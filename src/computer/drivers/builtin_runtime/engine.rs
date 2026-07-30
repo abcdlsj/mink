@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use crate::agent_core::{
+use super::{
     provider::Provider,
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor},
@@ -13,26 +13,26 @@ use crate::agent_core::{
 
 /// Represents the context for a single agent turn.
 #[derive(Clone, Debug)]
-pub struct Turn {
-    pub input: String,
-    pub blocked_tools: HashMap<String, String>,
+pub(super) struct Turn {
+    pub(super) input: String,
+    pub(super) blocked_tools: HashMap<String, String>,
 }
 
 /// The core agent engine that runs the LLM → tool → LLM loop.
-pub struct Engine {
+pub(super) struct Engine {
     provider: Arc<dyn Provider>,
     tool_executor: ToolExecutor,
     system_messages: Vec<Message>,
     tool_defs: Vec<ToolDef>,
 }
 
-pub struct StreamSink {
-    pub text: mpsc::Sender<String>,
-    pub reasoning: mpsc::Sender<String>,
+pub(super) struct StreamSink {
+    pub(super) text: mpsc::Sender<String>,
+    pub(super) reasoning: mpsc::Sender<String>,
 }
 
 impl Engine {
-    pub fn new(
+    pub(super) fn new(
         provider: Arc<dyn Provider>,
         tool_executor: ToolExecutor,
         system_messages: Vec<Message>,
@@ -48,7 +48,7 @@ impl Engine {
 
     /// Run a complete agent turn. Adds the user message, then loops
     /// through step() until no more tool calls are returned.
-    pub async fn run(
+    pub(super) async fn run(
         &self,
         turn: &Turn,
         session: &mut Session,
@@ -188,8 +188,8 @@ impl Engine {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{tool_executor::ToolRunner, types::ToolDef};
     use super::*;
-    use crate::agent_core::{tool_executor::ToolRunner, types::ToolDef};
     use async_trait::async_trait;
     use serde_json::Value;
 

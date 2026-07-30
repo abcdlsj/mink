@@ -43,7 +43,7 @@ impl AgentHomeAdapter {
         ] {
             create_private_dir(&home.join(relative)).await?;
         }
-        if agent.driver == crate::computer::core::session::DriverKind::Codex {
+        if agent.driver == crate::computer::application::DriverKind::Codex {
             self.install_codex_sources(&home.join("drivers/codex"))
                 .await?;
         }

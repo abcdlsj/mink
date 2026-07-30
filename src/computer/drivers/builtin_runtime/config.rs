@@ -2,17 +2,19 @@ use std::{collections::BTreeMap, fs, os::unix::fs::PermissionsExt, path::Path};
 
 use anyhow::{Context, Result, ensure};
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 use subtle::ConstantTimeEq;
 use url::Url;
 use zeroize::Zeroizing;
 
-use crate::{agent_core::provider::ProviderConfig, config::ComputerConfig};
+use crate::config::ComputerConfig;
+
+use super::provider::ProviderConfig;
 
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone)]
-pub struct LocalSecret(SecretString);
+pub(super) struct LocalSecret(SecretString);
 
 impl PartialEq for LocalSecret {
     fn eq(&self, other: &Self) -> bool {
@@ -41,15 +43,6 @@ impl std::fmt::Debug for LocalSecret {
     }
 }
 
-impl Serialize for LocalSecret {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.expose())
-    }
-}
-
 impl<'de> Deserialize<'de> for LocalSecret {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -59,25 +52,21 @@ impl<'de> Deserialize<'de> for LocalSecret {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BuiltinAuthentication {
-    pub provider: String,
-    pub api_key: LocalSecret,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct BuiltinAuthentication {
+    pub(super) provider: String,
+    pub(super) api_key: LocalSecret,
 }
 
 #[derive(Clone)]
-pub struct BuiltinProviderConfig {
+pub(super) struct BuiltinProviderConfig {
     model: String,
     base_url: Url,
     authentication: BuiltinAuthentication,
 }
 
 impl BuiltinProviderConfig {
-    pub fn authentication(&self) -> &BuiltinAuthentication {
-        &self.authentication
-    }
-
-    pub fn into_provider_config(self) -> ProviderConfig {
+    pub(super) fn into_provider_config(self) -> ProviderConfig {
         ProviderConfig::openai(
             SecretString::from(self.authentication.api_key.expose().to_owned()),
             self.model,
@@ -114,7 +103,7 @@ struct PiAuthentication {
     key: LocalSecret,
 }
 
-pub fn load(config: &ComputerConfig) -> Result<Option<BuiltinProviderConfig>> {
+pub(super) fn load(config: &ComputerConfig) -> Result<Option<BuiltinProviderConfig>> {
     let paths = match (
         config.builtin_settings_source.as_deref(),
         config.builtin_models_source.as_deref(),
@@ -245,11 +234,11 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::*;
-    use crate::agent_core::{
+    use super::super::{
         provider::{OpenAiProvider, Provider},
         types::{Chunk, Message},
     };
+    use super::*;
 
     fn sources(api: &str) -> (TempDir, ComputerConfig) {
         let directory = tempfile::tempdir().unwrap();

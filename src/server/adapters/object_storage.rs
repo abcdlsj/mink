@@ -57,14 +57,6 @@ impl AttachmentObjectPort for AttachmentObjectStore {
             .map(|bytes| bytes.to_vec())
             .map_err(|_| ApplicationError::Unavailable)
     }
-
-    async fn delete(&self, object_key: &str) -> Result<(), ApplicationError> {
-        let path = Self::path(object_key)?;
-        self.store.delete(&path).await.map_err(|error| match error {
-            object_store::Error::NotFound { .. } => ApplicationError::NotFound,
-            _ => ApplicationError::Unavailable,
-        })
-    }
 }
 
 #[cfg(test)]

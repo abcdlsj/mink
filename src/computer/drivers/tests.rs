@@ -73,6 +73,7 @@ impl StructuredProviderClient for FakeClient {
         run_id: RunId,
         _: &str,
         _: &RunInput,
+        _: &str,
     ) -> Result<(), ApplicationError> {
         self.turns_started += 1;
         self.runs.insert(run_id);

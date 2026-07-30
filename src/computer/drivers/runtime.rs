@@ -332,6 +332,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
+        _: &str,
     ) -> Result<(), ApplicationError> {
         let agent_id = input.agent.agent_id;
         if self.owner_for_locator(locator)? != agent_id {
@@ -481,60 +482,6 @@ impl StructuredProviderClient for CodexRuntimeClient {
     }
 }
 
-pub(super) struct UnavailableRuntimeClient;
-
-#[async_trait(?Send)]
-impl StructuredProviderClient for UnavailableRuntimeClient {
-    async fn validate(&mut self, _: &LocalAgent) -> Result<(), ApplicationError> {
-        Err(ApplicationError::DriverUnavailable)
-    }
-
-    async fn create_session(&mut self, _: AgentId) -> Result<String, ApplicationError> {
-        Err(ApplicationError::DriverUnavailable)
-    }
-
-    async fn resume_session(&mut self, _: AgentId, _: &str) -> Result<bool, ApplicationError> {
-        Err(ApplicationError::DriverUnavailable)
-    }
-
-    async fn start_turn(
-        &mut self,
-        _: RunId,
-        _: &str,
-        _: &RunInput,
-    ) -> Result<(), ApplicationError> {
-        Err(ApplicationError::DriverUnavailable)
-    }
-
-    async fn steer(
-        &mut self,
-        _: &str,
-        _: &ClaimedItemInput,
-    ) -> Result<SteerOutcome, ApplicationError> {
-        Ok(SteerOutcome::Unsupported)
-    }
-
-    async fn notice(&mut self, _: &str) -> Result<(), ApplicationError> {
-        Ok(())
-    }
-
-    async fn interrupt(&mut self, _: &str) -> Result<(), ApplicationError> {
-        Ok(())
-    }
-
-    async fn delete_session(&mut self, _: &str) -> Result<(), ApplicationError> {
-        Ok(())
-    }
-
-    async fn process_evidence(&mut self, _: RunId) -> Result<ProcessEvidence, ApplicationError> {
-        Ok(ProcessEvidence::Lost)
-    }
-
-    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
-        Ok(Vec::new())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
@@ -620,7 +567,10 @@ done
             },
         };
         let run_id = RunId::from_uuid(Uuid::now_v7());
-        client.start_turn(run_id, &locator, &input).await.unwrap();
+        client
+            .start_turn(run_id, &locator, &input, "run-token")
+            .await
+            .unwrap();
         assert_eq!(
             client
                 .steer(

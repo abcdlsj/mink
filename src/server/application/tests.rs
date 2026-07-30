@@ -15,7 +15,8 @@ use crate::server::domain::{
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
     execution::{Run, RunItem, RunOutcome, RunStatus},
     identity::{
-        Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member, PermissionAction,
+        AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
+        PermissionAction,
     },
     task::{CloseReason, Task, TaskStatus},
 };
@@ -23,7 +24,8 @@ use crate::server::domain::{
 use super::{
     attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
     conversation::{
-        CreateAgentAction, CreateAgentActionInput, CreateChannelAction, CreateChannelActionInput,
+        CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
+        CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
     },
     execution::{
         ClaimRun, ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput,
@@ -31,13 +33,96 @@ use super::{
         StartRunInput,
     },
     identity::{DeleteComputer, RetireAgent},
-    ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
+    ports::{
+        ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction,
+        TransactionPort,
+    },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
         FinishAgentTaskAction, FinishAgentTaskInput, FinishAgentTaskRun, LinkThreadInput,
         LinkThreadToTask, TaskAction, TaskPostTarget, TaskSource, UpdateTask, UpdateTaskInput,
     },
 };
+
+#[tokio::test]
+async fn human_channel_and_agent_creation_use_access_and_computer_transaction_rules() {
+    let mut port = MemoryPort::default();
+    let space_id = space(900);
+    let owner_id = member(901);
+    let computer_id = computer(902);
+    port.state.members.insert(
+        owner_id,
+        Member {
+            id: owner_id,
+            space_id,
+            display_name: "Owner".into(),
+            handle: "owner".into(),
+            access_level: AccessLevel::Owner,
+            created_at: OffsetDateTime::now_utc(),
+        },
+    );
+    port.state.computers.insert(
+        computer_id,
+        Computer {
+            id: computer_id,
+            space_id,
+            lifecycle: ComputerLifecycle::Online,
+            token_hash: Some("hash".into()),
+            deleted_at: None,
+        },
+    );
+
+    let channel_id = channel(903);
+    CreateChannel::execute(
+        &mut port,
+        CreateChannelInput {
+            channel_id,
+            space_id,
+            audience: BTreeSet::from([owner_id]),
+            kind: ChannelKind::Private,
+            slug: Some("private".into()),
+            topic: None,
+            actor_member_id: owner_id,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .unwrap();
+    let agent_id = member(904);
+    CreateAgent::execute(
+        &mut port,
+        CreateAgentInput {
+            agent_member_id: agent_id,
+            space_id,
+            display_name: "Agent".into(),
+            handle: "agent".into(),
+            access_level: AccessLevel::Admin,
+            role_text: "Review changes".into(),
+            computer_id,
+            driver_kind: DriverKind::Builtin,
+            actor_member_id: owner_id,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(port.state.channels.contains_key(&channel_id));
+    assert_eq!(
+        port.state.members[&agent_id].access_level,
+        AccessLevel::Admin
+    );
+    assert_eq!(
+        port.state.effects,
+        vec![
+            Effect::ChannelCreated(channel_id),
+            Effect::AgentCreated {
+                agent_id,
+                computer_id,
+            },
+        ]
+    );
+}
 
 #[derive(Clone, Default)]
 struct MemoryState {
@@ -268,11 +353,64 @@ impl ServerTransaction for MemoryTransaction {
             .contains(&(computer_id, agent_id)))
     }
 
+    async fn member_access_level(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<AccessLevel, ApplicationError> {
+        self.state
+            .members
+            .get(&member_id)
+            .filter(|member| member.space_id == space_id)
+            .map(|member| member.access_level)
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn computer_accepts_agent(
+        &mut self,
+        computer_id: ComputerId,
+        space_id: SpaceId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
+            .computers
+            .get(&computer_id)
+            .is_some_and(|computer| {
+                computer.space_id == space_id && computer.lifecycle == ComputerLifecycle::Online
+            }))
+    }
+
     async fn thread_message_sequence(
         &mut self,
         _thread_id: ThreadId,
     ) -> Result<u64, ApplicationError> {
         Ok(0)
+    }
+
+    async fn publish_message(
+        &mut self,
+        draft: MessageDraft,
+    ) -> Result<PublishedMessage, ApplicationError> {
+        let thread_id = draft
+            .thread_id
+            .unwrap_or_else(|| ThreadId::from_uuid(draft.message_id.into_uuid()));
+        self.insert_message(Message {
+            id: draft.message_id,
+            thread_id,
+            author_member_id: draft.author_member_id,
+            placement: if draft.thread_id.is_some() {
+                MessagePlacement::Reply
+            } else {
+                MessagePlacement::Root
+            },
+            content: MessageContent::Text(draft.body_markdown),
+            created_at: draft.now,
+        })
+        .await?;
+        Ok(PublishedMessage {
+            message_id: draft.message_id,
+            hard_item_ids: Vec::new(),
+        })
     }
 
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {

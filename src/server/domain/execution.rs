@@ -22,6 +22,7 @@ pub(in crate::server) enum RunStatus {
 }
 
 impl RunStatus {
+    #[cfg(test)]
     pub(in crate::server) fn is_active(self) -> bool {
         !matches!(
             self,

@@ -1,13 +1,13 @@
 use crate::ids::{
-    ChannelId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId,
-    TaskId, ThreadId,
+    AttachmentId, ChannelId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId, MessageId,
+    RunId, TaskId, ThreadId,
 };
 
 use crate::server::domain::{
     attention::InboxItem,
     conversation::{Channel, Message, Thread},
     execution::Run,
-    identity::{Agent, Computer, Member},
+    identity::{AccessLevel, Agent, Computer, Member},
     task::Task,
 };
 
@@ -47,7 +47,6 @@ pub(in crate::server) trait AttachmentObjectPort: Send + Sync {
         content: Vec<u8>,
     ) -> Result<StoredObject, ApplicationError>;
     async fn get(&self, object_key: &str) -> Result<Vec<u8>, ApplicationError>;
-    async fn delete(&self, object_key: &str) -> Result<(), ApplicationError>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +98,25 @@ pub(in crate::server) enum Effect {
         agent_id: MemberId,
         computer_id: ComputerId,
     },
+}
+
+pub(in crate::server) struct MessageDraft {
+    pub(in crate::server) message_id: MessageId,
+    pub(in crate::server) channel_id: ChannelId,
+    pub(in crate::server) author_member_id: MemberId,
+    pub(in crate::server) thread_id: Option<ThreadId>,
+    pub(in crate::server) reply_to_message_id: Option<MessageId>,
+    pub(in crate::server) body_markdown: String,
+    pub(in crate::server) mentions: Vec<MemberId>,
+    pub(in crate::server) attachment_ids: Vec<AttachmentId>,
+    pub(in crate::server) handled_item: Option<(RunId, InboxItemId)>,
+    pub(in crate::server) expected_snapshot: Option<u64>,
+    pub(in crate::server) now: time::OffsetDateTime,
+}
+
+pub(in crate::server) struct PublishedMessage {
+    pub(in crate::server) message_id: MessageId,
+    pub(in crate::server) hard_item_ids: Vec<InboxItemId>,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -192,10 +210,24 @@ pub(in crate::server) trait ServerTransaction {
         computer_id: ComputerId,
         agent_id: MemberId,
     ) -> Result<bool, ApplicationError>;
+    async fn member_access_level(
+        &mut self,
+        member_id: MemberId,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<AccessLevel, ApplicationError>;
+    async fn computer_accepts_agent(
+        &mut self,
+        computer_id: ComputerId,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<bool, ApplicationError>;
     async fn thread_message_sequence(
         &mut self,
         thread_id: ThreadId,
     ) -> Result<u64, ApplicationError>;
+    async fn publish_message(
+        &mut self,
+        draft: MessageDraft,
+    ) -> Result<PublishedMessage, ApplicationError>;
 
     async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError>;
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError>;

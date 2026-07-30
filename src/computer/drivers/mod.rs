@@ -1,4 +1,5 @@
 mod builtin;
+mod builtin_runtime;
 mod codex;
 mod contract;
 mod runtime;
@@ -29,15 +30,19 @@ use crate::{
 };
 
 use self::{
+    builtin_runtime::BuiltinRuntimeClient,
     contract::{ProviderBackend, ProviderOpen},
-    runtime::{CodexRuntimeClient, UnavailableRuntimeClient},
+    runtime::CodexRuntimeClient,
 };
 
-pub(in crate::computer) fn runtime(computer_home: &std::path::Path) -> impl DriverPort {
-    DriverAdapter::new(
+pub(in crate::computer) fn runtime(
+    computer_home: &std::path::Path,
+    config: &crate::config::ComputerConfig,
+) -> Result<impl DriverPort, ApplicationError> {
+    Ok(DriverAdapter::new(
         codex::CodexAdapter::new(CodexRuntimeClient::new(computer_home.to_owned())),
-        builtin::BuiltinAdapter::new(UnavailableRuntimeClient),
-    )
+        builtin::BuiltinAdapter::new(BuiltinRuntimeClient::new(computer_home.to_owned(), config)?),
+    ))
 }
 
 pub(in crate::computer) struct DriverAdapter<C, B> {
@@ -111,7 +116,7 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
             .ok_or(ApplicationError::Conflict)?
             .driver;
         self.backend_mut(kind)
-            .start_turn(run.id, locator, &run.input)
+            .start_turn(run.id, locator, &run.input, run.fencing_token.expose())
             .await?;
         self.turns.insert(
             run.id,

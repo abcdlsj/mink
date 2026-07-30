@@ -79,7 +79,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     let registration: RegistrationResponse = registration.json().await?;
     ensure!(registration.user.display_name == "Ada Lovelace");
     ensure!(registration.user.email == "ada@example.test");
-    ensure!(registration.next == "/spaces/new");
+    ensure!(registration.next == "create_space");
 
     let current_user: UserResponse = client
         .get(server_url.join("/api/v1/auth/me")?)
@@ -91,9 +91,12 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(current_user.id == registration.user.id);
 
-    let created = create_space(&client, &server_url, &cookie, "sumi-lab").await?;
+    let create_key = Uuid::now_v7();
+    let created = create_space(&client, &server_url, &cookie, "sumi-lab", create_key).await?;
     ensure!(created.slug == "sumi-lab");
     ensure!(created.owner_member_id == created.current_member_id);
+    let replayed = create_space(&client, &server_url, &cookie, "sumi-lab", create_key).await?;
+    ensure!(replayed.id == created.id);
 
     let fetched: SpaceResponse = client
         .get(server_url.join("/api/v1/spaces/by-slug/sumi-lab")?)
@@ -118,7 +121,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         }))
         .send()
         .await?;
-    ensure!(uppercase_conflict.status() == StatusCode::BAD_REQUEST);
+    ensure!(uppercase_conflict.status() == StatusCode::CONFLICT);
 
     let exact_conflict = client
         .post(server_url.join("/api/v1/spaces")?)
@@ -136,7 +139,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     let pool = PgPool::connect_with(PgConnectOptions::from_str(&database.url)?).await?;
     let facts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT \
-           (SELECT count(*) FROM spaces WHERE id = $1 AND slug = 'SUMI-LAB'::citext), \
+           (SELECT count(*) FROM spaces WHERE id = $1 AND slug = 'sumi-lab'), \
            (SELECT count(*) FROM members WHERE id = $2 AND space_id = $1 \
               AND kind = 'human' AND access_level = 'owner'), \
            (SELECT count(*) FROM human_members WHERE member_id = $2 AND space_id = $1 \
@@ -154,11 +157,14 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     .bind(registration.user.id)
     .fetch_one(&pool)
     .await?;
-    ensure!(facts == (1, 1, 1, 1, 1, 1));
+    ensure!(
+        facts == (1, 1, 1, 1, 1, 1),
+        "unexpected persisted facts: {facts:?}"
+    );
 
     let channel_event_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events \
-         WHERE aggregate_id = $1 AND topic = 'channel.created'",
+         WHERE kind = 'channel.created' AND payload_json->>'resource_id' = $1::text",
     )
     .bind(created.general_channel_id)
     .fetch_one(&pool)
@@ -182,10 +188,11 @@ async fn create_space(
     server: &Url,
     cookie: &str,
     slug: &str,
+    key: Uuid,
 ) -> Result<SpaceResponse> {
     Ok(client
         .post(server.join("/api/v1/spaces")?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header("idempotency-key", key.to_string())
         .header(header::COOKIE, cookie)
         .json(&serde_json::json!({
             "name": "Sumi Lab",

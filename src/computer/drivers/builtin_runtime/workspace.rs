@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 const MAX_TOOL_FILE_BYTES: u64 = 1024 * 1024;
 
-pub async fn read_utf8(root: &Path, relative: &Path) -> Result<String> {
+pub(super) async fn read_utf8(root: &Path, relative: &Path) -> Result<String> {
     let path = resolve_existing_file(root, relative).await?;
     let metadata = tokio::fs::metadata(&path).await?;
     ensure!(
@@ -21,7 +21,7 @@ pub async fn read_utf8(root: &Path, relative: &Path) -> Result<String> {
         .context("file is not readable UTF-8")
 }
 
-pub async fn write_utf8(root: &Path, relative: &Path, content: &str) -> Result<()> {
+pub(super) async fn write_utf8(root: &Path, relative: &Path, content: &str) -> Result<()> {
     ensure!(
         content.len() as u64 <= MAX_TOOL_FILE_BYTES,
         "content exceeds the 1 MiB tool limit"
@@ -31,7 +31,12 @@ pub async fn write_utf8(root: &Path, relative: &Path, content: &str) -> Result<(
     Ok(())
 }
 
-pub async fn edit_utf8(root: &Path, relative: &Path, old_text: &str, new_text: &str) -> Result<()> {
+pub(super) async fn edit_utf8(
+    root: &Path,
+    relative: &Path,
+    old_text: &str,
+    new_text: &str,
+) -> Result<()> {
     ensure!(!old_text.is_empty(), "old_text cannot be empty");
     let path = resolve_existing_file(root, relative).await?;
     let content = read_utf8(root, relative).await?;
@@ -51,7 +56,7 @@ pub async fn edit_utf8(root: &Path, relative: &Path, old_text: &str, new_text: &
     Ok(())
 }
 
-pub fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathBuf, PathBuf)> {
+pub(super) fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathBuf, PathBuf)> {
     let relative = validated_relative(value)?;
     let mut components = relative.components();
     let Some(Component::Normal(scope)) = components.next() else {
@@ -80,7 +85,7 @@ fn validated_relative(value: &str) -> Result<PathBuf> {
     Ok(path.to_owned())
 }
 
-pub(crate) async fn collect_shell_output(
+pub(super) async fn collect_shell_output(
     mut child: tokio::process::Child,
     timeout: Duration,
     max_output_bytes: usize,

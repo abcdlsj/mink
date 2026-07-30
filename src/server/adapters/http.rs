@@ -21,7 +21,9 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AuthenticationSurface {
     Browser,
+    #[cfg(test)]
     Computer,
+    #[cfg(test)]
     Agent,
 }
 
