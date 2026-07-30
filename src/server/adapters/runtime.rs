@@ -119,10 +119,12 @@ use super::{
         ComputerResponse, ComputerStatus, CreatedInvitationResponse, DirectMessageResponse,
         DriverKind as DriverKindCode, InboxItemResponse, InboxKind, InboxPriority, InboxStatus,
         InvitationResponse, LoginResponse, MemberKind as MemberKindCode, MemberResponse,
-        MemoryFileResponse, MessageAuthor, MessageContentResponse, MessagePlacement,
-        MessageResponse, ProvisionStatus, RegisterResponse, RunOutcome, RunResponse, RunStatus,
-        SessionContinuityResponse, SessionContinuityState as ContinuityStateCode, SpaceResponse,
-        TaskResponse, TaskStatus, ThreadReferenceResponse, ThreadRelation, UserResponse,
+        MemoryContentResponse, MemoryFileResponse, MessageAuthor, MessageContentResponse,
+        MessagePageResponse, MessagePlacement, MessageResponse, ProvisionStatus, RegisterResponse,
+        RunOutcome, RunResponse, RunStatus, SessionContinuityResponse,
+        SessionContinuityState as ContinuityStateCode, SpaceResponse, TaskResponse, TaskStatus,
+        ThreadReadResponse, ThreadReferenceResponse, ThreadRelation, ThreadSubscriptionResponse,
+        UserResponse,
     },
     postgres::PostgresAdapter,
     query::QueryRegistry,
@@ -2910,7 +2912,7 @@ async fn list_messages(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(channel_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MessagePageResponse>, ApiError> {
     let member_id = channel_member(&state, &jar, channel_id).await?;
     let rows = sqlx::query(
         "SELECT * FROM messages WHERE channel_id=$1 AND placement='root' ORDER BY channel_seq",
@@ -2928,9 +2930,14 @@ async fn list_messages(
         .fetch_one(&state.pool)
         .await
         .map_err(map_sqlx)?;
-    Ok(Json(
-        json!({"channel_id": channel_id, "messages": messages, "snapshot_channel_seq": snapshot, "has_more_before": false, "has_more_after": false}),
-    ))
+    Ok(Json(MessagePageResponse {
+        channel_id,
+        messages,
+        snapshot_channel_seq: u64::try_from(snapshot).map_err(|_| ApiError::internal())?,
+        // 分页游标尚未实现，当前投影一次返回全部 Root Message。
+        has_more_before: false,
+        has_more_after: false,
+    }))
 }
 
 async fn list_channel_members(
@@ -3110,7 +3117,7 @@ async fn read_thread(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(thread_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ThreadReadResponse>, ApiError> {
     let thread = sqlx::query("SELECT channel_id FROM threads WHERE id=$1")
         .bind(thread_id)
         .fetch_optional(&state.pool)
@@ -3142,9 +3149,16 @@ async fn read_thread(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(
-        json!({"thread_id":thread_id,"channel_id":channel_id,"root":root,"replies":projected.into_iter().skip(1).collect::<Vec<_>>(),"snapshot_channel_seq":snapshot,"is_following":is_following,"task":Value::Null,"task_relation":Value::Null}),
-    ))
+    Ok(Json(ThreadReadResponse {
+        thread_id,
+        channel_id,
+        root,
+        replies: projected.into_iter().skip(1).collect(),
+        snapshot_channel_seq: u64::try_from(snapshot).map_err(|_| ApiError::internal())?,
+        is_following,
+        task: None,
+        task_relation: None,
+    }))
 }
 
 async fn create_thread_reply(
@@ -5124,13 +5138,13 @@ async fn read_agent_memory(
             _ => ApiError::computer_unreachable(),
         });
     };
-    let mut response = Json(json!({
-        "path": read.file.path,
-        "size": read.file.size,
-        "sha256": read.file.sha256,
-        "updated_at": timestamp(read.file.updated_at),
-        "content": read.content
-    }))
+    let mut response = Json(MemoryContentResponse {
+        path: read.file.path,
+        size: read.file.size,
+        sha256: read.file.sha256,
+        updated_at: timestamp(read.file.updated_at),
+        content: read.content,
+    })
     .into_response();
     response
         .headers_mut()
@@ -5243,7 +5257,7 @@ async fn follow_thread(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(thread_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
     set_subscription(state, jar, thread_id, true).await
 }
 
@@ -5251,7 +5265,7 @@ async fn unfollow_thread(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(thread_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
     set_subscription(state, jar, thread_id, false).await
 }
 
@@ -5260,7 +5274,7 @@ async fn set_subscription(
     jar: CookieJar,
     thread_id: Uuid,
     following: bool,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
     let row = sqlx::query("SELECT space_id,channel_id FROM threads WHERE id=$1")
         .bind(thread_id)
         .fetch_optional(&state.pool)
@@ -5278,11 +5292,11 @@ async fn set_subscription(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(json!({
-        "thread_id": thread_id,
-        "channel_id": row.get::<Uuid,_>("channel_id"),
-        "is_following": is_following
-    })))
+    Ok(Json(ThreadSubscriptionResponse {
+        thread_id,
+        channel_id: row.get("channel_id"),
+        is_following,
+    }))
 }
 
 async fn shutdown_signal() {

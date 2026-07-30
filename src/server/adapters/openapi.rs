@@ -487,11 +487,11 @@ pub(super) enum MessagePlacement {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct MessagePageResponse {
-    channel_id: Uuid,
-    snapshot_channel_seq: u64,
-    messages: Vec<MessageResponse>,
-    has_more_before: bool,
-    has_more_after: bool,
+    pub(super) channel_id: Uuid,
+    pub(super) snapshot_channel_seq: u64,
+    pub(super) messages: Vec<MessageResponse>,
+    pub(super) has_more_before: bool,
+    pub(super) has_more_after: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateMessageRequest {
@@ -729,20 +729,20 @@ pub(super) struct CreateThreadMessageRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ThreadReadResponse {
-    thread_id: Uuid,
-    channel_id: Uuid,
-    snapshot_channel_seq: u64,
-    root: MessageResponse,
-    replies: Vec<MessageResponse>,
-    is_following: bool,
-    task: Option<MessageTaskSummary>,
-    task_relation: Option<ThreadRelation>,
+    pub(super) thread_id: Uuid,
+    pub(super) channel_id: Uuid,
+    pub(super) snapshot_channel_seq: u64,
+    pub(super) root: MessageResponse,
+    pub(super) replies: Vec<MessageResponse>,
+    pub(super) is_following: bool,
+    pub(super) task: Option<MessageTaskSummary>,
+    pub(super) task_relation: Option<ThreadRelation>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ThreadSubscriptionResponse {
-    thread_id: Uuid,
-    channel_id: Uuid,
-    is_following: bool,
+    pub(super) thread_id: Uuid,
+    pub(super) channel_id: Uuid,
+    pub(super) is_following: bool,
 }
 
 #[cfg(test)]
