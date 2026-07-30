@@ -1317,6 +1317,7 @@ async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() 
         .unwrap();
 
     assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+    assert_eq!(driver.steer_count, 0);
     assert!(
         RecoveryService::pending_results(&mut store)
             .await

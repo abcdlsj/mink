@@ -444,6 +444,13 @@ pub(super) struct MessageTaskSummary {
     working_elsewhere: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct AttentionFailureResponse {
+    agent_member_id: Uuid,
+    agent_handle: String,
+    error_code: String,
+    retrying: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct MessageResponse {
     id: Uuid,
     channel_id: Uuid,
@@ -456,6 +463,7 @@ pub(super) struct MessageResponse {
     attachments: Vec<AttachmentResponse>,
     reply_count: u64,
     task: Option<MessageTaskSummary>,
+    attention_failures: Vec<AttentionFailureResponse>,
     created_at: String,
     edited_at: Option<String>,
     deleted_at: Option<String>,

@@ -64,14 +64,11 @@ impl InboxItem {
         Ok(())
     }
 
-    pub(in crate::server) fn lease(
+    pub(in crate::server) fn lease_for_run(
         &mut self,
         run_id: RunId,
         expires_at: OffsetDateTime,
     ) -> Result<(), DomainError> {
-        if self.strength != AttentionStrength::Hard {
-            return Err(DomainError::AmbientItemCannotAttach);
-        }
         if self.status != InboxItemStatus::Pending {
             return Err(DomainError::InvalidTransition);
         }
@@ -79,6 +76,17 @@ impl InboxItem {
         self.lease_run_id = Some(run_id);
         self.lease_expires_at = Some(expires_at);
         Ok(())
+    }
+
+    pub(in crate::server) fn attach_to_active_run(
+        &mut self,
+        run_id: RunId,
+        expires_at: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.strength != AttentionStrength::Hard {
+            return Err(DomainError::AmbientItemCannotAttach);
+        }
+        self.lease_for_run(run_id, expires_at)
     }
 
     pub(in crate::server) fn apply_disposition(

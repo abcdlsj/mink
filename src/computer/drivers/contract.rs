@@ -22,11 +22,16 @@ pub(in crate::computer) enum ProviderOpen {
 #[async_trait(?Send)]
 pub(in crate::computer) trait ProviderBackend {
     async fn validate(&mut self, agent: &LocalAgent) -> Result<(), ApplicationError>;
-    async fn open(&mut self, agent_id: AgentId) -> Result<ProviderOpen, ApplicationError>;
+    async fn open(
+        &mut self,
+        agent_id: AgentId,
+        run_token: &str,
+    ) -> Result<ProviderOpen, ApplicationError>;
     async fn resume(
         &mut self,
         agent_id: AgentId,
         locator: &str,
+        run_token: &str,
     ) -> Result<ProviderOpen, ApplicationError>;
     async fn start_turn(
         &mut self,
@@ -53,11 +58,16 @@ pub(in crate::computer) trait ProviderBackend {
 #[async_trait(?Send)]
 pub(in crate::computer) trait StructuredProviderClient {
     async fn validate(&mut self, agent: &LocalAgent) -> Result<(), ApplicationError>;
-    async fn create_session(&mut self, agent_id: AgentId) -> Result<String, ApplicationError>;
+    async fn create_session(
+        &mut self,
+        agent_id: AgentId,
+        run_token: &str,
+    ) -> Result<String, ApplicationError>;
     async fn resume_session(
         &mut self,
         agent_id: AgentId,
         locator: &str,
+        run_token: &str,
     ) -> Result<bool, ApplicationError>;
     async fn start_turn(
         &mut self,

@@ -88,6 +88,7 @@ impl ClaimRun {
                 started_at: None,
                 finished_at: None,
             };
+            let mut leased_items = Vec::with_capacity(input.item_ids.len());
             for (index, item_id) in input.item_ids.into_iter().enumerate() {
                 let mut item = transaction.inbox_item(item_id).await?;
                 if item.agent_id != run.agent_id
@@ -96,15 +97,22 @@ impl ClaimRun {
                 {
                     return Err(crate::server::domain::DomainError::ItemScopeMismatch.into());
                 }
-                item.lease(run.id, run.lease_expires_at)?;
+                item.lease_for_run(run.id, run.lease_expires_at)?;
                 run.items.push(RunItem {
                     inbox_item_id: item.id,
                     delivery_sequence: index as u64 + 1,
                     disposition: None,
                 });
-                transaction.save_inbox_item(item).await?;
+                leased_items.push(item);
             }
             transaction.save_run(run.clone()).await?;
+            for item in leased_items {
+                let source_message_id = item.message_id;
+                transaction.save_inbox_item(item).await?;
+                if let Some(message_id) = source_message_id {
+                    transaction.emit(Effect::MessageUpdated(message_id));
+                }
+            }
             transaction.emit(Effect::RunClaimed {
                 run_id: run.id,
                 fencing_token: input.fencing_token,

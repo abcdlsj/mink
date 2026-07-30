@@ -89,6 +89,10 @@ Run失败或lease过期时，未处理Items返回pending并增加retry count。�
 
 网络错误、receipt丢失和重复command不得重复增加retry count。
 
+Server领取Item或创建Run失败时，Item保持`pending`并记录稳定的`last_error_code`。来源Message的可见投影必须向有权读取该Message的Human显示对应Agent、错误码和自动重试状态。该提示是运行状态，不创建Message，也不冒充Member发言。
+
+后续领取成功时，Server必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源Message投影刷新。
+
 ## 9. 本地凭据
 
 Server不接收、不保存模型API key。以下Secret只存在于Computer受限文件和必要进程内存：

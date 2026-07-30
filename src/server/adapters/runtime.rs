@@ -909,8 +909,9 @@ async fn claim_run(
 ) -> Result<Json<Value>, ApiError> {
     authenticate_computer(&state, &headers, computer_id).await?;
     let candidate = sqlx::query(
-        "SELECT i.id,i.agent_id,i.task_id,i.thread_id FROM inbox_items i \
+        "SELECT i.id,i.agent_id,i.task_id,i.thread_id,i.message_id,t.channel_id FROM inbox_items i \
          JOIN agents a ON a.member_id=i.agent_id \
+         JOIN threads t ON t.id=i.thread_id \
          WHERE a.computer_id=$1 AND a.lifecycle='active' AND i.status='pending' \
            AND i.available_at<=now() \
            AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.agent_id AND r.status NOT IN ('completed','yielded','failed','canceled')) \
@@ -926,7 +927,7 @@ async fn claim_run(
     let run_id = RunId::from_uuid(Uuid::now_v7());
     let fencing_token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
     let mut storage = state.storage.clone();
-    ClaimRun::execute(
+    let claim_result = ClaimRun::execute(
         &mut storage,
         ClaimRunInput {
             run_id,
@@ -941,9 +942,84 @@ async fn claim_run(
             lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(2),
         },
     )
-    .await
-    .map_err(application_error)?;
+    .await;
+    if let Err(error) = claim_result {
+        let error_code = run_claim_error_code(&error);
+        let item_id: Uuid = candidate.get("id");
+        let changed = record_run_claim_failure(
+            &state.pool,
+            item_id,
+            candidate.get("message_id"),
+            candidate.get("channel_id"),
+            error_code,
+        )
+        .await?;
+        if changed {
+            tracing::warn!(
+                %computer_id,
+                %item_id,
+                agent_id = %candidate.get::<Uuid, _>("agent_id"),
+                error_code,
+                "Computer Run claim failed; the Inbox Item remains pending"
+            );
+        }
+        return Err(application_error(error));
+    }
     Ok(Json(json!({"claimed":true,"run_id":run_id})))
+}
+
+fn run_claim_error_code(
+    error: &crate::server::application::ports::ApplicationError,
+) -> &'static str {
+    use crate::server::application::ports::ApplicationError;
+    match error {
+        ApplicationError::NotFound => "run_claim_not_found",
+        ApplicationError::PermissionDenied => "run_claim_permission_denied",
+        ApplicationError::Conflict | ApplicationError::Domain(_) => "run_claim_conflict",
+        ApplicationError::ContextChanged => "run_claim_context_changed",
+        ApplicationError::Unavailable => "run_claim_unavailable",
+        ApplicationError::Internal => "run_claim_internal",
+    }
+}
+
+async fn record_run_claim_failure(
+    pool: &PgPool,
+    item_id: Uuid,
+    message_id: Option<Uuid>,
+    channel_id: Uuid,
+    error_code: &str,
+) -> Result<bool, ApiError> {
+    let mut transaction = pool.begin().await.map_err(map_sqlx)?;
+    let changed = sqlx::query(
+        "UPDATE inbox_items SET last_error_code=$2 WHERE id=$1 AND status='pending' \
+         AND last_error_code IS DISTINCT FROM $2",
+    )
+    .bind(item_id)
+    .bind(error_code)
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    .rows_affected()
+        == 1;
+    if changed && let Some(message_id) = message_id {
+        let space_id: Uuid = sqlx::query_scalar("SELECT space_id FROM messages WHERE id=$1")
+            .bind(message_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) \
+             VALUES($1,$2,'message.updated',$3,now())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(space_id)
+        .bind(json!({"resource_id":message_id,"channel_id":channel_id}))
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_sqlx)?;
+    }
+    transaction.commit().await.map_err(map_sqlx)?;
+    Ok(changed)
 }
 
 #[derive(Deserialize)]
@@ -3957,6 +4033,25 @@ async fn message_row(
     .await
     .map_err(map_sqlx)?;
     let attachments=sqlx::query("SELECT a.* FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=$1 ORDER BY ma.position").bind(id).fetch_all(pool).await.map_err(map_sqlx)?;
+    let attention_failures = sqlx::query(
+        "SELECT i.agent_id,m.handle,i.last_error_code FROM inbox_items i \
+         JOIN members m ON m.id=i.agent_id WHERE i.message_id=$1 \
+         AND i.last_error_code IS NOT NULL ORDER BY m.handle,i.agent_id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx)?
+    .iter()
+    .map(|failure| {
+        json!({
+            "agent_member_id":failure.get::<Uuid,_>("agent_id"),
+            "agent_handle":failure.get::<String,_>("handle"),
+            "error_code":failure.get::<String,_>("last_error_code"),
+            "retrying":true
+        })
+    })
+    .collect::<Vec<_>>();
     let content = match row.get::<&str, _>("content_kind") {
         "text" => {
             json!({"type":"text","body_markdown":row.get::<Option<String>,_>("body_markdown").unwrap_or_default()})
@@ -3990,7 +4085,7 @@ async fn message_row(
         _ => return Err(ApiError::internal()),
     };
     Ok(
-        json!({"id":id,"channel_id":row.get::<Uuid,_>("channel_id"),"thread_id":row.get::<Uuid,_>("thread_id"),"seq":row.get::<i64,_>("channel_seq"),"placement":row.get::<String,_>("placement"),"content":content,"author":{"id":author.get::<Uuid,_>("id"),"kind":author.get::<String,_>("kind"),"display_name":author.get::<String,_>("display_name"),"handle":author.get::<String,_>("handle")},"mentions":[],"attachments":attachments.iter().map(attachment_row).collect::<Vec<_>>(),"reply_count":replies,"task":Value::Null,"created_at":timestamp(row.get("created_at")),"edited_at":optional_timestamp(row.get("edited_at")),"deleted_at":optional_timestamp(row.get("deleted_at"))}),
+        json!({"id":id,"channel_id":row.get::<Uuid,_>("channel_id"),"thread_id":row.get::<Uuid,_>("thread_id"),"seq":row.get::<i64,_>("channel_seq"),"placement":row.get::<String,_>("placement"),"content":content,"author":{"id":author.get::<Uuid,_>("id"),"kind":author.get::<String,_>("kind"),"display_name":author.get::<String,_>("display_name"),"handle":author.get::<String,_>("handle")},"mentions":[],"attachments":attachments.iter().map(attachment_row).collect::<Vec<_>>(),"reply_count":replies,"task":Value::Null,"attention_failures":attention_failures,"created_at":timestamp(row.get("created_at")),"edited_at":optional_timestamp(row.get("edited_at")),"deleted_at":optional_timestamp(row.get("deleted_at"))}),
     )
 }
 fn attachment_row(row: &sqlx::postgres::PgRow) -> Value {
@@ -4350,6 +4445,75 @@ mod tests {
             .await
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn run_claim_failure_is_projected_once_on_its_source_message() {
+        let fixture = CapabilityFixture::create().await;
+        let item_id = Uuid::now_v7();
+        let message_id = fixture.context.focus_thread_id.into_uuid();
+        sqlx::query(
+            "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength, \
+             status,available_at,created_at) VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),now())",
+        )
+        .bind(item_id)
+        .bind(fixture.context.space_id.into_uuid())
+        .bind(fixture.context.agent_id.into_uuid())
+        .bind(message_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+
+        assert!(
+            record_run_claim_failure(
+                &fixture.state.pool,
+                item_id,
+                Some(message_id),
+                fixture.channel_id,
+                "run_claim_unavailable",
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            !record_run_claim_failure(
+                &fixture.state.pool,
+                item_id,
+                Some(message_id),
+                fixture.channel_id,
+                "run_claim_unavailable",
+            )
+            .await
+            .unwrap()
+        );
+
+        let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
+            .bind(message_id)
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+        let projected = message_row(&fixture.state.pool, &row, fixture.owner_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            projected["attention_failures"],
+            json!([{
+                "agent_member_id": fixture.context.agent_id,
+                "agent_handle": "agent",
+                "error_code": "run_claim_unavailable",
+                "retrying": true
+            }])
+        );
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM outbox_events WHERE kind='message.updated' \
+             AND payload_json->>'resource_id'=$1",
+        )
+        .bind(message_id.to_string())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(event_count, 1);
+        fixture.destroy().await;
     }
 
     #[tokio::test]

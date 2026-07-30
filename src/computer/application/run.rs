@@ -195,6 +195,7 @@ impl RunService {
             resume_locator: resume_candidate
                 .as_ref()
                 .map(|session| session.locator.clone()),
+            run_token: run.fencing_token.clone(),
         };
         let attempted_resume = resume_candidate.is_some();
         let session_created_at = resume_candidate
@@ -218,6 +219,7 @@ impl RunService {
                         generation,
                         fingerprint: fingerprint.clone(),
                         resume_locator: None,
+                        run_token: run.fencing_token.clone(),
                     })
                     .await?
             }

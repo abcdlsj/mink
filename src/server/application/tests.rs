@@ -813,6 +813,44 @@ async fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
 }
 
 #[tokio::test]
+async fn ambient_item_can_be_leased_by_a_new_run() {
+    let agent = member(300);
+    let focus = thread(301);
+    let item_id = item(302);
+    let run_id = run(303);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+    port.state.agents.insert(
+        agent,
+        Agent {
+            member_id: agent,
+            space_id: space(1),
+            computer_id: Some(computer(999)),
+            role_text: "observe".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
+    insert_thread(&mut port, focus, &[agent]);
+    let mut ambient = inbox(item_id, agent, focus, None, InboxItemStatus::Pending);
+    ambient.kind = InboxItemKind::ChannelActivity;
+    ambient.strength = AttentionStrength::Ambient;
+    port.state.items.insert(item_id, ambient);
+    let mut input = claim_input(run_id, agent, None, focus);
+    input.item_ids.push(item_id);
+
+    let claimed = ClaimRun::execute(&mut port, input).await.unwrap();
+
+    assert_eq!(claimed.items[0].inbox_item_id, item_id);
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
+    assert_eq!(port.state.items[&item_id].lease_run_id, Some(run_id));
+}
+
+#[tokio::test]
 async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
     let agent = member(37);
     let focus = thread(38);

@@ -54,7 +54,7 @@ impl StructuredProviderClient for FakeClient {
         Ok(())
     }
 
-    async fn create_session(&mut self, _: AgentId) -> Result<String, ApplicationError> {
+    async fn create_session(&mut self, _: AgentId, _: &str) -> Result<String, ApplicationError> {
         let locator = format!("{}-{}", self.prefix, self.sessions.len() + 1);
         self.sessions.insert(locator.clone());
         Ok(locator)
@@ -64,6 +64,7 @@ impl StructuredProviderClient for FakeClient {
         &mut self,
         _: AgentId,
         locator: &str,
+        _: &str,
     ) -> Result<bool, ApplicationError> {
         Ok(self.sessions.contains(locator))
     }
@@ -195,6 +196,7 @@ fn open_request(driver: DriverKind, resume_locator: Option<String>) -> OpenSessi
         generation: 1,
         fingerprint: fingerprint(driver),
         resume_locator,
+        run_token: crate::computer::core::supervisor::FencingToken::new("run-token".into()),
     }
 }
 

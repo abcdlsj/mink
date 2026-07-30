@@ -77,21 +77,6 @@ impl RecoveryService {
                         .await?;
                         continue;
                     }
-                    if run.state == LocalRunState::Running {
-                        for delivery in run.deliveries.values().filter(|delivery| {
-                            delivery.state
-                                == crate::computer::core::supervisor::DeliveryState::Pending
-                        }) {
-                            RunService::attach(
-                                store,
-                                driver,
-                                run.id,
-                                delivery.sequence,
-                                delivery.item.clone(),
-                            )
-                            .await?;
-                        }
-                    }
                     if driver.process_evidence(&run).await? == ProcessEvidence::Lost {
                         let outcomes = run
                             .deliveries
@@ -114,6 +99,22 @@ impl RecoveryService {
                             Some(LocalErrorCode::ProcessLost),
                         )
                         .await?;
+                        continue;
+                    }
+                    if run.state == LocalRunState::Running {
+                        for delivery in run.deliveries.values().filter(|delivery| {
+                            delivery.state
+                                == crate::computer::core::supervisor::DeliveryState::Pending
+                        }) {
+                            RunService::attach(
+                                store,
+                                driver,
+                                run.id,
+                                delivery.sequence,
+                                delivery.item.clone(),
+                            )
+                            .await?;
+                        }
                     }
                 }
                 LocalRunState::Finalizing => {

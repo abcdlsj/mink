@@ -151,7 +151,11 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         }
     }
 
-    async fn create_session(&mut self, agent_id: AgentId) -> Result<String, ApplicationError> {
+    async fn create_session(
+        &mut self,
+        agent_id: AgentId,
+        _: &str,
+    ) -> Result<String, ApplicationError> {
         let locator = Uuid::now_v7().to_string();
         let directory = self.agent_home(agent_id).join("drivers/builtin/sessions");
         tokio::fs::create_dir_all(&directory)
@@ -171,6 +175,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         &mut self,
         agent_id: AgentId,
         locator: &str,
+        _: &str,
     ) -> Result<bool, ApplicationError> {
         match self.load_session(agent_id, locator).await {
             Ok(_) => {
@@ -558,7 +563,7 @@ mod tests {
         }
         let config = builtin_config(&format!("http://{address}/v1"));
         let mut client = BuiltinRuntimeClient::new(computer_home.clone(), &config).unwrap();
-        let locator = client.create_session(agent_id).await.unwrap();
+        let locator = client.create_session(agent_id, "run-secret").await.unwrap();
         let input = run_input(agent_id);
         let run_id = RunId::from_uuid(Uuid::now_v7());
 
@@ -602,7 +607,12 @@ mod tests {
         assert!(stored.contains("completed"));
         assert!(!stored.contains("provider-secret"));
         let mut resumed = BuiltinRuntimeClient::new(computer_home, &config).unwrap();
-        assert!(resumed.resume_session(agent_id, &locator).await.unwrap());
+        assert!(
+            resumed
+                .resume_session(agent_id, &locator, "run-secret")
+                .await
+                .unwrap()
+        );
         resumed.delete_session(&locator).await.unwrap();
         assert!(!session_path.exists());
     }
@@ -618,7 +628,7 @@ mod tests {
         }
         let config = builtin_config("http://127.0.0.1:9/v1");
         let mut client = BuiltinRuntimeClient::new(computer_home, &config).unwrap();
-        let locator = client.create_session(agent_id).await.unwrap();
+        let locator = client.create_session(agent_id, "run-secret").await.unwrap();
         let run_id = RunId::from_uuid(Uuid::now_v7());
         client
             .start_turn(run_id, &locator, &run_input(agent_id), "run-secret")

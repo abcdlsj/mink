@@ -33,6 +33,8 @@ Computer传给 Driver 的输入分为四块：
 
 Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历史不能替代Server的最新可选Task、Message、权限和Inbox事实。
 
+`global_contract` 必须要求 Agent 处理每个 claimed Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
+
 ## 3. Codex Driver
 
 Codex Driver使用 Codex app-server 或等价的结构化本地协议，以支持：
@@ -51,6 +53,10 @@ Codex thread/session ID 只保存在 Computer Session registry。Server、Messag
 后续 Task Run 在兼容条件下 resume 同一 thread。Session reset 创建新 generation 和新 Codex thread，但 Task ID 不变。
 
 Codex Driver 必须使用 Agent 专属的`CODEX_HOME`。daemon 只复制明确允许的 provider、model 配置和显式认证源。
+
+Codex Driver 必须为每个 Run 向工具子进程注入当前 capability socket 和 Run token，分别使用 `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`。Run token 只存在于该 Run 的进程环境，不得写入配置文件、日志或 provider session。重新启动 app-server 时，Driver 必须 resume 原 Codex thread 后再启动 turn。
+
+Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-sandbox`，turn 使用 `dangerFullAccess`。Computer 通过 Agent 专属目录、Run fencing token 和 capability 授权控制协作写入。
 
 Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式进入 Agent 环境。
 

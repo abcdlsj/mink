@@ -61,7 +61,7 @@ impl CodexRuntimeClient {
     async fn process(&mut self, agent_id: AgentId) -> Result<&mut CodexProcess, ApplicationError> {
         if !self.processes.contains_key(&agent_id) {
             let agent_home = self.agent_home(agent_id);
-            let process = CodexProcess::spawn(self.executable.clone(), agent_home).await?;
+            let process = CodexProcess::spawn(self.executable.clone(), agent_home, None).await?;
             self.processes.insert(agent_id, process);
         }
         self.processes
@@ -74,6 +74,30 @@ impl CodexRuntimeClient {
             .get(locator)
             .copied()
             .ok_or(ApplicationError::SessionLost)
+    }
+
+    async fn prepare_for_run(
+        &mut self,
+        agent_id: AgentId,
+        run_token: &str,
+    ) -> Result<(), ApplicationError> {
+        if let Some(mut previous) = self.processes.remove(&agent_id) {
+            previous
+                .child
+                .kill()
+                .await
+                .map_err(|_| ApplicationError::DriverUnavailable)?;
+        }
+        let agent_home = self.agent_home(agent_id);
+        let socket_path = crate::config::runtime_dir_for(&self.computer_home).join("daemon.sock");
+        let process = CodexProcess::spawn(
+            self.executable.clone(),
+            agent_home,
+            Some((&socket_path, run_token)),
+        )
+        .await?;
+        self.processes.insert(agent_id, process);
+        Ok(())
     }
 }
 
@@ -88,7 +112,11 @@ struct CodexProcess {
 }
 
 impl CodexProcess {
-    async fn spawn(executable: OsString, agent_home: PathBuf) -> Result<Self, ApplicationError> {
+    async fn spawn(
+        executable: OsString,
+        agent_home: PathBuf,
+        capability: Option<(&std::path::Path, &str)>,
+    ) -> Result<Self, ApplicationError> {
         let codex_home = agent_home.join("drivers/codex");
         let workspace = agent_home.join("workspace");
         if !codex_home.is_dir() || !workspace.is_dir() {
@@ -96,21 +124,45 @@ impl CodexProcess {
         }
         let mut command = Command::new(executable);
         command
+            .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg("app-server")
             .arg("--listen")
             .arg("stdio://")
+            .arg("-c")
+            .arg("shell_environment_policy.inherit=\"all\"")
+            .arg("-c")
+            .arg("shell_environment_policy.ignore_default_excludes=true")
+            .arg("-c")
+            .arg(
+                "shell_environment_policy.include_only=[\"PATH\",\"HOME\",\"SUMI_SOCKET\",\"SUMI_RUN_TOKEN\"]",
+            )
             .current_dir(&workspace)
             .env_clear()
             .env("CODEX_HOME", &codex_home)
+            .env("HOME", &agent_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
-        if let Some(path) = std::env::var_os("PATH") {
-            command.env("PATH", path);
+        let mut executable_paths = Vec::new();
+        if let Ok(current_executable) = std::env::current_exe()
+            && let Some(parent) = current_executable.parent()
+        {
+            executable_paths.push(parent.to_owned());
         }
+        if let Some(path) = std::env::var_os("PATH") {
+            executable_paths.extend(std::env::split_paths(&path));
+        }
+        let executable_path = std::env::join_paths(executable_paths)
+            .map_err(|_| ApplicationError::DriverUnavailable)?;
+        command.env("PATH", executable_path);
         if let Some(language) = std::env::var_os("LANG") {
             command.env("LANG", language);
+        }
+        if let Some((socket, run_token)) = capability {
+            command
+                .env("SUMI_SOCKET", socket)
+                .env("SUMI_RUN_TOKEN", run_token);
         }
         let mut child = command
             .spawn()
@@ -280,7 +332,12 @@ impl StructuredProviderClient for CodexRuntimeClient {
         }
     }
 
-    async fn create_session(&mut self, agent_id: AgentId) -> Result<String, ApplicationError> {
+    async fn create_session(
+        &mut self,
+        agent_id: AgentId,
+        run_token: &str,
+    ) -> Result<String, ApplicationError> {
+        self.prepare_for_run(agent_id, run_token).await?;
         let workspace = self.agent_home(agent_id).join("workspace");
         let result = self
             .process(agent_id)
@@ -309,7 +366,9 @@ impl StructuredProviderClient for CodexRuntimeClient {
         &mut self,
         agent_id: AgentId,
         locator: &str,
+        run_token: &str,
     ) -> Result<bool, ApplicationError> {
+        self.prepare_for_run(agent_id, run_token).await?;
         let result = self
             .process(agent_id)
             .await?
@@ -349,7 +408,10 @@ impl StructuredProviderClient for CodexRuntimeClient {
                     "input": [{
                         "type": "text",
                         "text": format!("Process this Sumi Run input. Treat each top-level field as a separate contract block.\n{encoded}")
-                    }]
+                    }],
+                    "sandboxPolicy": {
+                        "type": "dangerFullAccess"
+                    }
                 }),
             )
             .await?;
@@ -514,7 +576,13 @@ if [ "$1" = "--version" ]; then exit 0; fi
 while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
-    *'"method":"thread/start"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"thread/start"'*)
+      [ "$1" = "--dangerously-bypass-approvals-and-sandbox" ] || exit 11
+      [ "$SUMI_RUN_TOKEN" = "run-token" ] || exit 9
+      [ -n "$SUMI_SOCKET" ] || exit 10
+      printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+      ;;
+    *'"method":"thread/resume"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
     *'"method":"turn/start"'*) printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}' ;;
     *'"method":"turn/steer"'*) printf '%s\n' '{"id":4,"result":{"turnId":"turn-1"}}' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
     *'"method":"thread/archive"'*) printf '%s\n' '{"id":5,"result":{}}' ;;
@@ -540,7 +608,7 @@ done
         let mut client =
             CodexRuntimeClient::with_executable(computer_home, executable.into_os_string());
         client.validate(&agent).await.unwrap();
-        let locator = client.create_session(agent_id).await.unwrap();
+        let locator = client.create_session(agent_id, "run-token").await.unwrap();
         assert_eq!(locator, "thread-1");
 
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());

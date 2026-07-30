@@ -89,9 +89,13 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
     ) -> Result<OpenedSession, ApplicationError> {
         let backend = self.backend_mut(request.fingerprint.driver);
         let opened = if let Some(locator) = request.resume_locator.as_deref() {
-            backend.resume(request.agent_id, locator).await?
+            backend
+                .resume(request.agent_id, locator, request.run_token.expose())
+                .await?
         } else {
-            backend.open(request.agent_id).await?
+            backend
+                .open(request.agent_id, request.run_token.expose())
+                .await?
         };
         match opened {
             ProviderOpen::Opened(locator) => Ok(OpenedSession {

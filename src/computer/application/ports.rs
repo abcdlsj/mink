@@ -143,6 +143,7 @@ pub(in crate::computer) struct OpenSessionRequest {
     pub(in crate::computer) generation: u64,
     pub(in crate::computer) fingerprint: SessionFingerprint,
     pub(in crate::computer) resume_locator: Option<String>,
+    pub(in crate::computer) run_token: crate::computer::core::supervisor::FencingToken,
 }
 
 impl fmt::Debug for OpenSessionRequest {
@@ -157,6 +158,7 @@ impl fmt::Debug for OpenSessionRequest {
                 "resume_locator",
                 &self.resume_locator.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("run_token", &"[REDACTED]")
             .finish()
     }
 }

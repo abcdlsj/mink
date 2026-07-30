@@ -39,7 +39,7 @@ impl RouteHardItem {
             }
             if run.task_id == item.task_id && run.focus_thread_id == item.thread_id {
                 let sequence = run.attach(&item)?;
-                item.lease(run.id, run.lease_expires_at)?;
+                item.attach_to_active_run(run.id, run.lease_expires_at)?;
                 transaction.save_run(run.clone()).await?;
                 transaction.save_inbox_item(item).await?;
                 transaction.emit(Effect::ItemAttached {

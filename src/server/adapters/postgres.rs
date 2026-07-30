@@ -938,7 +938,8 @@ impl ServerTransaction for PostgresTransaction {
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         let changed = sqlx::query(
             "UPDATE inbox_items SET task_id=$2,status=$3,available_at=$4,lease_run_id=$5, \
-             lease_expires_at=$6,retry_count=$7,handled_at=$8 WHERE id=$1",
+             lease_expires_at=$6,retry_count=$7,handled_at=$8, \
+             last_error_code=CASE WHEN $3='leased' THEN NULL ELSE last_error_code END WHERE id=$1",
         )
         .bind(item.id.into_uuid())
         .bind(item.task_id.map(TaskId::into_uuid))
@@ -1479,6 +1480,18 @@ impl PostgresTransaction {
             }
             Effect::PermissionChanged(id) => ("member.changed", id.into_uuid()),
         };
+        if kind.starts_with("message.") {
+            let row = sqlx::query("SELECT space_id,channel_id FROM messages WHERE id=$1")
+                .bind(subject_id)
+                .fetch_one(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+            return Ok((
+                SpaceId::from_uuid(row.get("space_id")),
+                kind,
+                json!({"resource_id": subject_id, "channel_id": row.get::<Uuid,_>("channel_id")}),
+            ));
+        }
         let space_id = self.space_for_subject(kind, subject_id).await?;
         Ok((space_id, kind, json!({"resource_id": subject_id})))
     }
@@ -2110,6 +2123,8 @@ mod tests {
 
     use super::*;
     use crate::server::application::conversation::{CreateAgentAction, CreateAgentActionInput};
+    use crate::server::application::execution::{ClaimRun, ClaimRunInput};
+    use crate::server::application::ports::RawFencingToken;
     use crate::server::application::task::{
         CreateTaskFromRootMessage, CreateTaskInput, TaskSource,
     };
@@ -2342,6 +2357,87 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+
+        pool.close().await;
+        sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
+        let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+        let database_name = format!("sumi_claim_run_{}", Uuid::now_v7().simple());
+        let mut admin =
+            PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+                .await
+                .unwrap();
+        sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let mut database_url = Url::parse(&admin_url).unwrap();
+        database_url.set_path(&format!("/{database_name}"));
+
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let mut adapter = PostgresAdapter::new(pool.clone());
+        adapter.migrate().await.unwrap();
+        let space_id = Uuid::now_v7();
+        let owner_id = Uuid::now_v7();
+        let agent_id = Uuid::now_v7();
+        let computer_id = Uuid::now_v7();
+        let channel_id = Uuid::now_v7();
+        let message_id = Uuid::now_v7();
+        let item_id = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES ('{space_id}','claim-run','Claim Run','{owner_id}',now());
+             INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner','owner',now());
+             INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','agent','member',now());
+             INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','claim-run-hash','online',1,now());
+             INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent_id}','{space_id}','{computer_id}','Reply',1,'active','codex',now());
+             INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel_id}','{space_id}','public','general',2,now());
+             INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0),('{channel_id}','{space_id}','{agent_id}',now(),0);
+             INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',1,'root','text','{owner_id}','mention',now());
+             INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',now());
+             INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,status,available_at,last_error_code,created_at) VALUES ('{item_id}','{space_id}','{agent_id}','{message_id}','{message_id}','mention','hard','pending',now(),'run_claim_unavailable',now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let run_id = RunId::from_uuid(Uuid::now_v7());
+        ClaimRun::execute(
+            &mut adapter,
+            ClaimRunInput {
+                run_id,
+                agent_id: MemberId::from_uuid(agent_id),
+                computer_id: ComputerId::from_uuid(computer_id),
+                task_id: None,
+                focus_thread_id: ThreadId::from_uuid(message_id),
+                item_ids: vec![InboxItemId::from_uuid(item_id)],
+                fencing_token: RawFencingToken::new("claim-run-token".to_owned()),
+                lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
+            },
+        )
+        .await
+        .unwrap();
+
+        let facts: (String, String, Option<String>, i64, i64, i64) = sqlx::query_as(
+            "SELECT r.status,i.status,i.last_error_code, \
+             (SELECT count(*) FROM run_items WHERE run_id=r.id), \
+             (SELECT count(*) FROM computer_commands WHERE kind='run.start'), \
+             (SELECT count(*) FROM outbox_events WHERE kind='message.updated') \
+             FROM agent_runs r JOIN inbox_items i ON i.lease_run_id=r.id WHERE r.id=$1",
+        )
+        .bind(run_id.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(facts, ("queued".into(), "leased".into(), None, 1, 1, 1));
 
         pool.close().await;
         sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
