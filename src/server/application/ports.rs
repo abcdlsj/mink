@@ -102,6 +102,73 @@ pub(in crate::server) struct OpenedSession {
     pub(in crate::server) token: RawSessionToken,
 }
 
+/// 配对 code 的生成。code 明文只返回给发起配对的 daemon。
+pub(in crate::server) trait PairingCodePort {
+    fn generate(&self) -> RawPairingCode;
+}
+
+/// 配对 code 的明文。`Debug` 不暴露内容。
+#[derive(Clone, Eq, PartialEq)]
+pub(in crate::server) struct RawPairingCode(String);
+
+impl RawPairingCode {
+    pub(in crate::server) fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(in crate::server) fn expose(&self) -> &str {
+        &self.0
+    }
+
+    pub(in crate::server) fn sha256_hash(&self) -> String {
+        hex::encode(Sha256::digest(self.0.as_bytes()))
+    }
+}
+
+impl fmt::Debug for RawPairingCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RawPairingCode([REDACTED])")
+    }
+}
+
+/// 新建 Computer 的持久化输入。
+pub(in crate::server) struct ComputerRecord {
+    pub(in crate::server) id: ComputerId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) name: String,
+    pub(in crate::server) hostname: String,
+    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) daemon_version: String,
+    pub(in crate::server) token_hash: String,
+    pub(in crate::server) created_at: time::OffsetDateTime,
+}
+
+/// Computer 对 Browser 可见的事实。不含 Token 散列。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct PairedComputer {
+    pub(in crate::server) id: ComputerId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) name: String,
+    pub(in crate::server) hostname: String,
+    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) daemon_version: Option<String>,
+    pub(in crate::server) connected: bool,
+    pub(in crate::server) deleted: bool,
+    pub(in crate::server) last_seen_at: Option<time::OffsetDateTime>,
+    pub(in crate::server) created_at: time::OffsetDateTime,
+}
+
+/// 配对详情。只暴露 Human 核对所需字段。
+pub(in crate::server) struct PairingView {
+    pub(in crate::server) pairing_id: uuid::Uuid,
+    pub(in crate::server) hostname: String,
+    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) daemon_version: String,
+    pub(in crate::server) token_fingerprint: String,
+    pub(in crate::server) status: crate::server::domain::pairing::PairingStatus,
+    pub(in crate::server) expires_at: time::OffsetDateTime,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) enum Effect {
     MessageCreated(MessageId),
@@ -274,6 +341,59 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         computer_id: ComputerId,
     ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
+
+    /// 保存待确认配对。code 只以散列形式进入该层。
+    async fn insert_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &crate::server::domain::pairing::Pairing,
+        code_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    async fn save_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &crate::server::domain::pairing::Pairing,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    async fn pairing_by_code(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
+    /// 锁定待确认配对行，保证并发确认只成立一次。
+    async fn pairing_by_code_for_update(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
+    async fn pairing_by_token(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        token_hash: &str,
+    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
+    async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError>;
+    async fn paired_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<PairedComputer>, ApplicationError>;
+    async fn space_computers(
+        &mut self,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Vec<PairedComputer>, ApplicationError>;
+    /// 按 Token 散列定位 Computer，返回它是否已被删除。
+    async fn computer_for_token(
+        &mut self,
+        computer_id: ComputerId,
+        token_hash: &str,
+    ) -> Result<Option<bool>, ApplicationError>;
+    /// 在 actor 与 idempotency key 上取事务级锁。
+    async fn lock_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<(), ApplicationError>;
 
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError>;

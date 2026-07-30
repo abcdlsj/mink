@@ -44,6 +44,11 @@ use crate::{
     },
     server::{
         application::attention::{RouteHardItem, RouteHardItemInput},
+        application::computer::{
+            AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing,
+            ConfirmPairingInput, ListSpaceComputers, ReadPairedComputer, ReadPairing,
+            ReadPairingStatus,
+        },
         application::conversation::{
             CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
             CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
@@ -69,8 +74,8 @@ use crate::{
                 SetPermission,
             },
             ports::{
-                AttachmentObjectPort, AuthenticatedHuman, MessageDraft, RawFencingToken,
-                RawSessionToken,
+                AttachmentObjectPort, AuthenticatedHuman, MessageDraft, PairedComputer,
+                RawFencingToken, RawPairingCode, RawSessionToken,
             },
         },
         domain::{
@@ -83,7 +88,7 @@ use crate::{
 };
 
 use super::{
-    credential::{Argon2Passwords, UuidSessionTokens},
+    credential::{Argon2Passwords, NumericPairingCodes, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     postgres::PostgresAdapter,
 };
@@ -580,30 +585,28 @@ async fn begin_pairing(
     State(state): State<RuntimeState>,
     Json(body): Json<BeginPairingBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    if body.token_hash.len() != 64
-        || !body.token_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || !matches!(body.os.as_str(), "macos" | "linux")
-        || body.hostname.trim().is_empty()
-    {
-        return Err(ApiError::invalid("Computer pairing request is invalid"));
-    }
-    let pairing_id = Uuid::now_v7();
-    let code = format!(
-        "{:06}",
-        u32::from_be_bytes(
-            Uuid::now_v7().as_bytes()[..4]
-                .try_into()
-                .expect("four bytes")
-        ) % 1_000_000
-    );
-    let now = OffsetDateTime::now_utc();
-    let expires_at = now + Duration::minutes(10);
-    sqlx::query("INSERT INTO computer_pairings(id,code_hash,token_hash,hostname,os,daemon_version,status,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8)")
-        .bind(pairing_id).bind(token_hash(&code)).bind(body.token_hash.to_lowercase()).bind(body.hostname).bind(body.os).bind(body.daemon_version).bind(expires_at).bind(now)
-        .execute(&state.pool).await.map_err(map_sqlx)?;
+    let mut storage = state.storage.clone();
+    let started = BeginPairing::execute(
+        &mut storage,
+        &NumericPairingCodes,
+        BeginPairingInput {
+            pairing_id: Uuid::now_v7(),
+            token_hash: &body.token_hash,
+            hostname: &body.hostname,
+            os: &body.os,
+            daemon_version: &body.daemon_version,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({"pairing_id":pairing_id,"code":code,"expires_at":timestamp(expires_at)})),
+        Json(json!({
+            "pairing_id": started.pairing_id,
+            "code": started.code,
+            "expires_at": timestamp(started.expires_at)
+        })),
     ))
 }
 
@@ -614,17 +617,24 @@ async fn pairing_details(
     Query(query): Query<PairingCodeQuery>,
 ) -> Result<Json<Value>, ApiError> {
     authenticate(&state, &jar).await?;
-    expire_pairing(&state.pool, pairing_id).await?;
-    let row = sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2")
-        .bind(pairing_id)
-        .bind(token_hash(&query.code))
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    Ok(Json(
-        json!({"pairing_id":pairing_id,"hostname":row.get::<String,_>("hostname"),"os":row.get::<String,_>("os"),"daemon_version":row.get::<String,_>("daemon_version"),"token_fingerprint":&row.get::<String,_>("token_hash")[..12],"status":row.get::<String,_>("status"),"expires_at":timestamp(row.get("expires_at"))}),
-    ))
+    let mut storage = state.storage.clone();
+    let pairing = ReadPairing::execute(
+        &mut storage,
+        pairing_id,
+        &RawPairingCode::new(query.code).sha256_hash(),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(json!({
+        "pairing_id": pairing.pairing_id,
+        "hostname": pairing.hostname,
+        "os": pairing.os.code(),
+        "daemon_version": pairing.daemon_version,
+        "token_fingerprint": pairing.token_fingerprint,
+        "status": pairing.status.code(),
+        "expires_at": timestamp(pairing.expires_at)
+    })))
 }
 
 async fn confirm_pairing(
@@ -636,50 +646,23 @@ async fn confirm_pairing(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let actor_id = current_member(&state, &jar, body.space_id).await?;
     let key = idempotency_header(&headers)?;
-    expire_pairing(&state.pool, pairing_id).await?;
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(&mut transaction, actor_id, "computer.pairing.confirm", key).await?;
-    if let Some(row) = sqlx::query(
-        "SELECT computers.* FROM idempotency_records \
-         JOIN computers ON computers.id=idempotency_records.resource_id \
-         WHERE actor_member_id=$1 AND action='computer.pairing.confirm' AND idempotency_key=$2",
+    let mut storage = state.storage.clone();
+    let computer = ConfirmPairing::execute(
+        &mut storage,
+        ConfirmPairingInput {
+            actor_id: MemberId::from_uuid(actor_id),
+            pairing_id,
+            computer_id: ComputerId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(body.space_id),
+            code_hash: &RawPairingCode::new(body.code).sha256_hash(),
+            name: &body.name,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(actor_id)
-    .bind(key)
-    .fetch_optional(&mut *transaction)
     .await
-    .map_err(map_sqlx)?
-    {
-        transaction.commit().await.map_err(map_sqlx)?;
-        return Ok((
-            StatusCode::CREATED,
-            Json(json!({
-                "id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),
-                "name":row.get::<String,_>("name"),"hostname":row.get::<String,_>("hostname"),
-                "os":row.get::<String,_>("os"),"daemon_version":row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
-                "status":"offline","last_seen_at":optional_timestamp(row.get("last_seen_at")),
-                "created_at":timestamp(row.get("created_at"))
-            })),
-        ));
-    }
-    let pairing=sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2 AND status='pending' FOR UPDATE").bind(pairing_id).bind(token_hash(&body.code)).fetch_optional(&mut *transaction).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
-    let computer_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query("INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,daemon_version,created_at) VALUES($1,$2,$3,$4,$5,$6,'offline',$7,$8)")
-        .bind(computer_id).bind(body.space_id).bind(&body.name).bind(pairing.get::<String,_>("hostname")).bind(pairing.get::<String,_>("os")).bind(pairing.get::<String,_>("token_hash")).bind(pairing.get::<String,_>("daemon_version")).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    sqlx::query("UPDATE computer_pairings SET status='confirmed',computer_id=$2,space_id=$3,confirmed_at=$4 WHERE id=$1").bind(pairing_id).bind(computer_id).bind(body.space_id).bind(now).execute(&mut *transaction).await.map_err(map_sqlx)?;
-    let result_hash = Sha256::digest(computer_id.as_bytes());
-    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'computer.pairing.confirm',$2,'ok',$3,$4,$5)")
-        .bind(actor_id).bind(key).bind(computer_id).bind(result_hash.as_slice()).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(
-            json!({"id":computer_id,"space_id":body.space_id,"name":body.name,"hostname":pairing.get::<String,_>("hostname"),"os":pairing.get::<String,_>("os"),"daemon_version":pairing.get::<String,_>("daemon_version"),"status":"offline","last_seen_at":Value::Null,"created_at":timestamp(now)}),
-        ),
-    ))
+    .map_err(application_error)?;
+    Ok((StatusCode::CREATED, Json(computer_json(&computer))))
 }
 
 async fn pairing_status(
@@ -687,20 +670,21 @@ async fn pairing_status(
     headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    expire_pairing(&state.pool, pairing_id).await?;
     let raw = bearer_token(&headers)?;
-    let row = sqlx::query(
-        "SELECT status,computer_id,space_id FROM computer_pairings WHERE id=$1 AND token_hash=$2",
+    let mut storage = state.storage.clone();
+    let progress = ReadPairingStatus::execute(
+        &mut storage,
+        pairing_id,
+        &token_hash(raw),
+        OffsetDateTime::now_utc(),
     )
-    .bind(pairing_id)
-    .bind(token_hash(raw))
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::unauthenticated)?;
-    Ok(Json(
-        json!({"status":row.get::<String,_>("status"),"computer_id":row.get::<Option<Uuid>,_>("computer_id"),"space_id":row.get::<Option<Uuid>,_>("space_id")}),
-    ))
+    .map_err(application_error)?;
+    Ok(Json(json!({
+        "status": progress.status.code(),
+        "computer_id": progress.computer_id.map(ComputerId::into_uuid),
+        "space_id": progress.space_id.map(SpaceId::into_uuid)
+    })))
 }
 
 async fn connect_computer(
@@ -710,18 +694,20 @@ async fn connect_computer(
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     let raw = bearer_token(&headers)?;
-    let row = sqlx::query("SELECT deleted_at FROM computers WHERE id=$1 AND token_hash=$2")
-        .bind(computer_id)
-        .bind(token_hash(raw))
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::unauthenticated)?;
-    let deleted = row.get::<Option<OffsetDateTime>, _>("deleted_at").is_some();
+    let mut storage = state.storage.clone();
+    // 已删除 Computer 仍可完成握手，由 negotiate 返回稳定拒绝原因。
+    let identity = AuthenticateComputer::execute(
+        &mut storage,
+        ComputerId::from_uuid(computer_id),
+        &token_hash(raw),
+    )
+    .await
+    .map_err(application_error)?;
     let storage = state.storage.clone();
     let pool = state.pool.clone();
-    Ok(upgrade
-        .on_upgrade(move |socket| computer_socket(socket, storage, pool, computer_id, deleted)))
+    Ok(upgrade.on_upgrade(move |socket| {
+        computer_socket(socket, storage, pool, computer_id, identity.deleted)
+    }))
 }
 
 async fn authenticate_computer(
@@ -730,18 +716,39 @@ async fn authenticate_computer(
     computer_id: Uuid,
 ) -> Result<(), ApiError> {
     let raw = bearer_token(headers)?;
-    let authorized: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND token_hash=$2 AND deleted_at IS NULL)",
+    let mut storage = state.storage.clone();
+    AuthenticateComputer::require_active(
+        &mut storage,
+        ComputerId::from_uuid(computer_id),
+        &token_hash(raw),
     )
-    .bind(computer_id)
-    .bind(token_hash(raw))
-    .fetch_one(&state.pool)
     .await
-    .map_err(map_sqlx)?;
-    if !authorized {
-        return Err(ApiError::unauthenticated());
-    }
+    .map_err(application_error)?;
     Ok(())
+}
+
+fn computer_json(computer: &PairedComputer) -> Value {
+    json!({
+        "id": computer.id.into_uuid(),
+        "space_id": computer.space_id.into_uuid(),
+        "name": computer.name,
+        "hostname": computer.hostname,
+        "os": computer.os.code(),
+        "daemon_version": computer.daemon_version.clone().unwrap_or_default(),
+        "status": computer_status(computer),
+        "last_seen_at": optional_timestamp(computer.last_seen_at),
+        "created_at": timestamp(computer.created_at)
+    })
+}
+
+fn computer_status(computer: &PairedComputer) -> &'static str {
+    if computer.deleted {
+        "revoked"
+    } else if computer.connected {
+        "online"
+    } else {
+        "offline"
+    }
 }
 
 async fn computer_agents(
@@ -1997,11 +2004,6 @@ async fn send_json(
     socket.send(WebSocketMessage::Text(encoded.into())).await
 }
 
-async fn expire_pairing(pool: &PgPool, pairing_id: Uuid) -> Result<(), ApiError> {
-    sqlx::query("UPDATE computer_pairings SET status='expired' WHERE id=$1 AND status='pending' AND expires_at<=now()").bind(pairing_id).execute(pool).await.map_err(map_sqlx)?;
-    Ok(())
-}
-
 async fn create_space(
     State(state): State<RuntimeState>,
     jar: CookieJar,
@@ -2184,18 +2186,13 @@ async fn list_computers(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     current_member(&state, &jar, space_id).await?;
-    let rows = sqlx::query("SELECT * FROM computers WHERE space_id=$1 ORDER BY created_at")
-        .bind(space_id)
-        .fetch_all(&state.pool)
+    let mut storage = state.storage.clone();
+    let computers = ListSpaceComputers::execute(&mut storage, SpaceId::from_uuid(space_id))
         .await
-        .map_err(map_sqlx)?;
-    Ok(Json(Value::Array(rows.iter().map(|row| json!({
-        "id": row.get::<Uuid,_>("id"), "space_id": space_id, "name": row.get::<String,_>("name"),
-        "hostname": row.get::<String,_>("hostname"), "os": row.get::<String,_>("os"),
-        "daemon_version": row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
-        "status": if row.get::<Option<OffsetDateTime>,_>("deleted_at").is_some() {"revoked"} else {row.get::<&str,_>("connection_status")},
-        "last_seen_at": optional_timestamp(row.get("last_seen_at")), "created_at": timestamp(row.get("created_at"))
-    })).collect())))
+        .map_err(application_error)?;
+    Ok(Json(Value::Array(
+        computers.iter().map(computer_json).collect(),
+    )))
 }
 
 async fn list_agents(
@@ -2337,18 +2334,10 @@ async fn delete_computer(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query("SELECT * FROM computers WHERE id=$1")
-        .bind(computer_id)
-        .fetch_one(&state.pool)
+    let computer = ReadPairedComputer::execute(&mut storage, ComputerId::from_uuid(computer_id))
         .await
-        .map_err(map_sqlx)?;
-    Ok(Json(json!({
-        "id": row.get::<Uuid,_>("id"), "space_id": row.get::<Uuid,_>("space_id"), "name": row.get::<String,_>("name"),
-        "hostname": row.get::<String,_>("hostname"), "os": row.get::<String,_>("os"),
-        "daemon_version": row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
-        "status": "revoked", "last_seen_at": optional_timestamp(row.get("last_seen_at")),
-        "created_at": timestamp(row.get("created_at"))
-    })))
+        .map_err(application_error)?;
+    Ok(Json(computer_json(&computer)))
 }
 
 async fn create_agent(
@@ -4186,6 +4175,14 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
                 "display name, email, and a password of at least 12 characters are required",
             )
         }
+        ApplicationError::Domain(crate::server::domain::DomainError::InvalidPairing) => {
+            ApiError::invalid("Computer pairing request is invalid")
+        }
+        ApplicationError::Domain(crate::server::domain::DomainError::PairingLapsed) => ApiError {
+            status: StatusCode::CONFLICT,
+            code: "pairing_lapsed",
+            message: "Computer pairing expired or was already confirmed",
+        },
         ApplicationError::PermissionDenied => ApiError {
             status: StatusCode::FORBIDDEN,
             code: "permission_denied",

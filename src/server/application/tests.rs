@@ -19,11 +19,16 @@ use crate::server::domain::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
     },
+    pairing::{Pairing, PairingStatus},
     task::{CloseReason, Task, TaskStatus},
 };
 
 use super::{
     attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
+    computer::{
+        AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing, ConfirmPairingInput,
+        ReadPairing, ReadPairingStatus,
+    },
     conversation::{
         CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
         CreateChannelAction, CreateChannelActionInput, CreateChannelInput, DeleteMessage,
@@ -40,8 +45,9 @@ use super::{
         RetireAgent, SetPermission,
     },
     ports::{
-        ApplicationError, AuthenticatedHuman, Effect, MessageDraft, PasswordPort, PublishedMessage,
-        RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
+        ApplicationError, AuthenticatedHuman, ComputerRecord, Effect, MessageDraft, PairedComputer,
+        PairingCodePort, PasswordPort, PublishedMessage, RawPairingCode, RawSessionToken,
+        ServerTransaction, SessionTokenPort, TransactionPort,
     },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -159,6 +165,10 @@ struct MemoryState {
     channel_members: HashMap<(uuid::Uuid, ChannelId), MemberId>,
     agent_spaces: HashMap<MemberId, SpaceId>,
     computer_spaces: HashMap<ComputerId, SpaceId>,
+    pairings: HashMap<uuid::Uuid, (Pairing, String)>,
+    paired_computers: Vec<PairedComputer>,
+    computer_tokens: HashMap<String, ComputerId>,
+    idempotency_locks: Vec<(MemberId, String, IdempotencyKey)>,
 }
 
 #[derive(Default)]
@@ -322,6 +332,149 @@ impl ServerTransaction for MemoryTransaction {
         computer_id: ComputerId,
     ) -> Result<Option<SpaceId>, ApplicationError> {
         Ok(self.state.computer_spaces.get(&computer_id).copied())
+    }
+
+    async fn insert_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &Pairing,
+        code_hash: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .pairings
+            .insert(pairing_id, (pairing.clone(), code_hash.to_owned()));
+        Ok(())
+    }
+
+    async fn save_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &Pairing,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let code_hash = self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .map(|(_, code_hash)| code_hash.clone())
+            .ok_or(ApplicationError::NotFound)?;
+        self.state
+            .pairings
+            .insert(pairing_id, (pairing.clone(), code_hash));
+        Ok(())
+    }
+
+    async fn pairing_by_code(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        Ok(self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .filter(|(_, stored)| stored == code_hash)
+            .map(|(pairing, _)| pairing.clone()))
+    }
+
+    async fn pairing_by_code_for_update(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        self.pairing_by_code(pairing_id, code_hash).await
+    }
+
+    async fn pairing_by_token(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        token_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        Ok(self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .filter(|(pairing, _)| pairing.request.token_hash == token_hash)
+            .map(|(pairing, _)| pairing.clone()))
+    }
+
+    async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError> {
+        if self.state.computer_tokens.contains_key(&record.token_hash) {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state
+            .computer_tokens
+            .insert(record.token_hash.clone(), record.id);
+        self.state.paired_computers.push(PairedComputer {
+            id: record.id,
+            space_id: record.space_id,
+            name: record.name.clone(),
+            hostname: record.hostname.clone(),
+            os: record.os,
+            daemon_version: Some(record.daemon_version.clone()),
+            connected: false,
+            deleted: false,
+            last_seen_at: None,
+            created_at: record.created_at,
+        });
+        Ok(())
+    }
+
+    async fn paired_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<PairedComputer>, ApplicationError> {
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .find(|computer| computer.id == computer_id)
+            .cloned())
+    }
+
+    async fn space_computers(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Vec<PairedComputer>, ApplicationError> {
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .filter(|computer| computer.space_id == space_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn computer_for_token(
+        &mut self,
+        computer_id: ComputerId,
+        token_hash: &str,
+    ) -> Result<Option<bool>, ApplicationError> {
+        let Some(stored) = self.state.computer_tokens.get(token_hash).copied() else {
+            return Ok(None);
+        };
+        if stored != computer_id {
+            return Ok(None);
+        }
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .find(|computer| computer.id == computer_id)
+            .map(|computer| computer.deleted))
+    }
+
+    async fn lock_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .idempotency_locks
+            .push((actor, action.to_owned(), key));
+        Ok(())
     }
 
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
@@ -2318,6 +2471,315 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
             .await
             .err(),
         Some(ApplicationError::NotFound)
+    );
+}
+
+/// 测试用配对 code 端口：返回固定 code，便于构造错误 code 的对照请求。
+struct StubPairingCodes;
+
+impl PairingCodePort for StubPairingCodes {
+    fn generate(&self) -> RawPairingCode {
+        RawPairingCode::new("424242".into())
+    }
+}
+
+const DAEMON_TOKEN_HASH: &str = "1a2b3c4d5e6f70819203a4b5c6d7e8f9\
+0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+
+async fn begin_test_pairing(
+    port: &mut MemoryPort,
+    pairing_id: Uuid,
+    now: OffsetDateTime,
+) -> super::computer::StartedPairing {
+    BeginPairing::execute(
+        port,
+        &StubPairingCodes,
+        BeginPairingInput {
+            pairing_id,
+            token_hash: DAEMON_TOKEN_HASH,
+            hostname: "workstation",
+            os: "linux",
+            daemon_version: "0.1.0",
+            now,
+        },
+    )
+    .await
+    .expect("pairing opens")
+}
+
+#[tokio::test]
+async fn confirming_a_pairing_creates_one_computer_and_replays_the_same_result() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let pairing_id = Uuid::from_u128(5001);
+    let started = begin_test_pairing(&mut port, pairing_id, now).await;
+    let code_hash = RawPairingCode::new(started.code.clone()).sha256_hash();
+
+    let actor_id = member(5002);
+    let space_id = space(5003);
+    let key = idempotency(5004);
+    let confirmed = ConfirmPairing::execute(
+        &mut port,
+        ConfirmPairingInput {
+            actor_id,
+            pairing_id,
+            computer_id: computer(5005),
+            space_id,
+            code_hash: &code_hash,
+            name: "  Workstation  ",
+            idempotency_key: key,
+            now,
+        },
+    )
+    .await
+    .expect("confirm succeeds");
+    assert_eq!(confirmed.id, computer(5005));
+    assert_eq!(confirmed.name, "Workstation");
+    assert_eq!(confirmed.hostname, "workstation");
+    assert!(!confirmed.connected);
+
+    // 同一 key 重放返回既有 Computer，不创建第二个。
+    let replayed = ConfirmPairing::execute(
+        &mut port,
+        ConfirmPairingInput {
+            actor_id,
+            pairing_id,
+            computer_id: computer(5099),
+            space_id,
+            code_hash: &code_hash,
+            name: "Workstation",
+            idempotency_key: key,
+            now,
+        },
+    )
+    .await
+    .expect("replay succeeds");
+    assert_eq!(replayed, confirmed);
+    assert_eq!(port.state.paired_computers.len(), 1);
+    // 重放路径取过 idempotency 锁，说明并发确认在同一键上串行。
+    assert!(
+        port.state
+            .idempotency_locks
+            .iter()
+            .filter(|(locked_actor, action, locked_key)| {
+                *locked_actor == actor_id
+                    && action == "computer.pairing.confirm"
+                    && *locked_key == key
+            })
+            .count()
+            >= 2
+    );
+    assert_eq!(
+        port.state.pairings[&pairing_id].0.status,
+        PairingStatus::Confirmed
+    );
+}
+
+#[tokio::test]
+async fn a_wrong_code_and_a_second_confirmation_cannot_create_another_computer() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let pairing_id = Uuid::from_u128(5010);
+    let started = begin_test_pairing(&mut port, pairing_id, now).await;
+    let code_hash = RawPairingCode::new(started.code).sha256_hash();
+    let wrong_hash = RawPairingCode::new("000000".into()).sha256_hash();
+    let space_id = space(5011);
+
+    assert_eq!(
+        ConfirmPairing::execute(
+            &mut port,
+            ConfirmPairingInput {
+                actor_id: member(5012),
+                pairing_id,
+                computer_id: computer(5013),
+                space_id,
+                code_hash: &wrong_hash,
+                name: "Workstation",
+                idempotency_key: idempotency(5014),
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::NotFound)
+    );
+    assert!(port.state.paired_computers.is_empty());
+
+    ConfirmPairing::execute(
+        &mut port,
+        ConfirmPairingInput {
+            actor_id: member(5012),
+            pairing_id,
+            computer_id: computer(5015),
+            space_id,
+            code_hash: &code_hash,
+            name: "Workstation",
+            idempotency_key: idempotency(5016),
+            now,
+        },
+    )
+    .await
+    .expect("first confirm succeeds");
+
+    // 另一个 idempotency key 也不能重复确认同一个配对。
+    assert_eq!(
+        ConfirmPairing::execute(
+            &mut port,
+            ConfirmPairingInput {
+                actor_id: member(5012),
+                pairing_id,
+                computer_id: computer(5017),
+                space_id,
+                code_hash: &code_hash,
+                name: "Workstation",
+                idempotency_key: idempotency(5018),
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::PairingLapsed
+        ))
+    );
+    assert_eq!(port.state.paired_computers.len(), 1);
+}
+
+#[tokio::test]
+async fn a_lapsed_pairing_is_recorded_as_expired_on_read_and_rejects_confirmation() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let pairing_id = Uuid::from_u128(5020);
+    let started = begin_test_pairing(&mut port, pairing_id, now).await;
+    let code_hash = RawPairingCode::new(started.code).sha256_hash();
+    let after = started.expires_at;
+
+    let view = ReadPairing::execute(&mut port, pairing_id, &code_hash, after)
+        .await
+        .expect("read succeeds");
+    assert_eq!(view.status, PairingStatus::Expired);
+    // 过期在读取时落库，daemon 轮询看到同一状态。
+    assert_eq!(
+        port.state.pairings[&pairing_id].0.status,
+        PairingStatus::Expired
+    );
+    let progress = ReadPairingStatus::execute(&mut port, pairing_id, DAEMON_TOKEN_HASH, after)
+        .await
+        .expect("status succeeds");
+    assert_eq!(progress.status, PairingStatus::Expired);
+    assert_eq!(progress.computer_id, None);
+
+    assert_eq!(
+        ConfirmPairing::execute(
+            &mut port,
+            ConfirmPairingInput {
+                actor_id: member(5021),
+                pairing_id,
+                computer_id: computer(5022),
+                space_id: space(5023),
+                code_hash: &code_hash,
+                name: "Workstation",
+                idempotency_key: idempotency(5024),
+                now: after,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::PairingLapsed
+        ))
+    );
+    assert!(port.state.paired_computers.is_empty());
+    assert_eq!(
+        port.state.pairings[&pairing_id].0.status,
+        PairingStatus::Expired
+    );
+}
+
+#[tokio::test]
+async fn pairing_details_never_expose_the_full_token_hash_and_status_requires_the_daemon_token() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let pairing_id = Uuid::from_u128(5030);
+    let started = begin_test_pairing(&mut port, pairing_id, now).await;
+    let code_hash = RawPairingCode::new(started.code).sha256_hash();
+
+    let view = ReadPairing::execute(&mut port, pairing_id, &code_hash, now)
+        .await
+        .expect("read succeeds");
+    assert_eq!(view.token_fingerprint.len(), 12);
+    assert!(DAEMON_TOKEN_HASH.starts_with(&view.token_fingerprint));
+    assert_ne!(view.token_fingerprint, DAEMON_TOKEN_HASH);
+
+    // 未知 daemon token 得到认证失败，不泄露配对是否存在。
+    assert_eq!(
+        ReadPairingStatus::execute(&mut port, pairing_id, &"b".repeat(64), now)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+    assert_eq!(
+        ReadPairingStatus::execute(&mut port, Uuid::from_u128(5039), DAEMON_TOKEN_HASH, now)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+}
+
+#[tokio::test]
+async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer_api() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let computer_id = computer(5040);
+    let record = ComputerRecord {
+        id: computer_id,
+        space_id: space(5041),
+        name: "Workstation".into(),
+        hostname: "workstation".into(),
+        os: crate::server::domain::pairing::ComputerOs::Linux,
+        daemon_version: "0.1.0".into(),
+        token_hash: DAEMON_TOKEN_HASH.into(),
+        created_at: now,
+    };
+    port.transact(async |transaction| transaction.insert_computer(&record).await)
+        .await
+        .expect("insert succeeds");
+
+    let identity = AuthenticateComputer::execute(&mut port, computer_id, DAEMON_TOKEN_HASH)
+        .await
+        .expect("token authenticates");
+    assert!(!identity.deleted);
+    AuthenticateComputer::require_active(&mut port, computer_id, DAEMON_TOKEN_HASH)
+        .await
+        .expect("an active computer may call the Computer API");
+
+    // 错误 token 与错误 Computer 都不能认证。
+    assert_eq!(
+        AuthenticateComputer::execute(&mut port, computer_id, &"c".repeat(64))
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+    assert_eq!(
+        AuthenticateComputer::execute(&mut port, computer(5049), DAEMON_TOKEN_HASH)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+
+    // 删除后握手仍能认证，但 Computer API 被拒绝。
+    port.state.paired_computers[0].deleted = true;
+    assert!(
+        AuthenticateComputer::execute(&mut port, computer_id, DAEMON_TOKEN_HASH)
+            .await
+            .expect("handshake still authenticates")
+            .deleted
+    );
+    assert_eq!(
+        AuthenticateComputer::require_active(&mut port, computer_id, DAEMON_TOKEN_HASH)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
     );
 }
 

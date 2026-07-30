@@ -22,8 +22,8 @@ use crate::{
     },
     server::{
         application::ports::{
-            ApplicationError, AuthenticatedHuman, CreatedSpace, Effect, MessageDraft,
-            PublishedMessage, ServerTransaction, TransactionPort,
+            ApplicationError, AuthenticatedHuman, ComputerRecord, CreatedSpace, Effect,
+            MessageDraft, PairedComputer, PublishedMessage, ServerTransaction, TransactionPort,
         },
         domain::{
             access::{HumanRegistration, SpaceAccess},
@@ -38,6 +38,7 @@ use crate::{
                 AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
                 Member, PermissionAction,
             },
+            pairing::{ComputerOs, Pairing, PairingRequest, PairingStatus},
             task::{CloseReason, RelatedThread, Task, TaskStatus},
         },
     },
@@ -509,6 +510,178 @@ impl ServerTransaction for PostgresTransaction {
             .await
             .map_err(map_sqlx)?;
         Ok(space_id.map(SpaceId::from_uuid))
+    }
+
+    async fn insert_pairing(
+        &mut self,
+        pairing_id: Uuid,
+        pairing: &Pairing,
+        code_hash: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO computer_pairings\
+             (id,code_hash,token_hash,hostname,os,daemon_version,status,expires_at,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(pairing_id)
+        .bind(code_hash)
+        .bind(&pairing.request.token_hash)
+        .bind(&pairing.request.hostname)
+        .bind(pairing.request.os.code())
+        .bind(&pairing.request.daemon_version)
+        .bind(pairing.status.code())
+        .bind(pairing.expires_at)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn save_pairing(
+        &mut self,
+        pairing_id: Uuid,
+        pairing: &Pairing,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "UPDATE computer_pairings SET status=$2,computer_id=$3,space_id=$4,\
+             confirmed_at=CASE WHEN $2='confirmed' THEN $5 ELSE confirmed_at END WHERE id=$1",
+        )
+        .bind(pairing_id)
+        .bind(pairing.status.code())
+        .bind(pairing.computer_id.map(ComputerId::into_uuid))
+        .bind(pairing.space_id.map(SpaceId::into_uuid))
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn pairing_by_code(
+        &mut self,
+        pairing_id: Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        let row = sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2")
+            .bind(pairing_id)
+            .bind(code_hash)
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        row.map(|row| pairing_from_row(&row)).transpose()
+    }
+
+    async fn pairing_by_code_for_update(
+        &mut self,
+        pairing_id: Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        let row =
+            sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2 FOR UPDATE")
+                .bind(pairing_id)
+                .bind(code_hash)
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        row.map(|row| pairing_from_row(&row)).transpose()
+    }
+
+    async fn pairing_by_token(
+        &mut self,
+        pairing_id: Uuid,
+        token_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        let row = sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND token_hash=$2")
+            .bind(pairing_id)
+            .bind(token_hash)
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        row.map(|row| pairing_from_row(&row)).transpose()
+    }
+
+    async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO computers\
+             (id,space_id,name,hostname,os,token_hash,connection_status,daemon_version,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,'offline',$7,$8)",
+        )
+        .bind(record.id.into_uuid())
+        .bind(record.space_id.into_uuid())
+        .bind(&record.name)
+        .bind(&record.hostname)
+        .bind(record.os.code())
+        .bind(&record.token_hash)
+        .bind(&record.daemon_version)
+        .bind(record.created_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn paired_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<PairedComputer>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,space_id,name,hostname,os,connection_status,daemon_version,\
+             last_seen_at,created_at,deleted_at FROM computers WHERE id=$1",
+        )
+        .bind(computer_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(|row| paired_computer_from_row(&row)).transpose()
+    }
+
+    async fn space_computers(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Vec<PairedComputer>, ApplicationError> {
+        let rows = sqlx::query(
+            "SELECT id,space_id,name,hostname,os,connection_status,daemon_version,\
+             last_seen_at,created_at,deleted_at FROM computers WHERE space_id=$1 ORDER BY created_at",
+        )
+        .bind(space_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter().map(paired_computer_from_row).collect()
+    }
+
+    async fn computer_for_token(
+        &mut self,
+        computer_id: ComputerId,
+        token_hash: &str,
+    ) -> Result<Option<bool>, ApplicationError> {
+        let deleted = sqlx::query_scalar::<_, Option<OffsetDateTime>>(
+            "SELECT deleted_at FROM computers WHERE id=$1 AND token_hash=$2",
+        )
+        .bind(computer_id.into_uuid())
+        .bind(token_hash)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(deleted.map(|deleted_at| deleted_at.is_some()))
+    }
+
+    async fn lock_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<(), ApplicationError> {
+        let lock_key = format!("{}:{action}:{}", actor.into_uuid(), key.into_uuid());
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(lock_key)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
     }
 
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
@@ -2395,6 +2568,42 @@ fn access_level_str(value: AccessLevel) -> &'static str {
         AccessLevel::Admin => "admin",
         AccessLevel::Member => "member",
     }
+}
+
+fn paired_computer_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PairedComputer, ApplicationError> {
+    Ok(PairedComputer {
+        id: ComputerId::from_uuid(row.get("id")),
+        space_id: SpaceId::from_uuid(row.get("space_id")),
+        name: row.get("name"),
+        hostname: row.get("hostname"),
+        os: ComputerOs::parse(row.get("os"))?,
+        daemon_version: row.get("daemon_version"),
+        connected: row.get::<String, _>("connection_status") == "online",
+        deleted: row.get::<Option<OffsetDateTime>, _>("deleted_at").is_some(),
+        last_seen_at: row.get("last_seen_at"),
+        created_at: row.get("created_at"),
+    })
+}
+
+fn pairing_from_row(row: &sqlx::postgres::PgRow) -> Result<Pairing, ApplicationError> {
+    Ok(Pairing {
+        request: PairingRequest {
+            token_hash: row.get("token_hash"),
+            hostname: row.get("hostname"),
+            os: ComputerOs::parse(row.get("os"))?,
+            daemon_version: row.get("daemon_version"),
+        },
+        status: PairingStatus::parse(row.get("status"))?,
+        expires_at: row.get("expires_at"),
+        computer_id: row
+            .get::<Option<Uuid>, _>("computer_id")
+            .map(ComputerId::from_uuid),
+        space_id: row
+            .get::<Option<Uuid>, _>("space_id")
+            .map(SpaceId::from_uuid),
+    })
 }
 
 fn access_level_from_str(value: &str) -> Result<AccessLevel, ApplicationError> {

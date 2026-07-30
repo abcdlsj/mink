@@ -1,4 +1,5 @@
 pub(in crate::server) mod attention;
+pub(in crate::server) mod computer;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
 pub(in crate::server) mod identity;

@@ -3,6 +3,7 @@ pub(in crate::server) mod attention;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
 pub(in crate::server) mod identity;
+pub(in crate::server) mod pairing;
 pub(in crate::server) mod task;
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -47,4 +48,8 @@ pub(in crate::server) enum DomainError {
     InvalidCredential,
     #[error("space owner or admin access is required")]
     GovernorRequired,
+    #[error("computer pairing request is not well formed")]
+    InvalidPairing,
+    #[error("computer pairing is no longer pending")]
+    PairingLapsed,
 }

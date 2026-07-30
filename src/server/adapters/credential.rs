@@ -2,7 +2,8 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_ha
 use uuid::Uuid;
 
 use crate::server::application::ports::{
-    ApplicationError, PasswordPort, RawSessionToken, SessionTokenPort,
+    ApplicationError, PairingCodePort, PasswordPort, RawPairingCode, RawSessionToken,
+    SessionTokenPort,
 };
 
 /// Argon2 密码散列。salt 每次注册重新生成。
@@ -41,9 +42,29 @@ impl SessionTokenPort for UuidSessionTokens {
     }
 }
 
+/// 六位配对 code。Human 需要手动转录，因此使用十进制数字。
+pub(super) struct NumericPairingCodes;
+
+impl PairingCodePort for NumericPairingCodes {
+    fn generate(&self) -> RawPairingCode {
+        let bytes: [u8; 4] = Uuid::now_v7().as_bytes()[..4]
+            .try_into()
+            .expect("a UUID provides at least four bytes");
+        RawPairingCode::new(format!("{:06}", u32::from_be_bytes(bytes) % 1_000_000))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairing_codes_are_six_digits_and_hidden_from_debug_output() {
+        let code = NumericPairingCodes.generate();
+        assert_eq!(code.expose().len(), 6);
+        assert!(code.expose().bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(!format!("{code:?}").contains(code.expose()));
+    }
 
     #[test]
     fn password_verification_rejects_wrong_password_and_corrupt_hash() {
