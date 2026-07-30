@@ -25,7 +25,11 @@ use super::{
     conversation::{
         CreateAgentAction, CreateAgentActionInput, CreateChannelAction, CreateChannelActionInput,
     },
-    execution::{ClaimRun, ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput},
+    execution::{
+        ClaimRun, ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput,
+        RecordRunItemDisposition, RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun,
+        StartRunInput,
+    },
     identity::{DeleteComputer, RetireAgent},
     ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
     task::{
@@ -80,7 +84,7 @@ impl TransactionPort for MemoryPort {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl ServerTransaction for MemoryTransaction {
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         self.state
@@ -534,6 +538,144 @@ async fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
         focus_error,
         ApplicationError::Domain(crate::server::domain::DomainError::FocusOutsideTask)
     ));
+}
+
+#[tokio::test]
+async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
+    let agent = member(37);
+    let focus = thread(38);
+    let run_id = run(39);
+    let token_hash = hex::encode(Sha256::digest(b"token"));
+    let mut queued = running_run(run_id, agent, focus, None, Vec::new());
+    queued.status = RunStatus::Queued;
+    queued.started_at = None;
+    queued.fencing_token_hash = token_hash.clone();
+    let mut port = MemoryPort::default();
+    port.state.runs.insert(run_id, queued);
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+
+    let input = || StartRunInput {
+        run_id,
+        computer_id: computer(999),
+        fencing_token_hash: token_hash.clone(),
+        now: OffsetDateTime::UNIX_EPOCH,
+    };
+    let started = StartRun::execute(&mut port, input()).await.unwrap();
+    assert_eq!(started.status, RunStatus::Running);
+    assert_eq!(started.started_at, Some(OffsetDateTime::UNIX_EPOCH));
+    assert!(matches!(port.state.effects.last(), Some(Effect::RunStarted(id)) if *id == run_id));
+    assert_eq!(
+        StartRun::execute(&mut port, input()).await.unwrap(),
+        started
+    );
+
+    let error = StartRun::execute(
+        &mut port,
+        StartRunInput {
+            computer_id: computer(998),
+            ..input()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error, ApplicationError::PermissionDenied);
+}
+
+#[tokio::test]
+async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
+    let agent = member(137);
+    let focus = thread(138);
+    let run_id = run(139);
+    let item_id = item(140);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+    let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
+    leased_item.lease_run_id = Some(run_id);
+    port.state.items.insert(item_id, leased_item);
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent, focus, None, vec![item_id]),
+    );
+    let renewed_until = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+
+    let renewed = RenewRun::execute(
+        &mut port,
+        RenewRunInput {
+            run_id,
+            computer_id: computer(999),
+            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+            lease_expires_at: renewed_until,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(renewed.lease_expires_at, renewed_until);
+    assert_eq!(
+        port.state.items[&item_id].lease_expires_at,
+        Some(renewed_until)
+    );
+    assert!(matches!(
+        RenewRun::execute(
+            &mut port,
+            RenewRunInput {
+                run_id,
+                computer_id: computer(999),
+                fencing_token_hash: "stale".into(),
+                lease_expires_at: renewed_until + time::Duration::hours(1),
+            },
+        )
+        .await,
+        Err(ApplicationError::Domain(
+            crate::server::domain::DomainError::StaleFencingToken
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
+    let agent = member(141);
+    let focus = thread(142);
+    let run_id = run(143);
+    let item_id = item(144);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+    let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
+    leased_item.lease_run_id = Some(run_id);
+    port.state.items.insert(item_id, leased_item);
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent, focus, None, vec![item_id]),
+    );
+    let defer_until = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+
+    let updated = RecordRunItemDisposition::execute(
+        &mut port,
+        RecordRunItemDispositionInput {
+            run_id,
+            computer_id: computer(999),
+            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+            item_id,
+            disposition: InboxItemDisposition::Deferred,
+            defer_until: Some(defer_until),
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        updated.items[0].disposition,
+        Some(InboxItemDisposition::Deferred)
+    );
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
+    assert_eq!(port.state.items[&item_id].available_at, defer_until);
 }
 
 #[tokio::test]

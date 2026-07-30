@@ -87,6 +87,19 @@ impl Run {
         Ok(())
     }
 
+    pub(in crate::server) fn renew_lease(
+        &mut self,
+        fencing_token_hash: &str,
+        expires_at: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        self.validate_fencing(fencing_token_hash)?;
+        if self.status != RunStatus::Running || expires_at <= self.lease_expires_at {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.lease_expires_at = expires_at;
+        Ok(())
+    }
+
     pub(in crate::server) fn attach(&mut self, item: &InboxItem) -> Result<u64, DomainError> {
         if self.status != RunStatus::Running {
             return Err(DomainError::RunNotAcceptingItems);
@@ -138,6 +151,12 @@ impl Run {
             .iter_mut()
             .find(|item| item.inbox_item_id == item_id)
             .ok_or(DomainError::ItemScopeMismatch)?;
+        if item
+            .disposition
+            .is_some_and(|existing| existing != disposition)
+        {
+            return Err(DomainError::IncompleteItemDisposition);
+        }
         item.disposition = Some(disposition);
         Ok(())
     }

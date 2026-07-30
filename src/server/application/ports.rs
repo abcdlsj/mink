@@ -70,6 +70,7 @@ pub(in crate::server) enum Effect {
         run_id: RunId,
         fencing_token: RawFencingToken,
     },
+    RunStarted(RunId),
     RunCompleted(RunId),
     TaskCompleted {
         task_id: TaskId,
@@ -112,7 +113,7 @@ impl fmt::Debug for RawFencingToken {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub(in crate::server) trait ServerTransaction {
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError>;

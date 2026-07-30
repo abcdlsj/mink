@@ -159,7 +159,7 @@ impl SqliteAdapter {
             snapshot.runs.insert(run.id, run);
         }
         for row in sqlx::query(
-            "SELECT run_id,delivery_seq,state,item_json FROM run_deliveries \
+            "SELECT run_id,delivery_seq,state,disposition,item_json FROM run_deliveries \
              ORDER BY run_id,delivery_seq",
         )
         .fetch_all(&mut self.connection)
@@ -179,6 +179,10 @@ impl SqliteAdapter {
                     sequence,
                     item: decode(row.get("item_json"))?,
                     state: delivery_state(row.get("state"))?,
+                    disposition: row
+                        .get::<Option<&str>, _>("disposition")
+                        .map(item_disposition)
+                        .transpose()?,
                 },
             );
         }
@@ -327,12 +331,13 @@ impl SqliteAdapter {
             for delivery in run.deliveries.values() {
                 sqlx::query(
                     "INSERT INTO run_deliveries \
-                     (run_id,delivery_seq,inbox_item_id,state,item_json) VALUES (?,?,?,?,?)",
+                     (run_id,delivery_seq,inbox_item_id,state,disposition,item_json) VALUES (?,?,?,?,?,?)",
                 )
                 .bind(run.id.to_string())
                 .bind(i64::try_from(delivery.sequence).map_err(|_| ApplicationError::Internal)?)
                 .bind(delivery.item.item_id.to_string())
                 .bind(delivery_state_name(delivery.state))
+                .bind(delivery.disposition.map(item_disposition_name))
                 .bind(encode(&delivery.item)?)
                 .execute(&mut self.connection)
                 .await
@@ -708,6 +713,23 @@ fn delivery_state_name(value: DeliveryState) -> &'static str {
         DeliveryState::Accepted => "accepted",
         DeliveryState::TooLate => "too_late",
         DeliveryState::Unsupported => "unsupported",
+    }
+}
+
+fn item_disposition(value: &str) -> Result<ItemDisposition, ApplicationError> {
+    match value {
+        "handled" => Ok(ItemDisposition::Handled),
+        "deferred" => Ok(ItemDisposition::Deferred),
+        "released" => Ok(ItemDisposition::Released),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+
+fn item_disposition_name(value: ItemDisposition) -> &'static str {
+    match value {
+        ItemDisposition::Handled => "handled",
+        ItemDisposition::Deferred => "deferred",
+        ItemDisposition::Released => "released",
     }
 }
 

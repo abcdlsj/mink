@@ -1,30 +1,10 @@
-#[path = "agent_cli.rs"]
-mod legacy_agent_cli;
-// 新 Agent CLI 在最终运行时切换前只通过自身流程测试验证。
-#[allow(dead_code)]
-#[path = "agent_cli/mod.rs"]
 mod agent_cli;
-mod agent_config;
-mod agent_core;
 mod cli;
-// 新运行时在最终切换任务前必须保持未接入状态。
-#[allow(dead_code)]
 mod computer;
-mod computer_protocol;
 mod config;
-mod database;
-mod driver;
-#[allow(dead_code)]
 mod ids;
-mod legacy_computer;
-mod legacy_server;
-mod local_protocol;
-mod prompt;
-#[allow(dead_code)]
 mod protocol;
-#[allow(dead_code)]
 mod server;
-mod supervisor;
 
 use std::process::ExitCode;
 
@@ -39,27 +19,42 @@ async fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return handle_parse_error(error),
     };
-    let (result, agent_command) = match cli.command {
-        Command::Server(args) => (legacy_server::run(args).await, false),
-        Command::Computer(args) => (legacy_computer::run(args).await, false),
-        Command::Agent(args) => (legacy_agent_cli::run(args).await, true),
+    let (result, exit_code) = match cli.command {
+        Command::Server(args) => (server::run(args).await, None),
+        Command::Computer(args) => (computer::run(args).await, None),
+        Command::Agent(args) => {
+            let stdin = if args.requires_stdin() {
+                use tokio::io::AsyncReadExt;
+                let mut input = String::new();
+                if let Err(error) = tokio::io::stdin().read_to_string(&mut input).await {
+                    tracing::error!(?error, "failed to read Agent command stdin");
+                    return ExitCode::from(1);
+                }
+                Some(input)
+            } else {
+                None
+            };
+            let mut output = std::io::stdout().lock();
+            let code = agent_cli::execute(args, stdin, &mut output).await;
+            (Ok(()), Some(code))
+        }
         Command::Schema(args) => {
             let result = match args.command {
                 SchemaCommand::BrowserOpenapi => server::write_browser_openapi(),
             };
-            (result, false)
+            (result, None)
         }
     };
+
+    if let Some(code) = exit_code {
+        return ExitCode::from(code);
+    }
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(error = ?error, "command failed");
-            ExitCode::from(if agent_command {
-                legacy_agent_cli::exit_code(&error)
-            } else {
-                1
-            })
+            ExitCode::from(1)
         }
     }
 }
@@ -75,8 +70,14 @@ fn handle_parse_error(error: clap::Error) -> ExitCode {
     let agent_json = std::env::args_os().nth(1).is_some_and(|arg| arg == "agent")
         && std::env::args_os().any(|arg| arg == "--json");
     if agent_json {
-        let response =
-            local_protocol::LocalResponse::failure("invalid_arguments", error.to_string(), false);
+        let response = protocol::capability::Response::<serde_json::Value>::failure(
+            protocol::capability::Error {
+                code: protocol::capability::ErrorCode::InvalidArgument,
+                message: error.to_string(),
+                retryable: false,
+                details: Default::default(),
+            },
+        );
         if let Ok(response) = serde_json::to_string(&response) {
             println!("{response}");
         }

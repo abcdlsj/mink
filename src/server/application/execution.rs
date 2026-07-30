@@ -120,6 +120,40 @@ pub(in crate::server) struct ItemDispositionInput {
     pub(in crate::server) disposition: InboxItemDisposition,
 }
 
+pub(in crate::server) struct StartRunInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) computer_id: ComputerId,
+    pub(in crate::server) fencing_token_hash: String,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct StartRun;
+
+impl StartRun {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: StartRunInput,
+    ) -> Result<Run, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut run = transaction.run(input.run_id).await?;
+            if !transaction
+                .can_operate_agent(input.computer_id, run.agent_id)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            if run.status == RunStatus::Running {
+                return Ok(run);
+            }
+            run.start(&input.fencing_token_hash, input.now)?;
+            transaction.save_run(run.clone()).await?;
+            transaction.emit(Effect::RunStarted(run.id));
+            Ok(run)
+        })
+        .await
+    }
+}
+
 pub(in crate::server) struct CompleteRunInput {
     pub(in crate::server) event_id: EventId,
     pub(in crate::server) run_id: RunId,
@@ -129,6 +163,83 @@ pub(in crate::server) struct CompleteRunInput {
     pub(in crate::server) item_dispositions: Vec<ItemDispositionInput>,
     pub(in crate::server) continuation_note: Option<String>,
     pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct RenewRunInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) computer_id: ComputerId,
+    pub(in crate::server) fencing_token_hash: String,
+    pub(in crate::server) lease_expires_at: OffsetDateTime,
+}
+
+pub(in crate::server) struct RecordRunItemDispositionInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) computer_id: ComputerId,
+    pub(in crate::server) fencing_token_hash: String,
+    pub(in crate::server) item_id: InboxItemId,
+    pub(in crate::server) disposition: InboxItemDisposition,
+    pub(in crate::server) defer_until: Option<OffsetDateTime>,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+pub(in crate::server) struct RecordRunItemDisposition;
+
+impl RecordRunItemDisposition {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: RecordRunItemDispositionInput,
+    ) -> Result<Run, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut run = transaction.run(input.run_id).await?;
+            if !transaction
+                .can_operate_agent(input.computer_id, run.agent_id)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            run.validate_fencing(&input.fencing_token_hash)?;
+            if run.status != RunStatus::Running {
+                return Err(ApplicationError::ContextChanged);
+            }
+            run.set_item_disposition(input.item_id, input.disposition)?;
+            if let Some(until) = input.defer_until {
+                let mut item = transaction.inbox_item(input.item_id).await?;
+                item.prepare_defer(run.id, until, input.now)?;
+                transaction.save_inbox_item(item).await?;
+            }
+            transaction.save_run(run.clone()).await?;
+            Ok(run)
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct RenewRun;
+
+impl RenewRun {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: RenewRunInput,
+    ) -> Result<Run, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut run = transaction.run(input.run_id).await?;
+            if !transaction
+                .can_operate_agent(input.computer_id, run.agent_id)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            run.renew_lease(&input.fencing_token_hash, input.lease_expires_at)?;
+            for run_item in &run.items {
+                let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
+                item.renew_lease(run.id, input.lease_expires_at)?;
+                transaction.save_inbox_item(item).await?;
+            }
+            transaction.save_run(run.clone()).await?;
+            Ok(run)
+        })
+        .await
+    }
 }
 
 pub(in crate::server) struct CompleteRun;

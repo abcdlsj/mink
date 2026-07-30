@@ -7,6 +7,7 @@ use super::{
     ports::{ComputerTransaction, TransactionPort},
 };
 use crate::computer::core::supervisor::LocalRunState;
+use crate::{computer::core::supervisor::ItemDisposition, protocol::capability::Action};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::computer) enum ScopeRequirement {
@@ -43,6 +44,26 @@ impl std::fmt::Debug for AuthorizedCapability {
 pub(in crate::computer) struct CapabilityService;
 
 impl CapabilityService {
+    pub(in crate::computer) async fn record_success<P: TransactionPort>(
+        store: &mut P,
+        run_id: RunId,
+        action: &Action,
+    ) -> Result<(), ApplicationError> {
+        let disposition = match action {
+            Action::MessageSend(send) => send
+                .handle_item_id
+                .map(|item_id| (item_id, ItemDisposition::Handled)),
+            Action::InboxAck { item_id, .. } => Some((*item_id, ItemDisposition::Handled)),
+            Action::InboxDefer { item_id, .. } => Some((*item_id, ItemDisposition::Deferred)),
+            _ => None,
+        };
+        if let Some((item_id, disposition)) = disposition {
+            super::run::RunService::record_item_disposition(store, run_id, item_id, disposition)
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(in crate::computer) fn validate_agent_path(path: &str) -> Result<(), ApplicationError> {
         let path = std::path::Path::new(path);
         if path.as_os_str().is_empty()

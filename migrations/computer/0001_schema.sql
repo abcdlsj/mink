@@ -58,6 +58,7 @@ CREATE TABLE run_deliveries (
     delivery_seq INTEGER NOT NULL CHECK (delivery_seq > 0),
     inbox_item_id TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'too_late', 'unsupported')),
+    disposition TEXT CHECK (disposition IN ('handled', 'deferred', 'released')),
     item_json TEXT NOT NULL,
     PRIMARY KEY (run_id, delivery_seq),
     UNIQUE (run_id, inbox_item_id)

@@ -11,7 +11,9 @@ use crate::{
     computer::{
         application::{
             ApplicationError,
-            ports::{DriverPort, OpenSessionRequest, ProcessEvidence, SteerOutcome},
+            ports::{
+                DriverCompletion, DriverPort, OpenSessionRequest, ProcessEvidence, SteerOutcome,
+            },
         },
         core::{
             input::{AgentInput, ClaimedItemInput, RunContextInput, RunInput, WorkInput},
@@ -52,13 +54,17 @@ impl StructuredProviderClient for FakeClient {
         Ok(())
     }
 
-    async fn create_session(&mut self) -> Result<String, ApplicationError> {
+    async fn create_session(&mut self, _: AgentId) -> Result<String, ApplicationError> {
         let locator = format!("{}-{}", self.prefix, self.sessions.len() + 1);
         self.sessions.insert(locator.clone());
         Ok(locator)
     }
 
-    async fn resume_session(&mut self, locator: &str) -> Result<bool, ApplicationError> {
+    async fn resume_session(
+        &mut self,
+        _: AgentId,
+        locator: &str,
+    ) -> Result<bool, ApplicationError> {
         Ok(self.sessions.contains(locator))
     }
 
@@ -103,6 +109,10 @@ impl StructuredProviderClient for FakeClient {
         } else {
             ProcessEvidence::Lost
         })
+    }
+
+    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
+        Ok(Vec::new())
     }
 }
 

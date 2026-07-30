@@ -58,13 +58,13 @@ pub(super) struct ComputerPrincipal {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CreateTaskBody {
-    title: String,
-    assignee_agent_member_id: Option<MemberId>,
+    pub(super) title: String,
+    pub(super) assignee_agent_member_id: Option<MemberId>,
 }
 
 #[derive(Serialize)]
 pub(super) struct CreatedTask {
-    id: TaskId,
+    pub(super) id: TaskId,
     source_thread_id: ThreadId,
     status: &'static str,
 }

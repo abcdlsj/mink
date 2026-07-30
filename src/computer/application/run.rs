@@ -12,14 +12,90 @@ use crate::computer::core::{
 use super::{
     ApplicationError,
     ports::{
-        ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent, OpenSessionRequest,
-        SteerOutcome, TransactionPort,
+        ComputerTransaction, DriverPort, DriverTurnOutcome, LocalErrorCode, LocalEvent,
+        OpenSessionRequest, SteerOutcome, TransactionPort,
     },
 };
 
 pub(in crate::computer) struct RunService;
 
 impl RunService {
+    pub(in crate::computer) async fn active_leases<P: TransactionPort>(
+        store: &mut P,
+    ) -> Result<Vec<(RunId, String)>, ApplicationError> {
+        store
+            .transact(async |transaction| {
+                Ok(transaction
+                    .nonterminal_runs()?
+                    .into_iter()
+                    .filter(|run| run.state == LocalRunState::Running)
+                    .map(|run| (run.id, run.fencing_token.expose().to_owned()))
+                    .collect())
+            })
+            .await
+    }
+
+    pub(in crate::computer) async fn finish_driver_turn<P: TransactionPort>(
+        store: &mut P,
+        run_id: RunId,
+        outcome: DriverTurnOutcome,
+    ) -> Result<Option<EventId>, ApplicationError> {
+        let run = store
+            .transact(async |transaction| {
+                transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
+            })
+            .await?;
+        if run.state.is_terminal() {
+            return Ok(None);
+        }
+        let item_outcomes = run
+            .deliveries
+            .values()
+            .map(|delivery| {
+                (
+                    delivery.item.item_id,
+                    delivery.disposition.unwrap_or(ItemDisposition::Released),
+                )
+            })
+            .collect::<Vec<_>>();
+        let has_unhandled_items = run
+            .deliveries
+            .values()
+            .any(|delivery| delivery.disposition.is_none());
+        let (status, error_code) = match outcome {
+            DriverTurnOutcome::Completed if !has_unhandled_items => {
+                (TerminalStatus::Completed, None)
+            }
+            DriverTurnOutcome::Completed => (TerminalStatus::Failed, None),
+            DriverTurnOutcome::Failed => (
+                TerminalStatus::Failed,
+                Some(LocalErrorCode::DriverUnavailable),
+            ),
+            DriverTurnOutcome::Interrupted => (TerminalStatus::Canceled, None),
+        };
+        Self::finish(store, run_id, status, item_outcomes, None, error_code)
+            .await
+            .map(Some)
+    }
+
+    pub(in crate::computer) async fn record_item_disposition<P: TransactionPort>(
+        store: &mut P,
+        run_id: RunId,
+        item_id: InboxItemId,
+        disposition: ItemDisposition,
+    ) -> Result<(), ApplicationError> {
+        store
+            .transact(async |transaction| {
+                let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
+                if run.state != LocalRunState::Running {
+                    return Err(ApplicationError::Conflict);
+                }
+                run.record_item_disposition(item_id, disposition)?;
+                transaction.save_run(run)
+            })
+            .await
+    }
+
     pub(in crate::computer) async fn start<P: TransactionPort, D: DriverPort>(
         store: &mut P,
         driver: &mut D,

@@ -435,7 +435,7 @@ mod tests {
         computer::{
             adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::ports::{
-                OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome,
+                DriverCompletion, OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome,
             },
             application::{LocalRun, ProviderSession},
         },
@@ -488,6 +488,10 @@ mod tests {
         ) -> Result<ProcessEvidence, ApplicationError> {
             Ok(ProcessEvidence::Lost)
         }
+
+        async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
+            Ok(Vec::new())
+        }
     }
 
     #[tokio::test]
@@ -496,7 +500,7 @@ mod tests {
         let mut store = SqliteAdapter::open(&directory.path().join("daemon.db"))
             .await
             .unwrap();
-        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"));
+        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None);
         let adapter = ServerConnectionAdapter::new("contract".to_owned());
         let mut driver = NoopDriver;
         let agent_id = AgentId::from_uuid(Uuid::now_v7());

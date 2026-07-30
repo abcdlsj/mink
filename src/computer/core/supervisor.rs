@@ -64,6 +64,7 @@ pub(in crate::computer) struct Delivery {
     pub(in crate::computer) sequence: u64,
     pub(in crate::computer) item: ClaimedItemInput,
     pub(in crate::computer) state: DeliveryState,
+    pub(in crate::computer) disposition: Option<ItemDisposition>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -207,6 +208,7 @@ impl LocalRun {
                 sequence,
                 item,
                 state: DeliveryState::Pending,
+                disposition: None,
             },
         );
         Ok(true)
@@ -226,6 +228,26 @@ impl LocalRun {
             return Ok(());
         }
         Err(CoreError::ConflictingDelivery)
+    }
+
+    pub(in crate::computer) fn record_item_disposition(
+        &mut self,
+        item_id: InboxItemId,
+        disposition: ItemDisposition,
+    ) -> Result<(), CoreError> {
+        let delivery = self
+            .deliveries
+            .values_mut()
+            .find(|delivery| delivery.item.item_id == item_id)
+            .ok_or(CoreError::IncompleteItemDisposition)?;
+        if delivery
+            .disposition
+            .is_some_and(|existing| existing != disposition)
+        {
+            return Err(CoreError::IncompleteItemDisposition);
+        }
+        delivery.disposition = Some(disposition);
+        Ok(())
     }
 
     pub(in crate::computer) fn add_notice(

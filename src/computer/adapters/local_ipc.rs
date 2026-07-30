@@ -88,7 +88,11 @@ impl LocalIpcAdapter {
     pub(in crate::computer) async fn serve_capability<P: TransactionPort>(
         &self,
         store: &mut P,
-        forward: impl AsyncFnOnce(wire::RunContext, wire::Action) -> wire::Response<serde_json::Value>,
+        forward: impl AsyncFnOnce(
+            wire::RunContext,
+            wire::Action,
+            Option<crate::ids::IdempotencyKey>,
+        ) -> wire::Response<serde_json::Value>,
     ) -> Result<(), ApplicationError> {
         self.serve_one(|request: wire::Request| async move {
             if request.schema_version != wire::SCHEMA_VERSION {
@@ -122,7 +126,8 @@ impl LocalIpcAdapter {
                     Ok(context) => context,
                     Err(error) => return application_failure(error),
                 };
-            forward(
+            let action = request.action;
+            let response = forward(
                 wire::RunContext {
                     agent_id: context.agent_id,
                     space_id: context.space_id,
@@ -132,9 +137,22 @@ impl LocalIpcAdapter {
                     fencing_token: context.fencing_token,
                     message_snapshot_sequence: context.message_snapshot_sequence,
                 },
-                request.action,
+                action.clone(),
+                request.idempotency_key,
             )
-            .await
+            .await;
+            if response.ok
+                && CapabilityService::record_success(store, context.run_id, &action)
+                    .await
+                    .is_err()
+            {
+                return failure(
+                    wire::ErrorCode::Conflict,
+                    "capability result conflicts with the current Run",
+                    false,
+                );
+            }
+            response
         })
         .await
     }
@@ -294,19 +312,22 @@ mod tests {
             .await
             .unwrap();
 
-        let server = adapter.serve_capability(
-            &mut store,
-            |context: crate::protocol::capability::RunContext, action: Action| async move {
-                assert_eq!(context.agent_id, agent_id);
-                assert_eq!(context.space_id, space_id);
-                assert_eq!(context.task_id, Some(task_id));
-                assert_eq!(context.focus_thread_id, thread_id);
-                assert_eq!(context.run_id, run_id);
-                assert_eq!(context.message_snapshot_sequence, 9);
-                assert!(matches!(action, Action::TaskUpdate { .. }));
-                Response::success(serde_json::json!({ "forwarded": true }))
-            },
-        );
+        let server =
+            adapter.serve_capability(
+                &mut store,
+                |context: crate::protocol::capability::RunContext,
+                 action: Action,
+                 _idempotency_key| async move {
+                    assert_eq!(context.agent_id, agent_id);
+                    assert_eq!(context.space_id, space_id);
+                    assert_eq!(context.task_id, Some(task_id));
+                    assert_eq!(context.focus_thread_id, thread_id);
+                    assert_eq!(context.run_id, run_id);
+                    assert_eq!(context.message_snapshot_sequence, 9);
+                    assert!(matches!(action, Action::TaskUpdate { .. }));
+                    Response::success(serde_json::json!({ "forwarded": true }))
+                },
+            );
         let client = client::call_with(
             &socket_path,
             "run-secret".to_owned(),
@@ -323,7 +344,7 @@ mod tests {
 
         let rejected_server = adapter.serve_capability(
             &mut store,
-            |_: crate::protocol::capability::RunContext, _: Action| async move {
+            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unauthenticated capability must not be forwarded")
             },
         );
@@ -344,7 +365,7 @@ mod tests {
 
         let path_server = adapter.serve_capability(
             &mut store,
-            |_: crate::protocol::capability::RunContext, _: Action| async move {
+            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unsafe local path must not be forwarded")
             },
         );

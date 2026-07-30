@@ -67,6 +67,8 @@ CREATE TABLE computers (
     id UUID PRIMARY KEY,
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
+    hostname TEXT NOT NULL,
+    os TEXT NOT NULL CHECK (os IN ('macos', 'linux')),
     token_hash TEXT UNIQUE,
     connection_status TEXT NOT NULL CHECK (connection_status IN ('offline', 'online')),
     daemon_version TEXT,
@@ -76,6 +78,26 @@ CREATE TABLE computers (
     deleted_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
     CHECK (deleted_at IS NULL OR token_hash IS NULL)
+);
+
+CREATE TABLE computer_pairings (
+    id UUID PRIMARY KEY,
+    code_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    hostname TEXT NOT NULL,
+    os TEXT NOT NULL CHECK (os IN ('macos', 'linux')),
+    daemon_version TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'expired')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    computer_id UUID UNIQUE REFERENCES computers(id) ON DELETE RESTRICT,
+    space_id UUID REFERENCES spaces(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL,
+    confirmed_at TIMESTAMPTZ,
+    CHECK (
+        (status = 'pending' AND computer_id IS NULL AND space_id IS NULL AND confirmed_at IS NULL)
+        OR (status = 'confirmed' AND computer_id IS NOT NULL AND space_id IS NOT NULL AND confirmed_at IS NOT NULL)
+        OR status = 'expired'
+    )
 );
 
 CREATE TABLE agents (

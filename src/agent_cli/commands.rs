@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Subcommand};
 
 use crate::{
     ids::IdempotencyKey,
@@ -7,8 +7,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Parser)]
-#[command(name = "sumi agent")]
+#[derive(Debug, Args)]
 pub(crate) struct AgentCli {
     #[arg(long, global = true)]
     pub(crate) json: bool,
@@ -239,6 +238,17 @@ enum ThreadCommand {
 }
 
 impl AgentCli {
+    pub(crate) fn requires_stdin(&self) -> bool {
+        matches!(
+            &self.command,
+            Command::Message(MessageArgs {
+                command: MessageCommand::Send(MessageSendArgs { stdin: true, .. }),
+            }) | Command::Memory(MemoryArgs {
+                command: MemoryCommand::Write { stdin: true, .. },
+            })
+        )
+    }
+
     pub(crate) async fn action(
         self,
         stdin: Option<String>,
@@ -486,11 +496,23 @@ impl From<PageArgs> for Page {
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
     use super::*;
+
+    #[derive(Parser)]
+    struct TestAgentCli {
+        #[command(flatten)]
+        agent: AgentCli,
+    }
+
+    fn parse(args: impl IntoIterator<Item = &'static str>) -> Result<AgentCli, clap::Error> {
+        TestAgentCli::try_parse_from(args).map(|parsed| parsed.agent)
+    }
 
     #[test]
     fn task_create_has_no_source_or_context_parameters() {
-        AgentCli::try_parse_from([
+        parse([
             "sumi-agent",
             "task",
             "create",
@@ -499,15 +521,12 @@ mod tests {
             "--json",
         ])
         .unwrap();
-        assert!(
-            AgentCli::try_parse_from(["sumi-agent", "task", "create", "--task", "bad", "--json"])
-                .is_err()
-        );
+        assert!(parse(["sumi-agent", "task", "create", "--task", "bad", "--json"]).is_err());
     }
 
     #[tokio::test]
     async fn json_validation_error_is_one_envelope() {
-        let cli = AgentCli::try_parse_from(["sumi-agent", "context", "current"]).unwrap();
+        let cli = parse(["sumi-agent", "context", "current"]).unwrap();
         let mut output = Vec::new();
         let exit = crate::agent_cli::execute(cli, None, &mut output).await;
         assert_ne!(exit, 0);

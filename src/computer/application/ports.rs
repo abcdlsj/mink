@@ -179,6 +179,19 @@ pub(in crate::computer) enum ProcessEvidence {
     Lost,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::computer) enum DriverTurnOutcome {
+    Completed,
+    Failed,
+    Interrupted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::computer) struct DriverCompletion {
+    pub(in crate::computer) run_id: RunId,
+    pub(in crate::computer) outcome: DriverTurnOutcome,
+}
+
 #[async_trait(?Send)]
 pub(in crate::computer) trait DriverPort {
     async fn validate(&mut self, agent: &LocalAgent) -> Result<(), ApplicationError>;
@@ -199,4 +212,5 @@ pub(in crate::computer) trait DriverPort {
         &mut self,
         run: &LocalRun,
     ) -> Result<ProcessEvidence, ApplicationError>;
+    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError>;
 }

@@ -1,6 +1,7 @@
 mod builtin;
 mod codex;
 mod contract;
+mod runtime;
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,10 @@ use crate::{
     computer::{
         application::{
             ApplicationError,
-            ports::{DriverPort, OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome},
+            ports::{
+                DriverCompletion, DriverPort, OpenSessionRequest, OpenedSession, ProcessEvidence,
+                SteerOutcome,
+            },
         },
         core::{
             home::LocalAgent,
@@ -24,7 +28,17 @@ use crate::{
     ids::RunId,
 };
 
-use self::contract::{ProviderBackend, ProviderOpen};
+use self::{
+    contract::{ProviderBackend, ProviderOpen},
+    runtime::{CodexRuntimeClient, UnavailableRuntimeClient},
+};
+
+pub(in crate::computer) fn runtime(computer_home: &std::path::Path) -> impl DriverPort {
+    DriverAdapter::new(
+        codex::CodexAdapter::new(CodexRuntimeClient::new(computer_home.to_owned())),
+        builtin::BuiltinAdapter::new(UnavailableRuntimeClient),
+    )
+}
 
 pub(in crate::computer) struct DriverAdapter<C, B> {
     codex: C,
@@ -70,9 +84,9 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
     ) -> Result<OpenedSession, ApplicationError> {
         let backend = self.backend_mut(request.fingerprint.driver);
         let opened = if let Some(locator) = request.resume_locator.as_deref() {
-            backend.resume(locator).await?
+            backend.resume(request.agent_id, locator).await?
         } else {
-            backend.open().await?
+            backend.open(request.agent_id).await?
         };
         match opened {
             ProviderOpen::Opened(locator) => Ok(OpenedSession {
@@ -159,5 +173,14 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
             |turn| Ok(turn.driver),
         )?;
         self.backend_mut(driver).process_evidence(run.id).await
+    }
+
+    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
+        let mut completed = self.codex.poll_completions().await?;
+        completed.extend(self.builtin.poll_completions().await?);
+        for completion in &completed {
+            self.turns.remove(&completion.run_id);
+        }
+        Ok(completed)
     }
 }

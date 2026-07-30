@@ -103,6 +103,39 @@ impl InboxItem {
         Ok(())
     }
 
+    pub(in crate::server) fn renew_lease(
+        &mut self,
+        run_id: RunId,
+        expires_at: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.status != InboxItemStatus::Leased
+            || self.lease_run_id != Some(run_id)
+            || self
+                .lease_expires_at
+                .is_none_or(|current| expires_at <= current)
+        {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.lease_expires_at = Some(expires_at);
+        Ok(())
+    }
+
+    pub(in crate::server) fn prepare_defer(
+        &mut self,
+        run_id: RunId,
+        until: OffsetDateTime,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.status != InboxItemStatus::Leased
+            || self.lease_run_id != Some(run_id)
+            || until <= now
+        {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.available_at = until;
+        Ok(())
+    }
+
     pub(in crate::server) fn release_after_failure(
         &mut self,
         run_id: RunId,

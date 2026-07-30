@@ -12,11 +12,21 @@ use crate::{
 
 pub(in crate::computer) struct AgentHomeAdapter {
     computer_home: PathBuf,
+    codex_config_source: Option<PathBuf>,
+    codex_auth_source: Option<PathBuf>,
 }
 
 impl AgentHomeAdapter {
-    pub(in crate::computer) fn new(computer_home: PathBuf) -> Self {
-        Self { computer_home }
+    pub(in crate::computer) fn new(
+        computer_home: PathBuf,
+        codex_config_source: Option<PathBuf>,
+        codex_auth_source: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            computer_home,
+            codex_config_source,
+            codex_auth_source,
+        }
     }
 
     async fn write_profile(&self, agent: &LocalAgent) -> Result<(), ApplicationError> {
@@ -32,6 +42,10 @@ impl AgentHomeAdapter {
             "logs",
         ] {
             create_private_dir(&home.join(relative)).await?;
+        }
+        if agent.driver == crate::computer::core::session::DriverKind::Codex {
+            self.install_codex_sources(&home.join("drivers/codex"))
+                .await?;
         }
         let profile = serde_json::to_vec(agent).map_err(|_| ApplicationError::Internal)?;
         let profile_path = home.join("profile.json");
@@ -57,6 +71,29 @@ impl AgentHomeAdapter {
             .await
             .map_err(|_| ApplicationError::Internal)?;
         restrict_file(&profile_path).await?;
+        Ok(())
+    }
+
+    async fn install_codex_sources(&self, codex_home: &Path) -> Result<(), ApplicationError> {
+        if let Some(source) = &self.codex_config_source {
+            let encoded = tokio::fs::read_to_string(source)
+                .await
+                .map_err(|_| ApplicationError::DriverUnavailable)?;
+            let input: toml::Table =
+                toml::from_str(&encoded).map_err(|_| ApplicationError::DriverUnavailable)?;
+            let sanitized = sanitize_codex_config(&input)?;
+            let encoded =
+                toml::to_string_pretty(&sanitized).map_err(|_| ApplicationError::Internal)?;
+            write_private_file(&codex_home.join("config.toml"), encoded.as_bytes()).await?;
+        }
+        if let Some(source) = &self.codex_auth_source {
+            let encoded = tokio::fs::read(source)
+                .await
+                .map_err(|_| ApplicationError::DriverUnavailable)?;
+            serde_json::from_slice::<serde_json::Value>(&encoded)
+                .map_err(|_| ApplicationError::DriverUnavailable)?;
+            write_private_file(&codex_home.join("auth.json"), &encoded).await?;
+        }
         Ok(())
     }
 
@@ -165,6 +202,73 @@ async fn restrict_file(path: &Path) -> Result<(), ApplicationError> {
     Ok(())
 }
 
+fn sanitize_codex_config(input: &toml::Table) -> Result<toml::Table, ApplicationError> {
+    const ROOT_KEYS: &[&str] = &[
+        "model_provider",
+        "model",
+        "model_reasoning_effort",
+        "disable_response_storage",
+    ];
+    const PROVIDER_KEYS: &[&str] = &["name", "base_url", "wire_api", "requires_openai_auth"];
+
+    let provider = input
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .ok_or(ApplicationError::DriverUnavailable)?;
+    let provider_input = input
+        .get("model_providers")
+        .and_then(toml::Value::as_table)
+        .and_then(|providers| providers.get(provider))
+        .and_then(toml::Value::as_table)
+        .ok_or(ApplicationError::DriverUnavailable)?;
+    let mut output = toml::Table::new();
+    for key in ROOT_KEYS {
+        if let Some(value) = input.get(*key) {
+            output.insert((*key).to_owned(), value.clone());
+        }
+    }
+    let mut sanitized_provider = toml::Table::new();
+    for key in PROVIDER_KEYS {
+        if let Some(value) = provider_input.get(*key) {
+            sanitized_provider.insert((*key).to_owned(), value.clone());
+        }
+    }
+    if !sanitized_provider.contains_key("base_url") {
+        return Err(ApplicationError::DriverUnavailable);
+    }
+    output.insert(
+        "model_providers".to_owned(),
+        toml::Value::Table(toml::Table::from_iter([(
+            provider.to_owned(),
+            toml::Value::Table(sanitized_provider),
+        )])),
+    );
+    Ok(output)
+}
+
+async fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), ApplicationError> {
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::now_v7()));
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options
+        .open(&temporary)
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    file.write_all(contents)
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    file.sync_all()
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    drop(file);
+    tokio::fs::rename(&temporary, path)
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    restrict_file(path).await
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -179,7 +283,7 @@ mod tests {
     async fn profile_has_one_filesystem_owner_and_retire_removes_only_target_home() {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
-        let mut homes = AgentHomeAdapter::new(computer_home.clone());
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
         let agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
@@ -228,5 +332,71 @@ mod tests {
         homes.retire(agent_id).await.unwrap();
         assert!(!profile_path.exists());
         assert!(computer_home.exists());
+    }
+
+    #[tokio::test]
+    async fn codex_sources_are_explicit_sanitized_and_private() {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let config_source = directory.path().join("config.toml");
+        let auth_source = directory.path().join("auth.json");
+        std::fs::write(
+            &config_source,
+            r#"
+model_provider = "local"
+model = "test-model"
+project_trust = "trusted"
+
+[model_providers.local]
+name = "Local"
+base_url = "https://provider.invalid"
+wire_api = "responses"
+env_key = "MUST_NOT_COPY"
+
+[mcp_servers.private]
+command = "must-not-copy"
+"#,
+        )
+        .unwrap();
+        std::fs::write(&auth_source, r#"{"OPENAI_API_KEY":"secret"}"#).unwrap();
+        let computer_home = directory.path().join("computer");
+        let mut homes = AgentHomeAdapter::new(
+            computer_home.clone(),
+            Some(config_source),
+            Some(auth_source),
+        );
+        let agent = LocalAgent {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(Uuid::now_v7()),
+            name: "agent".to_owned(),
+            handle: "agent".to_owned(),
+            role_revision: 1,
+            role: "role".to_owned(),
+            driver: DriverKind::Codex,
+            state: LocalAgentState::Active,
+        };
+
+        homes.provision(agent.clone()).await.unwrap();
+
+        let codex_home = homes.agent_home(&agent).join("drivers/codex");
+        let installed = std::fs::read_to_string(codex_home.join("config.toml")).unwrap();
+        assert!(installed.contains("test-model"));
+        assert!(installed.contains("https://provider.invalid"));
+        assert!(!installed.contains("project_trust"));
+        assert!(!installed.contains("mcp_servers"));
+        assert!(!installed.contains("MUST_NOT_COPY"));
+        assert_eq!(
+            std::fs::read(codex_home.join("auth.json")).unwrap(),
+            br#"{"OPENAI_API_KEY":"secret"}"#
+        );
+        #[cfg(unix)]
+        for path in [codex_home.join("config.toml"), codex_home.join("auth.json")] {
+            assert_eq!(
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 }

@@ -29,9 +29,9 @@ use super::{
     ApplicationError,
     command::{Command, CommandService},
     ports::{
-        AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode, LocalEvent,
-        OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome, StoredCommand,
-        TransactionPort,
+        AgentHomePort, CommandStatus, ComputerTransaction, DriverCompletion, DriverPort,
+        DriverTurnOutcome, LocalErrorCode, LocalEvent, OpenSessionRequest, OpenedSession,
+        ProcessEvidence, SteerOutcome, StoredCommand, TransactionPort,
     },
     recovery::RecoveryService,
     run::RunService,
@@ -340,6 +340,10 @@ impl DriverPort for FakeDriver {
         _run: &LocalRun,
     ) -> Result<ProcessEvidence, ApplicationError> {
         Ok(self.process_evidence)
+    }
+
+    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
+        Ok(Vec::new())
     }
 }
 
@@ -1084,6 +1088,126 @@ async fn yield_writes_terminal_state_and_result_outbox_atomically() {
         .await
         .unwrap();
     assert!(!store.state.events.contains_key(&event_id));
+}
+
+#[tokio::test]
+async fn completed_driver_turn_without_items_completes_run_once() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let run = local_run(None, thread_id, []);
+    let run_id = run.id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+
+    let event_id = RunService::finish_driver_turn(&mut store, run_id, DriverTurnOutcome::Completed)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Completed);
+    assert!(matches!(
+        store.state.events[&event_id],
+        LocalEvent::RunResult {
+            status: TerminalStatus::Completed,
+            ref item_outcomes,
+            error_code: None,
+            ..
+        } if item_outcomes.is_empty()
+    ));
+    assert_eq!(
+        RunService::finish_driver_turn(&mut store, run_id, DriverTurnOutcome::Completed,)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .state
+            .events
+            .values()
+            .filter(|event| matches!(event, LocalEvent::RunResult { .. }))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn completed_driver_turn_releases_unhandled_items_and_fails_run() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let claimed = item_id();
+    let run = local_run(None, thread_id, [(claimed, None, thread_id)]);
+    let run_id = run.id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+
+    let event_id = RunService::finish_driver_turn(&mut store, run_id, DriverTurnOutcome::Completed)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+    assert!(matches!(
+        store.state.events[&event_id],
+        LocalEvent::RunResult {
+            status: TerminalStatus::Failed,
+            ref item_outcomes,
+            ..
+        } if item_outcomes == &vec![(claimed, ItemDisposition::Released)]
+    ));
+}
+
+#[tokio::test]
+async fn completed_driver_turn_preserves_explicit_item_disposition() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let claimed = item_id();
+    let run = local_run(None, thread_id, [(claimed, None, thread_id)]);
+    let run_id = run.id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::record_item_disposition(&mut store, run_id, claimed, ItemDisposition::Handled)
+        .await
+        .unwrap();
+
+    let event_id = RunService::finish_driver_turn(&mut store, run_id, DriverTurnOutcome::Completed)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Completed);
+    assert!(matches!(
+        store.state.events[&event_id],
+        LocalEvent::RunResult {
+            status: TerminalStatus::Completed,
+            ref item_outcomes,
+            ..
+        } if item_outcomes == &vec![(claimed, ItemDisposition::Handled)]
+    ));
 }
 
 #[tokio::test]

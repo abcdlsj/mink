@@ -214,7 +214,7 @@ impl TransactionPort for PostgresAdapter {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ServerTransaction for PostgresTransaction {
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         let row = sqlx::query(
@@ -955,6 +955,7 @@ impl PostgresTransaction {
                     .await?;
                 ("run.changed", run_id.into_uuid())
             }
+            Effect::RunStarted(id) => ("run.changed", id.into_uuid()),
             Effect::RunCompleted(id) => ("run.changed", id.into_uuid()),
             Effect::TaskCompleted {
                 task_id,
@@ -1652,7 +1653,7 @@ mod tests {
              INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{member}',now());
              INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{member}','{space}','human','Owner','owner','owner',now());
              INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{actor_agent}','{space}','agent','Actor','actor','member',now());
-             INSERT INTO computers (id,space_id,name,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','hash','offline',1,now());
+             INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
              INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{actor_agent}','{space}','{computer_id}','Act',1,'active','codex',now());
              INSERT INTO member_permissions (member_id,space_id,action_code,granted_by_member_id,created_at) VALUES ('{actor_agent}','{space}','agent.create','{member}',now());
              INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','private','general',2,now());

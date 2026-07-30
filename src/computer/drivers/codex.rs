@@ -3,14 +3,14 @@ use async_trait::async_trait;
 use crate::computer::{
     application::{
         ApplicationError,
-        ports::{ProcessEvidence, SteerOutcome},
+        ports::{DriverCompletion, ProcessEvidence, SteerOutcome},
     },
     core::{
         home::LocalAgent,
         input::{ClaimedItemInput, RunInput},
     },
 };
-use crate::ids::RunId;
+use crate::ids::{AgentId, RunId};
 
 use super::contract::{ProviderBackend, ProviderOpen, StructuredProviderClient};
 
@@ -30,12 +30,19 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         self.client.validate(agent).await
     }
 
-    async fn open(&mut self) -> Result<ProviderOpen, ApplicationError> {
-        self.client.create_session().await.map(ProviderOpen::Opened)
+    async fn open(&mut self, agent_id: AgentId) -> Result<ProviderOpen, ApplicationError> {
+        self.client
+            .create_session(agent_id)
+            .await
+            .map(ProviderOpen::Opened)
     }
 
-    async fn resume(&mut self, locator: &str) -> Result<ProviderOpen, ApplicationError> {
-        if self.client.resume_session(locator).await? {
+    async fn resume(
+        &mut self,
+        agent_id: AgentId,
+        locator: &str,
+    ) -> Result<ProviderOpen, ApplicationError> {
+        if self.client.resume_session(agent_id, locator).await? {
             Ok(ProviderOpen::Resumed(locator.to_owned()))
         } else {
             Ok(ProviderOpen::Lost)
@@ -76,5 +83,9 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         run_id: RunId,
     ) -> Result<ProcessEvidence, ApplicationError> {
         self.client.process_evidence(run_id).await
+    }
+
+    async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
+        self.client.poll_completions().await
     }
 }
