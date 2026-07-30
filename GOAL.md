@@ -32,6 +32,12 @@
 - [x] 接入 Agent CLI，并通过本地能力流程测试。
 - [x] 重建 WebUI，并保持现有信息架构和视觉基线。
 - [ ] 一次性切换运行时入口，删除全部旧实现，并按[交付与验收](./docs/design/10-delivery-acceptance.md)完成整体验证。
+  - [x] 将 Server、Computer 和 Agent CLI 入口切换到新运行时。
+  - [x] 接通 Run result、Item disposition、lease renewal 和 Agent `run yield`，并验证本地 outbox 与 Driver completion 竞态。
+  - [ ] 补齐 Task 终态、Attachment、Memory 和剩余 Agent capability。
+  - [ ] 接通 same-Focus attach、different-Focus notice、Browser SSE、Agent 退役和 Computer 删除。
+  - [ ] 实现 Builtin Driver，删除旧实现、旧 schema 和冲突测试。
+  - [ ] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
 
 任务按列表顺序执行。任务通过对应验收后，把`[ ]`改为`[x]`，并与该任务的实现一起提交。
 
