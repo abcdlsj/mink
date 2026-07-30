@@ -111,14 +111,18 @@ use super::{
     credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     openapi::{
-        AccessLevel as AccessLevelCode, AgentAccessLevel, AgentActivityResponse,
-        AgentActivityStatus, AgentLifecycle, AgentResponse, AttachmentResponse, AttachmentStatus,
-        AttentionConfig, ChannelKind as ChannelKindCode, ChannelListResponse,
-        ChannelMembersResponse, ChannelResponse, ComputerOs, ComputerResponse, ComputerStatus,
-        CreatedInvitationResponse, DirectMessageResponse, DriverKind as DriverKindCode,
-        InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
-        LoginResponse, MemberKind as MemberKindCode, MemberResponse, MemoryFileResponse,
-        ProvisionStatus, RegisterResponse, SpaceResponse, UserResponse,
+        AccessLevel as AccessLevelCode, ActionAgentResponse, ActionChannelResponse,
+        AgentAccessLevel, AgentActivityResponse, AgentActivityStatus, AgentLifecycle,
+        AgentResponse, AgentRuntimeResponse, AttachmentResponse, AttachmentStatus, AttentionConfig,
+        AttentionFailureResponse, ChannelKind as ChannelKindCode, ChannelListResponse,
+        ChannelMembersResponse, ChannelResponse, CloseReason as CloseReasonCode, ComputerOs,
+        ComputerResponse, ComputerStatus, CreatedInvitationResponse, DirectMessageResponse,
+        DriverKind as DriverKindCode, InboxItemResponse, InboxKind, InboxPriority, InboxStatus,
+        InvitationResponse, LoginResponse, MemberKind as MemberKindCode, MemberResponse,
+        MemoryFileResponse, MessageAuthor, MessageContentResponse, MessagePlacement,
+        MessageResponse, ProvisionStatus, RegisterResponse, RunOutcome, RunResponse, RunStatus,
+        SessionContinuityResponse, SessionContinuityState as ContinuityStateCode, SpaceResponse,
+        TaskResponse, TaskStatus, ThreadReferenceResponse, ThreadRelation, UserResponse,
     },
     postgres::PostgresAdapter,
     query::QueryRegistry,
@@ -1625,9 +1629,11 @@ async fn execute_agent_action(
             )
         })?;
         if let Some(task_id) = replayed {
-            return task_projection(&state.pool, task_id)
-                .await
-                .map_err(api_to_capability);
+            return capability_value(
+                &task_projection(&state.pool, task_id)
+                    .await
+                    .map_err(api_to_capability)?,
+            );
         }
     }
     let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM agent_runs r JOIN agents a ON a.member_id=r.agent_id WHERE r.id=$1 AND r.agent_id=$2 AND r.space_id=$3 AND r.task_id IS NOT DISTINCT FROM $4 AND r.focus_thread_id=$5 AND r.status='running' AND r.fencing_token_hash=$6 AND r.lease_expires_at>now() AND a.computer_id=$7)")
@@ -1787,9 +1793,11 @@ async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
-            task_projection(&state.pool, task.id.into_uuid())
-                .await
-                .map_err(api_to_capability)
+            capability_value(
+                &task_projection(&state.pool, task.id.into_uuid())
+                    .await
+                    .map_err(api_to_capability)?,
+            )
         }
         capability::Action::TaskLinkThread { thread_id } => {
             let key = request.idempotency_key.ok_or_else(|| {
@@ -1819,9 +1827,11 @@ async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
-            task_projection(&state.pool, task_id.into_uuid())
-                .await
-                .map_err(api_to_capability)
+            capability_value(
+                &task_projection(&state.pool, task_id.into_uuid())
+                    .await
+                    .map_err(api_to_capability)?,
+            )
         }
         capability::Action::TaskUnlinkThread { thread_id } => {
             let key = request.idempotency_key.ok_or_else(|| {
@@ -1851,9 +1861,11 @@ async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
-            task_projection(&state.pool, task_id.into_uuid())
-                .await
-                .map_err(api_to_capability)
+            capability_value(
+                &task_projection(&state.pool, task_id.into_uuid())
+                    .await
+                    .map_err(api_to_capability)?,
+            )
         }
         capability::Action::TaskUpdate { title } => {
             let key = request.idempotency_key.ok_or_else(|| {
@@ -1883,9 +1895,11 @@ async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
-            task_projection(&state.pool, task_id.into_uuid())
-                .await
-                .map_err(api_to_capability)
+            capability_value(
+                &task_projection(&state.pool, task_id.into_uuid())
+                    .await
+                    .map_err(api_to_capability)?,
+            )
         }
         capability::Action::TaskSubmitReview { body, post_to } => {
             finish_agent_task(
@@ -2095,9 +2109,11 @@ async fn finish_agent_task(
     )
     .await
     .map_err(app_to_capability)?;
-    task_projection(&state.pool, task_id.into_uuid())
-        .await
-        .map_err(api_to_capability)
+    capability_value(
+        &task_projection(&state.pool, task_id.into_uuid())
+            .await
+            .map_err(api_to_capability)?,
+    )
 }
 
 async fn record_agent_item_disposition(
@@ -2550,7 +2566,7 @@ async fn current_agent_run(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(agent_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AgentRuntimeResponse>, ApiError> {
     let viewer_id = agent_space_member(&state, &jar, agent_id).await?;
     let run_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT r.id FROM agent_runs r \
@@ -2565,33 +2581,25 @@ async fn current_agent_run(
     .await
     .map_err(map_sqlx)?;
     let Some(run_id) = run_id else {
-        return Ok(Json(json!({
-            "current_run": Value::Null,
-            "current_task": Value::Null,
-            "focus": Value::Null,
-            "another_item_waiting": false,
-            "session_continuity": {"state":"unavailable","generation":Value::Null,"reason_code":Value::Null}
-        })));
+        return Ok(Json(AgentRuntimeResponse {
+            current_run: None,
+            current_task: None,
+            focus: None,
+            another_item_waiting: false,
+            session_continuity: unavailable_continuity(),
+        }));
     };
     let run = run_projection(&state.pool, run_id).await?;
-    let task_id = run["task_id"]
-        .as_str()
-        .and_then(|value| Uuid::parse_str(value).ok());
-    let current_task = match task_id {
-        Some(task_id) => task_projection(&state.pool, task_id).await?,
-        None => Value::Null,
+    let current_task = match run.task_id {
+        Some(task_id) => Some(task_projection(&state.pool, task_id).await?),
+        None => None,
     };
-    // Run 绑定 Task 时 Session 属于该 Task,否则属于 Focus Thread。
-    let scope = match task_id {
+    // Run 绑定 Task 时 Session 属于该 Task，否则属于 Focus Thread。
+    let scope = match run.task_id {
         Some(task_id) => SessionScope::Task(TaskId::from_uuid(task_id)),
-        None => SessionScope::Thread(ThreadId::from_uuid(
-            run["focus"]["id"]
-                .as_str()
-                .and_then(|value| Uuid::parse_str(value).ok())
-                .ok_or_else(ApiError::internal)?,
-        )),
+        None => SessionScope::Thread(ThreadId::from_uuid(run.focus.id)),
     };
-    let continuity = agent_continuity(&state, agent_id, scope).await;
+    let session_continuity = agent_continuity(&state, agent_id, scope).await;
     let another_item_waiting: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM inbox_items WHERE agent_id=$1 AND status='pending')",
     )
@@ -2599,13 +2607,13 @@ async fn current_agent_run(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(json!({
-        "focus": run["focus"].clone(),
-        "current_run": run,
-        "current_task": current_task,
-        "another_item_waiting": another_item_waiting,
-        "session_continuity": continuity
-    })))
+    Ok(Json(AgentRuntimeResponse {
+        focus: Some(run.focus.clone()),
+        current_run: Some(run),
+        current_task,
+        another_item_waiting,
+        session_continuity,
+    }))
 }
 
 async fn retire_agent(
@@ -3072,7 +3080,7 @@ async fn create_root_message(
     headers: HeaderMap,
     Path(channel_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
     let member_id = channel_member(&state, &jar, channel_id).await?;
     let message_id = insert_message(
         &state,
@@ -3145,7 +3153,7 @@ async fn create_thread_reply(
     headers: HeaderMap,
     Path(thread_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
     let row = sqlx::query("SELECT channel_id FROM threads WHERE id=$1")
         .bind(thread_id)
         .fetch_optional(&state.pool)
@@ -3184,7 +3192,7 @@ async fn update_message(
     headers: HeaderMap,
     Path(message_id): Path<Uuid>,
     Json(body): Json<UpdateMessageBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MessageResponse>, ApiError> {
     let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
         .bind(message_id)
         .fetch_optional(&state.pool)
@@ -3218,7 +3226,7 @@ async fn delete_message(
     jar: CookieJar,
     headers: HeaderMap,
     Path(message_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MessageResponse>, ApiError> {
     let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
         .bind(message_id)
         .fetch_optional(&state.pool)
@@ -3310,7 +3318,7 @@ async fn list_tasks(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<TaskResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
     let ids = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM tasks WHERE space_id=$1 ORDER BY updated_at DESC,id DESC",
@@ -3323,14 +3331,14 @@ async fn list_tasks(
     for id in ids {
         tasks.push(task_projection(&state.pool, id).await?);
     }
-    Ok(Json(Value::Array(tasks)))
+    Ok(Json(tasks))
 }
 
 async fn get_task(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM tasks WHERE id=$1")
         .bind(task_id)
         .fetch_optional(&state.pool)
@@ -3345,7 +3353,7 @@ async fn task_runs(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<RunResponse>>, ApiError> {
     task_actor(&state, &jar, task_id).await?;
     let ids = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM agent_runs WHERE task_id=$1 ORDER BY created_at DESC,id DESC",
@@ -3358,7 +3366,7 @@ async fn task_runs(
     for id in ids {
         runs.push(run_projection(&state.pool, id).await?);
     }
-    Ok(Json(Value::Array(runs)))
+    Ok(Json(runs))
 }
 
 async fn create_task(
@@ -3367,7 +3375,7 @@ async fn create_task(
     headers: HeaderMap,
     Path(message_id): Path<Uuid>,
     Json(body): Json<CreateTaskBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
     let source = sqlx::query(
         "SELECT m.space_id,m.thread_id,m.body_markdown FROM messages m WHERE m.id=$1 AND m.placement='root'",
     )
@@ -3425,7 +3433,7 @@ async fn link_task_thread(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<LinkThreadBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let actor = task_actor(&state, &jar, task_id).await?;
     let mut storage = state.storage.clone();
     LinkThreadToTask::execute(
@@ -3448,7 +3456,7 @@ async fn unlink_task_thread(
     jar: CookieJar,
     headers: HeaderMap,
     Path((task_id, thread_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let actor = task_actor(&state, &jar, task_id).await?;
     let mut storage = state.storage.clone();
     UnlinkThreadFromTask::execute(
@@ -3472,7 +3480,7 @@ async fn update_task(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<UpdateTaskBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     if body.title.trim().is_empty() {
         return Err(ApiError::invalid("Task title is required"));
     }
@@ -3492,7 +3500,7 @@ async fn start_task(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<StartTaskBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     update_task_action(
         &state,
         &jar,
@@ -3510,7 +3518,7 @@ async fn submit_task_review(
     jar: CookieJar,
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     update_task_action(&state, &jar, &headers, task_id, TaskAction::SubmitReview).await
 }
 
@@ -3519,7 +3527,7 @@ async fn request_task_changes(
     jar: CookieJar,
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     update_task_action(&state, &jar, &headers, task_id, TaskAction::RequestChanges).await
 }
 
@@ -3529,7 +3537,7 @@ async fn close_task(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<CloseTaskBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let reason = match body.reason.as_str() {
         "invalid" => CloseReason::Invalid,
         "duplicate" => CloseReason::Duplicate,
@@ -3556,7 +3564,7 @@ async fn reset_task_session(
     jar: CookieJar,
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     update_task_action(&state, &jar, &headers, task_id, TaskAction::ResetSession).await
 }
 
@@ -3566,7 +3574,7 @@ async fn complete_task(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
     Json(body): Json<CompleteTaskBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let actor = task_actor(&state, &jar, task_id).await?;
     let mut storage = state.storage.clone();
     CompleteTask::execute(
@@ -3592,7 +3600,7 @@ async fn update_task_action(
     headers: &HeaderMap,
     task_id: Uuid,
     action: TaskAction,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<TaskResponse>, ApiError> {
     let actor = task_actor(state, jar, task_id).await?;
     let mut storage = state.storage.clone();
     UpdateTask::execute(
@@ -4300,7 +4308,7 @@ async fn message_row(
     pool: &PgPool,
     row: &sqlx::postgres::PgRow,
     _viewer: Uuid,
-) -> Result<Value, ApiError> {
+) -> Result<MessageResponse, ApiError> {
     let id: Uuid = row.get("id");
     let author = sqlx::query("SELECT id,kind,display_name,handle FROM members WHERE id=$1")
         .bind(row.get::<Uuid, _>("author_member_id"))
@@ -4315,6 +4323,10 @@ async fn message_row(
     .await
     .map_err(map_sqlx)?;
     let attachments=sqlx::query("SELECT a.* FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=$1 ORDER BY ma.position").bind(id).fetch_all(pool).await.map_err(map_sqlx)?;
+    let mut attachment_views = Vec::with_capacity(attachments.len());
+    for attachment in &attachments {
+        attachment_views.push(attachment_row(attachment)?);
+    }
     let attention_failures = sqlx::query(
         "SELECT i.agent_id,m.handle,i.last_error_code FROM inbox_items i \
          JOIN members m ON m.id=i.agent_id WHERE i.message_id=$1 \
@@ -4325,31 +4337,39 @@ async fn message_row(
     .await
     .map_err(map_sqlx)?
     .iter()
-    .map(|failure| {
-        json!({
-            "agent_member_id":failure.get::<Uuid,_>("agent_id"),
-            "agent_handle":failure.get::<String,_>("handle"),
-            "error_code":failure.get::<String,_>("last_error_code"),
-            "retrying":true
-        })
+    .map(|failure| AttentionFailureResponse {
+        agent_member_id: failure.get("agent_id"),
+        agent_handle: failure.get("handle"),
+        error_code: failure.get("last_error_code"),
+        // 领取失败由 Server 自动重试，Human 无需操作。
+        retrying: true,
     })
     .collect::<Vec<_>>();
     let content = match row.get::<&str, _>("content_kind") {
-        "text" => {
-            json!({"type":"text","body_markdown":row.get::<Option<String>,_>("body_markdown").unwrap_or_default()})
-        }
+        "text" => MessageContentResponse::Text {
+            body_markdown: row
+                .get::<Option<String>, _>("body_markdown")
+                .unwrap_or_default(),
+        },
         "channel_created" => {
             let target = sqlx::query("SELECT id,slug,topic,archived_at FROM channels WHERE id=$1")
                 .bind(row.get::<Uuid, _>("action_channel_id"))
                 .fetch_one(pool)
                 .await
                 .map_err(map_sqlx)?;
-            let slug = target.get::<String, _>("slug");
-            json!({"type":"channel_created","channel":{
-                "id":target.get::<Uuid,_>("id"),"slug":slug,
-                "name":target.get::<Option<String>,_>("topic").unwrap_or_else(|| slug.clone()),
-                "available":target.get::<Option<OffsetDateTime>,_>("archived_at").is_none()
-            }})
+            let slug: String = target.get("slug");
+            MessageContentResponse::ChannelCreated {
+                channel: ActionChannelResponse {
+                    id: target.get("id"),
+                    name: target
+                        .get::<Option<String>, _>("topic")
+                        .unwrap_or_else(|| slug.clone()),
+                    slug,
+                    available: target
+                        .get::<Option<OffsetDateTime>, _>("archived_at")
+                        .is_none(),
+                },
+            }
         }
         "agent_created" => {
             let target = sqlx::query("SELECT a.member_id,a.lifecycle,m.display_name,m.retired_at FROM agents a JOIN members m ON m.id=a.member_id WHERE a.member_id=$1")
@@ -4357,31 +4377,87 @@ async fn message_row(
                 .fetch_one(pool)
                 .await
                 .map_err(map_sqlx)?;
-            json!({"type":"agent_created","agent":{
-                "member_id":target.get::<Uuid,_>("member_id"),
-                "name":target.get::<String,_>("display_name"),
-                "lifecycle":target.get::<String,_>("lifecycle"),
-                "available":target.get::<Option<OffsetDateTime>,_>("retired_at").is_none()
-            }})
+            MessageContentResponse::AgentCreated {
+                agent: ActionAgentResponse {
+                    member_id: target.get("member_id"),
+                    name: target.get("display_name"),
+                    lifecycle: match target.get::<&str, _>("lifecycle") {
+                        "suspended" => AgentLifecycle::Suspended,
+                        "retired" => AgentLifecycle::Retired,
+                        _ => AgentLifecycle::Active,
+                    },
+                    available: target
+                        .get::<Option<OffsetDateTime>, _>("retired_at")
+                        .is_none(),
+                },
+            }
         }
         _ => return Err(ApiError::internal()),
     };
-    Ok(
-        json!({"id":id,"channel_id":row.get::<Uuid,_>("channel_id"),"thread_id":row.get::<Uuid,_>("thread_id"),"seq":row.get::<i64,_>("channel_seq"),"placement":row.get::<String,_>("placement"),"content":content,"author":{"id":author.get::<Uuid,_>("id"),"kind":author.get::<String,_>("kind"),"display_name":author.get::<String,_>("display_name"),"handle":author.get::<String,_>("handle")},"mentions":[],"attachments":attachments.iter().map(attachment_row).collect::<Vec<_>>(),"reply_count":replies,"task":Value::Null,"attention_failures":attention_failures,"created_at":timestamp(row.get("created_at")),"edited_at":optional_timestamp(row.get("edited_at")),"deleted_at":optional_timestamp(row.get("deleted_at"))}),
-    )
+    Ok(MessageResponse {
+        id,
+        channel_id: row.get("channel_id"),
+        thread_id: row.get("thread_id"),
+        seq: u64::try_from(row.get::<i64, _>("channel_seq")).map_err(|_| ApiError::internal())?,
+        placement: match row.get::<&str, _>("placement") {
+            "root" => MessagePlacement::Root,
+            "reply" => MessagePlacement::Reply,
+            _ => return Err(ApiError::internal()),
+        },
+        author: MessageAuthor {
+            id: author.get("id"),
+            kind: match author.get::<&str, _>("kind") {
+                "human" => MemberKindCode::Human,
+                "agent" => MemberKindCode::Agent,
+                _ => return Err(ApiError::internal()),
+            },
+            display_name: author.get("display_name"),
+            handle: author.get("handle"),
+        },
+        content,
+        mentions: Vec::new(),
+        attachments: attachment_views,
+        reply_count: u64::try_from(replies).map_err(|_| ApiError::internal())?,
+        task: None,
+        attention_failures,
+        created_at: timestamp(row.get("created_at")),
+        edited_at: optional_timestamp(row.get("edited_at")),
+        deleted_at: optional_timestamp(row.get("deleted_at")),
+    })
 }
-fn attachment_row(row: &sqlx::postgres::PgRow) -> Value {
-    json!({"id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),"uploader_member_id":row.get::<Uuid,_>("uploader_member_id"),"original_name":row.get::<String,_>("name"),"media_type":row.get::<String,_>("media_type"),"size":row.get::<Option<i64>,_>("length"),"sha256":row.get::<Option<Vec<u8>>,_>("sha256").map(hex::encode),"status":row.get::<String,_>("status"),"upload_path":Value::Null,"download_path":Value::Null,"created_at":timestamp(row.get("created_at"))})
+
+fn attachment_row(row: &sqlx::postgres::PgRow) -> Result<AttachmentResponse, ApiError> {
+    Ok(AttachmentResponse {
+        id: row.get("id"),
+        space_id: row.get("space_id"),
+        uploader_member_id: row.get("uploader_member_id"),
+        original_name: row.get("name"),
+        media_type: row.get("media_type"),
+        size: row
+            .get::<Option<i64>, _>("length")
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|_| ApiError::internal())?,
+        sha256: row.get::<Option<Vec<u8>>, _>("sha256").map(hex::encode),
+        status: match row.get::<&str, _>("status") {
+            "uploading" => AttachmentStatus::Uploading,
+            "ready" => AttachmentStatus::Ready,
+            "deleted" => AttachmentStatus::Deleted,
+            _ => return Err(ApiError::internal()),
+        },
+        // 读写路径只在开启上传或下载的响应里出现，见 attachment_response。
+        upload_path: None,
+        download_path: None,
+        created_at: timestamp(row.get("created_at")),
+    })
 }
-/// Task 单资源读取。continuity 需要向在线 Computer 取值,因此只在单资源读取里查询;
-/// 列表投影沿用 `task_projection`,把 continuity 留在 `unavailable`。
-async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<Value, ApiError> {
+
+/// Task 单资源读取。continuity 需要向在线 Computer 取值，因此只在单资源读取里查询；
+/// 列表投影沿用 [`task_projection`]，把 continuity 留在 `unavailable`。
+async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<TaskResponse, ApiError> {
     let mut task = task_projection(&state.pool, task_id).await?;
-    let assignee = task["assignee_agent_member_id"]
-        .as_str()
-        .and_then(|value| Uuid::parse_str(value).ok());
-    if let Some(agent_id) = assignee {
-        task["session_continuity"] = agent_continuity(
+    if let Some(agent_id) = task.assignee_agent_member_id {
+        task.session_continuity = agent_continuity(
             state,
             agent_id,
             SessionScope::Task(TaskId::from_uuid(task_id)),
@@ -4393,7 +4469,11 @@ async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<Value, ApiEr
 
 /// 向 Agent 所在 Computer 取 continuity 投影。Agent 未分配 Computer、Computer 离线或
 /// 超时未回应时返回 `unavailable`。
-async fn agent_continuity(state: &RuntimeState, agent_id: Uuid, scope: SessionScope) -> Value {
+async fn agent_continuity(
+    state: &RuntimeState,
+    agent_id: Uuid,
+    scope: SessionScope,
+) -> SessionContinuityResponse {
     let computer_id =
         sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
             .bind(agent_id)
@@ -4403,7 +4483,7 @@ async fn agent_continuity(state: &RuntimeState, agent_id: Uuid, scope: SessionSc
             .flatten()
             .flatten();
     let Some(computer_id) = computer_id else {
-        return continuity_json(QueryResult::Unavailable {
+        return continuity_response(QueryResult::Unavailable {
             code: QueryErrorCode::Unreachable,
         });
     };
@@ -4417,30 +4497,36 @@ async fn agent_continuity(state: &RuntimeState, agent_id: Uuid, scope: SessionSc
             }),
         )
         .await;
-    continuity_json(result)
+    continuity_response(result)
 }
 
-fn continuity_json(result: QueryResult) -> Value {
+fn continuity_response(result: QueryResult) -> SessionContinuityResponse {
     match result {
-        QueryResult::SessionContinuity(continuity) => json!({
-            "state": match continuity.state {
-                SessionContinuityState::Warm => "warm",
-                SessionContinuityState::Cold => "cold",
-                // lost 的 Session 无法 resume,下次执行必须新建 generation。
-                SessionContinuityState::Lost => "reset_required",
+        QueryResult::SessionContinuity(continuity) => SessionContinuityResponse {
+            state: match continuity.state {
+                SessionContinuityState::Warm => ContinuityStateCode::Warm,
+                SessionContinuityState::Cold => ContinuityStateCode::Cold,
+                // lost 的 Session 无法 resume，下次执行必须新建 generation。
+                SessionContinuityState::Lost => ContinuityStateCode::ResetRequired,
             },
-            "generation": continuity.generation,
-            "reason_code": continuity.reason_code
-        }),
-        // Computer 回了其他 query 的结果类型,该值不能回答 continuity。
-        other => json!({
-            "state": "unavailable",
-            "generation": Value::Null,
-            "reason_code": match other {
-                QueryResult::Unavailable { code } => query_error_code(code),
-                _ => "internal",
-            }
-        }),
+            generation: continuity.generation,
+            reason_code: continuity.reason_code,
+        },
+        QueryResult::Unavailable { code } => SessionContinuityResponse {
+            state: ContinuityStateCode::Unavailable,
+            generation: None,
+            reason_code: Some(query_error_code(code).to_owned()),
+        },
+        // Computer 回了其他 query 的结果类型，该值不能回答 continuity。
+        _ => unavailable_continuity(),
+    }
+}
+
+fn unavailable_continuity() -> SessionContinuityResponse {
+    SessionContinuityResponse {
+        state: ContinuityStateCode::Unavailable,
+        generation: None,
+        reason_code: None,
     }
 }
 
@@ -4455,9 +4541,22 @@ fn query_error_code(code: QueryErrorCode) -> &'static str {
     }
 }
 
-async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<Value, ApiError> {
+/// Agent capability 响应按协议是任意 JSON，因此 Task 投影在这一层序列化一次。
+/// Browser 端点直接返回 [`TaskResponse`]，不经过这里。
+fn capability_value(value: &impl serde::Serialize) -> Result<Value, capability::Error> {
+    serde_json::to_value(value).map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "projection could not be encoded",
+            false,
+        )
+    })
+}
+
+async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<TaskResponse, ApiError> {
     let row=sqlx::query("SELECT t.*,creator.display_name AS creator_name,assignee.display_name AS assignee_name FROM tasks t JOIN members creator ON creator.id=t.creator_member_id LEFT JOIN members assignee ON assignee.id=t.assignee_agent_member_id WHERE t.id=$1").bind(task_id).fetch_optional(pool).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
-    let source = thread_reference(pool, row.get("source_thread_id"), "source").await?;
+    let source =
+        thread_reference(pool, row.get("source_thread_id"), ThreadRelation::Source).await?;
     let related_ids = sqlx::query_scalar::<_, Uuid>(
         "SELECT thread_id FROM task_threads WHERE task_id=$1 ORDER BY linked_at",
     )
@@ -4467,7 +4566,7 @@ async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<Value, ApiError
     .map_err(map_sqlx)?;
     let mut related = Vec::with_capacity(related_ids.len());
     for id in related_ids {
-        related.push(thread_reference(pool, id, "related").await?);
+        related.push(thread_reference(pool, id, ThreadRelation::Related).await?);
     }
     let result_message = if let Some(message_id) = row.get::<Option<Uuid>, _>("result_message_id") {
         let message = sqlx::query("SELECT * FROM messages WHERE id=$1")
@@ -4490,26 +4589,49 @@ async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<Value, ApiError
     for run_id in run_ids {
         runs.push(run_projection(pool, run_id).await?);
     }
-    let current_run = runs
-        .iter()
-        .find(|run| {
-            !matches!(
-                run["status"].as_str(),
-                Some("completed" | "yielded" | "failed" | "canceled")
-            )
-        })
-        .cloned();
-    Ok(json!({
-        "id":task_id,"space_id":row.get::<Uuid,_>("space_id"),"title":row.get::<String,_>("title"),"status":row.get::<String,_>("status"),
-        "source_thread":source,"related_threads":related,"creator_member_id":row.get::<Uuid,_>("creator_member_id"),"creator_name":row.get::<String,_>("creator_name"),
-        "assignee_agent_member_id":row.get::<Option<Uuid>,_>("assignee_agent_member_id"),"assignee_name":row.get::<Option<String>,_>("assignee_name"),
-        "result_message":result_message,"close_reason_code":row.get::<Option<String>,_>("close_reason_code"),"close_reason_note":row.get::<Option<String>,_>("close_reason_note"),
-        "current_run":current_run,"recent_runs":runs,"session_continuity":{"state":"unavailable","generation":Value::Null,"reason_code":Value::Null},"runtime_issue_code":Value::Null,
-        "created_at":timestamp(row.get("created_at")),"updated_at":timestamp(row.get("updated_at")),"finished_at":optional_timestamp(row.get("finished_at"))
-    }))
+    // 非终态 Run 至多一个，它就是 current_run。它同时留在 recent_runs 里。
+    let current_run = runs.iter().find(|run| run.outcome.is_none()).cloned();
+    Ok(TaskResponse {
+        id: task_id,
+        space_id: row.get("space_id"),
+        title: row.get("title"),
+        status: match row.get::<&str, _>("status") {
+            "todo" => TaskStatus::Todo,
+            "in_progress" => TaskStatus::InProgress,
+            "in_review" => TaskStatus::InReview,
+            "done" => TaskStatus::Done,
+            "closed" => TaskStatus::Closed,
+            _ => return Err(ApiError::internal()),
+        },
+        creator_member_id: row.get("creator_member_id"),
+        creator_name: row.get("creator_name"),
+        assignee_agent_member_id: row.get("assignee_agent_member_id"),
+        assignee_name: row.get("assignee_name"),
+        source_thread: source,
+        related_threads: related,
+        result_message,
+        close_reason_code: match row.get::<Option<&str>, _>("close_reason_code") {
+            None => None,
+            Some("invalid") => Some(CloseReasonCode::Invalid),
+            Some("duplicate") => Some(CloseReasonCode::Duplicate),
+            Some("not_needed") => Some(CloseReasonCode::NotNeeded),
+            Some("obsolete") => Some(CloseReasonCode::Obsolete),
+            Some("other") => Some(CloseReasonCode::Other),
+            Some(_) => return Err(ApiError::internal()),
+        },
+        close_reason_note: row.get("close_reason_note"),
+        current_run,
+        recent_runs: runs,
+        // continuity 需要向在线 Computer 取值，由 task_detail 在单资源读取时补齐。
+        session_continuity: unavailable_continuity(),
+        runtime_issue_code: None,
+        created_at: timestamp(row.get("created_at")),
+        updated_at: timestamp(row.get("updated_at")),
+        finished_at: optional_timestamp(row.get("finished_at")),
+    })
 }
 
-async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<Value, ApiError> {
+async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<RunResponse, ApiError> {
     let row = sqlx::query(
         "SELECT r.*,m.display_name AS agent_name,\
                 CASE WHEN task.id IS NULL OR task.source_thread_id=r.focus_thread_id THEN 'source' ELSE 'related' END AS relation \
@@ -4524,32 +4646,65 @@ async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<Value, ApiError> 
     let focus = thread_reference(
         pool,
         row.get("focus_thread_id"),
-        row.get::<&str, _>("relation"),
+        thread_relation(row.get("relation"))?,
     )
     .await?;
-    Ok(json!({
-        "id": run_id,
-        "task_id": row.get::<Option<Uuid>,_>("task_id"),
-        "agent_member_id": row.get::<Uuid,_>("agent_id"),
-        "agent_name": row.get::<String,_>("agent_name"),
-        "focus": focus,
-        "status": row.get::<String,_>("status"),
-        "outcome": row.get::<Option<String>,_>("outcome_code"),
-        "continuation_note": row.get::<Option<String>,_>("continuation_note"),
-        "error_code": row.get::<Option<String>,_>("error_code"),
-        "started_at": optional_timestamp(row.get("started_at")),
-        "finished_at": optional_timestamp(row.get("finished_at")),
-    }))
+    Ok(RunResponse {
+        id: run_id,
+        task_id: row.get("task_id"),
+        agent_member_id: row.get("agent_id"),
+        agent_name: row.get("agent_name"),
+        focus,
+        status: match row.get::<&str, _>("status") {
+            "queued" => RunStatus::Queued,
+            "starting" => RunStatus::Starting,
+            "running" => RunStatus::Running,
+            "finalizing" => RunStatus::Finalizing,
+            "stopping" => RunStatus::Stopping,
+            "completed" => RunStatus::Completed,
+            "yielded" => RunStatus::Yielded,
+            "failed" => RunStatus::Failed,
+            "canceled" => RunStatus::Canceled,
+            _ => return Err(ApiError::internal()),
+        },
+        outcome: match row.get::<Option<&str>, _>("outcome_code") {
+            None => None,
+            Some("completed") => Some(RunOutcome::Completed),
+            Some("yielded") => Some(RunOutcome::Yielded),
+            Some("failed") => Some(RunOutcome::Failed),
+            Some("canceled") => Some(RunOutcome::Canceled),
+            Some(_) => return Err(ApiError::internal()),
+        },
+        continuation_note: row.get("continuation_note"),
+        error_code: row.get("error_code"),
+        started_at: optional_timestamp(row.get("started_at")),
+        finished_at: optional_timestamp(row.get("finished_at")),
+    })
 }
+
+fn thread_relation(code: &str) -> Result<ThreadRelation, ApiError> {
+    match code {
+        "source" => Ok(ThreadRelation::Source),
+        "related" => Ok(ThreadRelation::Related),
+        _ => Err(ApiError::internal()),
+    }
+}
+
 async fn thread_reference(
     pool: &PgPool,
     thread_id: Uuid,
-    relation: &str,
-) -> Result<Value, ApiError> {
+    relation: ThreadRelation,
+) -> Result<ThreadReferenceResponse, ApiError> {
     let row=sqlx::query("SELECT t.id,t.root_message_id,t.channel_id,c.slug,m.channel_seq FROM threads t JOIN channels c ON c.id=t.channel_id JOIN messages m ON m.id=t.root_message_id WHERE t.id=$1").bind(thread_id).fetch_one(pool).await.map_err(map_sqlx)?;
-    Ok(
-        json!({"id":thread_id,"root_message_id":row.get::<Uuid,_>("root_message_id"),"channel_id":row.get::<Uuid,_>("channel_id"),"channel_slug":row.get::<String,_>("slug"),"root_message_seq":row.get::<i64,_>("channel_seq"),"relation":relation}),
-    )
+    Ok(ThreadReferenceResponse {
+        id: thread_id,
+        root_message_id: row.get("root_message_id"),
+        channel_id: row.get("channel_id"),
+        channel_slug: row.get("slug"),
+        root_message_seq: u64::try_from(row.get::<i64, _>("channel_seq"))
+            .map_err(|_| ApiError::internal())?,
+        relation,
+    })
 }
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     headers
@@ -5430,15 +5585,15 @@ mod tests {
         let projected = message_row(&fixture.state.pool, &row, fixture.owner_id)
             .await
             .unwrap();
+        let failures = &projected.attention_failures;
+        assert_eq!(failures.len(), 1);
         assert_eq!(
-            projected["attention_failures"],
-            json!([{
-                "agent_member_id": fixture.context.agent_id,
-                "agent_handle": "agent",
-                "error_code": "run_claim_unavailable",
-                "retrying": true
-            }])
+            failures[0].agent_member_id,
+            fixture.context.agent_id.into_uuid()
         );
+        assert_eq!(failures[0].agent_handle, "agent");
+        assert_eq!(failures[0].error_code, "run_claim_unavailable");
+        assert!(failures[0].retrying);
         let event_count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM outbox_events WHERE kind='message.updated' \
              AND payload_json->>'resource_id'=$1",

@@ -242,7 +242,7 @@ pub(super) struct AgentResponse {
     pub(super) updated_at: String,
     pub(super) retired_at: Option<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum AgentLifecycle {
     Active,
@@ -318,7 +318,7 @@ pub(super) struct MemberResponse {
     pub(super) access_level: AccessLevel,
     pub(super) permissions: Vec<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum MemberKind {
     Human,
@@ -417,69 +417,69 @@ pub(super) struct AddChannelAgentsRequest {
     agent_member_ids: Vec<Uuid>,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct MessageAuthor {
-    id: Uuid,
-    kind: MemberKind,
-    display_name: String,
-    handle: String,
+    pub(super) id: Uuid,
+    pub(super) kind: MemberKind,
+    pub(super) display_name: String,
+    pub(super) handle: String,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(super) enum MessageContentResponse {
     Text { body_markdown: String },
     ChannelCreated { channel: ActionChannelResponse },
     AgentCreated { agent: ActionAgentResponse },
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct ActionChannelResponse {
-    id: Uuid,
-    slug: String,
-    name: String,
-    available: bool,
+    pub(super) id: Uuid,
+    pub(super) slug: String,
+    pub(super) name: String,
+    pub(super) available: bool,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct ActionAgentResponse {
-    member_id: Uuid,
-    name: String,
-    lifecycle: AgentLifecycle,
-    available: bool,
+    pub(super) member_id: Uuid,
+    pub(super) name: String,
+    pub(super) lifecycle: AgentLifecycle,
+    pub(super) available: bool,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct MessageTaskSummary {
-    id: Uuid,
-    title: String,
-    status: TaskStatus,
-    assignee_agent_member_id: Option<Uuid>,
-    assignee_name: Option<String>,
-    working_elsewhere: bool,
+    pub(super) id: Uuid,
+    pub(super) title: String,
+    pub(super) status: TaskStatus,
+    pub(super) assignee_agent_member_id: Option<Uuid>,
+    pub(super) assignee_name: Option<String>,
+    pub(super) working_elsewhere: bool,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct AttentionFailureResponse {
-    agent_member_id: Uuid,
-    agent_handle: String,
-    error_code: String,
-    retrying: bool,
+    pub(super) agent_member_id: Uuid,
+    pub(super) agent_handle: String,
+    pub(super) error_code: String,
+    pub(super) retrying: bool,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct MessageResponse {
-    id: Uuid,
-    channel_id: Uuid,
-    thread_id: Uuid,
-    placement: MessagePlacement,
-    seq: u64,
-    author: MessageAuthor,
-    content: MessageContentResponse,
-    mentions: Vec<Uuid>,
-    attachments: Vec<AttachmentResponse>,
-    reply_count: u64,
-    task: Option<MessageTaskSummary>,
-    attention_failures: Vec<AttentionFailureResponse>,
-    created_at: String,
-    edited_at: Option<String>,
-    deleted_at: Option<String>,
+    pub(super) id: Uuid,
+    pub(super) channel_id: Uuid,
+    pub(super) thread_id: Uuid,
+    pub(super) placement: MessagePlacement,
+    pub(super) seq: u64,
+    pub(super) author: MessageAuthor,
+    pub(super) content: MessageContentResponse,
+    pub(super) mentions: Vec<Uuid>,
+    pub(super) attachments: Vec<AttachmentResponse>,
+    pub(super) reply_count: u64,
+    pub(super) task: Option<MessageTaskSummary>,
+    pub(super) attention_failures: Vec<AttentionFailureResponse>,
+    pub(super) created_at: String,
+    pub(super) edited_at: Option<String>,
+    pub(super) deleted_at: Option<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum MessagePlacement {
     Root,
@@ -505,7 +505,7 @@ pub(super) struct UpdateMessageRequest {
     body_markdown: String,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct AttachmentResponse {
     pub(super) id: Uuid,
     pub(super) space_id: Uuid,
@@ -519,7 +519,7 @@ pub(super) struct AttachmentResponse {
     pub(super) download_path: Option<String>,
     pub(super) created_at: String,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum AttachmentStatus {
     Uploading,
@@ -582,7 +582,7 @@ pub(super) enum InboxStatus {
     Dead,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum TaskStatus {
     Todo,
@@ -591,7 +591,7 @@ pub(super) enum TaskStatus {
     Done,
     Closed,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum RunStatus {
     Queued,
@@ -604,7 +604,7 @@ pub(super) enum RunStatus {
     Stopping,
     Canceled,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum SessionContinuityState {
     Warm,
@@ -612,36 +612,36 @@ pub(super) enum SessionContinuityState {
     ResetRequired,
     Unavailable,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct ThreadReferenceResponse {
-    id: Uuid,
-    channel_id: Uuid,
-    channel_slug: String,
-    root_message_id: Uuid,
-    root_message_seq: u64,
-    relation: ThreadRelation,
+    pub(super) id: Uuid,
+    pub(super) channel_id: Uuid,
+    pub(super) channel_slug: String,
+    pub(super) root_message_id: Uuid,
+    pub(super) root_message_seq: u64,
+    pub(super) relation: ThreadRelation,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum ThreadRelation {
     Source,
     Related,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct RunResponse {
-    id: Uuid,
-    task_id: Option<Uuid>,
-    agent_member_id: Uuid,
-    agent_name: String,
-    focus: ThreadReferenceResponse,
-    status: RunStatus,
-    outcome: Option<RunOutcome>,
-    continuation_note: Option<String>,
-    error_code: Option<String>,
-    started_at: Option<String>,
-    finished_at: Option<String>,
+    pub(super) id: Uuid,
+    pub(super) task_id: Option<Uuid>,
+    pub(super) agent_member_id: Uuid,
+    pub(super) agent_name: String,
+    pub(super) focus: ThreadReferenceResponse,
+    pub(super) status: RunStatus,
+    pub(super) outcome: Option<RunOutcome>,
+    pub(super) continuation_note: Option<String>,
+    pub(super) error_code: Option<String>,
+    pub(super) started_at: Option<String>,
+    pub(super) finished_at: Option<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum RunOutcome {
     Completed,
@@ -649,36 +649,36 @@ pub(super) enum RunOutcome {
     Failed,
     Canceled,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct SessionContinuityResponse {
-    state: SessionContinuityState,
-    generation: Option<u64>,
-    reason_code: Option<String>,
+    pub(super) state: SessionContinuityState,
+    pub(super) generation: Option<u64>,
+    pub(super) reason_code: Option<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct TaskResponse {
-    id: Uuid,
-    space_id: Uuid,
-    title: String,
-    status: TaskStatus,
-    creator_member_id: Uuid,
-    creator_name: String,
-    assignee_agent_member_id: Option<Uuid>,
-    assignee_name: Option<String>,
-    source_thread: ThreadReferenceResponse,
-    related_threads: Vec<ThreadReferenceResponse>,
-    result_message: Option<MessageResponse>,
-    close_reason_code: Option<CloseReason>,
-    close_reason_note: Option<String>,
-    current_run: Option<RunResponse>,
-    recent_runs: Vec<RunResponse>,
-    session_continuity: SessionContinuityResponse,
-    runtime_issue_code: Option<String>,
-    created_at: String,
-    updated_at: String,
-    finished_at: Option<String>,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) title: String,
+    pub(super) status: TaskStatus,
+    pub(super) creator_member_id: Uuid,
+    pub(super) creator_name: String,
+    pub(super) assignee_agent_member_id: Option<Uuid>,
+    pub(super) assignee_name: Option<String>,
+    pub(super) source_thread: ThreadReferenceResponse,
+    pub(super) related_threads: Vec<ThreadReferenceResponse>,
+    pub(super) result_message: Option<MessageResponse>,
+    pub(super) close_reason_code: Option<CloseReason>,
+    pub(super) close_reason_note: Option<String>,
+    pub(super) current_run: Option<RunResponse>,
+    pub(super) recent_runs: Vec<RunResponse>,
+    pub(super) session_continuity: SessionContinuityResponse,
+    pub(super) runtime_issue_code: Option<String>,
+    pub(super) created_at: String,
+    pub(super) updated_at: String,
+    pub(super) finished_at: Option<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum CloseReason {
     Invalid,
@@ -713,11 +713,11 @@ pub(super) struct CloseTaskRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct AgentRuntimeResponse {
-    current_run: Option<RunResponse>,
-    current_task: Option<TaskResponse>,
-    focus: Option<ThreadReferenceResponse>,
-    another_item_waiting: bool,
-    session_continuity: SessionContinuityResponse,
+    pub(super) current_run: Option<RunResponse>,
+    pub(super) current_task: Option<TaskResponse>,
+    pub(super) focus: Option<ThreadReferenceResponse>,
+    pub(super) another_item_waiting: bool,
+    pub(super) session_continuity: SessionContinuityResponse,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
