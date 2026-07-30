@@ -1,3 +1,4 @@
+mod credential;
 mod http;
 mod object_storage;
 pub(super) mod openapi;

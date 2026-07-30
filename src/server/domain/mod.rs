@@ -1,3 +1,4 @@
+pub(in crate::server) mod access;
 pub(in crate::server) mod attention;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
@@ -42,4 +43,8 @@ pub(in crate::server) enum DomainError {
     AgentRetired,
     #[error("computer still has assigned agents")]
     ComputerHasAgents,
+    #[error("credential does not meet the required form")]
+    InvalidCredential,
+    #[error("space owner or admin access is required")]
+    GovernorRequired,
 }

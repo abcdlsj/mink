@@ -3,11 +3,309 @@ use time::OffsetDateTime;
 use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::{
+    access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attention::{InboxItemDisposition, InboxItemStatus},
     identity::{Agent, AgentLifecycle, Computer, ComputerLifecycle, PermissionAction},
 };
 
-use super::ports::{ApplicationError, CreatedSpace, Effect, ServerTransaction, TransactionPort};
+use super::ports::{
+    ApplicationError, AuthenticatedHuman, CreatedSpace, Effect, OpenedSession, PasswordPort,
+    RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
+};
+
+/// 注册 Human 并立即建立 Browser Session。账号与 Session 在同一事务内成立。
+pub(in crate::server) struct RegisterHuman;
+
+pub(in crate::server) struct RegisterHumanInput<'a> {
+    pub(in crate::server) user_id: uuid::Uuid,
+    pub(in crate::server) session_id: uuid::Uuid,
+    pub(in crate::server) display_name: &'a str,
+    pub(in crate::server) email: &'a str,
+    pub(in crate::server) password: &'a str,
+    pub(in crate::server) lifetime: SessionLifetime,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+impl RegisterHuman {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        passwords: &impl PasswordPort,
+        tokens: &impl SessionTokenPort,
+        input: RegisterHumanInput<'_>,
+    ) -> Result<OpenedSession, ApplicationError> {
+        let registration = HumanRegistration::new(
+            input.display_name,
+            input.email,
+            input.password.chars().count(),
+        )?;
+        let password_hash = passwords.hash(input.password)?;
+        let token = tokens.generate();
+        port.transact(async |transaction| {
+            transaction
+                .insert_human(input.user_id, &registration, &password_hash, input.now)
+                .await?;
+            open_session(
+                transaction,
+                input.session_id,
+                input.user_id,
+                &token,
+                input.lifetime,
+                input.now,
+            )
+            .await?;
+            Ok(OpenedSession {
+                human: AuthenticatedHuman {
+                    user_id: input.user_id,
+                    display_name: registration.display_name.clone(),
+                    email_normalized: registration.email_normalized.clone(),
+                },
+                token: token.clone(),
+            })
+        })
+        .await
+    }
+}
+
+/// 用 email 和密码建立 Browser Session。账号缺失与密码错误返回同一个错误。
+pub(in crate::server) struct AuthenticateHuman;
+
+pub(in crate::server) struct AuthenticateHumanInput<'a> {
+    pub(in crate::server) session_id: uuid::Uuid,
+    pub(in crate::server) email: &'a str,
+    pub(in crate::server) password: &'a str,
+    pub(in crate::server) lifetime: SessionLifetime,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+impl AuthenticateHuman {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        passwords: &impl PasswordPort,
+        tokens: &impl SessionTokenPort,
+        input: AuthenticateHumanInput<'_>,
+    ) -> Result<OpenedSession, ApplicationError> {
+        let email_normalized = input.email.trim().to_lowercase();
+        let token = tokens.generate();
+        port.transact(async |transaction| {
+            let credential = transaction.human_credential(&email_normalized).await?;
+            // 账号不存在时同样执行到统一的失败分支，不向调用方区分两种原因。
+            let Some((human, stored_hash)) = credential else {
+                return Err(ApplicationError::Unauthenticated);
+            };
+            if !passwords.verify(input.password, &stored_hash) {
+                return Err(ApplicationError::Unauthenticated);
+            }
+            open_session(
+                transaction,
+                input.session_id,
+                human.user_id,
+                &token,
+                input.lifetime,
+                input.now,
+            )
+            .await?;
+            Ok(OpenedSession {
+                human,
+                token: token.clone(),
+            })
+        })
+        .await
+    }
+}
+
+async fn open_session<T: ServerTransaction>(
+    transaction: &mut T,
+    session_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    token: &RawSessionToken,
+    lifetime: SessionLifetime,
+    now: OffsetDateTime,
+) -> Result<(), ApplicationError> {
+    transaction
+        .insert_browser_session(
+            session_id,
+            user_id,
+            &token.sha256_hash(),
+            lifetime.expires_at(now),
+            now,
+        )
+        .await
+}
+
+/// 校验 Browser Session token 并返回账号事实。
+pub(in crate::server) struct AuthenticateSession;
+
+impl AuthenticateSession {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        now: OffsetDateTime,
+    ) -> Result<AuthenticatedHuman, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)
+        })
+        .await
+    }
+}
+
+/// 注销 Browser Session。重复注销成立。
+pub(in crate::server) struct CloseSession;
+
+impl CloseSession {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+    ) -> Result<(), ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| transaction.delete_browser_session(&token_hash).await)
+            .await
+    }
+}
+
+/// 把 Browser Session 解析为某个 Space 的 Member 身份。
+pub(in crate::server) struct AuthorizeSpaceAccess;
+
+impl AuthorizeSpaceAccess {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        space_id: SpaceId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                // 非成员不区分“Space 不存在”和“无权访问”。
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+    }
+}
+
+/// 把 Browser Session 解析为某个 Channel 的 Member 身份。要求 Channel membership。
+pub(in crate::server) struct AuthorizeChannelAccess;
+
+impl AuthorizeChannelAccess {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        channel_id: ChannelId,
+        now: OffsetDateTime,
+    ) -> Result<MemberId, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            transaction
+                .channel_access(human.user_id, channel_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+    }
+}
+
+/// 读取 Agent 相关事实的授权。只要求同 Space Member 身份，不要求治理级别。
+pub(in crate::server) struct AuthorizeAgentAccess;
+
+impl AuthorizeAgentAccess {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        agent_id: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            let space_id = transaction
+                .space_of_agent(agent_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+    }
+}
+
+/// Agent 或 Computer 级请求的治理授权。资源所属 Space 由 Server 推导。
+pub(in crate::server) struct AuthorizeAgentGovernance;
+
+impl AuthorizeAgentGovernance {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        agent_id: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            let space_id = transaction
+                .space_of_agent(agent_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            let access = transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            access.require_governor()?;
+            Ok(access)
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct AuthorizeComputerGovernance;
+
+impl AuthorizeComputerGovernance {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        computer_id: ComputerId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            let space_id = transaction
+                .space_of_computer(computer_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            let access = transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            access.require_governor()?;
+            Ok(access)
+        })
+        .await
+    }
+}
 
 pub(in crate::server) struct CreateSpace;
 

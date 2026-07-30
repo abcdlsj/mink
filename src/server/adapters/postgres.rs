@@ -22,10 +22,11 @@ use crate::{
     },
     server::{
         application::ports::{
-            ApplicationError, CreatedSpace, Effect, MessageDraft, PublishedMessage,
-            ServerTransaction, TransactionPort,
+            ApplicationError, AuthenticatedHuman, CreatedSpace, Effect, MessageDraft,
+            PublishedMessage, ServerTransaction, TransactionPort,
         },
         domain::{
+            access::{HumanRegistration, SpaceAccess},
             attention::{
                 AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
             },
@@ -338,6 +339,178 @@ impl ServerTransaction for PostgresTransaction {
             general_channel_id,
         })
     }
+
+    async fn insert_human(
+        &mut self,
+        user_id: Uuid,
+        registration: &HumanRegistration,
+        password_hash: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO users(id,email_normalized,password_hash,display_name,created_at) \
+             VALUES($1,$2,$3,$4,$5)",
+        )
+        .bind(user_id)
+        .bind(&registration.email_normalized)
+        .bind(password_hash)
+        .bind(&registration.display_name)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn human_credential(
+        &mut self,
+        email_normalized: &str,
+    ) -> Result<Option<(AuthenticatedHuman, String)>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,display_name,email_normalized,password_hash FROM users \
+             WHERE email_normalized=$1 AND disabled_at IS NULL",
+        )
+        .bind(email_normalized)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|row| {
+            (
+                AuthenticatedHuman {
+                    user_id: row.get("id"),
+                    display_name: row.get("display_name"),
+                    email_normalized: row.get("email_normalized"),
+                },
+                row.get("password_hash"),
+            )
+        }))
+    }
+
+    async fn insert_browser_session(
+        &mut self,
+        session_id: Uuid,
+        user_id: Uuid,
+        token_hash: &str,
+        expires_at: OffsetDateTime,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO browser_sessions(id,user_id,token_hash,expires_at,last_seen_at,created_at) \
+             VALUES($1,$2,$3,$4,$5,$5)",
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(expires_at)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn human_for_session(
+        &mut self,
+        token_hash: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<AuthenticatedHuman>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT u.id,u.display_name,u.email_normalized \
+             FROM browser_sessions s JOIN users u ON u.id=s.user_id \
+             WHERE s.token_hash=$1 AND s.expires_at>$2 AND u.disabled_at IS NULL",
+        )
+        .bind(token_hash)
+        .bind(now)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|row| AuthenticatedHuman {
+            user_id: row.get("id"),
+            display_name: row.get("display_name"),
+            email_normalized: row.get("email_normalized"),
+        }))
+    }
+
+    async fn delete_browser_session(&mut self, token_hash: &str) -> Result<(), ApplicationError> {
+        sqlx::query("DELETE FROM browser_sessions WHERE token_hash=$1")
+            .bind(token_hash)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn space_access(
+        &mut self,
+        user_id: Uuid,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceAccess>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT members.id,members.access_level FROM human_members \
+             JOIN members ON members.id=human_members.member_id \
+             AND members.space_id=human_members.space_id \
+             WHERE human_members.space_id=$1 AND human_members.user_id=$2",
+        )
+        .bind(space_id.into_uuid())
+        .bind(user_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(|row| {
+            Ok(SpaceAccess {
+                member_id: MemberId::from_uuid(row.get("id")),
+                space_id,
+                access_level: access_level_from_str(row.get("access_level"))?,
+            })
+        })
+        .transpose()
+    }
+
+    async fn channel_access(
+        &mut self,
+        user_id: Uuid,
+        channel_id: ChannelId,
+    ) -> Result<Option<MemberId>, ApplicationError> {
+        let member_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT human_members.member_id FROM channels \
+             JOIN human_members ON human_members.space_id=channels.space_id \
+             JOIN channel_members ON channel_members.channel_id=channels.id \
+             AND channel_members.member_id=human_members.member_id \
+             WHERE channels.id=$1 AND human_members.user_id=$2",
+        )
+        .bind(channel_id.into_uuid())
+        .bind(user_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(member_id.map(MemberId::from_uuid))
+    }
+
+    async fn space_of_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        let space_id =
+            sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
+                .bind(agent_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        Ok(space_id.map(SpaceId::from_uuid))
+    }
+
+    async fn space_of_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM computers WHERE id=$1")
+            .bind(computer_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(space_id.map(SpaceId::from_uuid))
+    }
+
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         let row = sqlx::query(
             "SELECT id, space_id, channel_id, root_message_id FROM threads WHERE id = $1 FOR UPDATE",

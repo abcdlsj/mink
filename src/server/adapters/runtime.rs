@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::Context;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use axum::{
     Json, Router,
     body::Bytes,
@@ -62,10 +61,20 @@ use crate::{
                 CompleteRun, CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
                 RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
-            identity::{CreateSpace, CreateSpaceInput, DeleteComputer, RetireAgent, SetPermission},
-            ports::{AttachmentObjectPort, MessageDraft, RawFencingToken},
+            identity::{
+                AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession,
+                AuthorizeAgentAccess, AuthorizeAgentGovernance, AuthorizeChannelAccess,
+                AuthorizeComputerGovernance, AuthorizeSpaceAccess, CloseSession, CreateSpace,
+                CreateSpaceInput, DeleteComputer, RegisterHuman, RegisterHumanInput, RetireAgent,
+                SetPermission,
+            },
+            ports::{
+                AttachmentObjectPort, AuthenticatedHuman, MessageDraft, RawFencingToken,
+                RawSessionToken,
+            },
         },
         domain::{
+            access::SessionLifetime,
             conversation::ChannelKind,
             identity::{AccessLevel, DriverKind, PermissionAction},
             task::CloseReason,
@@ -73,7 +82,11 @@ use crate::{
     },
 };
 
-use super::{object_storage::AttachmentObjectStore, postgres::PostgresAdapter};
+use super::{
+    credential::{Argon2Passwords, UuidSessionTokens},
+    object_storage::AttachmentObjectStore,
+    postgres::PostgresAdapter,
+};
 
 const SESSION_COOKIE: &str = "sumi_session";
 
@@ -82,7 +95,7 @@ struct RuntimeState {
     pool: PgPool,
     storage: PostgresAdapter,
     objects: Arc<AttachmentObjectStore>,
-    session_ttl_hours: i64,
+    session_lifetime: SessionLifetime,
     attachment_max_bytes: u64,
 }
 
@@ -340,7 +353,8 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         pool,
         storage,
         objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
-        session_ttl_hours: config.session_ttl_hours,
+        session_lifetime: SessionLifetime::from_hours(config.session_ttl_hours)
+            .context("Server session TTL must be a positive number of hours")?,
         attachment_max_bytes: config.attachment_max_bytes,
     };
     let api = Router::new()
@@ -488,40 +502,29 @@ async fn register(
     jar: CookieJar,
     Json(body): Json<RegisterBody>,
 ) -> Result<(CookieJar, (StatusCode, Json<Value>)), ApiError> {
-    let display_name = body.display_name.trim();
-    let email = body.email.trim().to_lowercase();
-    if display_name.is_empty() || email.is_empty() || body.password.chars().count() < 12 {
-        return Err(ApiError::invalid(
-            "display name, email, and a password of at least 12 characters are required",
-        ));
-    }
-    let user_id = Uuid::now_v7();
-    let salt =
-        SaltString::encode_b64(Uuid::now_v7().as_bytes()).map_err(|_| ApiError::internal())?;
-    let password_hash = Argon2::default()
-        .hash_password(body.password.as_bytes(), &salt)
-        .map_err(|_| ApiError::internal())?
-        .to_string();
-    let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO users(id,email_normalized,password_hash,display_name,created_at) \
-         VALUES($1,$2,$3,$4,$5)",
+    let mut storage = state.storage.clone();
+    let session = RegisterHuman::execute(
+        &mut storage,
+        &Argon2Passwords,
+        &UuidSessionTokens,
+        RegisterHumanInput {
+            user_id: Uuid::now_v7(),
+            session_id: Uuid::now_v7(),
+            display_name: &body.display_name,
+            email: &body.email,
+            password: &body.password,
+            lifetime: state.session_lifetime,
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(user_id)
-    .bind(&email)
-    .bind(password_hash)
-    .bind(display_name)
-    .bind(now)
-    .execute(&state.pool)
     .await
-    .map_err(map_sqlx)?;
-    let (jar, _) = create_session(&state, jar, user_id, now).await?;
+    .map_err(application_error)?;
     Ok((
-        jar,
+        session_cookie(jar, &session.token),
         (
             StatusCode::CREATED,
             Json(json!({
-                "user": user_json(user_id, display_name, &email),
+                "user": human_json(&session.human),
                 "next": "create_space"
             })),
         ),
@@ -533,38 +536,31 @@ async fn login(
     jar: CookieJar,
     Json(body): Json<LoginBody>,
 ) -> Result<(CookieJar, Json<Value>), ApiError> {
-    let email = body.email.trim().to_lowercase();
-    let row = sqlx::query(
-        "SELECT id,display_name,email_normalized,password_hash FROM users \
-         WHERE email_normalized=$1 AND disabled_at IS NULL",
+    let mut storage = state.storage.clone();
+    let session = AuthenticateHuman::execute(
+        &mut storage,
+        &Argon2Passwords,
+        &UuidSessionTokens,
+        AuthenticateHumanInput {
+            session_id: Uuid::now_v7(),
+            email: &body.email,
+            password: &body.password,
+            lifetime: state.session_lifetime,
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(&email)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::unauthenticated)?;
-    let stored: String = row.get("password_hash");
-    let parsed = PasswordHash::new(&stored).map_err(|_| ApiError::internal())?;
-    Argon2::default()
-        .verify_password(body.password.as_bytes(), &parsed)
-        .map_err(|_| ApiError::unauthenticated())?;
-    let user_id: Uuid = row.get("id");
-    let (jar, _) = create_session(&state, jar, user_id, OffsetDateTime::now_utc()).await?;
+    .map_err(application_error)?;
     Ok((
-        jar,
-        Json(json!({
-            "user": user_json(user_id, row.get("display_name"), row.get("email_normalized"))
-        })),
+        session_cookie(jar, &session.token),
+        Json(json!({"user": human_json(&session.human)})),
     ))
 }
 
 async fn logout(State(state): State<RuntimeState>, jar: CookieJar) -> (CookieJar, StatusCode) {
-    if let Some(cookie) = jar.get(SESSION_COOKIE) {
-        let hash = token_hash(cookie.value());
-        let _ = sqlx::query("DELETE FROM browser_sessions WHERE token_hash=$1")
-            .bind(hash)
-            .execute(&state.pool)
-            .await;
+    if let Some(token) = session_token(&jar) {
+        let mut storage = state.storage.clone();
+        let _ = CloseSession::execute(&mut storage, &token).await;
     }
     (
         jar.remove(Cookie::from(SESSION_COOKIE)),
@@ -576,8 +572,8 @@ async fn current_user(
     State(state): State<RuntimeState>,
     jar: CookieJar,
 ) -> Result<Json<Value>, ApiError> {
-    let user = authenticate(&state, &jar).await?;
-    Ok(Json(user_json(user.id, &user.display_name, &user.email)))
+    let human = authenticate(&state, &jar).await?;
+    Ok(Json(human_json(&human)))
 }
 
 async fn begin_pairing(
@@ -974,6 +970,7 @@ fn run_claim_error_code(
     use crate::server::application::ports::ApplicationError;
     match error {
         ApplicationError::NotFound => "run_claim_not_found",
+        ApplicationError::Unauthenticated => "run_claim_unauthenticated",
         ApplicationError::PermissionDenied => "run_claim_permission_denied",
         ApplicationError::Conflict | ApplicationError::Domain(_) => "run_claim_conflict",
         ApplicationError::ContextChanged => "run_claim_context_changed",
@@ -2027,7 +2024,7 @@ async fn create_space(
     let created = CreateSpace::execute(
         &mut storage,
         CreateSpaceInput {
-            actor_user_id: user.id,
+            actor_user_id: user.user_id,
             space_id: SpaceId::from_uuid(space_id),
             owner_id: MemberId::from_uuid(owner_id),
             general_channel_id: ChannelId::from_uuid(general_id),
@@ -2069,7 +2066,7 @@ async fn list_spaces(
          FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
          WHERE hm.user_id=$1 AND s.deleted_at IS NULL ORDER BY s.created_at",
     )
-    .bind(user.id)
+    .bind(user.user_id)
     .fetch_all(&state.pool)
     .await
     .map_err(map_sqlx)?;
@@ -2088,7 +2085,7 @@ async fn space_by_slug(
          FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
          WHERE hm.user_id=$1 AND lower(s.slug)=lower($2) AND s.deleted_at IS NULL",
     )
-    .bind(user.id)
+    .bind(user.user_id)
     .bind(slug)
     .fetch_optional(&state.pool)
     .await
@@ -2245,13 +2242,7 @@ async fn current_agent_run(
     jar: CookieJar,
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
-        .bind(agent_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    let viewer_id = current_member(&state, &jar, space_id).await?;
+    let viewer_id = agent_space_member(&state, &jar, agent_id).await?;
     let run_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT r.id FROM agent_runs r \
          JOIN threads t ON t.id=r.focus_thread_id \
@@ -2304,13 +2295,7 @@ async fn retire_agent(
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
-        .bind(agent_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    let actor_id = require_space_governor(&state, &jar, space_id).await?;
+    let actor_id = require_agent_governor(&state, &jar, agent_id).await?;
     let mut storage = state.storage.clone();
     RetireAgent::execute(
         &mut storage,
@@ -2341,13 +2326,7 @@ async fn delete_computer(
     Path(computer_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM computers WHERE id=$1")
-        .bind(computer_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
-    let actor_id = require_space_governor(&state, &jar, space_id).await?;
+    let actor_id = require_computer_governor(&state, &jar, computer_id).await?;
     let mut storage = state.storage.clone();
     DeleteComputer::execute(
         &mut storage,
@@ -2364,7 +2343,7 @@ async fn delete_computer(
         .await
         .map_err(map_sqlx)?;
     Ok(Json(json!({
-        "id": row.get::<Uuid,_>("id"), "space_id": space_id, "name": row.get::<String,_>("name"),
+        "id": row.get::<Uuid,_>("id"), "space_id": row.get::<Uuid,_>("space_id"), "name": row.get::<String,_>("name"),
         "hostname": row.get::<String,_>("hostname"), "os": row.get::<String,_>("os"),
         "daemon_version": row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
         "status": "revoked", "last_seen_at": optional_timestamp(row.get("last_seen_at")),
@@ -3781,23 +3760,33 @@ async fn download_attachment(
         .into_response())
 }
 
-struct BrowserUser {
-    id: Uuid,
-    display_name: String,
-    email: String,
+fn session_token(jar: &CookieJar) -> Option<RawSessionToken> {
+    jar.get(SESSION_COOKIE)
+        .map(|cookie| RawSessionToken::new(cookie.value().to_owned()))
 }
 
-async fn authenticate(state: &RuntimeState, jar: &CookieJar) -> Result<BrowserUser, ApiError> {
-    let cookie = jar
-        .get(SESSION_COOKIE)
-        .ok_or_else(ApiError::unauthenticated)?;
-    let row = sqlx::query("SELECT u.id,u.display_name,u.email_normalized FROM browser_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.disabled_at IS NULL")
-        .bind(token_hash(cookie.value())).fetch_optional(&state.pool).await.map_err(map_sqlx)?.ok_or_else(ApiError::unauthenticated)?;
-    Ok(BrowserUser {
-        id: row.get("id"),
-        display_name: row.get("display_name"),
-        email: row.get("email_normalized"),
-    })
+fn require_session_token(jar: &CookieJar) -> Result<RawSessionToken, ApiError> {
+    session_token(jar).ok_or_else(ApiError::unauthenticated)
+}
+
+fn session_cookie(jar: CookieJar, token: &RawSessionToken) -> CookieJar {
+    let cookie = Cookie::build((SESSION_COOKIE, token.expose().to_owned()))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .build();
+    jar.add(cookie)
+}
+
+async fn authenticate(
+    state: &RuntimeState,
+    jar: &CookieJar,
+) -> Result<AuthenticatedHuman, ApiError> {
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    AuthenticateSession::execute(&mut storage, &token, OffsetDateTime::now_utc())
+        .await
+        .map_err(application_error)
 }
 
 async fn current_member(
@@ -3805,38 +3794,71 @@ async fn current_member(
     jar: &CookieJar,
     space_id: Uuid,
 ) -> Result<Uuid, ApiError> {
-    let user = authenticate(state, jar).await?;
-    sqlx::query_scalar("SELECT member_id FROM human_members WHERE space_id=$1 AND user_id=$2")
-        .bind(space_id)
-        .bind(user.id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeSpaceAccess::execute(
+        &mut storage,
+        &token,
+        SpaceId::from_uuid(space_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(access.member_id.into_uuid())
 }
 
-async fn require_space_governor(
+async fn agent_space_member(
     state: &RuntimeState,
     jar: &CookieJar,
-    space_id: Uuid,
+    agent_id: Uuid,
 ) -> Result<Uuid, ApiError> {
-    let member_id = current_member(state, jar, space_id).await?;
-    let access_level: String =
-        sqlx::query_scalar("SELECT access_level FROM members WHERE id=$1 AND space_id=$2")
-            .bind(member_id)
-            .bind(space_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(map_sqlx)?;
-    if matches!(access_level.as_str(), "owner" | "admin") {
-        Ok(member_id)
-    } else {
-        Err(ApiError {
-            status: StatusCode::FORBIDDEN,
-            code: "permission_denied",
-            message: "Space Owner or Admin access is required",
-        })
-    }
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeAgentAccess::execute(
+        &mut storage,
+        &token,
+        MemberId::from_uuid(agent_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(access.member_id.into_uuid())
+}
+
+async fn require_agent_governor(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    agent_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeAgentGovernance::execute(
+        &mut storage,
+        &token,
+        MemberId::from_uuid(agent_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(access.member_id.into_uuid())
+}
+
+async fn require_computer_governor(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    computer_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeComputerGovernance::execute(
+        &mut storage,
+        &token,
+        ComputerId::from_uuid(computer_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(access.member_id.into_uuid())
 }
 
 async fn space_events(
@@ -3896,32 +3918,25 @@ async fn channel_member(
     jar: &CookieJar,
     channel_id: Uuid,
 ) -> Result<Uuid, ApiError> {
-    let user = authenticate(state, jar).await?;
-    sqlx::query_scalar("SELECT hm.member_id FROM channels c JOIN human_members hm ON hm.space_id=c.space_id JOIN channel_members cm ON cm.channel_id=c.id AND cm.member_id=hm.member_id WHERE c.id=$1 AND hm.user_id=$2")
-        .bind(channel_id).bind(user.id).fetch_optional(&state.pool).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let member_id = AuthorizeChannelAccess::execute(
+        &mut storage,
+        &token,
+        ChannelId::from_uuid(channel_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(member_id.into_uuid())
 }
 
-async fn create_session(
-    state: &RuntimeState,
-    jar: CookieJar,
-    user_id: Uuid,
-    now: OffsetDateTime,
-) -> Result<(CookieJar, Uuid), ApiError> {
-    let session_id = Uuid::now_v7();
-    let token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
-    sqlx::query("INSERT INTO browser_sessions(id,user_id,token_hash,expires_at,last_seen_at,created_at) VALUES($1,$2,$3,$4,$5,$5)")
-        .bind(session_id).bind(user_id).bind(token_hash(&token)).bind(now + Duration::hours(state.session_ttl_hours)).bind(now)
-        .execute(&state.pool).await.map_err(map_sqlx)?;
-    let cookie = Cookie::build((SESSION_COOKIE, token))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .build();
-    Ok((jar.add(cookie), session_id))
-}
-
-fn user_json(id: Uuid, display_name: &str, email: &str) -> Value {
-    json!({"id":id,"display_name":display_name,"email":email})
+fn human_json(human: &AuthenticatedHuman) -> Value {
+    json!({
+        "id": human.user_id,
+        "display_name": human.display_name,
+        "email": human.email_normalized
+    })
 }
 fn space_json(
     id: Uuid,
@@ -4158,6 +4173,19 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
     use crate::server::application::ports::ApplicationError;
     match error {
         ApplicationError::NotFound => ApiError::not_found(),
+        ApplicationError::Unauthenticated => ApiError::unauthenticated(),
+        ApplicationError::Domain(crate::server::domain::DomainError::GovernorRequired) => {
+            ApiError {
+                status: StatusCode::FORBIDDEN,
+                code: "permission_denied",
+                message: "Space Owner or Admin access is required",
+            }
+        }
+        ApplicationError::Domain(crate::server::domain::DomainError::InvalidCredential) => {
+            ApiError::invalid(
+                "display name, email, and a password of at least 12 characters are required",
+            )
+        }
         ApplicationError::PermissionDenied => ApiError {
             status: StatusCode::FORBIDDEN,
             code: "permission_denied",
@@ -4323,7 +4351,7 @@ mod tests {
                 pool,
                 storage,
                 objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
-                session_ttl_hours: 1,
+                session_lifetime: SessionLifetime::from_hours(1).unwrap(),
                 attachment_max_bytes: 100 * 1024 * 1024,
             };
             let mut headers = HeaderMap::new();

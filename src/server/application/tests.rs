@@ -9,6 +9,7 @@ use crate::ids::{
     SpaceId, TaskId, ThreadId,
 };
 use crate::server::domain::{
+    access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attention::{
         AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
     },
@@ -33,10 +34,14 @@ use super::{
         CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
         RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
     },
-    identity::{DeleteComputer, RetireAgent, SetPermission},
+    identity::{
+        AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession, AuthorizeAgentGovernance,
+        AuthorizeSpaceAccess, CloseSession, DeleteComputer, RegisterHuman, RegisterHumanInput,
+        RetireAgent, SetPermission,
+    },
     ports::{
-        ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction,
-        TransactionPort,
+        ApplicationError, AuthenticatedHuman, Effect, MessageDraft, PasswordPort, PublishedMessage,
+        RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
     },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -148,6 +153,12 @@ struct MemoryState {
     computer_assignments: HashSet<(ComputerId, MemberId)>,
     effects: Vec<Effect>,
     reject_message_insert: bool,
+    humans: HashMap<String, (AuthenticatedHuman, String)>,
+    sessions: HashMap<String, (uuid::Uuid, OffsetDateTime)>,
+    space_members: HashMap<(uuid::Uuid, SpaceId), MemberId>,
+    channel_members: HashMap<(uuid::Uuid, ChannelId), MemberId>,
+    agent_spaces: HashMap<MemberId, SpaceId>,
+    computer_spaces: HashMap<ComputerId, SpaceId>,
 }
 
 #[derive(Default)]
@@ -191,6 +202,126 @@ impl ServerTransaction for MemoryTransaction {
         _now: time::OffsetDateTime,
     ) -> Result<super::ports::CreatedSpace, ApplicationError> {
         Err(ApplicationError::Internal)
+    }
+
+    async fn insert_human(
+        &mut self,
+        user_id: uuid::Uuid,
+        registration: &HumanRegistration,
+        password_hash: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .state
+            .humans
+            .contains_key(&registration.email_normalized)
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state.humans.insert(
+            registration.email_normalized.clone(),
+            (
+                AuthenticatedHuman {
+                    user_id,
+                    display_name: registration.display_name.clone(),
+                    email_normalized: registration.email_normalized.clone(),
+                },
+                password_hash.to_owned(),
+            ),
+        );
+        Ok(())
+    }
+
+    async fn human_credential(
+        &mut self,
+        email_normalized: &str,
+    ) -> Result<Option<(AuthenticatedHuman, String)>, ApplicationError> {
+        Ok(self.state.humans.get(email_normalized).cloned())
+    }
+
+    async fn insert_browser_session(
+        &mut self,
+        _session_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        token_hash: &str,
+        expires_at: OffsetDateTime,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .sessions
+            .insert(token_hash.to_owned(), (user_id, expires_at));
+        Ok(())
+    }
+
+    async fn human_for_session(
+        &mut self,
+        token_hash: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<AuthenticatedHuman>, ApplicationError> {
+        let Some((user_id, expires_at)) = self.state.sessions.get(token_hash).copied() else {
+            return Ok(None);
+        };
+        if expires_at <= now {
+            return Ok(None);
+        }
+        Ok(self
+            .state
+            .humans
+            .values()
+            .find(|(human, _)| human.user_id == user_id)
+            .map(|(human, _)| human.clone()))
+    }
+
+    async fn delete_browser_session(&mut self, token_hash: &str) -> Result<(), ApplicationError> {
+        self.state.sessions.remove(token_hash);
+        Ok(())
+    }
+
+    async fn space_access(
+        &mut self,
+        user_id: uuid::Uuid,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceAccess>, ApplicationError> {
+        let Some(member_id) = self.state.space_members.get(&(user_id, space_id)).copied() else {
+            return Ok(None);
+        };
+        let access_level = self
+            .state
+            .members
+            .get(&member_id)
+            .ok_or(ApplicationError::NotFound)?
+            .access_level;
+        Ok(Some(SpaceAccess {
+            member_id,
+            space_id,
+            access_level,
+        }))
+    }
+
+    async fn channel_access(
+        &mut self,
+        user_id: uuid::Uuid,
+        channel_id: ChannelId,
+    ) -> Result<Option<MemberId>, ApplicationError> {
+        Ok(self
+            .state
+            .channel_members
+            .get(&(user_id, channel_id))
+            .copied())
+    }
+
+    async fn space_of_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self.state.agent_spaces.get(&agent_id).copied())
+    }
+
+    async fn space_of_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self.state.computer_spaces.get(&computer_id).copied())
     }
 
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
@@ -1855,6 +1986,339 @@ fn complete_run_input(run_id: RunId, token: &str, item_id: InboxItemId) -> Compl
         continuation_note: None,
         now: OffsetDateTime::UNIX_EPOCH,
     }
+}
+
+/// 测试用密码端口：散列是可预测的前缀拼接，校验只比较该形式。
+struct StubPasswords;
+
+impl PasswordPort for StubPasswords {
+    fn hash(&self, password: &str) -> Result<String, ApplicationError> {
+        Ok(format!("hashed:{password}"))
+    }
+
+    fn verify(&self, password: &str, stored_hash: &str) -> bool {
+        stored_hash == format!("hashed:{password}")
+    }
+}
+
+/// 测试用 token 端口：每次调用返回递增 token，便于断言 Session 隔离。
+struct StubTokens {
+    next: std::cell::Cell<u32>,
+}
+
+impl Default for StubTokens {
+    fn default() -> Self {
+        Self {
+            next: std::cell::Cell::new(1),
+        }
+    }
+}
+
+impl SessionTokenPort for StubTokens {
+    fn generate(&self) -> RawSessionToken {
+        let value = self.next.get();
+        self.next.set(value + 1);
+        RawSessionToken::new(format!("token-{value}"))
+    }
+}
+
+fn hour_lifetime() -> SessionLifetime {
+    SessionLifetime::from_hours(1).expect("one hour is a valid lifetime")
+}
+
+#[tokio::test]
+async fn registration_establishes_a_session_and_rejects_a_duplicate_email() {
+    let mut port = MemoryPort::default();
+    let passwords = StubPasswords;
+    let tokens = StubTokens::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let user_id = Uuid::from_u128(4001);
+    let session = RegisterHuman::execute(
+        &mut port,
+        &passwords,
+        &tokens,
+        RegisterHumanInput {
+            user_id,
+            session_id: Uuid::from_u128(4002),
+            display_name: " Casey ",
+            email: " Casey@Example.COM ",
+            password: "correct horse battery",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await
+    .expect("registration succeeds");
+    assert_eq!(session.human.user_id, user_id);
+    assert_eq!(session.human.email_normalized, "casey@example.com");
+    assert_eq!(session.human.display_name, "Casey");
+
+    // Session 立即可用，且解析回同一个账号。
+    let authenticated = AuthenticateSession::execute(&mut port, &session.token, now)
+        .await
+        .expect("session resolves");
+    assert_eq!(authenticated, session.human);
+
+    // 同一个规范化 email 不能注册两次。
+    let duplicate = RegisterHuman::execute(
+        &mut port,
+        &passwords,
+        &tokens,
+        RegisterHumanInput {
+            user_id: Uuid::from_u128(4003),
+            session_id: Uuid::from_u128(4004),
+            display_name: "Casey Again",
+            email: "casey@example.com",
+            password: "another long password",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await;
+    assert_eq!(duplicate.err(), Some(ApplicationError::Conflict));
+}
+
+#[tokio::test]
+async fn registration_rejects_a_short_password_without_writing_the_account() {
+    let mut port = MemoryPort::default();
+    let result = RegisterHuman::execute(
+        &mut port,
+        &StubPasswords,
+        &StubTokens::default(),
+        RegisterHumanInput {
+            user_id: Uuid::from_u128(4010),
+            session_id: Uuid::from_u128(4011),
+            display_name: "Casey",
+            email: "casey@example.com",
+            password: "short",
+            lifetime: hour_lifetime(),
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await;
+    assert_eq!(
+        result.err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::InvalidCredential
+        ))
+    );
+    assert!(port.state.humans.is_empty());
+    assert!(port.state.sessions.is_empty());
+}
+
+#[tokio::test]
+async fn authentication_hides_whether_the_account_exists_and_closing_a_session_is_repeatable() {
+    let mut port = MemoryPort::default();
+    let passwords = StubPasswords;
+    let tokens = StubTokens::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let registered = RegisterHuman::execute(
+        &mut port,
+        &passwords,
+        &tokens,
+        RegisterHumanInput {
+            user_id: Uuid::from_u128(4020),
+            session_id: Uuid::from_u128(4021),
+            display_name: "Casey",
+            email: "casey@example.com",
+            password: "correct horse battery",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await
+    .expect("registration succeeds");
+
+    // 未知账号和错误密码返回同一个错误码。
+    for (email, password) in [
+        ("missing@example.com", "correct horse battery"),
+        ("casey@example.com", "wrong password entirely"),
+    ] {
+        let result = AuthenticateHuman::execute(
+            &mut port,
+            &passwords,
+            &tokens,
+            AuthenticateHumanInput {
+                session_id: Uuid::from_u128(4022),
+                email,
+                password,
+                lifetime: hour_lifetime(),
+                now,
+            },
+        )
+        .await;
+        assert_eq!(result.err(), Some(ApplicationError::Unauthenticated));
+    }
+
+    let logged_in = AuthenticateHuman::execute(
+        &mut port,
+        &passwords,
+        &tokens,
+        AuthenticateHumanInput {
+            session_id: Uuid::from_u128(4023),
+            email: " CASEY@example.com ",
+            password: "correct horse battery",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await
+    .expect("login succeeds");
+    assert_ne!(logged_in.token.expose(), registered.token.expose());
+
+    // 注销只作用于本 Session，且可以重复执行。
+    CloseSession::execute(&mut port, &logged_in.token)
+        .await
+        .expect("close succeeds");
+    CloseSession::execute(&mut port, &logged_in.token)
+        .await
+        .expect("closing an absent session still succeeds");
+    assert_eq!(
+        AuthenticateSession::execute(&mut port, &logged_in.token, now)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+    AuthenticateSession::execute(&mut port, &registered.token, now)
+        .await
+        .expect("the other session remains valid");
+}
+
+#[tokio::test]
+async fn an_expired_session_no_longer_authenticates() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let session = RegisterHuman::execute(
+        &mut port,
+        &StubPasswords,
+        &StubTokens::default(),
+        RegisterHumanInput {
+            user_id: Uuid::from_u128(4030),
+            session_id: Uuid::from_u128(4031),
+            display_name: "Casey",
+            email: "casey@example.com",
+            password: "correct horse battery",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await
+    .expect("registration succeeds");
+    let after_expiry = now + time::Duration::hours(1);
+    assert_eq!(
+        AuthenticateSession::execute(&mut port, &session.token, after_expiry)
+            .await
+            .err(),
+        Some(ApplicationError::Unauthenticated)
+    );
+}
+
+#[tokio::test]
+async fn space_authorization_separates_non_members_from_members_and_governors() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(4100);
+    let admin_id = member(4101);
+    let plain_id = member(4102);
+    let agent_id = member(4103);
+    for (id, level) in [
+        (admin_id, AccessLevel::Admin),
+        (plain_id, AccessLevel::Member),
+    ] {
+        port.state.members.insert(
+            id,
+            Member {
+                id,
+                space_id,
+                display_name: "Member".into(),
+                handle: "member".into(),
+                access_level: level,
+                created_at: now,
+            },
+        );
+    }
+    port.state.agent_spaces.insert(agent_id, space_id);
+
+    let tokens = StubTokens::default();
+    let mut sessions = Vec::new();
+    for (index, member_id) in [admin_id, plain_id].into_iter().enumerate() {
+        let session = RegisterHuman::execute(
+            &mut port,
+            &StubPasswords,
+            &tokens,
+            RegisterHumanInput {
+                user_id: Uuid::from_u128(4110 + index as u128),
+                session_id: Uuid::from_u128(4120 + index as u128),
+                display_name: "Human",
+                email: &format!("human{index}@example.com"),
+                password: "correct horse battery",
+                lifetime: hour_lifetime(),
+                now,
+            },
+        )
+        .await
+        .expect("registration succeeds");
+        port.state
+            .space_members
+            .insert((session.human.user_id, space_id), member_id);
+        sessions.push(session.token);
+    }
+    let (admin_token, plain_token) = (sessions[0].clone(), sessions[1].clone());
+
+    let access = AuthorizeSpaceAccess::execute(&mut port, &plain_token, space_id, now)
+        .await
+        .expect("member resolves");
+    assert_eq!(access.member_id, plain_id);
+
+    // 治理动作要求 Owner/Admin，普通 Member 得到领域级拒绝。
+    assert_eq!(
+        AuthorizeAgentGovernance::execute(&mut port, &plain_token, agent_id, now)
+            .await
+            .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::GovernorRequired
+        ))
+    );
+    let governed = AuthorizeAgentGovernance::execute(&mut port, &admin_token, agent_id, now)
+        .await
+        .expect("admin governs the agent");
+    assert_eq!(governed.member_id, admin_id);
+
+    // 非成员访问与 Space 不存在返回同一个错误码。
+    let outsider = RegisterHuman::execute(
+        &mut port,
+        &StubPasswords,
+        &tokens,
+        RegisterHumanInput {
+            user_id: Uuid::from_u128(4130),
+            session_id: Uuid::from_u128(4131),
+            display_name: "Outsider",
+            email: "outsider@example.com",
+            password: "correct horse battery",
+            lifetime: hour_lifetime(),
+            now,
+        },
+    )
+    .await
+    .expect("registration succeeds");
+    assert_eq!(
+        AuthorizeSpaceAccess::execute(&mut port, &outsider.token, space_id, now)
+            .await
+            .err(),
+        Some(ApplicationError::NotFound)
+    );
+    assert_eq!(
+        AuthorizeSpaceAccess::execute(&mut port, &admin_token, space(4199), now)
+            .await
+            .err(),
+        Some(ApplicationError::NotFound)
+    );
+    assert_eq!(
+        AuthorizeAgentGovernance::execute(&mut port, &admin_token, member(4198), now)
+            .await
+            .err(),
+        Some(ApplicationError::NotFound)
+    );
 }
 
 macro_rules! id_fn {

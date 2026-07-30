@@ -21,6 +21,8 @@ pub(in crate::server) enum ApplicationError {
     Domain(#[from] crate::server::domain::DomainError),
     #[error("resource was not found")]
     NotFound,
+    #[error("credential is missing, expired, or does not match")]
+    Unauthenticated,
     #[error("actor is not allowed to perform this action")]
     PermissionDenied,
     #[error("request conflicts with current state")]
@@ -47,6 +49,57 @@ pub(in crate::server) trait AttachmentObjectPort: Send + Sync {
         content: Vec<u8>,
     ) -> Result<StoredObject, ApplicationError>;
     async fn get(&self, object_key: &str) -> Result<Vec<u8>, ApplicationError>;
+}
+
+/// Human 密码的单向散列。明文只在该端口内部出现，不进入 domain 或 transaction。
+pub(in crate::server) trait PasswordPort {
+    fn hash(&self, password: &str) -> Result<String, ApplicationError>;
+
+    /// 校验失败和散列格式损坏都返回 `false`，调用方不能区分二者。
+    fn verify(&self, password: &str, stored_hash: &str) -> bool;
+}
+
+/// Browser Session token 的生成。token 只在建立 Session 时返回一次。
+pub(in crate::server) trait SessionTokenPort {
+    fn generate(&self) -> RawSessionToken;
+}
+
+/// Browser Session token 的明文。`Debug` 不暴露内容，避免进入日志。
+#[derive(Clone, Eq, PartialEq)]
+pub(in crate::server) struct RawSessionToken(String);
+
+impl RawSessionToken {
+    pub(in crate::server) fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(in crate::server) fn expose(&self) -> &str {
+        &self.0
+    }
+
+    pub(in crate::server) fn sha256_hash(&self) -> String {
+        hex::encode(Sha256::digest(self.0.as_bytes()))
+    }
+}
+
+impl fmt::Debug for RawSessionToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RawSessionToken([REDACTED])")
+    }
+}
+
+/// 已认证的 Human 账号事实。不含凭据。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct AuthenticatedHuman {
+    pub(in crate::server) user_id: uuid::Uuid,
+    pub(in crate::server) display_name: String,
+    pub(in crate::server) email_normalized: String,
+}
+
+/// 建立 Session 后返回给调用方的凭据与账号事实。
+pub(in crate::server) struct OpenedSession {
+    pub(in crate::server) human: AuthenticatedHuman,
+    pub(in crate::server) token: RawSessionToken,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -170,6 +223,58 @@ pub(in crate::server) trait ServerTransaction {
         idempotency_key: IdempotencyKey,
         now: time::OffsetDateTime,
     ) -> Result<CreatedSpace, ApplicationError>;
+    /// 插入 Human 账号。email 已被 domain 规范化，唯一约束冲突返回 `Conflict`。
+    async fn insert_human(
+        &mut self,
+        user_id: uuid::Uuid,
+        registration: &crate::server::domain::access::HumanRegistration,
+        password_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    /// 按规范化 email 读取未禁用账号及其密码散列。
+    async fn human_credential(
+        &mut self,
+        email_normalized: &str,
+    ) -> Result<Option<(AuthenticatedHuman, String)>, ApplicationError>;
+    /// 保存 Session 的 token 散列与过期时间。明文 token 不进入该层。
+    async fn insert_browser_session(
+        &mut self,
+        session_id: uuid::Uuid,
+        user_id: uuid::Uuid,
+        token_hash: &str,
+        expires_at: time::OffsetDateTime,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    /// 按 token 散列读取未过期 Session 对应的账号。
+    async fn human_for_session(
+        &mut self,
+        token_hash: &str,
+        now: time::OffsetDateTime,
+    ) -> Result<Option<AuthenticatedHuman>, ApplicationError>;
+    /// 删除 Session。token 散列不存在时不报错，保证注销可重试。
+    async fn delete_browser_session(&mut self, token_hash: &str) -> Result<(), ApplicationError>;
+    /// 读取 Human 在某个 Space 中的 Member 身份和访问级别。
+    async fn space_access(
+        &mut self,
+        user_id: uuid::Uuid,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Option<crate::server::domain::access::SpaceAccess>, ApplicationError>;
+    /// 读取 Human 在某个 Channel 中的 Member 身份，要求同时是 Channel 成员。
+    async fn channel_access(
+        &mut self,
+        user_id: uuid::Uuid,
+        channel_id: ChannelId,
+    ) -> Result<Option<MemberId>, ApplicationError>;
+    /// 定位资源所属 Space，用于把资源级请求转为 Space 授权判断。
+    async fn space_of_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
+    async fn space_of_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
+
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError>;
     async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError>;

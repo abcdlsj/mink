@@ -92,6 +92,12 @@ impl IntoResponse for HttpError {
                 "resource was not found",
                 false,
             ),
+            ApplicationError::Unauthenticated => (
+                StatusCode::UNAUTHORIZED,
+                "unauthenticated",
+                "credential is missing or expired",
+                false,
+            ),
             ApplicationError::PermissionDenied => (
                 StatusCode::FORBIDDEN,
                 "permission_denied",
