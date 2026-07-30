@@ -35,7 +35,7 @@
   - [x] 将 Server、Computer 和 Agent CLI 入口切换到新运行时。
   - [x] 接通 Run result、Item disposition、lease renewal 和 Agent `run yield`，并验证本地 outbox 与 Driver completion 竞态。
   - [x] 补齐 Task 终态、Attachment、Memory 和剩余 Agent capability。
-  - [ ] 接通 same-Focus attach、different-Focus notice、Browser SSE、Agent 退役和 Computer 删除。
+  - [x] 接通 same-Focus attach、different-Focus notice、Browser SSE、Agent 退役和 Computer 删除。
   - [ ] 实现 Builtin Driver，删除旧实现、旧 schema 和冲突测试。
   - [ ] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
 

@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    convert::Infallible,
+    sync::Arc,
+};
 
 use anyhow::Context;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -10,11 +14,14 @@ use axum::{
         ws::{Message as WebSocketMessage, WebSocket},
     },
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response, Sse,
+        sse::{Event as SseEvent, KeepAlive},
+    },
     routing::{get, post},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -37,6 +44,7 @@ use crate::{
         },
     },
     server::{
+        application::attention::{RouteHardItem, RouteHardItemInput},
         application::conversation::{
             CreateAgentAction, CreateAgentActionInput, CreateChannelAction,
             CreateChannelActionInput,
@@ -52,6 +60,7 @@ use crate::{
                 ClaimRun, ClaimRunInput, RecordRunItemDisposition, RecordRunItemDispositionInput,
                 RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
+            identity::{DeleteComputer, RetireAgent},
             ports::{AttachmentObjectPort, RawFencingToken},
         },
         domain::{conversation::ChannelKind, identity::DriverKind, task::CloseReason},
@@ -325,6 +334,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         )
         .route("/spaces", get(list_spaces).post(create_space))
         .route("/spaces/by-slug/{slug}", get(space_by_slug))
+        .route("/spaces/{space_id}/events", get(space_events))
         .route(
             "/spaces/{space_id}/channels",
             get(list_channels).post(create_channel),
@@ -336,7 +346,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             "/spaces/{space_id}/agents",
             get(list_agents).post(create_agent),
         )
-        .route("/agents/{agent_id}", get(get_agent))
+        .route("/agents/{agent_id}", get(get_agent).delete(retire_agent))
         .route("/spaces/{space_id}/approvals", get(empty_list))
         .route("/spaces/{space_id}/tasks", get(list_tasks))
         .route("/tasks/{task_id}", get(get_task))
@@ -370,6 +380,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             "/attachments/{attachment_id}/download",
             get(download_attachment),
         )
+        .route("/computers/{computer_id}", axum::routing::delete(delete_computer))
         .with_state(state);
     let app = Router::new()
         .nest("/api/v1", api)
@@ -1795,7 +1806,7 @@ async fn list_agents(
     let rows = sqlx::query(
         "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at, \
          (SELECT status FROM agent_runs r WHERE r.agent_id=a.member_id AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1) AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id \
+         FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
          WHERE a.space_id=$1 ORDER BY a.created_at",
     )
     .bind(space_id)
@@ -1813,7 +1824,7 @@ async fn get_agent(
     let row = sqlx::query(
         "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at, \
          (SELECT status FROM agent_runs r WHERE r.agent_id=a.member_id AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1) AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id \
+         FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
          WHERE a.member_id=$1",
     )
     .bind(agent_id)
@@ -1823,6 +1834,77 @@ async fn get_agent(
     .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, row.get("space_id")).await?;
     Ok(Json(agent_row(&row)))
+}
+
+async fn retire_agent(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(agent_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    idempotency_header(&headers)?;
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
+        .bind(agent_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    require_space_governor(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    RetireAgent::execute(
+        &mut storage,
+        MemberId::from_uuid(agent_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    let row = sqlx::query(
+        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status, \
+         c.deleted_at AS computer_deleted_at,NULL::TEXT AS run_status \
+         FROM agents a JOIN members m ON m.id=a.member_id \
+         LEFT JOIN computers c ON c.id=a.computer_id WHERE a.member_id=$1",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(agent_row(&row)))
+}
+
+async fn delete_computer(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(computer_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    idempotency_header(&headers)?;
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM computers WHERE id=$1")
+        .bind(computer_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    require_space_governor(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    DeleteComputer::execute(
+        &mut storage,
+        ComputerId::from_uuid(computer_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    let row = sqlx::query("SELECT * FROM computers WHERE id=$1")
+        .bind(computer_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(Json(json!({
+        "id": row.get::<Uuid,_>("id"), "space_id": space_id, "name": row.get::<String,_>("name"),
+        "hostname": row.get::<String,_>("hostname"), "os": row.get::<String,_>("os"),
+        "daemon_version": row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
+        "status": "revoked", "last_seen_at": optional_timestamp(row.get("last_seen_at")),
+        "created_at": timestamp(row.get("created_at"))
+    })))
 }
 
 async fn create_agent(
@@ -1946,7 +2028,7 @@ async fn create_agent(
 
 fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
     let lifecycle: &str = row.get("lifecycle");
-    let connection: &str = row.get("connection_status");
+    let connection: Option<String> = row.get("connection_status");
     let run_status: Option<String> = row.get("run_status");
     let retired = lifecycle == "retired";
     let desired_lifecycle = match lifecycle {
@@ -1967,7 +2049,7 @@ fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
         }
     } else if lifecycle == "suspended" {
         "suspended"
-    } else if connection != "online" {
+    } else if connection.as_deref() != Some("online") {
         "unreachable"
     } else {
         run_status.as_deref().unwrap_or("idle")
@@ -1975,7 +2057,7 @@ fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
     json!({
         "member_id": row.get::<Uuid,_>("member_id"),
         "space_id": row.get::<Uuid,_>("space_id"),
-        "computer_id": row.get::<Uuid,_>("computer_id"),
+        "computer_id": row.get::<Option<Uuid>,_>("computer_id"),
         "name": row.get::<String,_>("display_name"),
         "handle": row.get::<String,_>("handle"),
         "access_level": row.get::<String,_>("access_level"),
@@ -2363,13 +2445,15 @@ async fn insert_message(
         .execute(&mut *transaction)
         .await
         .map_err(map_sqlx)?;
-    let channel =
-        sqlx::query("SELECT space_id,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE")
-            .bind(channel_id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(map_sqlx)?;
+    let channel = sqlx::query(
+        "SELECT space_id,kind,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE",
+    )
+    .bind(channel_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
     let space_id: Uuid = channel.get("space_id");
+    let channel_kind: String = channel.get("kind");
     let snapshot: i64 = channel.get("snapshot");
     if expected_snapshot.is_some_and(|expected| u64::try_from(snapshot).ok() != Some(expected)) {
         return Err(ApiError::context_changed());
@@ -2415,18 +2499,74 @@ async fn insert_message(
             });
         }
     }
+    let task_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM tasks WHERE status NOT IN ('done','closed') AND \
+         (source_thread_id=$1 OR EXISTS(SELECT 1 FROM task_threads WHERE task_id=tasks.id AND thread_id=$1)) \
+         LIMIT 1",
+    )
+    .bind(effective_thread)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
+    let reply_author = match body.reply_to_message_id {
+        Some(reply_to) => sqlx::query_scalar::<_, Uuid>(
+            "SELECT author_member_id FROM messages WHERE id=$1 AND thread_id=$2",
+        )
+        .bind(reply_to)
+        .bind(effective_thread)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(map_sqlx)?,
+        None => None,
+    };
     let recipients = sqlx::query("SELECT m.id FROM channel_members cm JOIN members m ON m.id=cm.member_id WHERE cm.channel_id=$1 AND m.kind='agent' AND m.id<>$2")
         .bind(channel_id).bind(author).fetch_all(&mut *transaction).await.map_err(map_sqlx)?;
     let mentioned = body.mentions.into_iter().collect::<BTreeSet<_>>();
+    let mut hard_item_ids = Vec::new();
     for recipient in recipients {
         let agent_id: Uuid = recipient.get("id");
-        let hard = mentioned.contains(&agent_id);
-        sqlx::query("INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,status,available_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$8)")
-            .bind(Uuid::now_v7()).bind(space_id).bind(agent_id).bind(message_id).bind(effective_thread)
-            .bind(if hard{"mention"}else{"channel_activity"}).bind(if hard{"hard"}else{"ambient"}).bind(now)
+        let (kind, strength) = if task_id.is_some() {
+            ("task_activity", "hard")
+        } else if channel_kind == "direct" {
+            ("direct", "hard")
+        } else if mentioned.contains(&agent_id) {
+            ("mention", "hard")
+        } else if reply_author == Some(agent_id) {
+            ("reply", "hard")
+        } else {
+            ("channel_activity", "ambient")
+        };
+        let item_id = Uuid::now_v7();
+        sqlx::query("INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,available_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$9)")
+            .bind(item_id).bind(space_id).bind(agent_id).bind(message_id).bind(effective_thread).bind(task_id)
+            .bind(kind).bind(strength).bind(now)
             .execute(&mut *transaction).await.map_err(map_sqlx)?;
+        if strength == "hard" {
+            hard_item_ids.push(InboxItemId::from_uuid(item_id));
+        }
     }
+    sqlx::query(
+        "INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) \
+         VALUES($1,$2,'message.created',$3,$4)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(space_id)
+    .bind(
+        json!({"message_id": message_id, "channel_id": channel_id, "thread_id": effective_thread}),
+    )
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
     transaction.commit().await.map_err(map_sqlx)?;
+    for item_id in hard_item_ids {
+        let mut storage = state.storage.clone();
+        if let Err(error) =
+            RouteHardItem::execute(&mut storage, RouteHardItemInput { item_id }).await
+        {
+            tracing::warn!(%item_id, error = %error, "hard Inbox Item remains pending after immediate routing failed");
+        }
+    }
     Ok(message_id)
 }
 
@@ -2825,6 +2965,82 @@ async fn current_member(
         .ok_or_else(ApiError::not_found)
 }
 
+async fn require_space_governor(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    space_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    let member_id = current_member(state, jar, space_id).await?;
+    let access_level: String =
+        sqlx::query_scalar("SELECT access_level FROM members WHERE id=$1 AND space_id=$2")
+            .bind(member_id)
+            .bind(space_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(map_sqlx)?;
+    if matches!(access_level.as_str(), "owner" | "admin") {
+        Ok(member_id)
+    } else {
+        Err(ApiError {
+            status: StatusCode::FORBIDDEN,
+            code: "permission_denied",
+            message: "Space Owner or Admin access is required",
+        })
+    }
+}
+
+async fn space_events(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(space_id): Path<Uuid>,
+) -> Result<Sse<impl futures_util::Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+    current_member(&state, &jar, space_id).await?;
+    let space_id = SpaceId::from_uuid(space_id);
+    let last_event_id = headers
+        .get("last-event-id")
+        .map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(|| ApiError::invalid("Last-Event-ID is invalid"))
+        })
+        .transpose()?;
+    let initial = state
+        .storage
+        .browser_events(space_id, last_event_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::context_changed)?;
+    let events = stream::unfold(
+        (
+            state.storage,
+            space_id,
+            last_event_id,
+            VecDeque::from(initial),
+        ),
+        |(storage, space_id, mut cursor, mut buffered)| async move {
+            loop {
+                if let Some(event) = buffered.pop_front() {
+                    cursor = Some(event.event_id);
+                    let event = match event.into_sse() {
+                        Ok(event) => event,
+                        Err(_) => return None,
+                    };
+                    return Some((Ok(event), (storage, space_id, cursor, buffered)));
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                buffered = match storage.browser_events(space_id, cursor).await {
+                    Ok(Some(events)) => VecDeque::from(events),
+                    Ok(None) | Err(_) => return None,
+                };
+            }
+        },
+    );
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+}
+
 async fn channel_member(
     state: &RuntimeState,
     jar: &CookieJar,
@@ -2981,6 +3197,13 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
             message: "actor is not allowed to perform this action",
         },
         ApplicationError::ContextChanged => ApiError::context_changed(),
+        ApplicationError::Domain(crate::server::domain::DomainError::ComputerHasAgents) => {
+            ApiError {
+                status: StatusCode::CONFLICT,
+                code: "computer_has_agents",
+                message: "Computer still has assigned Agents",
+            }
+        }
         ApplicationError::Domain(_) | ApplicationError::Conflict => ApiError {
             status: StatusCode::CONFLICT,
             code: "conflict",
@@ -3062,6 +3285,8 @@ mod tests {
         _objects: TempDir,
         headers: HeaderMap,
         computer_id: Uuid,
+        owner_id: Uuid,
+        channel_id: Uuid,
         context: capability::RunContext,
         handled_item_id: InboxItemId,
         deferred_item_id: InboxItemId,
@@ -3144,6 +3369,8 @@ mod tests {
                 _objects: objects,
                 headers,
                 computer_id,
+                owner_id,
+                channel_id,
                 context: capability::RunContext {
                     agent_id: AgentId::from_uuid(agent_id),
                     space_id: crate::ids::SpaceId::from_uuid(space_id),
@@ -3208,6 +3435,185 @@ mod tests {
             .await
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
+        let fixture = CapabilityFixture::create().await;
+        let focus_id = fixture.context.focus_thread_id.into_uuid();
+        insert_message(
+            &fixture.state,
+            fixture.channel_id,
+            fixture.owner_id,
+            Some(focus_id),
+            None,
+            None,
+            CreateMessageBody {
+                body_markdown: "same Focus".into(),
+                mentions: vec![fixture.context.agent_id.into_uuid()],
+                attachment_ids: Vec::new(),
+                reply_to_message_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let same_focus: (Uuid, String, Option<Uuid>, i64, i64) = sqlx::query_as(
+            "SELECT i.id,i.status,i.lease_run_id,ri.delivery_seq, \
+             (SELECT count(*) FROM computer_commands WHERE kind='run.attach_item') \
+             FROM inbox_items i JOIN run_items ri ON ri.inbox_item_id=i.id \
+             WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='same Focus')",
+        )
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(same_focus.1, "leased");
+        assert_eq!(same_focus.2, Some(fixture.context.run_id.into_uuid()));
+        assert_eq!(same_focus.3, 3);
+        assert_eq!(same_focus.4, 1);
+        let mut storage = fixture.state.storage.clone();
+        RouteHardItem::execute(
+            &mut storage,
+            RouteHardItemInput {
+                item_id: InboxItemId::from_uuid(same_focus.0),
+            },
+        )
+        .await
+        .unwrap();
+        let attach_commands: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM computer_commands WHERE kind='run.attach_item'",
+        )
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(attach_commands, 1);
+
+        insert_message(
+            &fixture.state,
+            fixture.channel_id,
+            fixture.owner_id,
+            None,
+            None,
+            None,
+            CreateMessageBody {
+                body_markdown: "different Focus".into(),
+                mentions: vec![fixture.context.agent_id.into_uuid()],
+                attachment_ids: Vec::new(),
+                reply_to_message_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let different_focus: (String, i64, Value) = sqlx::query_as(
+            "SELECT i.status, \
+             (SELECT count(*) FROM computer_commands WHERE kind='run.notice'), \
+             (SELECT payload_json FROM computer_commands WHERE kind='run.notice' ORDER BY computer_seq DESC LIMIT 1) \
+             FROM inbox_items i WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='different Focus')",
+        )
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(different_focus.0, "pending");
+        assert_eq!(different_focus.1, 1);
+        assert!(!different_focus.2.to_string().contains("different Focus"));
+        assert!(!different_focus.2.to_string().contains("body_markdown"));
+        sqlx::query("UPDATE agent_runs SET status='finalizing' WHERE id=$1")
+            .bind(fixture.context.run_id.into_uuid())
+            .execute(&fixture.state.pool)
+            .await
+            .unwrap();
+        insert_message(
+            &fixture.state,
+            fixture.channel_id,
+            fixture.owner_id,
+            Some(focus_id),
+            None,
+            None,
+            CreateMessageBody {
+                body_markdown: "finalizing race".into(),
+                mentions: vec![fixture.context.agent_id.into_uuid()],
+                attachment_ids: Vec::new(),
+                reply_to_message_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let finalizing: (String, i64, i64) = sqlx::query_as(
+            "SELECT i.status, \
+             (SELECT count(*) FROM computer_commands WHERE kind='run.attach_item'), \
+             (SELECT count(*) FROM computer_commands WHERE kind='run.notice') \
+             FROM inbox_items i WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='finalizing race')",
+        )
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(finalizing, ("pending".into(), 1, 1));
+        let events = fixture
+            .state
+            .storage
+            .browser_events(fixture.context.space_id, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "message.created")
+                .count(),
+            3
+        );
+        let last_event_id = events.last().unwrap().event_id;
+        assert!(
+            fixture
+                .state
+                .storage
+                .browser_events(fixture.context.space_id, Some(last_event_id))
+                .await
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+        fixture.destroy().await;
+    }
+
+    #[tokio::test]
+    async fn agent_retirement_cancels_run_before_computer_deletion_revokes_token() {
+        let fixture = CapabilityFixture::create().await;
+        let mut storage = fixture.state.storage.clone();
+        RetireAgent::execute(
+            &mut storage,
+            MemberId::from_uuid(fixture.context.agent_id.into_uuid()),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+        let retired: (String, Option<Uuid>, String, i64, i64) = sqlx::query_as(
+            "SELECT a.lifecycle,a.computer_id,r.status, \
+             (SELECT count(*) FROM members WHERE id=a.member_id AND retired_at IS NOT NULL), \
+             (SELECT count(*) FROM computer_commands WHERE kind='agent.retire') \
+             FROM agents a JOIN agent_runs r ON r.agent_id=a.member_id WHERE a.member_id=$1",
+        )
+        .bind(fixture.context.agent_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(retired, ("retired".into(), None, "canceled".into(), 1, 1));
+
+        DeleteComputer::execute(
+            &mut storage,
+            ComputerId::from_uuid(fixture.computer_id),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .unwrap();
+        let deleted: (Option<String>, Option<OffsetDateTime>) =
+            sqlx::query_as("SELECT token_hash,deleted_at FROM computers WHERE id=$1")
+                .bind(fixture.computer_id)
+                .fetch_one(&fixture.state.pool)
+                .await
+                .unwrap();
+        assert_eq!(deleted.0, None);
+        assert!(deleted.1.is_some());
+        fixture.destroy().await;
     }
 
     #[tokio::test]

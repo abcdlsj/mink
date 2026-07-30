@@ -48,7 +48,7 @@ export interface components {
             activity_status: components["schemas"]["AgentActivityStatus"];
             attention_config: components["schemas"]["AttentionConfig"];
             /** Format: uuid */
-            computer_id: string;
+            computer_id?: string | null;
             created_at: string;
             desired_lifecycle: components["schemas"]["AgentLifecycle"];
             driver_kind: components["schemas"]["DriverKind"];

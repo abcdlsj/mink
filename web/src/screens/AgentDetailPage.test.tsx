@@ -36,6 +36,10 @@ describe("Agent detail", () => {
         session_continuity: { state: "warm", generation: 2 },
       });
       if (path.endsWith(`/agents/${agentId}`) && !init?.method) return json(current);
+      if (path.endsWith(`/agents/${agentId}`) && init?.method === "DELETE") {
+        current = { ...current, computer_id: null, desired_lifecycle: "retired", activity_status: "suspended", retired_at: new Date().toISOString() };
+        return json(current);
+      }
       if (path.endsWith(`/agents/${agentId}`) && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
         current = {
@@ -93,6 +97,11 @@ describe("Agent detail", () => {
       expect.stringContaining(`/agents/${agentId}`),
       expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "retry" } }) }),
     ));
+    fireEvent.click(screen.getByRole("button", { name: /retire permanently/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/agents/${agentId}`),
+      expect.objectContaining({ method: "DELETE" }),
+    ));
   });
 });
 
@@ -103,7 +112,7 @@ function agent(
   return {
     member_id: agentId,
     space_id: space.id,
-    computer_id: "computer",
+    computer_id: desiredLifecycle === "retired" ? null : "computer",
     name: "Lin",
     handle: "lin",
     access_level: "member",
@@ -116,6 +125,7 @@ function agent(
     attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
     created_at: "2026-07-25T00:00:00Z",
     updated_at: "2026-07-25T00:00:00Z",
+    retired_at: desiredLifecycle === "retired" ? "2026-07-25T00:00:00Z" : null,
     last_error_code: undefined as string | undefined,
     memory_files: [{ path: "MEMORY.md", size: 9, sha256: "d7870cdadd1a", updated_at: "2026-07-25T00:00:00Z" }],
   };

@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::{collections::VecDeque, time::Duration};
 
 use serde::Serialize;
@@ -16,11 +17,13 @@ pub(super) struct BrowserEvent<T> {
     pub(super) data: T,
 }
 
+#[cfg(test)]
 pub(super) struct EventWindow<T> {
     retention: Duration,
     events: VecDeque<BrowserEvent<T>>,
 }
 
+#[cfg(test)]
 impl<T: Clone> EventWindow<T> {
     pub(super) fn new(retention: Duration) -> Self {
         Self {
@@ -65,30 +68,6 @@ impl<T: Serialize> BrowserEvent<T> {
             .event(event_type)
             .json_data(self)
     }
-}
-
-pub(super) async fn replay_sse(
-    storage: &super::postgres::PostgresAdapter,
-    space_id: SpaceId,
-    last_event_id: Option<EventId>,
-) -> Result<
-    Option<Vec<axum::response::sse::Event>>,
-    crate::server::application::ports::ApplicationError,
-> {
-    storage
-        .browser_events(space_id, last_event_id)
-        .await?
-        .map(|events| {
-            events
-                .into_iter()
-                .map(|event| {
-                    event
-                        .into_sse()
-                        .map_err(|_| crate::server::application::ports::ApplicationError::Internal)
-                })
-                .collect()
-        })
-        .transpose()
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ use crate::server::domain::{
 };
 
 use super::{
-    attention::{AttachHardItem, AttachHardItemInput},
+    attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
     conversation::{
         CreateAgentAction, CreateAgentActionInput, CreateChannelAction, CreateChannelActionInput,
     },
@@ -709,11 +709,11 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
 }
 
 #[tokio::test]
-async fn attach_loses_finalizing_race_without_leasing_item() {
-    let agent = member(40);
-    let focus = thread(41);
-    let run_id = run(42);
-    let item_id = item(43);
+async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
+    let agent = member(53);
+    let focus = thread(54);
+    let run_id = run(55);
+    let item_id = item(56);
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
     let mut current = running_run(run_id, agent, focus, None, Vec::new());
@@ -724,21 +724,88 @@ async fn attach_loses_finalizing_race_without_leasing_item() {
         inbox(item_id, agent, focus, None, InboxItemStatus::Pending),
     );
 
-    let error = AttachHardItem::execute(
-        &mut port,
-        AttachHardItemInput {
-            run_id,
-            item_id,
-            lease_expires_at: OffsetDateTime::UNIX_EPOCH,
-        },
-    )
-    .await
-    .unwrap_err();
-    assert!(matches!(
-        error,
-        ApplicationError::Domain(crate::server::domain::DomainError::RunNotAcceptingItems)
-    ));
+    let route = RouteHardItem::execute(&mut port, RouteHardItemInput { item_id })
+        .await
+        .unwrap();
+
+    assert_eq!(route, HardItemRoute::Pending);
     assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert!(port.state.effects.is_empty());
+}
+
+#[tokio::test]
+async fn hard_item_routes_to_same_focus_once_and_uses_run_lease() {
+    let agent = member(44);
+    let focus = thread(45);
+    let run_id = run(46);
+    let item_id = item(47);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    let current = running_run(run_id, agent, focus, None, Vec::new());
+    let lease_expires_at = current.lease_expires_at;
+    port.state.runs.insert(run_id, current);
+    port.state.items.insert(
+        item_id,
+        inbox(item_id, agent, focus, None, InboxItemStatus::Pending),
+    );
+
+    let route = RouteHardItem::execute(&mut port, RouteHardItemInput { item_id })
+        .await
+        .unwrap();
+    assert_eq!(route, HardItemRoute::Attached { sequence: 1 });
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
+    assert_eq!(
+        port.state.items[&item_id].lease_expires_at,
+        Some(lease_expires_at)
+    );
+    assert!(matches!(
+        port.state.effects.as_slice(),
+        [Effect::ItemAttached {
+            run_id: effect_run,
+            item_id: effect_item,
+            sequence: 1
+        }] if *effect_run == run_id && *effect_item == item_id
+    ));
+
+    let duplicate = RouteHardItem::execute(&mut port, RouteHardItemInput { item_id })
+        .await
+        .unwrap();
+    assert_eq!(duplicate, HardItemRoute::Pending);
+    assert_eq!(port.state.effects.len(), 1);
+}
+
+#[tokio::test]
+async fn different_focus_hard_item_stays_pending_and_emits_notice() {
+    let agent = member(48);
+    let focus = thread(49);
+    let waiting = thread(50);
+    let run_id = run(51);
+    let item_id = item(52);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    insert_thread(&mut port, waiting, &[agent]);
+    port.state
+        .runs
+        .insert(run_id, running_run(run_id, agent, focus, None, Vec::new()));
+    port.state.items.insert(
+        item_id,
+        inbox(item_id, agent, waiting, None, InboxItemStatus::Pending),
+    );
+
+    let route = RouteHardItem::execute(&mut port, RouteHardItemInput { item_id })
+        .await
+        .unwrap();
+
+    assert_eq!(route, HardItemRoute::Notice);
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert!(matches!(
+        port.state.effects.as_slice(),
+        [Effect::RunNotice {
+            run_id: effect_run,
+            item_id: effect_item,
+            location_visible: true
+        }] if *effect_run == run_id && *effect_item == item_id
+    ));
 }
 
 #[tokio::test]
@@ -911,7 +978,11 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
 async fn computer_delete_requires_explicit_agent_retirement() {
     let computer_id = computer(70);
     let agent_id = member(71);
+    let focus = thread(72);
+    let run_id = run(73);
+    let item_id = item(74);
     let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent_id]);
     port.state.computers.insert(
         computer_id,
         Computer {
@@ -935,6 +1006,13 @@ async fn computer_delete_requires_explicit_agent_retirement() {
             retired_at: None,
         },
     );
+    let mut leased_item = inbox(item_id, agent_id, focus, None, InboxItemStatus::Leased);
+    leased_item.lease_run_id = Some(run_id);
+    port.state.items.insert(item_id, leased_item);
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent_id, focus, None, vec![item_id]),
+    );
 
     let blocked = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
         .await
@@ -951,6 +1029,8 @@ async fn computer_delete_requires_explicit_agent_retirement() {
     RetireAgent::execute(&mut port, agent_id, OffsetDateTime::UNIX_EPOCH)
         .await
         .unwrap();
+    assert_eq!(port.state.runs[&run_id].status, RunStatus::Canceled);
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
     let deleted = DeleteComputer::execute(&mut port, computer_id, OffsetDateTime::UNIX_EPOCH)
         .await
         .unwrap();

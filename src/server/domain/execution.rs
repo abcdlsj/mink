@@ -141,6 +141,16 @@ impl Run {
         Ok(())
     }
 
+    pub(in crate::server) fn cancel_for_agent_retirement(&mut self, now: OffsetDateTime) {
+        for item in &mut self.items {
+            item.disposition
+                .get_or_insert(InboxItemDisposition::Released);
+        }
+        self.status = RunStatus::Canceled;
+        self.outcome = Some(RunOutcome::Canceled);
+        self.finished_at = Some(now);
+    }
+
     pub(in crate::server) fn set_item_disposition(
         &mut self,
         item_id: InboxItemId,

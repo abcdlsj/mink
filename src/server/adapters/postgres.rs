@@ -9,14 +9,15 @@ use uuid::Uuid;
 use crate::{
     ids::{
         AgentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId,
-        MessageId, RunId, SpaceId, TaskId, ThreadId,
+        MessageId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
     },
     protocol::computer::{
-        ActionKind, ActionTarget, AgentRetire, AttentionStrength as WireAttentionStrength, Command,
-        CommandAck, CommandEnvelope, CommandSequence, DeliverySequence, FencingToken,
-        FocusSnapshot, InboxItemSnapshot, InboxSourceKind, MessageContent as WireMessageContent,
-        MessageSnapshot, RunAttachItem, RunStart, RunTaskBound, SessionChangeReason,
-        SessionCommand, SessionScope, TaskSnapshot, TaskStatus as WireTaskStatus,
+        ActionKind, ActionTarget, AgentRetire, AttentionNotice,
+        AttentionStrength as WireAttentionStrength, Command, CommandAck, CommandEnvelope,
+        CommandSequence, DeliverySequence, FencingToken, FocusSnapshot, InboxItemSnapshot,
+        InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation,
+        RunAttachItem, RunNotice, RunStart, RunTaskBound, SessionChangeReason, SessionCommand,
+        SessionScope, TaskSnapshot, TaskStatus as WireTaskStatus,
     },
     server::{
         application::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort},
@@ -788,6 +789,12 @@ impl ServerTransaction for PostgresTransaction {
         .await
         .map_err(map_sqlx)?;
         if changed.rows_affected() == 1 {
+            sqlx::query("UPDATE members SET retired_at=$2 WHERE id=$1")
+                .bind(agent.member_id.into_uuid())
+                .bind(agent.retired_at)
+                .execute(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
             Ok(())
         } else {
             Err(ApplicationError::NotFound)
@@ -1001,6 +1008,24 @@ impl PostgresTransaction {
                     self.space_for_run(run_id).await?,
                     "run.item_attached",
                     json!({"run_id": run_id, "item_id": item_id, "delivery_sequence": sequence}),
+                ));
+            }
+            Effect::RunNotice {
+                run_id,
+                item_id,
+                location_visible,
+            } => {
+                let computer_id = self.computer_for_run(run_id).await?;
+                let notice = self.attention_notice(item_id, location_visible).await?;
+                self.queue_command(
+                    computer_id,
+                    Command::RunNotice(RunNotice { run_id, notice }),
+                )
+                .await?;
+                return Ok((
+                    self.space_for_run(run_id).await?,
+                    "run.notice",
+                    json!({"run_id": run_id, "notice_id": item_id}),
                 ));
             }
             Effect::RunClaimed {
@@ -1316,6 +1341,36 @@ impl PostgresTransaction {
             task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
             message,
             available_at: row.get("available_at"),
+        })
+    }
+
+    async fn attention_notice(
+        &mut self,
+        item_id: InboxItemId,
+        location_visible: bool,
+    ) -> Result<AttentionNotice, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT kind,strength,thread_id,task_id,available_at FROM inbox_items WHERE id=$1",
+        )
+        .bind(item_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let location = if location_visible {
+            NoticeLocation::Visible {
+                task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
+                thread_id: ThreadId::from_uuid(row.get("thread_id")),
+            }
+        } else {
+            NoticeLocation::Restricted
+        };
+        Ok(AttentionNotice {
+            notice_id: NoticeId::from_uuid(item_id.into_uuid()),
+            source_kind: wire_inbox_kind(row.get("kind"))?,
+            strength: wire_strength(row.get("strength"))?,
+            location,
+            explicit_human_redirect: false,
+            arrived_at: row.get("available_at"),
         })
     }
 

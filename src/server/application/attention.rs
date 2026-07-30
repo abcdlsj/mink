@@ -1,45 +1,63 @@
-use time::OffsetDateTime;
+use crate::ids::InboxItemId;
 
-use crate::ids::{InboxItemId, RunId};
+use crate::server::domain::{
+    attention::{AttentionStrength, InboxItemStatus},
+    execution::RunStatus,
+};
 
 use super::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort};
 
-pub(in crate::server) struct AttachHardItemInput {
-    pub(in crate::server) run_id: RunId,
-    pub(in crate::server) item_id: InboxItemId,
-    pub(in crate::server) lease_expires_at: OffsetDateTime,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum HardItemRoute {
+    Pending,
+    Attached { sequence: u64 },
+    Notice,
 }
 
-pub(in crate::server) struct AttachHardItem;
+pub(in crate::server) struct RouteHardItemInput {
+    pub(in crate::server) item_id: InboxItemId,
+}
 
-impl AttachHardItem {
+pub(in crate::server) struct RouteHardItem;
+
+impl RouteHardItem {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
-        input: AttachHardItemInput,
-    ) -> Result<u64, ApplicationError> {
+        input: RouteHardItemInput,
+    ) -> Result<HardItemRoute, ApplicationError> {
         port.transact(async |transaction| {
-            let mut run = transaction.run(input.run_id).await?;
             let mut item = transaction.inbox_item(input.item_id).await?;
-            if let Some(existing) = run
-                .items
-                .iter()
-                .find(|existing| existing.inbox_item_id == item.id)
-            {
-                if item.lease_run_id == Some(run.id) {
-                    return Ok(existing.delivery_sequence);
-                }
-                return Err(ApplicationError::ContextChanged);
+            if item.strength != AttentionStrength::Hard || item.status != InboxItemStatus::Pending {
+                return Ok(HardItemRoute::Pending);
             }
-            let sequence = run.attach(&item)?;
-            item.lease(run.id, input.lease_expires_at)?;
-            transaction.save_run(run.clone()).await?;
-            transaction.save_inbox_item(item).await?;
-            transaction.emit(Effect::ItemAttached {
+            let Some(run_id) = transaction.active_run_for_agent(item.agent_id).await? else {
+                return Ok(HardItemRoute::Pending);
+            };
+            let mut run = transaction.run(run_id).await?;
+            if run.status != RunStatus::Running {
+                return Ok(HardItemRoute::Pending);
+            }
+            if run.task_id == item.task_id && run.focus_thread_id == item.thread_id {
+                let sequence = run.attach(&item)?;
+                item.lease(run.id, run.lease_expires_at)?;
+                transaction.save_run(run.clone()).await?;
+                transaction.save_inbox_item(item).await?;
+                transaction.emit(Effect::ItemAttached {
+                    run_id: run.id,
+                    item_id: input.item_id,
+                    sequence,
+                });
+                return Ok(HardItemRoute::Attached { sequence });
+            }
+            let location_visible = transaction
+                .can_read_thread(run.agent_id, item.thread_id)
+                .await?;
+            transaction.emit(Effect::RunNotice {
                 run_id: run.id,
-                item_id: input.item_id,
-                sequence,
+                item_id: item.id,
+                location_visible,
             });
-            Ok(sequence)
+            Ok(HardItemRoute::Notice)
         })
         .await
     }

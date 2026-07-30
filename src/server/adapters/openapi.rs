@@ -224,7 +224,7 @@ pub(super) struct AgentActivityResponse {
 pub(super) struct AgentResponse {
     member_id: Uuid,
     space_id: Uuid,
-    computer_id: Uuid,
+    computer_id: Option<Uuid>,
     name: String,
     handle: String,
     access_level: AgentAccessLevel,

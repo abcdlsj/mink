@@ -97,14 +97,12 @@ describe("Computer flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const deleteDialog = screen.getByRole("dialog", { name: "Delete Studio?" });
     expect(within(deleteDialog).getByText("Rin")).toBeVisible();
-    expect(within(deleteDialog).getByText(/retired Agents are not restored/i)).toBeVisible();
+    expect(within(deleteDialog).getByText(/Retire every assigned Agent/i)).toBeVisible();
     expect(within(deleteDialog).getByRole("button", { name: "Delete Studio" })).toBeDisabled();
-    fireEvent.click(within(deleteDialog).getByRole("checkbox", { name: /will be retired/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Studio" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchMock).not.toHaveBeenCalledWith(
       expect.stringContaining(`/computers/${computerId}`),
       expect.objectContaining({ method: "DELETE" }),
-    ));
+    );
   });
 
   it("opens pairing instructions from the Computer list header", async () => {

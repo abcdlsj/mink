@@ -133,6 +133,10 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): Promise<A
   return mutate<Agent>(`/api/v1/agents/${encodeURIComponent(agentId)}`, "PATCH", input);
 }
 
+export function retireAgent(agentId: string): Promise<Agent> {
+  return mutate<Agent>(`/api/v1/agents/${encodeURIComponent(agentId)}`, "DELETE");
+}
+
 export function readAgentMemory(agentId: string, path: string): Promise<AgentMemoryContent> {
   return apiRequest<AgentMemoryContent>(
     `/api/v1/agents/${encodeURIComponent(agentId)}/memory/read`,

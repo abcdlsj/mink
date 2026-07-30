@@ -251,7 +251,7 @@ function ComputerDetail({
           </Link>
         ))}</div> : <p className="section-empty">No Agents are hosted on this Computer.</p>}
       </section>
-      {canManage ? <section className="detail-section danger-zone"><div><h3>Delete Computer</h3><p>Disconnect this Computer and retire its hosted Agents.</p></div><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></section> : null}
+      {canManage ? <section className="detail-section danger-zone"><div><h3>Delete Computer</h3><p>Disconnect this Computer after every hosted Agent has been retired.</p></div><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></section> : null}
     </article>
   );
 }
@@ -295,16 +295,14 @@ function PairComputerDialog({ close }: { close: () => void }) {
 }
 
 function DeleteDialog({ computer, agents, pending, error, close, confirm }: { computer: Computer; agents: Agent[]; pending: boolean; error?: string; close: () => void; confirm: () => void }) {
-  const [acknowledged, setAcknowledged] = useState(agents.length === 0);
   return (
     <DialogFrame close={close} labelId="delete-computer-title" className="confirm-dialog">
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
-        <p>The daemon will exit and its Computer Token can never reconnect. A fresh pairing creates a new Computer identity; retired Agents are not restored.</p>
-        <h3>Affected Agents ({agents.length})</h3>
-        {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={`${agent.desired_lifecycle} · ${agent.provision_status}`} /></li>)}</ul> : <p>No hosted Agents.</p>}
-        {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}
+        <p>The daemon will exit and its Computer Token can never reconnect. A fresh pairing creates a new Computer identity.</p>
+        <h3>Assigned Agents ({agents.length})</h3>
+        {agents.length ? <><ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} /><span>{agent.name}</span><Status value={`${agent.desired_lifecycle} · ${agent.provision_status}`} /></li>)}</ul><p className="form-error" role="alert">Retire every assigned Agent before deleting this Computer.</p></> : <p>No assigned Agents. This Computer can be deleted.</p>}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || !acknowledged} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>
+        <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="danger-button" type="button" disabled={pending || agents.length > 0} onClick={confirm}><Trash2 />Delete {computer.name}</button></footer>
     </DialogFrame>
   );
 }

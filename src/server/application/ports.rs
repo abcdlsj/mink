@@ -71,6 +71,11 @@ pub(in crate::server) enum Effect {
         item_id: InboxItemId,
         sequence: u64,
     },
+    RunNotice {
+        run_id: RunId,
+        item_id: InboxItemId,
+        location_visible: bool,
+    },
     RunClaimed {
         run_id: RunId,
         fencing_token: RawFencingToken,
