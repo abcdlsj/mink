@@ -1,0 +1,300 @@
+mod support;
+
+use std::net::SocketAddr;
+
+use anyhow::{Context, Result, ensure};
+use reqwest::{Client, StatusCode, header};
+use serde_json::Value;
+use tempfile::tempdir;
+use url::Url;
+use uuid::Uuid;
+
+use support::{
+    TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
+};
+
+/// 这五类路由此前完全不存在，请求落到 SPA fallback。该测试证明它们在真实进程
+/// 上生效，并且各自的授权与状态机约束被执行。
+#[tokio::test]
+async fn governance_routes_apply_their_authorization_and_state_rules() -> Result<()> {
+    let database = TestDatabase::create("sumi_governance_routes").await?;
+    let result = run_governance_flow(&database).await;
+    database.drop().await?;
+    result
+}
+
+async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
+    let root = tempdir()?;
+    let web_dist = root.path().join("web");
+    let attachments = root.path().join("attachments");
+    std::fs::create_dir(&web_dist)?;
+    std::fs::write(
+        web_dist.join("index.html"),
+        "<!doctype html><title>Sumi</title>",
+    )?;
+
+    let bind = SocketAddr::from(([127, 0, 0, 1], reserve_local_port()?));
+    let server_url = Url::parse(&format!("http://{bind}"))?;
+    let config = root.path().join("server.toml");
+    write_server_config(&config, bind, &database.url, &attachments, &web_dist)?;
+    let mut server = spawn_server(&config)?;
+    wait_for_health(&server_url).await?;
+
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
+    let space_id = space["id"].as_str().context("Space ID")?.to_owned();
+    let general_id = space["general_channel_id"]
+        .as_str()
+        .context("general Channel ID")?
+        .to_owned();
+
+    let member = invite_and_accept(&client, &server_url, &owner, &space_id).await?;
+    let members: Value = client
+        .get(server_url.join(&format!("/api/v1/spaces/{space_id}/members"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let member_id = members
+        .as_array()
+        .context("Member list")?
+        .iter()
+        .find(|entry| entry["access_level"] == "member")
+        .and_then(|entry| entry["id"].as_str())
+        .context("invited Member ID")?
+        .to_owned();
+
+    // PATCH /spaces/{id}/members/{mid}：Owner 可以提升为 Admin。
+    let promoted: Value = client
+        .patch(server_url.join(&format!("/api/v1/spaces/{space_id}/members/{member_id}"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({"access_level": "admin"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(promoted["access_level"] == "admin", "{promoted}");
+
+    // Owner 自身的级别不可改写，否则 Space 会失去治理者。
+    let owner_member_id = space["owner_member_id"].as_str().context("owner Member")?;
+    let demote_owner = client
+        .patch(server_url.join(&format!(
+            "/api/v1/spaces/{space_id}/members/{owner_member_id}"
+        ))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({"access_level": "member"}))
+        .send()
+        .await?;
+    ensure!(
+        demote_owner.status() == StatusCode::FORBIDDEN,
+        "{}",
+        server.log_text()
+    );
+
+    // Owner 不能通过该端点授予，Owner 由创建 Space 确定。
+    let grant_owner = client
+        .patch(server_url.join(&format!("/api/v1/spaces/{space_id}/members/{member_id}"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({"access_level": "owner"}))
+        .send()
+        .await?;
+    ensure!(grant_owner.status() == StatusCode::BAD_REQUEST);
+
+    // POST /channels/{id}/members/me：public Channel 允许自行加入，重复加入成立。
+    let private: Value = client
+        .post(server_url.join(&format!("/api/v1/spaces/{space_id}/channels"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({
+            "name": "Private", "slug": "private", "kind": "private", "agent_member_ids": []
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let private_id = private["id"].as_str().context("private Channel ID")?;
+
+    let joined: Value = client
+        .post(server_url.join(&format!("/api/v1/channels/{general_id}/members/me"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &member)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(joined["joined"] == true, "{joined}");
+    client
+        .post(server_url.join(&format!("/api/v1/channels/{general_id}/members/me"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &member)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    // private Channel 需要被加入，不能自行加入。
+    let refused = client
+        .post(server_url.join(&format!("/api/v1/channels/{private_id}/members/me"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &member)
+        .send()
+        .await?;
+    ensure!(
+        refused.status() == StatusCode::CONFLICT,
+        "{}",
+        server.log_text()
+    );
+
+    // PUT|DELETE /threads/{id}/subscription：订阅状态在 read_thread 中可见。
+    let message: Value = client
+        .post(server_url.join(&format!("/api/v1/channels/{general_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({"body_markdown": "Root Message"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let thread_id = message["thread_id"].as_str().context("Thread ID")?;
+
+    let followed: Value = client
+        .put(server_url.join(&format!("/api/v1/threads/{thread_id}/subscription"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(followed["is_following"] == true, "{followed}");
+    let thread: Value = client
+        .get(server_url.join(&format!("/api/v1/threads/{thread_id}"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    // read_thread 此前把 is_following 硬编码为 false。
+    ensure!(thread["is_following"] == true, "{}", thread["is_following"]);
+
+    let unfollowed: Value = client
+        .delete(server_url.join(&format!("/api/v1/threads/{thread_id}/subscription"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(unfollowed["is_following"] == false);
+
+    // POST /channels/{id}/archive：治理动作，一次性。
+    let archived: Value = client
+        .post(server_url.join(&format!("/api/v1/channels/{private_id}/archive"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(!archived["archived_at"].is_null(), "{archived}");
+    let again = client
+        .post(server_url.join(&format!("/api/v1/channels/{private_id}/archive"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?;
+    ensure!(
+        again.status() == StatusCode::CONFLICT,
+        "{}",
+        server.log_text()
+    );
+
+    server.interrupt().await?;
+    Ok(())
+}
+
+async fn invite_and_accept(
+    client: &Client,
+    server: &Url,
+    owner: &str,
+    space_id: &str,
+) -> Result<String> {
+    let created: Value = client
+        .post(server.join(&format!("/api/v1/spaces/{space_id}/invites"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, owner)
+        .json(&serde_json::json!({"email": "grace@example.test"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let token = created["token"].as_str().context("plaintext token")?;
+    let cookie = register(client, server, "Grace Hopper", "grace@example.test").await?;
+    client
+        .post(server.join(&format!("/api/v1/invites/{token}/accept"))?)
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(cookie)
+}
+
+async fn register(
+    client: &Client,
+    server: &Url,
+    display_name: &str,
+    email: &str,
+) -> Result<String> {
+    let response = client
+        .post(server.join("/api/v1/auth/register")?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .json(&serde_json::json!({
+            "display_name": display_name,
+            "email": email,
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await?;
+    ensure!(response.status() == StatusCode::CREATED);
+    session_cookie(&response)
+}
+
+async fn create_space(client: &Client, server: &Url, cookie: &str, slug: &str) -> Result<Value> {
+    Ok(client
+        .post(server.join("/api/v1/spaces")?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, cookie)
+        .json(&serde_json::json!({"name": slug, "slug": slug, "accent": "#FE7DA8"}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?)
+}
+
+fn session_cookie(response: &reqwest::Response) -> Result<String> {
+    Ok(response
+        .headers()
+        .get(header::SET_COOKIE)
+        .context("registration did not set a Session cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .context("Session cookie is empty")?
+        .to_owned())
+}

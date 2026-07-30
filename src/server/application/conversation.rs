@@ -14,6 +14,86 @@ use super::ports::{
     TransactionPort,
 };
 
+/// 归档 Channel。归档不删除 Message、Thread 或 Task。
+pub(in crate::server) struct ArchiveChannel;
+
+impl ArchiveChannel {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor_member_id: MemberId,
+        channel_id: ChannelId,
+        now: OffsetDateTime,
+    ) -> Result<Channel, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut channel = transaction.channel(channel_id).await?;
+            let access = transaction
+                .member_access_level(actor_member_id, channel.space_id)
+                .await?;
+            // 归档是治理动作。Channel 成员身份本身不足以归档。
+            if !access.can_manage_space() {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            channel.archive(now)?;
+            transaction.save_channel(channel.clone()).await?;
+            transaction.emit(Effect::ChannelUpdated(channel.id));
+            Ok(channel)
+        })
+        .await
+    }
+}
+
+/// Member 自行加入 public Channel。重复加入成立。
+pub(in crate::server) struct JoinChannel;
+
+impl JoinChannel {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor_member_id: MemberId,
+        channel_id: ChannelId,
+    ) -> Result<Channel, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut channel = transaction.channel(channel_id).await?;
+            // 必须先是该 Space 的 Member。member_access_level 对非成员返回错误。
+            transaction
+                .member_access_level(actor_member_id, channel.space_id)
+                .await?;
+            channel.admit(actor_member_id)?;
+            transaction.save_channel(channel.clone()).await?;
+            transaction.emit(Effect::ChannelUpdated(channel.id));
+            Ok(channel)
+        })
+        .await
+    }
+}
+
+/// 设置 Thread 订阅。订阅要求调用方能读取该 Thread。
+pub(in crate::server) struct SetThreadSubscription;
+
+impl SetThreadSubscription {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor_member_id: MemberId,
+        thread_id: crate::ids::ThreadId,
+        following: bool,
+        now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        port.transact(async |transaction| {
+            // 订阅不授予读取权限，因此不能订阅读不到的 Thread。
+            if !transaction
+                .can_read_thread(actor_member_id, thread_id)
+                .await?
+            {
+                return Err(ApplicationError::NotFound);
+            }
+            transaction
+                .set_thread_subscription(thread_id, actor_member_id, following, now)
+                .await?;
+            Ok(following)
+        })
+        .await
+    }
+}
+
 /// 列出某个 Member 参与的 DM。
 pub(in crate::server) struct ListDirectMessages;
 

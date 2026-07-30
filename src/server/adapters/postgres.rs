@@ -1152,7 +1152,8 @@ impl ServerTransaction for PostgresTransaction {
 
     async fn channel(&mut self, id: ChannelId) -> Result<Channel, ApplicationError> {
         let row = sqlx::query(
-            "SELECT id,space_id,kind,slug,topic,created_at FROM channels WHERE id=$1 FOR UPDATE",
+            "SELECT id,space_id,kind,slug,topic,archived_at,created_at FROM channels \
+             WHERE id=$1 FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -1172,6 +1173,7 @@ impl ServerTransaction for PostgresTransaction {
             kind: channel_kind_from_str(row.get("kind"))?,
             slug: row.get("slug"),
             topic: row.get("topic"),
+            archived_at: row.get("archived_at"),
             created_at: row.get("created_at"),
         })
     }
@@ -1985,6 +1987,132 @@ impl ServerTransaction for PostgresTransaction {
         Ok(())
     }
 
+    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
+        let changed = sqlx::query("UPDATE channels SET topic=$2,archived_at=$3 WHERE id=$1")
+            .bind(channel.id.into_uuid())
+            .bind(&channel.topic)
+            .bind(channel.archived_at)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        if changed.rows_affected() != 1 {
+            return Err(ApplicationError::NotFound);
+        }
+        // audience 只增不减：移出 Channel 是独立动作，不由保存路径推断。
+        for member in channel.audience {
+            sqlx::query(
+                "INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) \
+                 VALUES ($1,$2,$3,now(),0) ON CONFLICT (channel_id,member_id) DO NOTHING",
+            )
+            .bind(channel.id.into_uuid())
+            .bind(channel.space_id.into_uuid())
+            .bind(member.into_uuid())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        Ok(())
+    }
+
+    async fn save_member(&mut self, member: Member) -> Result<(), ApplicationError> {
+        let changed = sqlx::query(
+            "UPDATE members SET display_name=$2,access_level=$3 WHERE id=$1 AND space_id=$4",
+        )
+        .bind(member.id.into_uuid())
+        .bind(&member.display_name)
+        .bind(access_level_str(member.access_level))
+        .bind(member.space_id.into_uuid())
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if changed.rows_affected() != 1 {
+            return Err(ApplicationError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn member(&mut self, id: MemberId) -> Result<Member, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,space_id,display_name,handle,access_level,created_at FROM members \
+             WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
+        )
+        .bind(id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(Member {
+            id,
+            space_id: SpaceId::from_uuid(row.get("space_id")),
+            display_name: row.get("display_name"),
+            handle: row.get("handle"),
+            access_level: access_level_from_str(row.get("access_level"))?,
+            created_at: row.get("created_at"),
+        })
+    }
+
+    async fn queue_agent_suspend(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+        cancel_current_run: bool,
+    ) -> Result<(), ApplicationError> {
+        // 未分配 Computer 的 Agent 没有 daemon 持有它的 Run,无命令可下发。
+        let Some(computer_id) = computer_id else {
+            return Ok(());
+        };
+        self.queue_command(
+            computer_id,
+            Command::AgentSuspend(crate::protocol::computer::AgentSuspend {
+                agent_id: AgentId::from_uuid(agent_id.into_uuid()),
+                mode: if cancel_current_run {
+                    crate::protocol::computer::SuspendMode::CancelCurrentRun
+                } else {
+                    crate::protocol::computer::SuspendMode::AfterCurrentRun
+                },
+            }),
+        )
+        .await
+    }
+
+    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
+        let Some(computer_id) = agent.computer_id else {
+            return Ok(());
+        };
+        let configuration = self.agent_configuration(agent.member_id).await?;
+        self.queue_command(computer_id, Command::AgentConfigure(configuration))
+            .await
+    }
+
+    async fn set_thread_subscription(
+        &mut self,
+        thread_id: ThreadId,
+        member_id: MemberId,
+        following: bool,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if following {
+            sqlx::query(
+                "INSERT INTO thread_subscriptions(thread_id,space_id,member_id,created_at) \
+                 SELECT $1,t.space_id,$2,$3 FROM threads t WHERE t.id=$1 \
+                 ON CONFLICT (thread_id,member_id) DO NOTHING",
+            )
+            .bind(thread_id.into_uuid())
+            .bind(member_id.into_uuid())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        } else {
+            sqlx::query("DELETE FROM thread_subscriptions WHERE thread_id=$1 AND member_id=$2")
+                .bind(thread_id.into_uuid())
+                .bind(member_id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        }
+        Ok(())
+    }
+
     async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError> {
         sqlx::query(
             "INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) \
@@ -2379,6 +2507,8 @@ impl PostgresTransaction {
             Effect::ComputerDeleted(id) => ("computer.changed", id.into_uuid()),
             Effect::TaskUpdated(id) => ("task.updated", id.into_uuid()),
             Effect::ChannelCreated(id) => ("channel.created", id.into_uuid()),
+            Effect::ChannelUpdated(id) => ("channel.updated", id.into_uuid()),
+            Effect::AgentUpdated(id) => ("agent.updated", id.into_uuid()),
             Effect::AgentCreated {
                 agent_id,
                 computer_id,

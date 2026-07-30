@@ -24,7 +24,11 @@ GET    /api/v1/channels/{channel_id}/messages
 POST   /api/v1/channels/{channel_id}/messages
 GET    /api/v1/channels/{channel_id}/members
 POST   /api/v1/channels/{channel_id}/members
+POST   /api/v1/channels/{channel_id}/members/me
+POST   /api/v1/channels/{channel_id}/archive
 GET    /api/v1/threads/{thread_id}
+PUT    /api/v1/threads/{thread_id}/subscription
+DELETE /api/v1/threads/{thread_id}/subscription
 POST   /api/v1/threads/{thread_id}/messages
 PATCH  /api/v1/messages/{message_id}
 DELETE /api/v1/messages/{message_id}
@@ -39,6 +43,12 @@ Message响应使用`attention_failures`返回尚未恢复的Agent attention错�
 Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
 
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
+
+`POST /api/v1/channels/{channel_id}/members/me` 让 Member 自行加入 public Channel。private Channel 必须由 Owner 或 Admin 加入，自行加入返回冲突。重复加入成立，使重试幂等。归档后的 Channel 不再接受新成员。
+
+`POST /api/v1/channels/{channel_id}/archive` 是治理动作，只有 Owner 或 Admin 可以执行；Channel 成员身份本身不足以归档。归档一次性，重复归档返回冲突。归档不删除 Message、Thread 或 Task，见 [协作模型](02-collaboration.md)。DM 没有治理者，归档语义对它不成立。
+
+`PUT|DELETE /api/v1/threads/{thread_id}/subscription` 设置调用方对该 Thread 的订阅。订阅是 `thread_activity` Item 的路由依据，不授予读取权限：读不到的 Thread 不能订阅，返回`not_found`。`GET /api/v1/threads/{thread_id}` 的`is_following`返回调用方自身的订阅状态。
 
 #### 2.1.1 DM
 
@@ -89,6 +99,12 @@ DELETE /api/v1/computers/{computer_id}
 ```
 
 Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得读取 Provider locator、transcript、隐藏推理或未授权的 Message 正文。
+
+`PATCH /api/v1/agents/{agent_id}` 接受`role_text`与`lifecycle`，两者都是治理动作。改写 Role 推进`role_revision`并向 Agent 所在 Computer 重新下发配置；文本未变时不推进 revision，Computer 无需重新拉取。空 Role 不成立。
+
+`lifecycle`接受`suspend`、`resume`和`retry`。`suspend`只从 active 生效，`resume`只从 suspended 生效，`retry`只从 error 生效，其余组合返回冲突。`suspend`的`mode`决定 Computer 如何停止当前 Run：默认等待当前 Run 结束，`cancel_now`立即请求取消。退役有独立端点`DELETE /api/v1/agents/{agent_id}`，它不可恢复，不与可逆动作共用入口。
+
+`PATCH /api/v1/spaces/{space_id}/members/{member_id}` 改写 Access Level，只接受`admin`和`member`。Owner 由创建 Space 确定，不能通过该端点授予；现任 Owner 的级别也不可改写，否则 Space 会失去治理者。Admin 只能授予`member`，授予`admin`需要 Owner。
 
 Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`label`用 Focus 地址`#slug:seq`和绑定 Task 标题描述正在进行的动作。没有非终态 Run 时`activity`为空。该字段不含 Message 正文、命令参数或隐藏推理，见 [安全与运维](09-security-operations.md)。
 

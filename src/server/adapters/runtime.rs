@@ -54,10 +54,11 @@ use crate::{
             ReadPairingStatus,
         },
         application::conversation::{
-            CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
-            CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
-            DeleteMessage, EditMessage, EditMessageInput, ListDirectMessages, OpenDirectMessage,
-            OpenDirectMessageInput, PublishMessage,
+            ArchiveChannel, CreateAgent, CreateAgentAction, CreateAgentActionInput,
+            CreateAgentInput, CreateChannel, CreateChannelAction, CreateChannelActionInput,
+            CreateChannelInput, DeleteMessage, EditMessage, EditMessageInput, JoinChannel,
+            ListDirectMessages, OpenDirectMessage, OpenDirectMessageInput, PublishMessage,
+            SetThreadSubscription,
         },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -72,11 +73,12 @@ use crate::{
                 RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
             identity::{
-                AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession,
-                AuthorizeAgentAccess, AuthorizeAgentGovernance, AuthorizeAttachmentAccess,
-                AuthorizeChannelAccess, AuthorizeComputerGovernance, AuthorizeSpaceAccess,
-                AuthorizeSpaceGovernance, CloseSession, CreateSpace, CreateSpaceInput,
-                DeleteComputer, RegisterHuman, RegisterHumanInput, RetireAgent, SetPermission,
+                AgentLifecycleAction, AuthenticateHuman, AuthenticateHumanInput,
+                AuthenticateSession, AuthorizeAgentAccess, AuthorizeAgentGovernance,
+                AuthorizeAttachmentAccess, AuthorizeChannelAccess, AuthorizeComputerGovernance,
+                AuthorizeSpaceAccess, AuthorizeSpaceGovernance, CloseSession, CreateSpace,
+                CreateSpaceInput, DeleteComputer, RegisterHuman, RegisterHumanInput, RetireAgent,
+                SetPermission, UpdateAgent, UpdateAgentInput, UpdateMemberAccess,
             },
             invitation::{
                 AcceptInvitation, AcceptInvitationInput, InviteHuman, InviteHumanInput,
@@ -352,6 +354,23 @@ struct OpenDirectMessageBody {
 }
 
 #[derive(Deserialize)]
+struct UpdateAgentBody {
+    role_text: Option<String>,
+    lifecycle: Option<LifecycleActionBody>,
+}
+
+#[derive(Deserialize)]
+struct LifecycleActionBody {
+    action: String,
+    mode: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateMemberBody {
+    access_level: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct AgentActionRequest {
     context: capability::RunContext,
     action: capability::Action,
@@ -446,6 +465,16 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(list_channels).post(create_channel),
         )
         .route("/spaces/{space_id}/members", get(list_members))
+        .route(
+            "/spaces/{space_id}/members/{member_id}",
+            axum::routing::patch(update_space_member),
+        )
+        .route("/channels/{channel_id}/members/me", post(join_channel))
+        .route("/channels/{channel_id}/archive", post(archive_channel))
+        .route(
+            "/threads/{thread_id}/subscription",
+            axum::routing::put(follow_thread).delete(unfollow_thread),
+        )
         .route("/spaces/{space_id}/invites", post(invite_human))
         .route("/invites/{invite_token}", get(invitation_details))
         .route("/invites/{invite_token}/accept", post(accept_invitation))
@@ -458,7 +487,10 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             "/spaces/{space_id}/agents",
             get(list_agents).post(create_agent),
         )
-        .route("/agents/{agent_id}", get(get_agent).delete(retire_agent))
+        .route(
+            "/agents/{agent_id}",
+            get(get_agent).patch(update_agent).delete(retire_agent),
+        )
         .route("/agents/{agent_id}/runs/current", get(current_agent_run))
         .route("/spaces/{space_id}/tasks", get(list_tasks))
         .route("/tasks/{task_id}", get(get_task).patch(update_task))
@@ -2969,8 +3001,16 @@ async fn read_thread(
         .fetch_one(&state.pool)
         .await
         .map_err(map_sqlx)?;
+    let is_following: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM thread_subscriptions WHERE thread_id=$1 AND member_id=$2)",
+    )
+    .bind(thread_id)
+    .bind(member_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
     Ok(Json(
-        json!({"thread_id":thread_id,"channel_id":channel_id,"root":root,"replies":projected.into_iter().skip(1).collect::<Vec<_>>(),"snapshot_channel_seq":snapshot,"is_following":false,"task":Value::Null,"task_relation":Value::Null}),
+        json!({"thread_id":thread_id,"channel_id":channel_id,"root":root,"replies":projected.into_iter().skip(1).collect::<Vec<_>>(),"snapshot_channel_seq":snapshot,"is_following":is_following,"task":Value::Null,"task_relation":Value::Null}),
     ))
 }
 
@@ -4538,6 +4578,208 @@ fn access_level_code(level: AccessLevel) -> &'static str {
         AccessLevel::Admin => "admin",
         AccessLevel::Member => "member",
     }
+}
+
+async fn update_agent(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(agent_id): Path<Uuid>,
+    Json(body): Json<UpdateAgentBody>,
+) -> Result<Json<Value>, ApiError> {
+    let actor_id = require_agent_governor(&state, &jar, agent_id).await?;
+    let lifecycle = body.lifecycle.as_ref().map(lifecycle_action).transpose()?;
+    let mut storage = state.storage.clone();
+    UpdateAgent::execute(
+        &mut storage,
+        UpdateAgentInput {
+            actor_id: MemberId::from_uuid(actor_id),
+            agent_id: MemberId::from_uuid(agent_id),
+            role_text: body.role_text.as_deref(),
+            lifecycle,
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    read_agent_projection(&state, agent_id).await
+}
+
+fn lifecycle_action(body: &LifecycleActionBody) -> Result<AgentLifecycleAction, ApiError> {
+    match body.action.as_str() {
+        "suspend" => Ok(AgentLifecycleAction::Suspend {
+            // 未指定 mode 时等待当前 Run 结束，不打断正在进行的工作。
+            cancel_current_run: body.mode.as_deref() == Some("cancel_now"),
+        }),
+        "resume" => Ok(AgentLifecycleAction::Resume),
+        "retry" => Ok(AgentLifecycleAction::RetryProvisioning),
+        // retire 有独立端点：它不可恢复，不与可逆动作共用入口。
+        _ => Err(ApiError::invalid(
+            "lifecycle action must be suspend, resume, or retry",
+        )),
+    }
+}
+
+async fn read_agent_projection(
+    state: &RuntimeState,
+    agent_id: Uuid,
+) -> Result<Json<Value>, ApiError> {
+    let row = sqlx::query(&format!(
+        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+         c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+         FROM agents a JOIN members m ON m.id=a.member_id \
+         LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"
+    ))
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(agent_row(&row)))
+}
+
+async fn update_space_member(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path((space_id, member_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateMemberBody>,
+) -> Result<Json<Value>, ApiError> {
+    let actor_id = current_member(&state, &jar, space_id).await?;
+    let Some(requested) = body.access_level.as_deref() else {
+        return Err(ApiError::invalid("access_level is required"));
+    };
+    let requested = match requested {
+        "admin" => AccessLevel::Admin,
+        "member" => AccessLevel::Member,
+        // Owner 由创建 Space 确定，不能通过该端点授予。
+        _ => return Err(ApiError::invalid("access_level must be admin or member")),
+    };
+    let mut storage = state.storage.clone();
+    UpdateMemberAccess::execute(
+        &mut storage,
+        MemberId::from_uuid(actor_id),
+        MemberId::from_uuid(member_id),
+        SpaceId::from_uuid(space_id),
+        requested,
+    )
+    .await
+    .map_err(application_error)?;
+    let row = sqlx::query(
+        "SELECT id,kind,display_name,handle,access_level FROM members WHERE id=$1 AND space_id=$2",
+    )
+    .bind(member_id)
+    .bind(space_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(member_row(&state.pool, &row).await?))
+}
+
+async fn join_channel(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let space_id = space_of_channel(&state, channel_id).await?;
+    let actor_id = current_member(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    JoinChannel::execute(
+        &mut storage,
+        MemberId::from_uuid(actor_id),
+        ChannelId::from_uuid(channel_id),
+    )
+    .await
+    .map_err(application_error)?;
+    read_channel_projection(&state, channel_id, actor_id).await
+}
+
+async fn archive_channel(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let space_id = space_of_channel(&state, channel_id).await?;
+    let actor_id = current_member(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    ArchiveChannel::execute(
+        &mut storage,
+        MemberId::from_uuid(actor_id),
+        ChannelId::from_uuid(channel_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    read_channel_projection(&state, channel_id, actor_id).await
+}
+
+async fn space_of_channel(state: &RuntimeState, channel_id: Uuid) -> Result<Uuid, ApiError> {
+    sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM channels WHERE id=$1")
+        .bind(channel_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)
+}
+
+async fn read_channel_projection(
+    state: &RuntimeState,
+    channel_id: Uuid,
+    viewer: Uuid,
+) -> Result<Json<Value>, ApiError> {
+    let row = sqlx::query(
+        "SELECT c.id,c.space_id,c.kind,c.slug,c.topic,c.archived_at,\
+         EXISTS(SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.member_id=$2) \
+         AS joined FROM channels c WHERE c.id=$1",
+    )
+    .bind(channel_id)
+    .bind(viewer)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(Json(channel_row(&row, viewer)))
+}
+
+async fn follow_thread(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(thread_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    set_subscription(state, jar, thread_id, true).await
+}
+
+async fn unfollow_thread(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(thread_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    set_subscription(state, jar, thread_id, false).await
+}
+
+async fn set_subscription(
+    state: RuntimeState,
+    jar: CookieJar,
+    thread_id: Uuid,
+    following: bool,
+) -> Result<Json<Value>, ApiError> {
+    let row = sqlx::query("SELECT space_id,channel_id FROM threads WHERE id=$1")
+        .bind(thread_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor_id = current_member(&state, &jar, row.get("space_id")).await?;
+    let mut storage = state.storage.clone();
+    let is_following = SetThreadSubscription::execute(
+        &mut storage,
+        MemberId::from_uuid(actor_id),
+        ThreadId::from_uuid(thread_id),
+        following,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(json!({
+        "thread_id": thread_id,
+        "channel_id": row.get::<Uuid,_>("channel_id"),
+        "is_following": is_following
+    })))
 }
 
 async fn shutdown_signal() {

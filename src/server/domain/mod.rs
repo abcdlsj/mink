@@ -44,6 +44,10 @@ pub(in crate::server) enum DomainError {
     InvalidChannel,
     #[error("agent is already retired")]
     AgentRetired,
+    #[error("agent role text is required")]
+    InvalidRole,
+    #[error("channel cannot be joined without an invitation")]
+    ChannelNotJoinable,
     #[error("computer still has assigned agents")]
     ComputerHasAgents,
     #[error("credential does not meet the required form")]

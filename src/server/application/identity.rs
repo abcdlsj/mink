@@ -5,7 +5,9 @@ use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
 use crate::server::domain::{
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attention::{InboxItemDisposition, InboxItemStatus},
-    identity::{Agent, AgentLifecycle, Computer, ComputerLifecycle, PermissionAction},
+    identity::{
+        AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, Member, PermissionAction,
+    },
 };
 
 use super::ports::{
@@ -455,6 +457,97 @@ impl SetPermission {
                 .await?;
             transaction.emit(Effect::PermissionChanged(target_id));
             Ok(())
+        })
+        .await
+    }
+}
+
+/// Agent 的生命周期动作。与协议的 suspend mode 分离:mode 决定 Computer 如何
+/// 停止当前 Run,这里只决定 Server 侧的目标状态。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum AgentLifecycleAction {
+    Suspend { cancel_current_run: bool },
+    Resume,
+    RetryProvisioning,
+}
+
+/// 改写 Agent 的 Role 或生命周期。两者都是治理动作。
+pub(in crate::server) struct UpdateAgent;
+
+pub(in crate::server) struct UpdateAgentInput<'a> {
+    pub(in crate::server) actor_id: MemberId,
+    pub(in crate::server) agent_id: MemberId,
+    pub(in crate::server) role_text: Option<&'a str>,
+    pub(in crate::server) lifecycle: Option<AgentLifecycleAction>,
+}
+
+impl UpdateAgent {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: UpdateAgentInput<'_>,
+    ) -> Result<Agent, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut agent = transaction.agent(input.agent_id).await?;
+            let access = transaction
+                .member_access_level(input.actor_id, agent.space_id)
+                .await?;
+            if !access.can_manage_space() {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            let revision_before = agent.role_revision;
+            if let Some(role_text) = input.role_text {
+                agent.revise_role(role_text)?;
+            }
+            if let Some(action) = input.lifecycle {
+                match action {
+                    AgentLifecycleAction::Suspend { cancel_current_run } => {
+                        agent.suspend()?;
+                        transaction
+                            .queue_agent_suspend(
+                                input.agent_id,
+                                agent.computer_id,
+                                cancel_current_run,
+                            )
+                            .await?;
+                    }
+                    AgentLifecycleAction::Resume => agent.resume()?,
+                    AgentLifecycleAction::RetryProvisioning => agent.retry_provisioning()?,
+                }
+            }
+            transaction.save_agent(agent.clone()).await?;
+            // Role 改写后 Computer 的本地快照过期，必须重新下发配置。
+            if agent.role_revision != revision_before {
+                transaction.queue_agent_configuration(&agent).await?;
+            }
+            transaction.emit(Effect::AgentUpdated(agent.member_id));
+            Ok(agent)
+        })
+        .await
+    }
+}
+
+/// 改写 Member 的 Access Level。Owner 的级别不可改写。
+pub(in crate::server) struct UpdateMemberAccess;
+
+impl UpdateMemberAccess {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor_id: MemberId,
+        target_id: MemberId,
+        space_id: SpaceId,
+        requested: AccessLevel,
+    ) -> Result<Member, ApplicationError> {
+        port.transact(async |transaction| {
+            let actor_access = transaction.member_access_level(actor_id, space_id).await?;
+            let mut target = transaction.member(target_id).await?;
+            // 跨 Space 的 Member 不区分「不存在」和「无权访问」。
+            if target.space_id != space_id {
+                return Err(ApplicationError::NotFound);
+            }
+            target.set_access_level(actor_access, requested)?;
+            transaction.save_member(target.clone()).await?;
+            transaction.emit(Effect::PermissionChanged(target.id));
+            Ok(target)
         })
         .await
     }

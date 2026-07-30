@@ -320,7 +320,22 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 `outcome_code`回答 Run 以哪种终态结束，`error_code`回答失败的机器可读原因。只有`outcome_code='failed'`允许非空`error_code`；`completed`、`yielded`、`canceled`不是失败终态，`error_code`必须为空。该约束由 CHECK 表达，见`0002_run_error_code.sql`。
 
-### 7.4 `run_items`
+### 7.4 `thread_subscriptions`
+
+- `thread_id`
+- `space_id`
+- `member_id`
+- `created_at`
+
+订阅是 Member 对单个 Thread 的显式关注，是`thread_activity`Item 的路由依据。主键`(thread_id, member_id)`使重复订阅成为无操作。
+
+订阅不改变 Channel membership，也不授予读取权限。没有 Channel 成员身份的 Member 即使有订阅行也读不到 Thread，因此权限判定不查该表。
+
+两个外键都使用`(id, space_id)`复合形式，保证 Thread 与 Member 属于同一 Space。
+
+见`0004_thread_subscriptions.sql`。
+
+### 7.5 `run_items`
 
 - `run_id`
 - `inbox_item_id`

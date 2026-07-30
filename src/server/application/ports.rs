@@ -325,6 +325,8 @@ pub(in crate::server) enum Effect {
     ComputerDeleted(ComputerId),
     TaskUpdated(TaskId),
     ChannelCreated(ChannelId),
+    ChannelUpdated(ChannelId),
+    AgentUpdated(MemberId),
     AgentCreated {
         agent_id: MemberId,
         computer_id: ComputerId,
@@ -554,6 +556,41 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         member_id: MemberId,
     ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
+    /// 锁定 Member 行以改写它。
+    async fn member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<crate::server::domain::identity::Member, ApplicationError>;
+    async fn save_member(
+        &mut self,
+        member: crate::server::domain::identity::Member,
+    ) -> Result<(), ApplicationError>;
+    async fn save_channel(
+        &mut self,
+        channel: crate::server::domain::conversation::Channel,
+    ) -> Result<(), ApplicationError>;
+    /// 向 Agent 所在 Computer 下发暂停命令。Agent 未分配 Computer 时无需下发:
+    /// 没有 daemon 持有它的 Run。
+    async fn queue_agent_suspend(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+        cancel_current_run: bool,
+    ) -> Result<(), ApplicationError>;
+    /// 向 Agent 所在 Computer 下发新的配置快照,使 Role 改写生效。
+    async fn queue_agent_configuration(
+        &mut self,
+        agent: &crate::server::domain::identity::Agent,
+    ) -> Result<(), ApplicationError>;
+    /// 写入 Thread 订阅。订阅是 Member 对单个 Thread 的显式关注,
+    /// 是 thread_activity Item 的路由依据。
+    async fn set_thread_subscription(
+        &mut self,
+        thread_id: crate::ids::ThreadId,
+        member_id: MemberId,
+        following: bool,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
 
     async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError>;
     async fn paired_computer(

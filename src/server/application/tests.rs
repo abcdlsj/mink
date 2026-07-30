@@ -179,6 +179,9 @@ struct MemoryState {
     computer_spaces: HashMap<ComputerId, SpaceId>,
     pairings: HashMap<uuid::Uuid, (Pairing, String)>,
     direct_messages: Vec<DirectMessageView>,
+    thread_subscriptions: HashSet<(ThreadId, MemberId)>,
+    suspend_commands: Vec<(MemberId, bool)>,
+    configured_agents: Vec<MemberId>,
     invitations: HashMap<uuid::Uuid, Invitation>,
     spaces: HashMap<SpaceId, (String, String)>,
     human_members: HashMap<(uuid::Uuid, SpaceId), SpaceHumanMember>,
@@ -351,6 +354,70 @@ impl ServerTransaction for MemoryTransaction {
         computer_id: ComputerId,
     ) -> Result<Option<SpaceId>, ApplicationError> {
         Ok(self.state.computer_spaces.get(&computer_id).copied())
+    }
+
+    async fn member(&mut self, member_id: MemberId) -> Result<Member, ApplicationError> {
+        self.state
+            .members
+            .get(&member_id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+
+    async fn save_member(&mut self, member: Member) -> Result<(), ApplicationError> {
+        if !self.state.members.contains_key(&member.id) {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state.members.insert(member.id, member);
+        Ok(())
+    }
+
+    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
+        if !self.state.channels.contains_key(&channel.id) {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state.channels.insert(channel.id, channel);
+        Ok(())
+    }
+
+    async fn queue_agent_suspend(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+        cancel_current_run: bool,
+    ) -> Result<(), ApplicationError> {
+        if computer_id.is_some() {
+            self.state
+                .suspend_commands
+                .push((agent_id, cancel_current_run));
+        }
+        Ok(())
+    }
+
+    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
+        if agent.computer_id.is_some() {
+            self.state.configured_agents.push(agent.member_id);
+        }
+        Ok(())
+    }
+
+    async fn set_thread_subscription(
+        &mut self,
+        thread_id: ThreadId,
+        member_id: MemberId,
+        following: bool,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if following {
+            self.state
+                .thread_subscriptions
+                .insert((thread_id, member_id));
+        } else {
+            self.state
+                .thread_subscriptions
+                .remove(&(thread_id, member_id));
+        }
+        Ok(())
     }
 
     async fn direct_messages_for_member(
