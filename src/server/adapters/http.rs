@@ -98,6 +98,12 @@ impl IntoResponse for HttpError {
                 "credential is missing or expired",
                 false,
             ),
+            ApplicationError::PayloadTooLarge => (
+                StatusCode::BAD_REQUEST,
+                "invalid_argument",
+                "request payload exceeds the configured limit",
+                false,
+            ),
             ApplicationError::PermissionDenied => (
                 StatusCode::FORBIDDEN,
                 "permission_denied",

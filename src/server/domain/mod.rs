@@ -1,4 +1,5 @@
 pub(in crate::server) mod access;
+pub(in crate::server) mod attachment;
 pub(in crate::server) mod attention;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
@@ -52,4 +53,14 @@ pub(in crate::server) enum DomainError {
     InvalidPairing,
     #[error("computer pairing is no longer pending")]
     PairingLapsed,
+    #[error("attachment name or media type is missing")]
+    InvalidAttachment,
+    #[error("attachment belongs to another uploader")]
+    AttachmentNotOwned,
+    #[error("attachment upload is not open")]
+    AttachmentNotOpen,
+    #[error("attachment content is not ready")]
+    AttachmentNotReady,
+    #[error("attachment size or digest does not match the stored content")]
+    AttachmentContentMismatch,
 }

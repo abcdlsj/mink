@@ -23,6 +23,8 @@ pub(in crate::server) enum ApplicationError {
     NotFound,
     #[error("credential is missing, expired, or does not match")]
     Unauthenticated,
+    #[error("request payload exceeds the configured limit")]
+    PayloadTooLarge,
     #[error("actor is not allowed to perform this action")]
     PermissionDenied,
     #[error("request conflicts with current state")]
@@ -341,6 +343,10 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         computer_id: ComputerId,
     ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
+    async fn space_of_attachment(
+        &mut self,
+        attachment_id: AttachmentId,
+    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
 
     /// 保存待确认配对。code 只以散列形式进入该层。
     async fn insert_pairing(
@@ -393,6 +399,37 @@ pub(in crate::server) trait ServerTransaction {
         actor: MemberId,
         action: &str,
         key: IdempotencyKey,
+    ) -> Result<(), ApplicationError>;
+
+    async fn attachment(
+        &mut self,
+        id: AttachmentId,
+    ) -> Result<Option<crate::server::domain::attachment::Attachment>, ApplicationError>;
+    async fn insert_attachment(
+        &mut self,
+        attachment: &crate::server::domain::attachment::Attachment,
+    ) -> Result<(), ApplicationError>;
+    async fn save_attachment(
+        &mut self,
+        attachment: &crate::server::domain::attachment::Attachment,
+    ) -> Result<(), ApplicationError>;
+    /// Attachment 是否通过某条 Message 对该 Member 可见。
+    async fn attachment_is_visible(
+        &mut self,
+        id: AttachmentId,
+        viewer: MemberId,
+    ) -> Result<bool, ApplicationError>;
+    /// 一次写入 Attachment 的幂等记录、audit 和 outbox 事件。
+    #[allow(clippy::too_many_arguments)]
+    async fn record_attachment_write(
+        &mut self,
+        space_id: crate::ids::SpaceId,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        attachment_id: AttachmentId,
+        event_kind: &str,
+        now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
 
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError>;

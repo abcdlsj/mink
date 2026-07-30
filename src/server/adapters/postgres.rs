@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use crate::{
     ids::{
-        AgentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId,
-        MessageId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
+        AgentId, AttachmentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey,
+        InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
     },
     protocol::computer::{
         ActionKind, ActionTarget, AgentRetire, AttentionNotice,
@@ -27,6 +27,7 @@ use crate::{
         },
         domain::{
             access::{HumanRegistration, SpaceAccess},
+            attachment::{Attachment, AttachmentStatus},
             attention::{
                 AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
             },
@@ -512,6 +513,19 @@ impl ServerTransaction for PostgresTransaction {
         Ok(space_id.map(SpaceId::from_uuid))
     }
 
+    async fn space_of_attachment(
+        &mut self,
+        attachment_id: AttachmentId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        let space_id =
+            sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM attachments WHERE id=$1")
+                .bind(attachment_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        Ok(space_id.map(SpaceId::from_uuid))
+    }
+
     async fn insert_pairing(
         &mut self,
         pairing_id: Uuid,
@@ -681,6 +695,136 @@ impl ServerTransaction for PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn attachment(
+        &mut self,
+        id: AttachmentId,
+    ) -> Result<Option<Attachment>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,space_id,uploader_member_id,name,media_type,length,sha256,object_key,\
+             status,created_at,ready_at FROM attachments WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        row.map(|row| attachment_from_row(&row)).transpose()
+    }
+
+    async fn insert_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO attachments\
+             (id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        )
+        .bind(attachment.id.into_uuid())
+        .bind(attachment.space_id.into_uuid())
+        .bind(attachment.uploader_member_id.into_uuid())
+        .bind(&attachment.name)
+        .bind(&attachment.media_type)
+        .bind(&attachment.object_key)
+        .bind(attachment.status.code())
+        .bind(attachment.created_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn save_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        let length = attachment
+            .length
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| ApplicationError::PayloadTooLarge)?;
+        sqlx::query(
+            "UPDATE attachments SET name=$2,media_type=$3,length=$4,sha256=$5,status=$6,\
+             ready_at=$7 WHERE id=$1",
+        )
+        .bind(attachment.id.into_uuid())
+        .bind(&attachment.name)
+        .bind(&attachment.media_type)
+        .bind(length)
+        .bind(attachment.sha256.map(|digest| digest.to_vec()))
+        .bind(attachment.status.code())
+        .bind(attachment.ready_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    async fn attachment_is_visible(
+        &mut self,
+        id: AttachmentId,
+        viewer: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM message_attachments links \
+             JOIN messages ON messages.id=links.message_id \
+             JOIN channel_members members ON members.channel_id=messages.channel_id \
+             WHERE links.attachment_id=$1 AND members.member_id=$2)",
+        )
+        .bind(id.into_uuid())
+        .bind(viewer.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)
+    }
+
+    async fn record_attachment_write(
+        &mut self,
+        space_id: SpaceId,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        attachment_id: AttachmentId,
+        event_kind: &str,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let attachment_uuid = attachment_id.into_uuid();
+        sqlx::query(
+            "INSERT INTO idempotency_records\
+             (actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) \
+             VALUES($1,$2,$3,'ok',$4,$5,$6)",
+        )
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(key.into_uuid())
+        .bind(attachment_uuid)
+        .bind(Sha256::digest(attachment_uuid.as_bytes()).as_slice())
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO audit_events\
+             (id,space_id,actor_member_id,action,subject_type,subject_id,created_at) \
+             VALUES($1,$2,$3,$4,'attachment',$5,$6)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(space_id.into_uuid())
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(attachment_uuid)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) \
+             VALUES($1,$2,$3,$4,$5)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(space_id.into_uuid())
+        .bind(event_kind)
+        .bind(json!({"attachment_id": attachment_uuid}))
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -2568,6 +2712,32 @@ fn access_level_str(value: AccessLevel) -> &'static str {
         AccessLevel::Admin => "admin",
         AccessLevel::Member => "member",
     }
+}
+
+fn attachment_from_row(row: &sqlx::postgres::PgRow) -> Result<Attachment, ApplicationError> {
+    let length = row
+        .get::<Option<i64>, _>("length")
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| ApplicationError::Internal)?;
+    let sha256 = row
+        .get::<Option<Vec<u8>>, _>("sha256")
+        .map(<[u8; 32]>::try_from)
+        .transpose()
+        .map_err(|_| ApplicationError::Internal)?;
+    Ok(Attachment {
+        id: AttachmentId::from_uuid(row.get("id")),
+        space_id: SpaceId::from_uuid(row.get("space_id")),
+        uploader_member_id: MemberId::from_uuid(row.get("uploader_member_id")),
+        name: row.get("name"),
+        media_type: row.get("media_type"),
+        object_key: row.get("object_key"),
+        status: AttachmentStatus::parse(row.get("status"))?,
+        length,
+        sha256,
+        created_at: row.get("created_at"),
+        ready_at: row.get("ready_at"),
+    })
 }
 
 fn paired_computer_from_row(

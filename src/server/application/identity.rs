@@ -217,6 +217,35 @@ impl AuthorizeChannelAccess {
     }
 }
 
+/// 把 Browser Session 解析为 Attachment 所属 Space 的 Member 身份。
+pub(in crate::server) struct AuthorizeAttachmentAccess;
+
+impl AuthorizeAttachmentAccess {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        token: &RawSessionToken,
+        attachment_id: crate::ids::AttachmentId,
+        now: OffsetDateTime,
+    ) -> Result<SpaceAccess, ApplicationError> {
+        let token_hash = token.sha256_hash();
+        port.transact(async |transaction| {
+            let human = transaction
+                .human_for_session(&token_hash, now)
+                .await?
+                .ok_or(ApplicationError::Unauthenticated)?;
+            let space_id = transaction
+                .space_of_attachment(attachment_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            transaction
+                .space_access(human.user_id, space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+    }
+}
+
 /// 读取 Agent 相关事实的授权。只要求同 Space Member 身份，不要求治理级别。
 pub(in crate::server) struct AuthorizeAgentAccess;
 

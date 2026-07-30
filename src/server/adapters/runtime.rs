@@ -43,6 +43,10 @@ use crate::{
         computer::{ComputerFrame, ComputerHello, ServerFrame},
     },
     server::{
+        application::attachment::{
+            AttachmentContent, CompleteUpload, CompleteUploadInput, OpenUpload, OpenUploadInput,
+            ReadAttachment, WriteUploadContent, WriteUploadContentInput,
+        },
         application::attention::{RouteHardItem, RouteHardItemInput},
         application::computer::{
             AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing,
@@ -68,18 +72,19 @@ use crate::{
             },
             identity::{
                 AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession,
-                AuthorizeAgentAccess, AuthorizeAgentGovernance, AuthorizeChannelAccess,
-                AuthorizeComputerGovernance, AuthorizeSpaceAccess, CloseSession, CreateSpace,
-                CreateSpaceInput, DeleteComputer, RegisterHuman, RegisterHumanInput, RetireAgent,
-                SetPermission,
+                AuthorizeAgentAccess, AuthorizeAgentGovernance, AuthorizeAttachmentAccess,
+                AuthorizeChannelAccess, AuthorizeComputerGovernance, AuthorizeSpaceAccess,
+                CloseSession, CreateSpace, CreateSpaceInput, DeleteComputer, RegisterHuman,
+                RegisterHumanInput, RetireAgent, SetPermission,
             },
             ports::{
-                AttachmentObjectPort, AuthenticatedHuman, MessageDraft, PairedComputer,
-                RawFencingToken, RawPairingCode, RawSessionToken,
+                AuthenticatedHuman, MessageDraft, PairedComputer, RawFencingToken, RawPairingCode,
+                RawSessionToken,
             },
         },
         domain::{
             access::SessionLifetime,
+            attachment::{Attachment, DeclaredContent},
             conversation::ChannelKind,
             identity::{AccessLevel, DriverKind, PermissionAction},
             task::CloseReason,
@@ -978,6 +983,7 @@ fn run_claim_error_code(
     match error {
         ApplicationError::NotFound => "run_claim_not_found",
         ApplicationError::Unauthenticated => "run_claim_unauthenticated",
+        ApplicationError::PayloadTooLarge => "run_claim_payload_too_large",
         ApplicationError::PermissionDenied => "run_claim_permission_denied",
         ApplicationError::Conflict | ApplicationError::Domain(_) => "run_claim_conflict",
         ApplicationError::ContextChanged => "run_claim_context_changed",
@@ -3285,56 +3291,31 @@ async fn agent_create_upload(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let space_id =
         require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
-    if body.original_name.trim().is_empty() || body.media_type.trim().is_empty() {
-        return Err(ApiError::invalid(
-            "Attachment name and media type are required",
-        ));
-    }
     let key = idempotency_header(&headers)?;
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(&mut transaction, agent_id, "attachment.upload.create", key).await?;
-    if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT resource_id FROM idempotency_records \
-         WHERE actor_member_id=$1 AND action='attachment.upload.create' AND idempotency_key=$2",
+    let mut storage = state.storage.clone();
+    let opened = OpenUpload::execute(
+        &mut storage,
+        OpenUploadInput {
+            attachment_id: AttachmentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(space_id),
+            uploader_member_id: MemberId::from_uuid(agent_id),
+            name: &body.original_name,
+            media_type: &body.media_type,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(agent_id)
-    .bind(key)
-    .fetch_optional(&mut *transaction)
     .await
-    .map_err(map_sqlx)?
-    {
-        let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-            .bind(existing_id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(map_sqlx)?;
-        transaction.commit().await.map_err(map_sqlx)?;
-        return Ok((StatusCode::OK, Json(attachment_row(&row))));
-    }
-    let id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    let object_key = format!("spaces/{space_id}/attachments/{id}");
-    sqlx::query("INSERT INTO attachments(id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,'uploading',$7)")
-        .bind(id).bind(space_id).bind(agent_id).bind(body.original_name.trim()).bind(body.media_type.trim()).bind(object_key).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    insert_attachment_write_records(
-        &mut transaction,
-        space_id,
-        agent_id,
-        "attachment.upload.create",
-        key,
-        id,
-        "attachment.created",
-        now,
-    )
-    .await?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(map_sqlx)?;
-    Ok((StatusCode::CREATED, Json(attachment_row(&row))))
+    .map_err(application_error)?;
+    let status = if opened.created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((
+        status,
+        Json(attachment_json(&opened.attachment, AttachmentPath::Upload)),
+    ))
 }
 
 async fn agent_upload_content(
@@ -3344,24 +3325,19 @@ async fn agent_upload_content(
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
     require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
-    if body.len() as u64 > state.attachment_max_bytes {
-        return Err(ApiError::invalid("Attachment is too large"));
-    }
-    let object_key = sqlx::query_scalar::<_, String>(
-        "SELECT object_key FROM attachments \
-         WHERE id=$1 AND uploader_member_id=$2 AND status='uploading'",
+    let mut storage = state.storage.clone();
+    WriteUploadContent::execute(
+        &mut storage,
+        state.objects.as_ref(),
+        WriteUploadContentInput {
+            attachment_id: AttachmentId::from_uuid(attachment_id),
+            uploader_member_id: MemberId::from_uuid(agent_id),
+            content: body.to_vec(),
+            max_bytes: state.attachment_max_bytes,
+        },
     )
-    .bind(attachment_id)
-    .bind(agent_id)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    state
-        .objects
-        .put(&object_key, body.to_vec())
-        .await
-        .map_err(application_error)?;
+    .map_err(application_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3371,77 +3347,26 @@ async fn agent_complete_upload(
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
     Json(body): Json<CompleteUploadBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let space_id =
-        require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
+    require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let key = idempotency_header(&headers)?;
-    let row = sqlx::query(
-        "SELECT object_key,status FROM attachments WHERE id=$1 AND uploader_member_id=$2",
+    let mut storage = state.storage.clone();
+    let attachment = CompleteUpload::execute(
+        &mut storage,
+        state.objects.as_ref(),
+        CompleteUploadInput {
+            attachment_id: AttachmentId::from_uuid(attachment_id),
+            uploader_member_id: MemberId::from_uuid(agent_id),
+            declared: DeclaredContent {
+                size: body.size,
+                sha256_hex: body.sha256,
+            },
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(attachment_id)
-    .bind(agent_id)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    let content = state
-        .objects
-        .get(row.get("object_key"))
-        .await
-        .map_err(application_error)?;
-    let digest = Sha256::digest(&content);
-    if content.len() as u64 != body.size || hex::encode(digest) != body.sha256.to_lowercase() {
-        return Err(ApiError::invalid(
-            "Attachment size or SHA-256 does not match uploaded content",
-        ));
-    }
-    let now = OffsetDateTime::now_utc();
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(
-        &mut transaction,
-        agent_id,
-        "attachment.upload.complete",
-        key,
-    )
-    .await?;
-    let already_applied: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM idempotency_records \
-         WHERE actor_member_id=$1 AND action='attachment.upload.complete' AND idempotency_key=$2)",
-    )
-    .bind(agent_id)
-    .bind(key)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(map_sqlx)?;
-    if !already_applied {
-        let changed = sqlx::query("UPDATE attachments SET length=$2,sha256=$3,status='ready',ready_at=$4 WHERE id=$1 AND uploader_member_id=$5 AND status='uploading'")
-            .bind(attachment_id).bind(i64::try_from(body.size).map_err(|_|ApiError::invalid("Attachment is too large"))?).bind(digest.as_slice()).bind(now).bind(agent_id)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-        if changed.rows_affected() != 1 {
-            return Err(ApiError {
-                status: StatusCode::CONFLICT,
-                code: "conflict",
-                message: "Attachment upload is not open",
-            });
-        }
-        insert_attachment_write_records(
-            &mut transaction,
-            space_id,
-            agent_id,
-            "attachment.upload.complete",
-            key,
-            attachment_id,
-            "attachment.ready",
-            now,
-        )
-        .await?;
-    }
-    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-        .bind(attachment_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    Ok(Json(attachment_row(&row)))
+    .map_err(application_error)?;
+    Ok(Json(attachment_json(&attachment, AttachmentPath::Download)))
 }
 
 async fn agent_download_attachment(
@@ -3450,64 +3375,17 @@ async fn agent_download_attachment(
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
 ) -> Result<Bytes, ApiError> {
     require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
-    let row = sqlx::query(
-        "SELECT object_key FROM attachments WHERE id=$1 AND status='ready' AND ( \
-         uploader_member_id=$2 OR EXISTS(SELECT 1 FROM message_attachments links \
-         JOIN messages ON messages.id=links.message_id \
-         JOIN channel_members members ON members.channel_id=messages.channel_id \
-         WHERE links.attachment_id=attachments.id AND members.member_id=$2))",
+    let mut storage = state.storage.clone();
+    // Agent 可以取回自己刚上传、尚未链接到 Message 的 Attachment。
+    let downloaded = ReadAttachment::for_uploader_or_member(
+        &mut storage,
+        state.objects.as_ref(),
+        AttachmentId::from_uuid(attachment_id),
+        MemberId::from_uuid(agent_id),
     )
-    .bind(attachment_id)
-    .bind(agent_id)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    state
-        .objects
-        .get(row.get("object_key"))
-        .await
-        .map(Bytes::from)
-        .map_err(application_error)
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn insert_attachment_write_records(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    space_id: Uuid,
-    actor_id: Uuid,
-    action: &str,
-    key: Uuid,
-    attachment_id: Uuid,
-    event_kind: &str,
-    now: OffsetDateTime,
-) -> Result<(), ApiError> {
-    let result_hash = Sha256::digest(attachment_id.as_bytes());
-    sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,$2,$3,'ok',$4,$5,$6)")
-        .bind(actor_id).bind(action).bind(key).bind(attachment_id).bind(result_hash.as_slice()).bind(now)
-        .execute(&mut **transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) VALUES($1,$2,$3,$4,'attachment',$5,$6)")
-        .bind(Uuid::now_v7()).bind(space_id).bind(actor_id).bind(action).bind(attachment_id).bind(now)
-        .execute(&mut **transaction).await.map_err(map_sqlx)?;
-    sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,$3,$4,$5)")
-        .bind(Uuid::now_v7()).bind(space_id).bind(event_kind).bind(json!({"attachment_id":attachment_id})).bind(now)
-        .execute(&mut **transaction).await.map_err(map_sqlx)?;
-    Ok(())
-}
-
-async fn lock_idempotency(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    actor_id: Uuid,
-    action: &str,
-    key: Uuid,
-) -> Result<(), ApiError> {
-    let lock_key = format!("{actor_id}:{action}:{key}");
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(lock_key)
-        .execute(&mut **transaction)
-        .await
-        .map_err(map_sqlx)?;
-    Ok(())
+    .map_err(application_error)?;
+    Ok(Bytes::from(downloaded.content))
 }
 
 fn idempotency_header(headers: &HeaderMap) -> Result<Uuid, ApiError> {
@@ -3525,60 +3403,31 @@ async fn create_upload(
     Json(body): Json<CreateUploadBody>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let member = current_member(&state, &jar, body.space_id).await?;
-    if body.original_name.trim().is_empty() || body.media_type.trim().is_empty() {
-        return Err(ApiError::invalid(
-            "Attachment name and media type are required",
-        ));
-    }
     let key = idempotency_header(&headers)?;
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(&mut transaction, member, "attachment.upload.create", key).await?;
-    if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT resource_id FROM idempotency_records \
-         WHERE actor_member_id=$1 AND action='attachment.upload.create' AND idempotency_key=$2",
+    let mut storage = state.storage.clone();
+    let opened = OpenUpload::execute(
+        &mut storage,
+        OpenUploadInput {
+            attachment_id: AttachmentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(body.space_id),
+            uploader_member_id: MemberId::from_uuid(member),
+            name: &body.original_name,
+            media_type: &body.media_type,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(member)
-    .bind(key)
-    .fetch_optional(&mut *transaction)
     .await
-    .map_err(map_sqlx)?
-    {
-        let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-            .bind(existing_id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(map_sqlx)?;
-        transaction.commit().await.map_err(map_sqlx)?;
-        let mut value = attachment_row(&row);
-        value["upload_path"] = json!(format!("/api/v1/attachments/{existing_id}/content"));
-        return Ok((StatusCode::OK, Json(value)));
-    }
-    let id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    let object_key = format!("spaces/{}/attachments/{}", body.space_id, id);
-    sqlx::query("INSERT INTO attachments(id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) VALUES($1,$2,$3,$4,$5,$6,'uploading',$7)")
-        .bind(id).bind(body.space_id).bind(member).bind(body.original_name.trim()).bind(body.media_type.trim()).bind(object_key).bind(now)
-        .execute(&mut *transaction).await.map_err(map_sqlx)?;
-    insert_attachment_write_records(
-        &mut transaction,
-        body.space_id,
-        member,
-        "attachment.upload.create",
-        key,
-        id,
-        "attachment.created",
-        now,
-    )
-    .await?;
-    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-        .bind(id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    let mut value = attachment_row(&row);
-    value["upload_path"] = json!(format!("/api/v1/attachments/{id}/content"));
-    Ok((StatusCode::CREATED, Json(value)))
+    .map_err(application_error)?;
+    let status = if opened.created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((
+        status,
+        Json(attachment_json(&opened.attachment, AttachmentPath::Upload)),
+    ))
 }
 
 async fn upload_content(
@@ -3587,33 +3436,20 @@ async fn upload_content(
     Path(attachment_id): Path<Uuid>,
     body: Bytes,
 ) -> Result<StatusCode, ApiError> {
-    if body.len() as u64 > state.attachment_max_bytes {
-        return Err(ApiError::invalid("Attachment is too large"));
-    }
-    let row = sqlx::query(
-        "SELECT space_id,uploader_member_id,object_key,status FROM attachments WHERE id=$1",
+    let member = attachment_space_member(&state, &jar, attachment_id).await?;
+    let mut storage = state.storage.clone();
+    WriteUploadContent::execute(
+        &mut storage,
+        state.objects.as_ref(),
+        WriteUploadContentInput {
+            attachment_id: AttachmentId::from_uuid(attachment_id),
+            uploader_member_id: MemberId::from_uuid(member),
+            content: body.to_vec(),
+            max_bytes: state.attachment_max_bytes,
+        },
     )
-    .bind(attachment_id)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    let member = current_member(&state, &jar, row.get("space_id")).await?;
-    if row.get::<Uuid, _>("uploader_member_id") != member {
-        return Err(ApiError::permission_denied());
-    }
-    if row.get::<&str, _>("status") != "uploading" {
-        return Err(ApiError {
-            status: StatusCode::CONFLICT,
-            code: "conflict",
-            message: "Attachment upload is not open",
-        });
-    }
-    state
-        .objects
-        .put(row.get("object_key"), body.to_vec())
-        .await
-        .map_err(application_error)?;
+    .map_err(application_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -3624,75 +3460,26 @@ async fn complete_upload(
     Path(attachment_id): Path<Uuid>,
     Json(body): Json<CompleteUploadBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = sqlx::query(
-        "SELECT space_id,uploader_member_id,object_key,status FROM attachments WHERE id=$1",
-    )
-    .bind(attachment_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    let space_id = row.get("space_id");
-    let member = current_member(&state, &jar, space_id).await?;
-    if row.get::<Uuid, _>("uploader_member_id") != member {
-        return Err(ApiError::permission_denied());
-    }
+    let member = attachment_space_member(&state, &jar, attachment_id).await?;
     let key = idempotency_header(&headers)?;
-    let content = state
-        .objects
-        .get(row.get("object_key"))
-        .await
-        .map_err(application_error)?;
-    let digest = Sha256::digest(&content);
-    if content.len() as u64 != body.size || hex::encode(digest) != body.sha256.to_lowercase() {
-        return Err(ApiError::invalid(
-            "Attachment size or SHA-256 does not match uploaded content",
-        ));
-    }
-    let now = OffsetDateTime::now_utc();
-    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
-    lock_idempotency(&mut transaction, member, "attachment.upload.complete", key).await?;
-    let already_applied: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM idempotency_records \
-         WHERE actor_member_id=$1 AND action='attachment.upload.complete' AND idempotency_key=$2)",
+    let mut storage = state.storage.clone();
+    let attachment = CompleteUpload::execute(
+        &mut storage,
+        state.objects.as_ref(),
+        CompleteUploadInput {
+            attachment_id: AttachmentId::from_uuid(attachment_id),
+            uploader_member_id: MemberId::from_uuid(member),
+            declared: DeclaredContent {
+                size: body.size,
+                sha256_hex: body.sha256,
+            },
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            now: OffsetDateTime::now_utc(),
+        },
     )
-    .bind(member)
-    .bind(key)
-    .fetch_one(&mut *transaction)
     .await
-    .map_err(map_sqlx)?;
-    if !already_applied {
-        let changed = sqlx::query("UPDATE attachments SET length=$2,sha256=$3,status='ready',ready_at=$4 WHERE id=$1 AND uploader_member_id=$5 AND status='uploading'")
-            .bind(attachment_id).bind(i64::try_from(body.size).map_err(|_|ApiError::invalid("Attachment is too large"))?).bind(digest.as_slice()).bind(now).bind(member)
-            .execute(&mut *transaction).await.map_err(map_sqlx)?;
-        if changed.rows_affected() != 1 {
-            return Err(ApiError {
-                status: StatusCode::CONFLICT,
-                code: "conflict",
-                message: "Attachment upload is not open",
-            });
-        }
-        insert_attachment_write_records(
-            &mut transaction,
-            space_id,
-            member,
-            "attachment.upload.complete",
-            key,
-            attachment_id,
-            "attachment.ready",
-            now,
-        )
-        .await?;
-    }
-    let row = sqlx::query("SELECT * FROM attachments WHERE id=$1")
-        .bind(attachment_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(map_sqlx)?;
-    transaction.commit().await.map_err(map_sqlx)?;
-    let mut value = attachment_row(&row);
-    value["download_path"] = json!(format!("/api/v1/attachments/{attachment_id}/download"));
-    Ok(Json(value))
+    .map_err(application_error)?;
+    Ok(Json(attachment_json(&attachment, AttachmentPath::Download)))
 }
 
 async fn download_attachment(
@@ -3700,53 +3487,100 @@ async fn download_attachment(
     jar: CookieJar,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<Response, ApiError> {
-    let row = sqlx::query(
-        "SELECT space_id,object_key,status,name,media_type FROM attachments WHERE id=$1",
+    let member = attachment_space_member(&state, &jar, attachment_id).await?;
+    let mut storage = state.storage.clone();
+    let downloaded = ReadAttachment::for_member(
+        &mut storage,
+        state.objects.as_ref(),
+        AttachmentId::from_uuid(attachment_id),
+        MemberId::from_uuid(member),
     )
-    .bind(attachment_id)
-    .fetch_optional(&state.pool)
     .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    let member = current_member(&state, &jar, row.get("space_id")).await?;
-    if row.get::<&str, _>("status") != "ready" {
-        return Err(ApiError::not_found());
-    }
-    let linked: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM message_attachments links \
-         JOIN messages ON messages.id=links.message_id \
-         JOIN channel_members members ON members.channel_id=messages.channel_id \
-         WHERE links.attachment_id=$1 AND members.member_id=$2)",
-    )
-    .bind(attachment_id)
-    .bind(member)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
-    if !linked {
-        return Err(ApiError::permission_denied());
-    }
-    let content = state
-        .objects
-        .get(row.get("object_key"))
-        .await
-        .map(Bytes::from)
-        .map_err(application_error)?;
-    let filename = row
-        .get::<String, _>("name")
-        .replace(['\\', '"', '\r', '\n'], "_");
-    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-        .map_err(|_| ApiError::invalid("Attachment name cannot be represented in a header"))?;
-    let media_type = HeaderValue::from_str(row.get("media_type"))
+    .map_err(application_error)?;
+    attachment_download_response(&downloaded)
+}
+
+fn attachment_download_response(downloaded: &AttachmentContent) -> Result<Response, ApiError> {
+    let disposition = HeaderValue::from_str(&format!(
+        "attachment; filename=\"{}\"",
+        downloaded.attachment.header_safe_name()
+    ))
+    .map_err(|_| ApiError::invalid("Attachment name cannot be represented in a header"))?;
+    let media_type = HeaderValue::from_str(&downloaded.attachment.media_type)
         .map_err(|_| ApiError::invalid("Attachment media type is invalid"))?;
     Ok((
         [
             (header::CONTENT_DISPOSITION, disposition),
             (header::CONTENT_TYPE, media_type),
         ],
-        content,
+        Bytes::from(downloaded.content.clone()),
     )
         .into_response())
+}
+
+/// Attachment 响应中返回哪个操作路径。上传态返回写入路径，就绪态返回下载路径。
+enum AttachmentPath {
+    Upload,
+    Download,
+}
+
+fn attachment_json(attachment: &Attachment, path: AttachmentPath) -> Value {
+    let id = attachment.id.into_uuid();
+    let (upload_path, download_path) = match path {
+        AttachmentPath::Upload => (
+            Some(format!("/api/v1/attachments/{id}/content")),
+            Value::Null,
+        ),
+        AttachmentPath::Download => (None, json!(format!("/api/v1/attachments/{id}/download"))),
+    };
+    json!({
+        "id": id,
+        "space_id": attachment.space_id.into_uuid(),
+        "uploader_member_id": attachment.uploader_member_id.into_uuid(),
+        "original_name": attachment.name,
+        "media_type": attachment.media_type,
+        "size": attachment.length,
+        "sha256": attachment.sha256.map(hex::encode),
+        "status": attachment.status.code(),
+        "upload_path": upload_path,
+        "download_path": download_path,
+        "created_at": timestamp(attachment.created_at)
+    })
+}
+
+/// 在 actor 与 idempotency key 上取事务级锁。
+/// 尚未迁移到 application 的 Channel 成员写入路径继续使用该 helper。
+async fn lock_idempotency(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor_id: Uuid,
+    action: &str,
+    key: Uuid,
+) -> Result<(), ApiError> {
+    let lock_key = format!("{actor_id}:{action}:{key}");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(lock_key)
+        .execute(&mut **transaction)
+        .await
+        .map_err(map_sqlx)?;
+    Ok(())
+}
+
+async fn attachment_space_member(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    attachment_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    let token = require_session_token(jar)?;
+    let mut storage = state.storage.clone();
+    let access = AuthorizeAttachmentAccess::execute(
+        &mut storage,
+        &token,
+        AttachmentId::from_uuid(attachment_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(access.member_id.into_uuid())
 }
 
 fn session_token(jar: &CookieJar) -> Option<RawSessionToken> {
@@ -4183,6 +4017,28 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
             code: "pairing_lapsed",
             message: "Computer pairing expired or was already confirmed",
         },
+        // 保持既有 Browser 契约：超限视为无效请求参数，不改用 413。
+        ApplicationError::PayloadTooLarge => ApiError::invalid("Attachment is too large"),
+        ApplicationError::Domain(crate::server::domain::DomainError::InvalidAttachment) => {
+            ApiError::invalid("Attachment name and media type are required")
+        }
+        ApplicationError::Domain(crate::server::domain::DomainError::AttachmentContentMismatch) => {
+            ApiError::invalid("Attachment size or SHA-256 does not match uploaded content")
+        }
+        ApplicationError::Domain(crate::server::domain::DomainError::AttachmentNotOpen) => {
+            ApiError {
+                status: StatusCode::CONFLICT,
+                code: "conflict",
+                message: "Attachment upload is not open",
+            }
+        }
+        // 上传者不符与内容未就绪都不向调用方证明 Attachment 存在。
+        ApplicationError::Domain(crate::server::domain::DomainError::AttachmentNotOwned) => {
+            ApiError::permission_denied()
+        }
+        ApplicationError::Domain(crate::server::domain::DomainError::AttachmentNotReady) => {
+            ApiError::not_found()
+        }
         ApplicationError::PermissionDenied => ApiError {
             status: StatusCode::FORBIDDEN,
             code: "permission_denied",

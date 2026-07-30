@@ -5,11 +5,12 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::ids::{
-    ChannelId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId,
-    SpaceId, TaskId, ThreadId,
+    AttachmentId, ChannelId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId, MessageId,
+    RunId, SpaceId, TaskId, ThreadId,
 };
 use crate::server::domain::{
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
+    attachment::{Attachment, AttachmentStatus, DeclaredContent},
     attention::{
         AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
     },
@@ -24,6 +25,11 @@ use crate::server::domain::{
 };
 
 use super::{
+    attachment::{
+        CompleteUpload as CompleteAttachmentUpload,
+        CompleteUploadInput as CompleteAttachmentUploadInput, OpenUpload, OpenUploadInput,
+        ReadAttachment, WriteUploadContent, WriteUploadContentInput,
+    },
     attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
     computer::{
         AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing, ConfirmPairingInput,
@@ -45,9 +51,10 @@ use super::{
         RetireAgent, SetPermission,
     },
     ports::{
-        ApplicationError, AuthenticatedHuman, ComputerRecord, Effect, MessageDraft, PairedComputer,
-        PairingCodePort, PasswordPort, PublishedMessage, RawPairingCode, RawSessionToken,
-        ServerTransaction, SessionTokenPort, TransactionPort,
+        ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord, Effect,
+        MessageDraft, PairedComputer, PairingCodePort, PasswordPort, PublishedMessage,
+        RawPairingCode, RawSessionToken, ServerTransaction, SessionTokenPort, StoredObject,
+        TransactionPort,
     },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -169,6 +176,9 @@ struct MemoryState {
     paired_computers: Vec<PairedComputer>,
     computer_tokens: HashMap<String, ComputerId>,
     idempotency_locks: Vec<(MemberId, String, IdempotencyKey)>,
+    attachments: HashMap<AttachmentId, Attachment>,
+    visible_attachments: HashSet<(AttachmentId, MemberId)>,
+    attachment_writes: Vec<(String, AttachmentId, String)>,
 }
 
 #[derive(Default)]
@@ -474,6 +484,70 @@ impl ServerTransaction for MemoryTransaction {
         self.state
             .idempotency_locks
             .push((actor, action.to_owned(), key));
+        Ok(())
+    }
+
+    async fn space_of_attachment(
+        &mut self,
+        attachment_id: AttachmentId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self
+            .state
+            .attachments
+            .get(&attachment_id)
+            .map(|attachment| attachment.space_id))
+    }
+
+    async fn attachment(
+        &mut self,
+        id: AttachmentId,
+    ) -> Result<Option<Attachment>, ApplicationError> {
+        Ok(self.state.attachments.get(&id).cloned())
+    }
+
+    async fn insert_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        if self.state.attachments.contains_key(&attachment.id) {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state
+            .attachments
+            .insert(attachment.id, attachment.clone());
+        Ok(())
+    }
+
+    async fn save_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        self.state
+            .attachments
+            .insert(attachment.id, attachment.clone());
+        Ok(())
+    }
+
+    async fn attachment_is_visible(
+        &mut self,
+        id: AttachmentId,
+        viewer: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.visible_attachments.contains(&(id, viewer)))
+    }
+
+    async fn record_attachment_write(
+        &mut self,
+        _space_id: SpaceId,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        attachment_id: AttachmentId,
+        event_kind: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .resource_idempotency
+            .insert((actor, action.to_owned(), key), attachment_id.into_uuid());
+        self.state.attachment_writes.push((
+            action.to_owned(),
+            attachment_id,
+            event_kind.to_owned(),
+        ));
         Ok(())
     }
 
@@ -2471,6 +2545,402 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
             .await
             .err(),
         Some(ApplicationError::NotFound)
+    );
+}
+
+/// 测试用对象存储：内存 map，记录写入次数以验证内容路径的幂等性。
+#[derive(Default)]
+struct MemoryObjects {
+    objects: std::sync::Mutex<HashMap<String, Vec<u8>>>,
+    puts: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl AttachmentObjectPort for MemoryObjects {
+    async fn put(
+        &self,
+        object_key: &str,
+        content: Vec<u8>,
+    ) -> Result<StoredObject, ApplicationError> {
+        use sha2::Digest;
+        self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let stored = StoredObject {
+            length: content.len() as u64,
+            sha256: sha2::Sha256::digest(&content).into(),
+        };
+        self.objects
+            .lock()
+            .expect("object lock")
+            .insert(object_key.to_owned(), content);
+        Ok(stored)
+    }
+
+    async fn get(&self, object_key: &str) -> Result<Vec<u8>, ApplicationError> {
+        self.objects
+            .lock()
+            .expect("object lock")
+            .get(object_key)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+}
+
+fn declared(content: &[u8]) -> DeclaredContent {
+    use sha2::Digest;
+    DeclaredContent {
+        size: content.len() as u64,
+        sha256_hex: hex::encode(sha2::Sha256::digest(content)),
+    }
+}
+
+async fn open_test_upload(
+    port: &mut MemoryPort,
+    attachment_id: AttachmentId,
+    space_id: SpaceId,
+    uploader: MemberId,
+    key: IdempotencyKey,
+) -> Attachment {
+    OpenUpload::execute(
+        port,
+        OpenUploadInput {
+            attachment_id,
+            space_id,
+            uploader_member_id: uploader,
+            name: "report.pdf",
+            media_type: "application/pdf",
+            idempotency_key: key,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("upload opens")
+    .attachment
+}
+
+#[tokio::test]
+async fn an_upload_completes_once_and_replays_without_a_second_ready_event() {
+    let mut port = MemoryPort::default();
+    let objects = MemoryObjects::default();
+    let attachment_id = AttachmentId::from_uuid(Uuid::from_u128(6001));
+    let space_id = space(6002);
+    let uploader = member(6003);
+    open_test_upload(
+        &mut port,
+        attachment_id,
+        space_id,
+        uploader,
+        idempotency(6004),
+    )
+    .await;
+
+    let content = b"report bytes".to_vec();
+    WriteUploadContent::execute(
+        &mut port,
+        &objects,
+        WriteUploadContentInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            content: content.clone(),
+            max_bytes: 1024,
+        },
+    )
+    .await
+    .expect("content is written");
+
+    let complete_key = idempotency(6005);
+    let completed = CompleteAttachmentUpload::execute(
+        &mut port,
+        &objects,
+        CompleteAttachmentUploadInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            declared: declared(&content),
+            idempotency_key: complete_key,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("upload completes");
+    assert_eq!(completed.status, AttachmentStatus::Ready);
+    assert_eq!(completed.length, Some(content.len() as u64));
+
+    let replayed = CompleteAttachmentUpload::execute(
+        &mut port,
+        &objects,
+        CompleteAttachmentUploadInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            declared: declared(&content),
+            idempotency_key: complete_key,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("replay succeeds");
+    assert_eq!(replayed, completed);
+    // ready 事件只产生一次，重复 complete 不再写事件。
+    assert_eq!(
+        port.state
+            .attachment_writes
+            .iter()
+            .filter(|(_, _, kind)| kind == "attachment.ready")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn opening_an_upload_twice_with_the_same_key_returns_the_first_attachment() {
+    let mut port = MemoryPort::default();
+    let space_id = space(6010);
+    let uploader = member(6011);
+    let key = idempotency(6012);
+    let first = open_test_upload(
+        &mut port,
+        AttachmentId::from_uuid(Uuid::from_u128(6013)),
+        space_id,
+        uploader,
+        key,
+    )
+    .await;
+    let replayed = OpenUpload::execute(
+        &mut port,
+        OpenUploadInput {
+            attachment_id: AttachmentId::from_uuid(Uuid::from_u128(6019)),
+            space_id,
+            uploader_member_id: uploader,
+            name: "report.pdf",
+            media_type: "application/pdf",
+            idempotency_key: key,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("replay succeeds");
+    assert!(!replayed.created);
+    assert_eq!(replayed.attachment, first);
+    assert_eq!(port.state.attachments.len(), 1);
+}
+
+#[tokio::test]
+async fn a_mismatched_declaration_keeps_the_upload_open_and_writes_no_content_twice() {
+    let mut port = MemoryPort::default();
+    let objects = MemoryObjects::default();
+    let attachment_id = AttachmentId::from_uuid(Uuid::from_u128(6020));
+    let uploader = member(6021);
+    open_test_upload(
+        &mut port,
+        attachment_id,
+        space(6022),
+        uploader,
+        idempotency(6023),
+    )
+    .await;
+    let content = b"report bytes".to_vec();
+    WriteUploadContent::execute(
+        &mut port,
+        &objects,
+        WriteUploadContentInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            content: content.clone(),
+            max_bytes: 1024,
+        },
+    )
+    .await
+    .expect("content is written");
+
+    // 声明与实际内容不一致时拒绝，且不改变状态。
+    let mut wrong = declared(&content);
+    wrong.size += 1;
+    assert_eq!(
+        CompleteAttachmentUpload::execute(
+            &mut port,
+            &objects,
+            CompleteAttachmentUploadInput {
+                attachment_id,
+                uploader_member_id: uploader,
+                declared: wrong,
+                idempotency_key: idempotency(6024),
+                now: OffsetDateTime::UNIX_EPOCH,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::AttachmentContentMismatch
+        ))
+    );
+    assert_eq!(
+        port.state.attachments[&attachment_id].status,
+        AttachmentStatus::Uploading
+    );
+
+    // 重新写入同一内容后可以完成，写入路径本身是幂等的。
+    WriteUploadContent::execute(
+        &mut port,
+        &objects,
+        WriteUploadContentInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            content: content.clone(),
+            max_bytes: 1024,
+        },
+    )
+    .await
+    .expect("content is rewritten");
+    assert_eq!(objects.puts.load(std::sync::atomic::Ordering::Relaxed), 2);
+    CompleteAttachmentUpload::execute(
+        &mut port,
+        &objects,
+        CompleteAttachmentUploadInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            declared: declared(&content),
+            idempotency_key: idempotency(6025),
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("upload completes");
+}
+
+#[tokio::test]
+async fn only_the_uploader_writes_content_and_an_oversized_body_is_rejected() {
+    let mut port = MemoryPort::default();
+    let objects = MemoryObjects::default();
+    let attachment_id = AttachmentId::from_uuid(Uuid::from_u128(6030));
+    let uploader = member(6031);
+    open_test_upload(
+        &mut port,
+        attachment_id,
+        space(6032),
+        uploader,
+        idempotency(6033),
+    )
+    .await;
+
+    assert_eq!(
+        WriteUploadContent::execute(
+            &mut port,
+            &objects,
+            WriteUploadContentInput {
+                attachment_id,
+                uploader_member_id: member(6039),
+                content: b"other".to_vec(),
+                max_bytes: 1024,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::AttachmentNotOwned
+        ))
+    );
+    assert_eq!(
+        WriteUploadContent::execute(
+            &mut port,
+            &objects,
+            WriteUploadContentInput {
+                attachment_id,
+                uploader_member_id: uploader,
+                content: vec![0; 1025],
+                max_bytes: 1024,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::PayloadTooLarge)
+    );
+    // 两次拒绝都不落对象存储。
+    assert_eq!(objects.puts.load(std::sync::atomic::Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders() {
+    let mut port = MemoryPort::default();
+    let objects = MemoryObjects::default();
+    let attachment_id = AttachmentId::from_uuid(Uuid::from_u128(6040));
+    let uploader = member(6041);
+    let viewer = member(6042);
+    open_test_upload(
+        &mut port,
+        attachment_id,
+        space(6043),
+        uploader,
+        idempotency(6044),
+    )
+    .await;
+
+    // 未就绪时任何身份都读不到，且不区分是否存在。
+    assert_eq!(
+        ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
+            .await
+            .err(),
+        Some(ApplicationError::Domain(
+            crate::server::domain::DomainError::AttachmentNotReady
+        ))
+    );
+
+    let content = b"report bytes".to_vec();
+    WriteUploadContent::execute(
+        &mut port,
+        &objects,
+        WriteUploadContentInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            content: content.clone(),
+            max_bytes: 1024,
+        },
+    )
+    .await
+    .expect("content is written");
+    CompleteAttachmentUpload::execute(
+        &mut port,
+        &objects,
+        CompleteAttachmentUploadInput {
+            attachment_id,
+            uploader_member_id: uploader,
+            declared: declared(&content),
+            idempotency_key: idempotency(6045),
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .expect("upload completes");
+
+    // 就绪后仍需通过某条可读 Message 链接才可见。
+    assert_eq!(
+        ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
+            .await
+            .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+    // 上传者本人在 Agent 路径上可以取回未链接的 Attachment。
+    assert_eq!(
+        ReadAttachment::for_uploader_or_member(&mut port, &objects, attachment_id, uploader)
+            .await
+            .expect("uploader reads its own attachment")
+            .content,
+        content
+    );
+    // Human 路径不给上传者例外，仍要求链接。
+    assert_eq!(
+        ReadAttachment::for_member(&mut port, &objects, attachment_id, uploader)
+            .await
+            .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+
+    port.state
+        .visible_attachments
+        .insert((attachment_id, viewer));
+    assert_eq!(
+        ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
+            .await
+            .expect("linked message grants access")
+            .content,
+        content
     );
 }
 
