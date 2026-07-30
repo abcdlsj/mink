@@ -288,9 +288,9 @@ pub(super) struct MemoryContentResponse {
     content: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+/// Attention 策略是 Server 的固定策略,没有存储也没有写入路径,因此不可修改。
 pub(super) struct UpdateAgentRequest {
     role_text: Option<String>,
-    attention_config: Option<AttentionConfig>,
     lifecycle: Option<LifecycleAction>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]

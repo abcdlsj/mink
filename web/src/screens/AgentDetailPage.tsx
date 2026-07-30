@@ -66,18 +66,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const current = agent.data;
-    if (!current) return;
-    update.mutate({
-      role_text: String(form.get("role_text") ?? ""),
-      attention_config: {
-        ...current.attention_config,
-        ambient_enabled: form.get("ambient_enabled") === "on",
-        ambient_debounce_seconds: Number(form.get("ambient_debounce_seconds")),
-        ambient_max_wait_seconds: Number(form.get("ambient_max_wait_seconds")),
-        max_retry_count: Number(form.get("max_retry_count")),
-      },
-    });
+    if (!agent.data) return;
+    update.mutate({ role_text: String(form.get("role_text") ?? "") });
   }
 
   if (agent.isPending) return <div className="detail-skeleton" aria-label="Loading Agent" />;
@@ -133,7 +123,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}
             <form className="agent-settings" onSubmit={save}>
               <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.desired_lifecycle === "retired"} /></label>
-              <fieldset disabled={!canManage || value.desired_lifecycle === "retired"}><legend>Attention</legend><label className="agent-check"><input name="ambient_enabled" type="checkbox" defaultChecked={value.attention_config.ambient_enabled} /> Ambient Channel attention</label><label>Debounce seconds<input name="ambient_debounce_seconds" type="number" min={1} max={60} defaultValue={value.attention_config.ambient_debounce_seconds} /></label><label>Maximum wait seconds<input name="ambient_max_wait_seconds" type="number" min={5} max={300} defaultValue={value.attention_config.ambient_max_wait_seconds} /></label><label>Maximum retries<input name="max_retry_count" type="number" min={1} max={255} defaultValue={value.attention_config.max_retry_count} /></label></fieldset>
+              <p className="section-kicker">ATTENTION POLICY / SERVER MANAGED</p>
+              <dl className="detail-grid"><Field label="Ambient attention" value={value.attention_config.ambient_enabled ? "Enabled" : "Disabled"} /><Field label="Debounce" value={`${value.attention_config.ambient_debounce_seconds}s`} tabular /><Field label="Maximum wait" value={`${value.attention_config.ambient_max_wait_seconds}s`} tabular /><Field label="Maximum retries" value={String(value.attention_config.max_retry_count)} tabular /></dl>
               {canManage && value.desired_lifecycle !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
             </form>
             {canManage && value.desired_lifecycle !== "retired" ? <section className="agent-lifecycle" aria-label="Agent lifecycle"><h2>Lifecycle</h2>{value.desired_lifecycle === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}{value.desired_lifecycle === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}{value.desired_lifecycle === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}{value.provision_status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}<button className="danger-button" type="button" disabled={update.isPending || retirement.isPending} onClick={() => retirement.mutate()}><Trash2 /> Retire permanently</button></section> : null}

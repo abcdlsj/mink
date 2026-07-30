@@ -2389,10 +2389,12 @@ async fn list_agents(
 ) -> Result<Json<Value>, ApiError> {
     current_member(&state, &jar, space_id).await?;
     let rows = sqlx::query(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at, \
-         (SELECT status FROM agent_runs r WHERE r.agent_id=a.member_id AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1) AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
-         WHERE a.space_id=$1 ORDER BY a.created_at",
+        &format!(
+            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+             FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
+             {ACTIVITY_JOINS} WHERE a.space_id=$1 ORDER BY a.created_at"
+        ),
     )
     .bind(space_id)
     .fetch_all(&state.pool)
@@ -2407,10 +2409,12 @@ async fn get_agent(
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let row = sqlx::query(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at, \
-         (SELECT status FROM agent_runs r WHERE r.agent_id=a.member_id AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1) AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
-         WHERE a.member_id=$1",
+        &format!(
+            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+             FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
+             {ACTIVITY_JOINS} WHERE a.member_id=$1"
+        ),
     )
     .bind(agent_id)
     .fetch_optional(&state.pool)
@@ -2490,12 +2494,12 @@ async fn retire_agent(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status, \
-         c.deleted_at AS computer_deleted_at,NULL::TEXT AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id \
-         LEFT JOIN computers c ON c.id=a.computer_id WHERE a.member_id=$1",
-    )
+    let row = sqlx::query(&format!(
+        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+             FROM agents a JOIN members m ON m.id=a.member_id \
+             LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"
+    ))
     .bind(agent_id)
     .fetch_one(&state.pool)
     .await
@@ -2592,14 +2596,101 @@ async fn create_agent(
     .map_err(application_error)?;
 
     let row = sqlx::query(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,c.deleted_at AS computer_deleted_at,NULL::TEXT AS run_status \
-         FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id WHERE a.member_id=$1",
+        &format!(
+            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+             FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id \
+             {ACTIVITY_JOINS} WHERE a.member_id=$1"
+        ),
     )
     .bind(agent_id)
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
     Ok((StatusCode::CREATED, Json(agent_row(&row))))
+}
+
+/// Agent activity 与 last_error_code 的事实来源。
+///
+/// activity 取当前非终态 Run 的 status、Focus 地址和绑定 Task；Focus 地址是
+/// `#slug:seq`，不含 Message 正文。last_error_code 先取最近一次失败 Run 上报的
+/// 错误码，没有失败 Run 时退回该 Agent pending Item 上记录的领取错误。两者都是
+/// 已落库的可验证事实，不由 lifecycle 猜测。
+const ACTIVITY_COLUMNS: &str = "\
+    active_run.status AS run_status,\
+    active_run.task_id AS run_task_id,\
+    active_task.title AS run_task_title,\
+    focus_channel.slug AS run_focus_slug,\
+    focus_message.channel_seq AS run_focus_seq,\
+    COALESCE(\
+        (SELECT r.error_code FROM agent_runs r \
+         WHERE r.agent_id=a.member_id AND r.outcome_code='failed' AND r.error_code IS NOT NULL \
+         ORDER BY r.finished_at DESC NULLS LAST,r.id DESC LIMIT 1),\
+        (SELECT i.last_error_code FROM inbox_items i \
+         WHERE i.agent_id=a.member_id AND i.status='pending' AND i.last_error_code IS NOT NULL \
+         ORDER BY i.created_at DESC,i.id DESC LIMIT 1)\
+    ) AS last_error_code";
+
+/// activity 需要的 join。与 [`ACTIVITY_COLUMNS`] 成对使用。
+const ACTIVITY_JOINS: &str = "\
+    LEFT JOIN LATERAL (\
+        SELECT r.status,r.task_id,r.focus_thread_id FROM agent_runs r \
+        WHERE r.agent_id=a.member_id \
+          AND r.status NOT IN ('completed','yielded','failed','canceled') \
+        ORDER BY r.created_at DESC LIMIT 1\
+    ) active_run ON true \
+    LEFT JOIN tasks active_task ON active_task.id=active_run.task_id \
+    LEFT JOIN threads focus_thread ON focus_thread.id=active_run.focus_thread_id \
+    LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id \
+    LEFT JOIN messages focus_message ON focus_message.id=focus_thread.root_message_id";
+
+/// Attention 策略。当前是 Server 的固定策略,不是每个 Agent 的可配置字段:
+/// 没有任何表保存它,写入路径也不存在。投影为只读值,使 Browser 知道生效参数。
+fn attention_policy_json() -> Value {
+    json!({
+        "dm_immediate": true,
+        "mention_immediate": true,
+        "ambient_enabled": true,
+        "ambient_debounce_seconds": 30,
+        "ambient_max_wait_seconds": 300,
+        "max_retry_count": 5
+    })
+}
+
+/// Focus 的可读地址。`#design:42`定位到 Channel 与 Root Message 序号，
+/// 不暴露 Message 正文。
+fn focus_address(row: &sqlx::postgres::PgRow) -> Option<String> {
+    let slug: Option<String> = row.get("run_focus_slug");
+    let seq: Option<i64> = row.get("run_focus_seq");
+    Some(format!("#{}:{}", slug?, seq?))
+}
+
+/// activity 只描述可验证动作，见 [09-security-operations](../../../docs/design/09-security-operations.md)。
+fn agent_activity(row: &sqlx::postgres::PgRow, activity_status: &str) -> Value {
+    let Some(run_status) = row.get::<Option<String>, _>("run_status") else {
+        return Value::Null;
+    };
+    let address = focus_address(row);
+    let task_title: Option<String> = row.get("run_task_title");
+    let label = match (run_status.as_str(), address.as_deref()) {
+        ("stopping", Some(address)) => format!("Stopping work on {address}"),
+        ("stopping", None) => "Stopping the current Run".to_owned(),
+        ("finalizing", Some(address)) => format!("Finishing work on {address}"),
+        ("finalizing", None) => "Finishing the current Run".to_owned(),
+        ("queued", Some(address)) => format!("Queued for {address}"),
+        ("queued", None) => "Queued for a Run".to_owned(),
+        (_, Some(address)) => match task_title.as_deref() {
+            Some(title) => format!("Working on {address} for {title}"),
+            None => format!("Working on {address}"),
+        },
+        (_, None) => "Working on a Run".to_owned(),
+    };
+    json!({
+        "kind": run_status,
+        "label": label,
+        // Run 状态本身没有独立时间戳，activity 与 activity_status 同源。
+        "status": activity_status
+    })
 }
 
 fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
@@ -2643,9 +2734,9 @@ fn agent_row(row: &sqlx::postgres::PgRow) -> Value {
         "provision_status": provision_status,
         "activity_status": activity_status,
         "driver_kind": row.get::<String,_>("driver_kind"),
-        "attention_config": {"dm_immediate":true,"mention_immediate":true,"ambient_enabled":true,"ambient_debounce_seconds":30,"ambient_max_wait_seconds":300,"max_retry_count":5},
-        "activity": Value::Null,
-        "last_error_code": if lifecycle == "error" {Some("driver_unavailable")} else {None},
+        "attention_config": attention_policy_json(),
+        "activity": agent_activity(row, activity_status),
+        "last_error_code": row.get::<Option<String>,_>("last_error_code"),
         "memory_files": [],
         "created_at": timestamp(row.get("created_at")),
         "updated_at": timestamp(row.get("created_at")),
@@ -4624,6 +4715,74 @@ mod tests {
             .await
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
+        let fixture = CapabilityFixture::create().await;
+        let agent_id = fixture.context.agent_id.into_uuid();
+        let focus_id = fixture.context.focus_thread_id.into_uuid();
+
+        async fn read_agent(fixture: &CapabilityFixture, agent_id: Uuid) -> Value {
+            let row = sqlx::query(&format!(
+                "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+                 c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
+                 FROM agents a JOIN members m ON m.id=a.member_id \
+                 LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} \
+                 WHERE a.member_id=$1"
+            ))
+            .bind(agent_id)
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+            agent_row(&row)
+        }
+
+        // 没有失败事实时 last_error_code 为空，不再由 lifecycle 猜测。
+        let initial = read_agent(&fixture, agent_id).await;
+        assert_eq!(initial["last_error_code"], Value::Null);
+
+        // 活跃 Run 的 status 与 Focus 地址进入 activity。fixture 已建立该 Run。
+        let run_id = fixture.context.run_id.into_uuid();
+        let running = read_agent(&fixture, agent_id).await;
+        assert_eq!(running["activity"]["kind"], "running");
+        let label = running["activity"]["label"].as_str().unwrap();
+        // Focus 地址定位 Channel 与 Root Message 序号，不含 Message 正文。
+        assert!(label.contains("#general:1"), "{label}");
+        assert_eq!(running["activity_status"], "running");
+
+        // pending Item 上的领取错误在没有失败 Run 时作为 last_error_code。
+        let item_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,\
+             status,available_at,last_error_code,created_at) \
+             VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),'run_claim_unavailable',now())",
+        )
+        .bind(item_id)
+        .bind(fixture.context.space_id.into_uuid())
+        .bind(agent_id)
+        .bind(focus_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+        let with_item_error = read_agent(&fixture, agent_id).await;
+        assert_eq!(with_item_error["last_error_code"], "run_claim_unavailable");
+
+        // 失败 Run 的错误码优先于 Item 上的领取错误。
+        sqlx::query(
+            "UPDATE agent_runs SET status='failed',outcome_code='failed',\
+             error_code='session_lost',finished_at=now() WHERE id=$1",
+        )
+        .bind(run_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+        let failed = read_agent(&fixture, agent_id).await;
+        assert_eq!(failed["last_error_code"], "session_lost");
+        // 终态 Run 不再是活跃 Run，activity 回到空。
+        assert_eq!(failed["activity"], Value::Null);
+
+        fixture.destroy().await;
     }
 
     #[tokio::test]

@@ -535,8 +535,8 @@ export interface components {
             /** Format: uuid */
             thread_id: string;
         };
+        /** @description Attention 策略是 Server 的固定策略,没有存储也没有写入路径,因此不可修改。 */
         UpdateAgentRequest: {
-            attention_config?: null | components["schemas"]["AttentionConfig"];
             lifecycle?: null | components["schemas"]["LifecycleAction"];
             role_text?: string | null;
         };

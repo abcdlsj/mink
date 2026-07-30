@@ -90,6 +90,12 @@ DELETE /api/v1/computers/{computer_id}
 
 Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得读取 Provider locator、transcript、隐藏推理或未授权的 Message 正文。
 
+Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`label`用 Focus 地址`#slug:seq`和绑定 Task 标题描述正在进行的动作。没有非终态 Run 时`activity`为空。该字段不含 Message 正文、命令参数或隐藏推理，见 [安全与运维](09-security-operations.md)。
+
+`last_error_code`先取该 Agent 最近一次失败 Run 上报的`error_code`，没有失败 Run 时退回其 pending Item 记录的`last_error_code`。两者都是已落库事实，不由 lifecycle 推测。
+
+`attention_config`是 Server 的固定策略，没有对应存储也没有写入路径，因此只出现在读取投影中。`PATCH /api/v1/agents/{agent_id}`不接受该字段。
+
 删除 Agent 表示退役并清除 Computer assignment，不删除历史 Member、Message、Task 或 Result。
 
 Computer 仍有已分配 Agent 时，删除请求返回`computer_has_agents`冲突。Server 不得在该请求中自动退役或迁移 Agent。
