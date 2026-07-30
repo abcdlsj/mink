@@ -4,7 +4,7 @@
 // driver actually produces a real reply end-to-end. Usage:
 //   node scripts/dev-probe.mjs <space-slug>
 
-import { randomBytes } from "node:crypto";
+import { uuidv7 } from "../web/scripts/uuid.mjs";
 
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
@@ -17,21 +17,6 @@ if (!SLUG) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function uuidv7() {
-  const bytes = randomBytes(16);
-  const ms = Date.now();
-  bytes[0] = (ms / 2 ** 40) & 0xff;
-  bytes[1] = (ms / 2 ** 32) & 0xff;
-  bytes[2] = (ms / 2 ** 24) & 0xff;
-  bytes[3] = (ms / 2 ** 16) & 0xff;
-  bytes[4] = (ms / 2 ** 8) & 0xff;
-  bytes[5] = ms & 0xff;
-  bytes[6] = (bytes[6] & 0x0f) | 0x70;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 async function api(method, path, { cookie, body } = {}) {
   const headers = { "idempotency-key": uuidv7() };

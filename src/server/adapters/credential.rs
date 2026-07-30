@@ -1,5 +1,10 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
-use uuid::Uuid;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand::{
+    RngCore,
+    distributions::{Distribution, Uniform},
+    rngs::OsRng,
+};
 
 use crate::server::application::ports::{
     ApplicationError, InvitationTokenPort, PairingCodePort, PasswordPort, RawInvitationToken,
@@ -10,8 +15,7 @@ pub(super) struct Argon2Passwords;
 
 impl PasswordPort for Argon2Passwords {
     fn hash(&self, password: &str) -> Result<String, ApplicationError> {
-        let salt = SaltString::encode_b64(Uuid::now_v7().as_bytes())
-            .map_err(|_| ApplicationError::Internal)?;
+        let salt = SaltString::generate(&mut OsRng);
         Ok(Argon2::default()
             .hash_password(password.as_bytes(), &salt)
             .map_err(|_| ApplicationError::Internal)?
@@ -28,27 +32,19 @@ impl PasswordPort for Argon2Passwords {
     }
 }
 
-pub(super) struct UuidSessionTokens;
+pub(super) struct RandomSessionTokens;
 
-impl SessionTokenPort for UuidSessionTokens {
+impl SessionTokenPort for RandomSessionTokens {
     fn generate(&self) -> RawSessionToken {
-        RawSessionToken::new(format!(
-            "{}{}",
-            Uuid::now_v7().simple(),
-            Uuid::now_v7().simple()
-        ))
+        RawSessionToken::new(random_token())
     }
 }
 
-pub(super) struct UuidInvitationTokens;
+pub(super) struct RandomInvitationTokens;
 
-impl InvitationTokenPort for UuidInvitationTokens {
+impl InvitationTokenPort for RandomInvitationTokens {
     fn generate(&self) -> RawInvitationToken {
-        RawInvitationToken::new(format!(
-            "{}{}",
-            Uuid::now_v7().simple(),
-            Uuid::now_v7().simple()
-        ))
+        RawInvitationToken::new(random_token())
     }
 }
 
@@ -56,11 +52,15 @@ pub(super) struct NumericPairingCodes;
 
 impl PairingCodePort for NumericPairingCodes {
     fn generate(&self) -> RawPairingCode {
-        let bytes: [u8; 4] = Uuid::now_v7().as_bytes()[..4]
-            .try_into()
-            .expect("a UUID provides at least four bytes");
-        RawPairingCode::new(format!("{:06}", u32::from_be_bytes(bytes) % 1_000_000))
+        let code = Uniform::from(0..1_000_000).sample(&mut OsRng);
+        RawPairingCode::new(format!("{code:06}"))
     }
+}
+
+fn random_token() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 #[cfg(test)]
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn session_tokens_are_unique_and_hidden_from_debug_output() {
-        let tokens = UuidSessionTokens;
+        let tokens = RandomSessionTokens;
         let first = tokens.generate();
         let second = tokens.generate();
         assert_ne!(first.expose(), second.expose());
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn invitation_tokens_are_unique_and_hidden_from_debug_output() {
-        let tokens = UuidInvitationTokens;
+        let tokens = RandomInvitationTokens;
         let first = tokens.generate();
         let second = tokens.generate();
         assert_ne!(first.expose(), second.expose());

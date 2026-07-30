@@ -6,7 +6,10 @@ mod drivers;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, ensure};
+use backon::{BackoffBuilder, ExponentialBuilder};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
+use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoClientRequest};
@@ -205,16 +208,34 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     )
     .await
     .map_err(|error| anyhow::anyhow!(error))?;
-    connect(
-        &config.server_url,
-        &secrets,
-        &mut storage,
-        &mut driver,
-        &mut homes,
-        config.max_concurrent_runs,
-        &mut yield_interrupt_rx,
-    )
-    .await
+    let mut reconnect = ExponentialBuilder::default()
+        .with_jitter()
+        .with_min_delay(std::time::Duration::from_secs(1))
+        .with_max_delay(std::time::Duration::from_secs(30))
+        .without_max_times()
+        .build();
+    loop {
+        match connect(
+            &config.server_url,
+            &secrets,
+            &mut storage,
+            &mut driver,
+            &mut homes,
+            config.max_concurrent_runs,
+            &mut yield_interrupt_rx,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                let delay = reconnect
+                    .next()
+                    .expect("an unlimited reconnect backoff always yields a delay");
+                tracing::warn!(%error, ?delay, "Computer connection lost; retrying");
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -677,7 +698,9 @@ async fn find_paired_computer(root: &Path) -> anyhow::Result<Option<(PathBuf, Co
 }
 
 async fn pair(root: &Path, server: &url::Url) -> anyhow::Result<(PathBuf, ComputerSecrets)> {
-    let token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
+    let mut token_bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut token_bytes);
+    let token = URL_SAFE_NO_PAD.encode(token_bytes);
     let hostname = hostname::get()
         .context("failed to read Computer hostname")?
         .to_string_lossy()

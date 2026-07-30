@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, pin::Pin};
 
 use anyhow::{Context, Result, bail};
+use async_openai::{Client, config::OpenAIConfig, error::OpenAIError};
 use async_trait::async_trait;
-use futures_util::StreamExt;
-use reqwest::Client;
+use futures_util::{Stream, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::mpsc;
 
@@ -70,29 +70,24 @@ pub(super) trait Provider: Send + Sync {
 }
 
 pub(super) struct OpenAiProvider {
-    client: Client,
+    client: Client<OpenAIConfig>,
     config: ProviderConfig,
-    chat_url: String,
 }
 
 impl OpenAiProvider {
     pub(super) fn new(config: ProviderConfig) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(300))
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .context("failed to create HTTP client")?;
         let base = config
             .base_url
             .as_deref()
             .unwrap_or("https://api.openai.com/v1")
             .trim_end_matches('/')
             .to_owned();
-        let chat_url = format!("{base}/chat/completions");
+        let openai = OpenAIConfig::new()
+            .with_api_key(config.api_key.expose_secret())
+            .with_api_base(base);
         Ok(Self {
-            client,
+            client: Client::with_config(openai),
             config,
-            chat_url,
         })
     }
 }
@@ -105,34 +100,41 @@ impl Provider for OpenAiProvider {
         tools: &[ToolDef],
     ) -> Result<mpsc::Receiver<Chunk>> {
         let body = build_openai_request(messages, tools, &self.config);
-        let response = self
+        type ProviderStream =
+            Pin<Box<dyn Stream<Item = std::result::Result<serde_json::Value, OpenAIError>> + Send>>;
+        let mut response: ProviderStream = self
             .client
-            .post(&self.chat_url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.config.api_key.expose_secret()),
-            )
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .json(&body)
-            .send()
+            .chat()
+            .create_stream_byot(body)
             .await
             .context("failed to call chat completions")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            bail!("chat API error ({status})");
-        }
-
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
-            if let Err(e) = parse_openai_stream(response, &tx).await {
+            let mut state = OpenAiStreamState::default();
+            while let Some(chunk) = response.next().await {
+                let result = match chunk {
+                    Ok(chunk) => handle_stream_chunk(chunk, &mut state, &tx).await,
+                    Err(error) => Err(anyhow::Error::new(error)),
+                };
+                if let Err(error) = result {
+                    let _ = tx
+                        .send(Chunk::Error {
+                            message: error.to_string(),
+                        })
+                        .await;
+                    return;
+                }
+            }
+            if let Err(error) = flush_tool_calls(&mut state, &tx).await {
                 let _ = tx
                     .send(Chunk::Error {
-                        message: format!("stream parse error: {e}"),
+                        message: error.to_string(),
                     })
                     .await;
+                return;
             }
+            let _ = tx.send(Chunk::Done { usage: state.usage }).await;
         });
         Ok(rx)
     }
@@ -249,36 +251,10 @@ fn build_openai_request(
     request
 }
 
-async fn parse_openai_stream(response: reqwest::Response, tx: &mpsc::Sender<Chunk>) -> Result<()> {
-    let mut stream = response.bytes_stream();
-    let mut buffer = Vec::new();
-    let mut state = OpenAiStreamState::default();
-
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.context("failed to read stream chunk")?;
-        buffer.extend_from_slice(&chunk);
-        while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-            let line = String::from_utf8(buffer.drain(..=newline).collect())
-                .context("SSE stream contains invalid UTF-8")?;
-            if handle_sse_line(&line, &mut state, tx).await? {
-                return Ok(());
-            }
-        }
-    }
-
-    if !buffer.is_empty() {
-        let line = String::from_utf8(buffer).context("SSE stream contains invalid UTF-8")?;
-        let _ = handle_sse_line(&line, &mut state, tx).await?;
-    }
-    flush_tool_calls(&mut state, tx).await?;
-    send_done_once(&mut state, None, tx).await;
-    Ok(())
-}
-
 #[derive(Default)]
 struct OpenAiStreamState {
     tool_calls: BTreeMap<usize, PendingToolCall>,
-    done_sent: bool,
+    usage: Option<TokenUsage>,
 }
 
 #[derive(Default)]
@@ -288,26 +264,11 @@ struct PendingToolCall {
     arguments: String,
 }
 
-async fn handle_sse_line(
-    line: &str,
+async fn handle_stream_chunk(
+    parsed: serde_json::Value,
     state: &mut OpenAiStreamState,
     tx: &mpsc::Sender<Chunk>,
-) -> Result<bool> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with(':') {
-        return Ok(false);
-    }
-    let Some(data) = line.strip_prefix("data:").map(str::trim_start) else {
-        return Ok(false);
-    };
-    if data == "[DONE]" {
-        flush_tool_calls(state, tx).await?;
-        send_done_once(state, None, tx).await;
-        return Ok(true);
-    }
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(data).context("SSE data is not valid JSON")?;
+) -> Result<()> {
     if let Some(choice) = parsed
         .get("choices")
         .and_then(serde_json::Value::as_array)
@@ -353,16 +314,13 @@ async fn handle_sse_line(
             }
         }
 
-        if let Some(reason) = choice["finish_reason"].as_str() {
-            if reason == "tool_calls" {
-                flush_tool_calls(state, tx).await?;
-            }
-            send_done_once(state, None, tx).await;
+        if choice["finish_reason"].as_str() == Some("tool_calls") {
+            flush_tool_calls(state, tx).await?;
         }
     }
 
     if let Some(usage) = parsed.get("usage").filter(|value| !value.is_null()) {
-        let usage = TokenUsage {
+        state.usage = Some(TokenUsage {
             input_tokens: usage["prompt_tokens"].as_i64().unwrap_or(0) as i32,
             output_tokens: usage["completion_tokens"].as_i64().unwrap_or(0) as i32,
             total_tokens: usage["total_tokens"].as_i64().unwrap_or(0) as i32,
@@ -373,11 +331,9 @@ async fn handle_sse_line(
                 .as_i64()
                 .unwrap_or(0) as i32,
             source: "openai_chat_completions".to_owned(),
-        };
-        let _ = tx.send(Chunk::Done { usage: Some(usage) }).await;
-        state.done_sent = true;
+        });
     }
-    Ok(false)
+    Ok(())
 }
 
 async fn flush_tool_calls(state: &mut OpenAiStreamState, tx: &mpsc::Sender<Chunk>) -> Result<()> {
@@ -410,17 +366,6 @@ fn ensure_tool_call(call: &PendingToolCall) -> Result<()> {
         bail!("streamed tool call {} has no name", call.id);
     }
     Ok(())
-}
-
-async fn send_done_once(
-    state: &mut OpenAiStreamState,
-    usage: Option<TokenUsage>,
-    tx: &mpsc::Sender<Chunk>,
-) {
-    if !state.done_sent {
-        let _ = tx.send(Chunk::Done { usage }).await;
-        state.done_sent = true;
-    }
 }
 
 #[cfg(test)]
@@ -475,19 +420,17 @@ mod tests {
 
     #[tokio::test]
     async fn usage_includes_prompt_cache_reads_and_writes() {
-        let (tx, mut rx) = mpsc::channel(4);
+        let (tx, _rx) = mpsc::channel(4);
         let mut state = OpenAiStreamState::default();
-        handle_sse_line(
-            r#"data: {"usage":{"prompt_tokens":2006,"completion_tokens":300,"total_tokens":2306,"prompt_tokens_details":{"cached_tokens":1920,"cache_write_tokens":64}}}"#,
+        handle_stream_chunk(
+            serde_json::json!({"usage":{"prompt_tokens":2006,"completion_tokens":300,"total_tokens":2306,"prompt_tokens_details":{"cached_tokens":1920,"cache_write_tokens":64}}}),
             &mut state,
             &tx,
         )
         .await
         .unwrap();
 
-        let Chunk::Done { usage: Some(usage) } = rx.recv().await.unwrap() else {
-            panic!("expected usage chunk");
-        };
+        let usage = state.usage.expect("usage");
         assert_eq!(usage.input_tokens, 2006);
         assert_eq!(usage.cached_input_tokens, 1920);
         assert_eq!(usage.cache_write_tokens, 64);
@@ -498,17 +441,13 @@ mod tests {
     async fn streamed_tool_calls_are_assembled_by_index_across_sse_events() {
         let (tx, mut rx) = mpsc::channel(16);
         let mut state = OpenAiStreamState::default();
-        let lines = [
-            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"re","arguments":"{\"path\":"}}]},"finish_reason":null}]}"#,
-            "",
-            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"ad","arguments":"\"MEMORY.md\"}"}},{"index":1,"id":"call-2","function":{"name":"write","arguments":"{\"path\":\"notes/x\",\"content\":\"ok\"}"}}]},"finish_reason":null}]}"#,
-            r#"data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
-            "data: [DONE]",
+        let chunks = [
+            serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"re","arguments":"{\"path\":"}}]},"finish_reason":null}]}),
+            serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"ad","arguments":"\"MEMORY.md\"}"}},{"index":1,"id":"call-2","function":{"name":"write","arguments":"{\"path\":\"notes/x\",\"content\":\"ok\"}"}}]},"finish_reason":null}]}),
+            serde_json::json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]}),
         ];
-        for line in lines {
-            if handle_sse_line(line, &mut state, &tx).await.unwrap() {
-                break;
-            }
+        for chunk in chunks {
+            handle_stream_chunk(chunk, &mut state, &tx).await.unwrap();
         }
         drop(tx);
 
@@ -529,15 +468,15 @@ mod tests {
     async fn invalid_streamed_tool_arguments_fail_before_execution() {
         let (tx, _rx) = mpsc::channel(4);
         let mut state = OpenAiStreamState::default();
-        handle_sse_line(
-            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read","arguments":"{"}}]},"finish_reason":null}]}"#,
+        handle_stream_chunk(
+            serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read","arguments":"{"}}]},"finish_reason":null}]}),
             &mut state,
             &tx,
         )
         .await
         .unwrap();
-        let error = handle_sse_line(
-            r#"data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#,
+        let error = handle_stream_chunk(
+            serde_json::json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]}),
             &mut state,
             &tx,
         )

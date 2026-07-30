@@ -108,7 +108,9 @@ use crate::{
 };
 
 use super::{
-    credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
+    credential::{
+        Argon2Passwords, NumericPairingCodes, RandomInvitationTokens, RandomSessionTokens,
+    },
     object_storage::AttachmentObjectStore,
     openapi::{
         AccessLevel as AccessLevelCode, ActionAgentResponse, ActionChannelResponse,
@@ -604,7 +606,7 @@ async fn register(
     let session = RegisterHuman::execute(
         &mut storage,
         &Argon2Passwords,
-        &UuidSessionTokens,
+        &RandomSessionTokens,
         RegisterHumanInput {
             user_id: Uuid::now_v7(),
             session_id: Uuid::now_v7(),
@@ -638,7 +640,7 @@ async fn login(
     let session = AuthenticateHuman::execute(
         &mut storage,
         &Argon2Passwords,
-        &UuidSessionTokens,
+        &RandomSessionTokens,
         AuthenticateHumanInput {
             session_id: Uuid::now_v7(),
             email: &body.email,
@@ -802,7 +804,7 @@ async fn invite_human(
     .map_err(application_error)?;
     let issued = InviteHuman::execute(
         &mut storage,
-        &UuidInvitationTokens,
+        &RandomInvitationTokens,
         InviteHumanInput {
             invitation_id: Uuid::now_v7(),
             space_id: SpaceId::from_uuid(space_id),

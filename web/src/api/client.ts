@@ -1,4 +1,5 @@
 import { v7 as uuidv7 } from "uuid";
+import createClient, { type Client } from "openapi-fetch";
 
 import type {
   User,
@@ -55,6 +56,18 @@ export class ApiRequestError extends Error {
     this.code = code;
   }
 }
+
+interface DynamicOperation {
+  requestBody?: { content: { "application/json": unknown } };
+  responses: {
+    200: { content: { "application/json": unknown } };
+    default: { content: { "application/json": ErrorEnvelope } };
+  };
+}
+
+type DynamicPaths = Record<string, Record<"get" | "post" | "put" | "patch" | "delete", DynamicOperation>>;
+
+const browserApi: Client<DynamicPaths> = createClient({ credentials: "same-origin" });
 
 export async function register(input: RegisterInput): Promise<User> {
   const response = await mutate<RegisterResponse>("/api/v1/auth/register", "POST", input);
@@ -364,14 +377,24 @@ export function revokeMemberPermission(memberId: string, actionCode: string): Pr
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-  });
-  if (!response.ok) {
-    await throwResponseError(response);
+  const method = (init?.method ?? "GET").toLowerCase();
+  const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
+  const options = { body, headers: init?.headers } as never;
+  const result = await (method === "get"
+    ? browserApi.GET(path, options)
+    : method === "post"
+      ? browserApi.POST(path, options)
+      : method === "put"
+        ? browserApi.PUT(path, options)
+        : method === "patch"
+          ? browserApi.PATCH(path, options)
+          : method === "delete"
+            ? browserApi.DELETE(path, options)
+            : Promise.reject(new Error(`Unsupported HTTP method: ${method}`)));
+  if (result.error !== undefined) {
+    await throwResponseError(result.response);
   }
-  return (await response.json()) as T;
+  return result.data as T;
 }
 
 function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {

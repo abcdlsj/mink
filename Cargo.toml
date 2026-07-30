@@ -13,10 +13,12 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+async-openai = { version = "0.41", default-features = false, features = ["byot", "chat-completion", "rustls"] }
 argon2 = "0.5"
 axum = { version = "0.8", features = ["ws"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
 base64 = "0.22"
+backon = { version = "1.6", default-features = false, features = ["std", "tokio-sleep"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 futures-util = "0.3"
@@ -25,6 +27,7 @@ hostname = "0.4"
 libc = "0.2"
 object_store = { version = "0.12", features = ["aws"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+rand = "0.8.7"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -17,6 +17,8 @@ import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import readline from "node:readline";
 
+import { uuidv7 } from "../web/scripts/uuid.mjs";
+
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
 const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex");
 const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi", "config.toml");
@@ -67,24 +69,6 @@ export function prepareComputerStateDirectory(stateDir) {
 
 const log = (...args) => console.log(SEED_MARKER, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// The server requires every Idempotency-Key to be a UUIDv7 (time-ordered).
-// Node's crypto.randomUUID() only emits v4, so build v7 by hand: 48-bit
-// millisecond timestamp + version/variant bits + random tail.
-function uuidv7() {
-  const bytes = randomBytes(16);
-  const ms = Date.now();
-  bytes[0] = (ms / 2 ** 40) & 0xff;
-  bytes[1] = (ms / 2 ** 32) & 0xff;
-  bytes[2] = (ms / 2 ** 24) & 0xff;
-  bytes[3] = (ms / 2 ** 16) & 0xff;
-  bytes[4] = (ms / 2 ** 8) & 0xff;
-  bytes[5] = ms & 0xff;
-  bytes[6] = (bytes[6] & 0x0f) | 0x70; // version 7
-  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
-  const hex = bytes.toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
 async function api(method, path, { cookie, body } = {}) {
   const headers = { "idempotency-key": uuidv7() };
