@@ -111,11 +111,12 @@ use super::{
     credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     openapi::{
-        AccessLevel as AccessLevelCode, AttachmentResponse, AttachmentStatus, ComputerOs,
-        ComputerResponse, ComputerStatus, CreatedInvitationResponse, DirectMessageResponse,
-        InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
-        LoginResponse, MemberKind as MemberKindCode, MemberResponse, RegisterResponse,
-        UserResponse,
+        AccessLevel as AccessLevelCode, AttachmentResponse, AttachmentStatus,
+        ChannelKind as ChannelKindCode, ChannelListResponse, ChannelMembersResponse,
+        ChannelResponse, ComputerOs, ComputerResponse, ComputerStatus, CreatedInvitationResponse,
+        DirectMessageResponse, InboxItemResponse, InboxKind, InboxPriority, InboxStatus,
+        InvitationResponse, LoginResponse, MemberKind as MemberKindCode, MemberResponse,
+        RegisterResponse, SpaceResponse, UserResponse,
     },
     postgres::PostgresAdapter,
     query::QueryRegistry,
@@ -2296,7 +2297,7 @@ async fn create_space(
     jar: CookieJar,
     headers: HeaderMap,
     Json(body): Json<CreateSpaceBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<SpaceResponse>), ApiError> {
     let user = authenticate(&state, &jar).await?;
     let key = idempotency_header(&headers)?;
     let name = body.name.trim();
@@ -2333,7 +2334,7 @@ async fn create_space(
         } else {
             StatusCode::OK
         },
-        Json(space_json(
+        Json(space_response(
             created.space_id.into_uuid(),
             name,
             &slug,
@@ -2347,7 +2348,7 @@ async fn create_space(
 async fn list_spaces(
     State(state): State<RuntimeState>,
     jar: CookieJar,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<SpaceResponse>>, ApiError> {
     let user = authenticate(&state, &jar).await?;
     let rows = sqlx::query(
         "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
@@ -2359,14 +2360,14 @@ async fn list_spaces(
     .fetch_all(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(Value::Array(rows.iter().map(space_row).collect())))
+    Ok(Json(rows.iter().map(space_row).collect()))
 }
 
 async fn space_by_slug(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(slug): Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<SpaceResponse>, ApiError> {
     let user = authenticate(&state, &jar).await?;
     let row = sqlx::query(
         "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
@@ -2387,7 +2388,7 @@ async fn list_channels(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelListResponse>, ApiError> {
     let member_id = current_member(&state, &jar, space_id).await?;
     let rows = sqlx::query(
         "SELECT c.id,c.space_id,c.kind,c.slug,c.topic,c.archived_at, \
@@ -2399,10 +2400,14 @@ async fn list_channels(
     .fetch_all(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(json!({
-        "channels": rows.iter().map(|row| channel_row(row, member_id)).collect::<Vec<_>>(),
-        "can_create": true
-    })))
+    let mut channels = Vec::with_capacity(rows.len());
+    for row in &rows {
+        channels.push(channel_row(row, member_id)?);
+    }
+    Ok(Json(ChannelListResponse {
+        channels,
+        can_create: true,
+    }))
 }
 
 async fn create_channel(
@@ -2411,7 +2416,7 @@ async fn create_channel(
     headers: HeaderMap,
     Path(space_id): Path<Uuid>,
     Json(body): Json<CreateChannelBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<ChannelResponse>), ApiError> {
     let member_id = current_member(&state, &jar, space_id).await?;
     let kind = match body.kind.as_str() {
         "public" => ChannelKind::Public,
@@ -2444,11 +2449,21 @@ async fn create_channel(
     .map_err(application_error)?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({
-            "id": channel.id, "space_id": space_id, "name": body.name, "slug": body.slug,
-            "topic": body.topic, "kind": body.kind, "created_by_member_id": member_id,
-            "joined": true, "archived_at": Value::Null
-        })),
+        Json(ChannelResponse {
+            id: channel.id.into_uuid(),
+            space_id,
+            name: body.name,
+            slug: body.slug,
+            topic: body.topic,
+            kind: match kind {
+                ChannelKind::Public => ChannelKindCode::Public,
+                // 创建端点只接受 public 和 private，direct 走 DM 端点。
+                _ => ChannelKindCode::Private,
+            },
+            created_by_member_id: member_id,
+            joined: true,
+            archived_at: None,
+        }),
     ))
 }
 
@@ -2456,7 +2471,7 @@ async fn list_members(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<MemberResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
     let rows = sqlx::query("SELECT id,kind,display_name,handle,access_level FROM members WHERE space_id=$1 AND retired_at IS NULL ORDER BY created_at")
         .bind(space_id).fetch_all(&state.pool).await.map_err(map_sqlx)?;
@@ -2464,7 +2479,7 @@ async fn list_members(
     for row in rows {
         values.push(member_row(&state.pool, &row).await?);
     }
-    Ok(Json(Value::Array(values)))
+    Ok(Json(values))
 }
 
 async fn list_computers(
@@ -2886,18 +2901,18 @@ async fn list_channel_members(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(channel_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelMembersResponse>, ApiError> {
     let viewer_id = channel_member(&state, &jar, channel_id).await?;
     Ok(Json(
-        channel_members_json(&state.pool, channel_id, viewer_id).await?,
+        channel_members_response(&state.pool, channel_id, viewer_id).await?,
     ))
 }
 
-async fn channel_members_json(
+async fn channel_members_response(
     pool: &PgPool,
     channel_id: Uuid,
     viewer_id: Uuid,
-) -> Result<Value, ApiError> {
+) -> Result<ChannelMembersResponse, ApiError> {
     let can_manage: bool =
         sqlx::query_scalar("SELECT access_level IN ('owner','admin') FROM members WHERE id=$1")
             .bind(viewer_id)
@@ -2917,7 +2932,10 @@ async fn channel_members_json(
     for row in &rows {
         members.push(member_row(pool, row).await?);
     }
-    Ok(json!({"members":members,"can_manage":can_manage}))
+    Ok(ChannelMembersResponse {
+        members,
+        can_manage,
+    })
 }
 
 async fn add_channel_agents(
@@ -2926,7 +2944,7 @@ async fn add_channel_agents(
     headers: HeaderMap,
     Path(channel_id): Path<Uuid>,
     Json(body): Json<AddChannelAgentsBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelMembersResponse>, ApiError> {
     let actor_id = channel_member(&state, &jar, channel_id).await?;
     let key = idempotency_header(&headers)?;
     let agent_ids = body.agent_member_ids.into_iter().collect::<BTreeSet<_>>();
@@ -3016,7 +3034,7 @@ async fn add_channel_agents(
     }
     transaction.commit().await.map_err(map_sqlx)?;
     Ok(Json(
-        channel_members_json(&state.pool, channel_id, actor_id).await?,
+        channel_members_response(&state.pool, channel_id, actor_id).await?,
     ))
 }
 
@@ -3213,7 +3231,7 @@ async fn set_permission(
     member_id: Uuid,
     action_code: &str,
     enabled: bool,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MemberResponse>, ApiError> {
     let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM members WHERE id=$1")
         .bind(member_id)
         .fetch_optional(&state.pool)
@@ -3247,7 +3265,7 @@ async fn grant_permission(
     jar: CookieJar,
     headers: HeaderMap,
     Path((member_id, action_code)): Path<(Uuid, String)>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MemberResponse>, ApiError> {
     set_permission(&state, &jar, &headers, member_id, &action_code, true).await
 }
 
@@ -3256,7 +3274,7 @@ async fn revoke_permission(
     jar: CookieJar,
     headers: HeaderMap,
     Path((member_id, action_code)): Path<(Uuid, String)>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MemberResponse>, ApiError> {
     set_permission(&state, &jar, &headers, member_id, &action_code, false).await
 }
 
@@ -4165,18 +4183,30 @@ fn user_response(human: &AuthenticatedHuman) -> UserResponse {
         email: human.email_normalized.clone(),
     }
 }
-fn space_json(
+/// Space 的 accent 目前是固定值:没有对应存储也没有写入路径。
+const SPACE_ACCENT: &str = "#FFD440";
+
+fn space_response(
     id: Uuid,
     name: &str,
     slug: &str,
     owner: Uuid,
     current: Uuid,
     general: Uuid,
-) -> Value {
-    json!({"id":id,"name":name,"slug":slug,"accent":"#FFD440","owner_member_id":owner,"current_member_id":current,"general_channel_id":general})
+) -> SpaceResponse {
+    SpaceResponse {
+        id,
+        name: name.to_owned(),
+        slug: slug.to_owned(),
+        accent: SPACE_ACCENT.to_owned(),
+        owner_member_id: owner,
+        current_member_id: current,
+        general_channel_id: general,
+    }
 }
-fn space_row(row: &sqlx::postgres::PgRow) -> Value {
-    space_json(
+
+fn space_row(row: &sqlx::postgres::PgRow) -> SpaceResponse {
+    space_response(
         row.get("id"),
         row.get("name"),
         row.get("slug"),
@@ -4185,24 +4215,33 @@ fn space_row(row: &sqlx::postgres::PgRow) -> Value {
         row.get("general_channel_id"),
     )
 }
-fn channel_row(row: &sqlx::postgres::PgRow, creator: Uuid) -> Value {
+
+/// Channel 投影只描述非 DM Channel:它要求 slug，且 kind 取值域不含 direct。
+/// DM 用 [`direct_message_response`]，两者的可见字段不同。
+fn channel_row(row: &sqlx::postgres::PgRow, creator: Uuid) -> Result<ChannelResponse, ApiError> {
     let kind = match row.get::<&str, _>("kind") {
-        "public" => ChannelKind::Public,
-        "private" => ChannelKind::Private,
-        "direct" => ChannelKind::Direct,
-        _ => ChannelKind::Private,
+        "public" => ChannelKindCode::Public,
+        "private" => ChannelKindCode::Private,
+        _ => return Err(ApiError::internal()),
     };
-    let kind = match kind {
-        ChannelKind::Public => "public",
-        ChannelKind::Private => "private",
-        ChannelKind::Direct => "direct",
-    };
-    let slug: Option<String> = row.get("slug");
+    let slug: String = row.try_get("slug").map_err(|_| ApiError::internal())?;
     let topic: Option<String> = row.get("topic");
-    let name = topic.clone().or_else(|| slug.clone()).unwrap_or_default();
-    json!({"id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),"name":name,"slug":slug,"topic":topic,"kind":kind,"created_by_member_id":creator,"joined":row.get::<bool,_>("joined"),"archived_at":optional_timestamp(row.get("archived_at"))})
+    Ok(ChannelResponse {
+        id: row.get("id"),
+        space_id: row.get("space_id"),
+        name: topic.clone().unwrap_or_else(|| slug.clone()),
+        slug,
+        topic,
+        kind,
+        created_by_member_id: creator,
+        joined: row.get("joined"),
+        archived_at: optional_timestamp(row.get("archived_at")),
+    })
 }
-async fn member_row(pool: &PgPool, row: &sqlx::postgres::PgRow) -> Result<Value, ApiError> {
+async fn member_row(
+    pool: &PgPool,
+    row: &sqlx::postgres::PgRow,
+) -> Result<MemberResponse, ApiError> {
     let id: Uuid = row.get("id");
     let permissions = sqlx::query_scalar::<_, String>(
         "SELECT action_code FROM member_permissions WHERE member_id=$1 ORDER BY action_code",
@@ -4211,9 +4250,23 @@ async fn member_row(pool: &PgPool, row: &sqlx::postgres::PgRow) -> Result<Value,
     .fetch_all(pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(
-        json!({"id":id,"kind":row.get::<String,_>("kind"),"display_name":row.get::<String,_>("display_name"),"handle":row.get::<String,_>("handle"),"access_level":row.get::<String,_>("access_level"),"permissions":permissions}),
-    )
+    Ok(MemberResponse {
+        id,
+        kind: match row.get::<&str, _>("kind") {
+            "human" => MemberKindCode::Human,
+            "agent" => MemberKindCode::Agent,
+            _ => return Err(ApiError::internal()),
+        },
+        display_name: row.get("display_name"),
+        handle: row.get("handle"),
+        access_level: match row.get::<&str, _>("access_level") {
+            "owner" => AccessLevelCode::Owner,
+            "admin" => AccessLevelCode::Admin,
+            "member" => AccessLevelCode::Member,
+            _ => return Err(ApiError::internal()),
+        },
+        permissions,
+    })
 }
 async fn message_row(
     pool: &PgPool,
@@ -4906,7 +4959,7 @@ async fn update_space_member(
     jar: CookieJar,
     Path((space_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<MemberResponse>, ApiError> {
     let actor_id = current_member(&state, &jar, space_id).await?;
     let Some(requested) = body.access_level.as_deref() else {
         return Err(ApiError::invalid("access_level is required"));
@@ -4942,7 +4995,7 @@ async fn join_channel(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(channel_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelResponse>, ApiError> {
     let space_id = space_of_channel(&state, channel_id).await?;
     let actor_id = current_member(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
@@ -4960,7 +5013,7 @@ async fn archive_channel(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(channel_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelResponse>, ApiError> {
     let space_id = space_of_channel(&state, channel_id).await?;
     let actor_id = current_member(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
@@ -4988,7 +5041,7 @@ async fn read_channel_projection(
     state: &RuntimeState,
     channel_id: Uuid,
     viewer: Uuid,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ChannelResponse>, ApiError> {
     let row = sqlx::query(
         "SELECT c.id,c.space_id,c.kind,c.slug,c.topic,c.archived_at,\
          EXISTS(SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.member_id=$2) \
@@ -4999,7 +5052,7 @@ async fn read_channel_projection(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(channel_row(&row, viewer)))
+    Ok(Json(channel_row(&row, viewer)?))
 }
 
 async fn follow_thread(

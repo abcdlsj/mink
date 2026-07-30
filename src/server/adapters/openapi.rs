@@ -125,13 +125,13 @@ pub(super) struct CreateSpaceRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct SpaceResponse {
-    id: Uuid,
-    name: String,
-    slug: String,
-    accent: String,
-    owner_member_id: Uuid,
-    current_member_id: Uuid,
-    general_channel_id: Uuid,
+    pub(super) id: Uuid,
+    pub(super) name: String,
+    pub(super) slug: String,
+    pub(super) accent: String,
+    pub(super) owner_member_id: Uuid,
+    pub(super) current_member_id: Uuid,
+    pub(super) general_channel_id: Uuid,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -366,15 +366,15 @@ pub(super) struct CreatedInvitationResponse {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ChannelResponse {
-    id: Uuid,
-    space_id: Uuid,
-    name: String,
-    slug: String,
-    topic: Option<String>,
-    kind: ChannelKind,
-    created_by_member_id: Uuid,
-    joined: bool,
-    archived_at: Option<String>,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) name: String,
+    pub(super) slug: String,
+    pub(super) topic: Option<String>,
+    pub(super) kind: ChannelKind,
+    pub(super) created_by_member_id: Uuid,
+    pub(super) joined: bool,
+    pub(super) archived_at: Option<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -384,13 +384,13 @@ pub(super) enum ChannelKind {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ChannelMembersResponse {
-    members: Vec<MemberResponse>,
-    can_manage: bool,
+    pub(super) members: Vec<MemberResponse>,
+    pub(super) can_manage: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ChannelListResponse {
-    channels: Vec<ChannelResponse>,
-    can_create: bool,
+    pub(super) channels: Vec<ChannelResponse>,
+    pub(super) can_create: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct DirectMessageResponse {
