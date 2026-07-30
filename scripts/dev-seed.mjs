@@ -19,6 +19,7 @@ import readline from "node:readline";
 
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
 const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex");
+const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi", "config.toml");
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
 const SEED_MARKER = "[dev-seed]";
@@ -132,6 +133,58 @@ export function extractComputerPairingUrl(line) {
   }
 }
 
+export function buildSeedComputerConfig(source, { server, stateDir, codexHome }) {
+  const forced = new Map([
+    ["server_url", JSON.stringify(server)],
+    ["state_dir", JSON.stringify(stateDir)],
+    ["open_pairing_browser", "false"],
+  ]);
+  const defaults = new Map([
+    ["codex_config_source", JSON.stringify(join(codexHome, "config.toml"))],
+    ["codex_auth_source", JSON.stringify(join(codexHome, "auth.json"))],
+    ["shutdown_grace_period_seconds", "1"],
+  ]);
+  const lines = source.trimEnd().split(/\r?\n/);
+  const output = [];
+  const seen = new Set();
+  let inComputer = false;
+  let foundComputer = false;
+  const appendMissing = () => {
+    for (const [key, value] of [...forced, ...defaults]) {
+      if (!seen.has(key)) output.push(`${key} = ${value}`);
+    }
+  };
+
+  for (const line of lines) {
+    const section = line.match(/^\s*\[([^\]]+)]\s*$/)?.[1];
+    if (section !== undefined) {
+      if (inComputer) appendMissing();
+      inComputer = section === "computer";
+      foundComputer ||= inComputer;
+      output.push(line);
+      continue;
+    }
+    if (inComputer) {
+      const key = line.match(/^\s*([A-Za-z0-9_-]+)\s*=/)?.[1];
+      if (key) {
+        seen.add(key);
+        if (forced.has(key)) {
+          output.push(`${key} = ${forced.get(key)}`);
+          continue;
+        }
+      }
+    }
+    output.push(line);
+  }
+  if (inComputer) appendMissing();
+  if (!foundComputer) {
+    if (output.some((line) => line.trim() !== "")) output.push("");
+    output.push("[computer]");
+    appendMissing();
+  }
+  return `${output.join("\n").replace(/^\n+/, "")}\n`;
+}
+
 // A Session created by Node belongs to Node's HTTP client, not to the user's
 // browser. Hand it to the browser through a loopback-only authenticated redirect.
 // Cookies are scoped by host rather than port, so the Cookie set here is sent
@@ -219,19 +272,13 @@ async function ensureSpace(cookie) {
 // to the default state dir and reads whatever stale secrets.json lives there.
 function spawnCodexDaemon(stateDir, expectPairing) {
   const configPath = join(stateDir, "computer.toml");
+  const baseConfig = existsSync(BASE_CONFIG) ? readFileSync(BASE_CONFIG, "utf8") : "";
   writeFileSync(
     configPath,
-    [
-      "[computer]",
-      `server_url = '${SERVER}'`,
-      `state_dir = '${stateDir}'`,
-      "open_pairing_browser = false",
-      `codex_config_source = '${join(CODEX_HOME, "config.toml")}'`,
-      `codex_auth_source = '${join(CODEX_HOME, "auth.json")}'`,
-      "shutdown_grace_period_seconds = 1",
-      "",
-    ].join("\n"),
+    buildSeedComputerConfig(baseConfig, { server: SERVER, stateDir, codexHome: CODEX_HOME }),
+    { mode: 0o600 },
   );
+  chmodSync(configPath, 0o600);
   const child = spawn(
     "cargo",
     ["run", "--quiet", "--", "computer", "--config", configPath],

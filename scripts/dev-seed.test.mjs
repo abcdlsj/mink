@@ -9,12 +9,30 @@ import {
   AGENT_PROFILES,
   DEV_CHANNEL_SLUG,
   DEV_SPACE,
+  buildSeedComputerConfig,
   computerStateDirectory,
   createBrowserSessionHandoff,
   extractComputerPairingUrl,
   findComputerStateForSpace,
   prepareComputerStateDirectory,
 } from "./dev-seed.mjs";
+
+test("development seed copies local Computer configuration with isolated runtime overrides", () => {
+  const config = buildSeedComputerConfig(
+    `[server]\ndatabase_url = "postgres://localhost/sumi_prod"\n\n[computer]\nserver_url = "https://sumi.example.test"\nstate_dir = "/var/lib/sumi"\nopen_pairing_browser = true\ncodex_config_source = "/custom/codex/config.toml"\n\n[computer.builtin]\napi_base = "https://api.deepseek.com"\ntoken = "test-token"\nmodel = "deepseek-v4-pro"\n`,
+    { server: "http://127.0.0.1:3000", stateDir: "/tmp/sumi-seed/computer", codexHome: "/fallback/codex" },
+  );
+
+  assert.match(config, /database_url = "postgres:\/\/localhost\/sumi_prod"/);
+  assert.match(config, /server_url = "http:\/\/127\.0\.0\.1:3000"/);
+  assert.match(config, /state_dir = "\/tmp\/sumi-seed\/computer"/);
+  assert.match(config, /open_pairing_browser = false/);
+  assert.match(config, /codex_config_source = "\/custom\/codex\/config\.toml"/);
+  assert.match(config, /api_base = "https:\/\/api\.deepseek\.com"/);
+  assert.match(config, /token = "test-token"/);
+  assert.match(config, /model = "deepseek-v4-pro"/);
+  assert.match(config, /codex_auth_source = "\/fallback\/codex\/auth\.json"/);
+});
 
 test("development seed extracts the Computer pairing URL without depending on log prose", () => {
   const pairingUrl = "http://127.0.0.1:3000/computers/pair/019fa900-0000-7000-8000-000000000001/?code=test-code";
