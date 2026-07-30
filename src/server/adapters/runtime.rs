@@ -853,6 +853,7 @@ async fn apply_run_result(
     result: crate::protocol::computer::RunResult,
 ) -> Result<(), ApiError> {
     use crate::protocol::computer::{ItemDisposition, RunTerminalStatus};
+    let error_code = result.error_code.map(super::http::run_error_code);
     let outcome = match result.status {
         RunTerminalStatus::Completed => crate::server::domain::execution::RunOutcome::Completed,
         RunTerminalStatus::Yielded => crate::server::domain::execution::RunOutcome::Yielded,
@@ -886,6 +887,7 @@ async fn apply_run_result(
             computer_id: ComputerId::from_uuid(computer_id),
             fencing_token_hash: token_hash(result.fencing_token.expose()),
             outcome,
+            error_code,
             item_dispositions,
             continuation_note: result.continuation_note,
             now: OffsetDateTime::now_utc(),
@@ -3969,7 +3971,7 @@ async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<Value, ApiError> 
         "status": row.get::<String,_>("status"),
         "outcome": row.get::<Option<String>,_>("outcome_code"),
         "continuation_note": row.get::<Option<String>,_>("continuation_note"),
-        "error_code": Value::Null,
+        "error_code": row.get::<Option<String>,_>("error_code"),
         "started_at": optional_timestamp(row.get("started_at")),
         "finished_at": optional_timestamp(row.get("finished_at")),
     }))

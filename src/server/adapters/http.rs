@@ -211,6 +211,7 @@ pub(super) async fn submit_run_result<P: TransactionPort + Clone>(
         RunTerminalStatus::Failed => crate::server::domain::execution::RunOutcome::Failed,
         RunTerminalStatus::Canceled => crate::server::domain::execution::RunOutcome::Canceled,
     };
+    let error_code = result.error_code.map(run_error_code);
     let item_dispositions = result
         .item_outcomes
         .into_iter()
@@ -238,6 +239,7 @@ pub(super) async fn submit_run_result<P: TransactionPort + Clone>(
             computer_id: principal.computer_id,
             fencing_token_hash: token_hash,
             outcome,
+            error_code,
             item_dispositions,
             continuation_note: result.continuation_note,
             now: OffsetDateTime::now_utc(),
@@ -245,6 +247,23 @@ pub(super) async fn submit_run_result<P: TransactionPort + Clone>(
     )
     .await?;
     Ok(StatusCode::OK)
+}
+
+/// 协议错误码到 domain 取值域的翻译。两侧取值一一对应,新增协议变体会在此处暴露为编译错误。
+pub(super) fn run_error_code(
+    code: crate::protocol::computer::ComputerErrorCode,
+) -> crate::server::domain::execution::RunErrorCode {
+    use crate::protocol::computer::ComputerErrorCode;
+    use crate::server::domain::execution::RunErrorCode;
+    match code {
+        ComputerErrorCode::InvalidCommand => RunErrorCode::InvalidCommand,
+        ComputerErrorCode::AgentUnavailable => RunErrorCode::AgentUnavailable,
+        ComputerErrorCode::ProcessLost => RunErrorCode::ProcessLost,
+        ComputerErrorCode::SessionLost => RunErrorCode::SessionLost,
+        ComputerErrorCode::SandboxUnavailable => RunErrorCode::SandboxUnavailable,
+        ComputerErrorCode::DriverUnavailable => RunErrorCode::DriverUnavailable,
+        ComputerErrorCode::Internal => RunErrorCode::Internal,
+    }
 }
 
 #[cfg(test)]

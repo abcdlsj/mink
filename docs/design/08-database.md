@@ -277,6 +277,7 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 - `fencing_token_hash`
 - `lease_expires_at`
 - `outcome_code`
+- `error_code`
 - `continuation_note`
 - `created_at`
 - `started_at`
@@ -285,6 +286,10 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 `task_id`可以为空。Run 绑定 Task 时，Focus 必须是 Source Thread 或 Related Thread。
 
 一个 Agent 只能有一个非终态 Run。该规则使用 partial unique index 表达。
+
+`error_code`保存 Computer 上报的稳定错误码，取值域是`invalid_command`、`agent_unavailable`、`process_lost`、`session_lost`、`sandbox_unavailable`、`driver_unavailable`、`internal`，与协议的`ComputerErrorCode`一致。稳定取值使 Browser 与运维统计可以按错误码归类失败，无需解析文本。
+
+`outcome_code`回答 Run 以哪种终态结束，`error_code`回答失败的机器可读原因。只有`outcome_code='failed'`允许非空`error_code`；`completed`、`yielded`、`canceled`不是失败终态，`error_code`必须为空。该约束由 CHECK 表达，见`0002_run_error_code.sql`。
 
 ### 7.4 `run_items`
 

@@ -2063,6 +2063,7 @@ async fn rejected_delivery_releases_the_item_once() {
             computer_id: computer(999),
             fencing_token_hash: hex::encode(Sha256::digest(b"token")),
             outcome: RunOutcome::Completed,
+            error_code: None,
             item_dispositions: vec![ItemDispositionInput {
                 item_id,
                 disposition: InboxItemDisposition::Released,
@@ -2149,6 +2150,7 @@ fn running_run(
             })
             .collect(),
         outcome: None,
+        error_code: None,
         continuation_note: None,
         started_at: Some(OffsetDateTime::UNIX_EPOCH),
         finished_at: None,
@@ -2206,6 +2208,7 @@ fn complete_run_input(run_id: RunId, token: &str, item_id: InboxItemId) -> Compl
         computer_id: computer(999),
         fencing_token_hash: hex::encode(Sha256::digest(token.as_bytes())),
         outcome: RunOutcome::Completed,
+        error_code: None,
         item_dispositions: vec![ItemDispositionInput {
             item_id,
             disposition: InboxItemDisposition::Handled,

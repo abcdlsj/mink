@@ -39,6 +39,20 @@ pub(in crate::server) enum RunOutcome {
     Canceled,
 }
 
+/// Computer 上报的失败原因。domain 层不能依赖协议模块,因此取值域在此独立声明,
+/// 并与协议的`ComputerErrorCode`以及`agent_runs.error_code`的 CHECK 保持同一组 wire 取值。
+/// 翻译发生在 HTTP 适配层,新增协议变体会在那里暴露为编译错误。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum RunErrorCode {
+    InvalidCommand,
+    AgentUnavailable,
+    ProcessLost,
+    SessionLost,
+    SandboxUnavailable,
+    DriverUnavailable,
+    Internal,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct RunItem {
     pub(in crate::server) inbox_item_id: InboxItemId,
@@ -58,6 +72,8 @@ pub(in crate::server) struct Run {
     pub(in crate::server) lease_expires_at: OffsetDateTime,
     pub(in crate::server) items: Vec<RunItem>,
     pub(in crate::server) outcome: Option<RunOutcome>,
+    /// 只有`RunOutcome::Failed`终态允许非空,与`agent_runs`的 CHECK 一致。
+    pub(in crate::server) error_code: Option<RunErrorCode>,
     pub(in crate::server) continuation_note: Option<String>,
     pub(in crate::server) started_at: Option<OffsetDateTime>,
     pub(in crate::server) finished_at: Option<OffsetDateTime>,
@@ -149,6 +165,7 @@ impl Run {
         }
         self.status = RunStatus::Canceled;
         self.outcome = Some(RunOutcome::Canceled);
+        self.error_code = None;
         self.finished_at = Some(now);
     }
 
@@ -176,6 +193,7 @@ impl Run {
         &mut self,
         fencing_token_hash: &str,
         outcome: RunOutcome,
+        error_code: Option<RunErrorCode>,
         continuation_note: Option<String>,
         now: OffsetDateTime,
     ) -> Result<(), DomainError> {
@@ -186,6 +204,10 @@ impl Run {
         if self.items.iter().any(|item| item.disposition.is_none()) {
             return Err(DomainError::IncompleteItemDisposition);
         }
+        // 只有失败终态承载错误码。completed、yielded、canceled 带错误码会与 CHECK 冲突。
+        if error_code.is_some() && outcome != RunOutcome::Failed {
+            return Err(DomainError::InvalidTransition);
+        }
         self.status = match outcome {
             RunOutcome::Completed => RunStatus::Completed,
             RunOutcome::Yielded => RunStatus::Yielded,
@@ -193,6 +215,7 @@ impl Run {
             RunOutcome::Canceled => RunStatus::Canceled,
         };
         self.outcome = Some(outcome);
+        self.error_code = error_code;
         self.continuation_note = continuation_note;
         self.finished_at = Some(now);
         Ok(())
@@ -203,5 +226,87 @@ impl Run {
             return Err(DomainError::StaleFencingToken);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TOKEN: &str = "token-hash";
+
+    fn finalizing_run() -> Run {
+        Run {
+            id: RunId::from_uuid(uuid::Uuid::from_u128(1)),
+            space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
+            agent_id: MemberId::from_uuid(uuid::Uuid::from_u128(3)),
+            task_id: None,
+            focus_thread_id: ThreadId::from_uuid(uuid::Uuid::from_u128(4)),
+            status: RunStatus::Finalizing,
+            fencing_token_hash: TOKEN.to_owned(),
+            lease_expires_at: OffsetDateTime::UNIX_EPOCH,
+            items: Vec::new(),
+            outcome: None,
+            error_code: None,
+            continuation_note: None,
+            started_at: Some(OffsetDateTime::UNIX_EPOCH),
+            finished_at: None,
+        }
+    }
+
+    #[test]
+    fn a_failed_run_records_the_reported_error_code() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let mut run = finalizing_run();
+        run.finish(
+            TOKEN,
+            RunOutcome::Failed,
+            Some(RunErrorCode::SessionLost),
+            None,
+            now,
+        )
+        .expect("a failed run accepts an error code");
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.error_code, Some(RunErrorCode::SessionLost));
+    }
+
+    #[test]
+    fn only_a_failed_outcome_carries_an_error_code() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        for outcome in [
+            RunOutcome::Completed,
+            RunOutcome::Yielded,
+            RunOutcome::Canceled,
+        ] {
+            let mut run = finalizing_run();
+            assert_eq!(
+                run.finish(TOKEN, outcome, Some(RunErrorCode::Internal), None, now),
+                Err(DomainError::InvalidTransition)
+            );
+            // 被拒绝的终态不改变 Run。
+            assert_eq!(run.status, RunStatus::Finalizing);
+            assert_eq!(run.error_code, None);
+            run.finish(TOKEN, outcome, None, None, now)
+                .expect("a non-failed outcome finishes without an error code");
+            assert_eq!(run.error_code, None);
+        }
+    }
+
+    #[test]
+    fn a_failed_run_may_omit_the_error_code() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let mut run = finalizing_run();
+        run.finish(TOKEN, RunOutcome::Failed, None, None, now)
+            .expect("an error code is optional");
+        assert_eq!(run.error_code, None);
+    }
+
+    #[test]
+    fn retirement_cancellation_leaves_no_error_code() {
+        let mut run = finalizing_run();
+        run.error_code = Some(RunErrorCode::ProcessLost);
+        run.cancel_for_agent_retirement(OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(run.outcome, Some(RunOutcome::Canceled));
+        assert_eq!(run.error_code, None);
     }
 }

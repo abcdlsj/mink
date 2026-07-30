@@ -34,7 +34,7 @@ use crate::{
             conversation::{
                 Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread,
             },
-            execution::{Run, RunItem, RunOutcome, RunStatus},
+            execution::{Run, RunErrorCode, RunItem, RunOutcome, RunStatus},
             identity::{
                 AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
                 Member, PermissionAction,
@@ -1507,10 +1507,11 @@ impl ServerTransaction for PostgresTransaction {
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         sqlx::query(
             "INSERT INTO agent_runs (id,space_id,agent_id,task_id,focus_thread_id,status, \
-             fencing_token_hash,lease_expires_at,outcome_code,continuation_note,created_at,started_at,finished_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11,$12) \
+             fencing_token_hash,lease_expires_at,outcome_code,error_code,continuation_note,created_at,started_at,finished_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13) \
              ON CONFLICT (id) DO UPDATE SET task_id=EXCLUDED.task_id,status=EXCLUDED.status, \
              lease_expires_at=EXCLUDED.lease_expires_at,outcome_code=EXCLUDED.outcome_code, \
+             error_code=EXCLUDED.error_code, \
              continuation_note=EXCLUDED.continuation_note,started_at=EXCLUDED.started_at,finished_at=EXCLUDED.finished_at",
         )
         .bind(run.id.into_uuid())
@@ -1522,6 +1523,7 @@ impl ServerTransaction for PostgresTransaction {
         .bind(&run.fencing_token_hash)
         .bind(run.lease_expires_at)
         .bind(run.outcome.map(run_outcome_str))
+        .bind(run.error_code.map(run_error_code_str))
         .bind(&run.continuation_note)
         .bind(run.started_at)
         .bind(run.finished_at)
@@ -2529,6 +2531,10 @@ fn run_from_row(row: &sqlx::postgres::PgRow, items: Vec<RunItem>) -> Result<Run,
             .get::<Option<String>, _>("outcome_code")
             .map(|value| run_outcome_from_str(&value))
             .transpose()?,
+        error_code: row
+            .get::<Option<String>, _>("error_code")
+            .map(|value| run_error_code_from_str(&value))
+            .transpose()?,
         continuation_note: row.get("continuation_note"),
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),
@@ -2650,6 +2656,9 @@ text_enum!(run_status_str, run_status_from_str, RunStatus, {
 });
 text_enum!(run_outcome_str, run_outcome_from_str, RunOutcome, {
     RunOutcome::Completed => "completed", RunOutcome::Yielded => "yielded", RunOutcome::Failed => "failed", RunOutcome::Canceled => "canceled"
+});
+text_enum!(run_error_code_str, run_error_code_from_str, RunErrorCode, {
+    RunErrorCode::InvalidCommand => "invalid_command", RunErrorCode::AgentUnavailable => "agent_unavailable", RunErrorCode::ProcessLost => "process_lost", RunErrorCode::SessionLost => "session_lost", RunErrorCode::SandboxUnavailable => "sandbox_unavailable", RunErrorCode::DriverUnavailable => "driver_unavailable", RunErrorCode::Internal => "internal"
 });
 text_enum!(disposition_str, disposition_from_str, InboxItemDisposition, {
     InboxItemDisposition::Handled => "handled", InboxItemDisposition::Deferred => "deferred", InboxItemDisposition::Released => "released"
