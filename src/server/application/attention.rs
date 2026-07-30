@@ -1,11 +1,47 @@
-use crate::ids::InboxItemId;
+use crate::ids::{InboxItemId, MemberId, SpaceId};
 
 use crate::server::domain::{
     attention::{AttentionStrength, InboxItemStatus},
     execution::RunStatus,
 };
 
-use super::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort};
+use super::ports::{
+    ApplicationError, Effect, InboxItemView, MemberKind, ServerTransaction, TransactionPort,
+};
+
+/// 读取某个 Member 的 Inbox 投影。
+///
+/// 授权分两种：Member 读自己的 Inbox，或 Space 治理者读该 Space 中 Agent 的
+/// Inbox。Human 的 Inbox 属于本人，治理身份不足以读取他人的注意力队列。
+pub(in crate::server) struct ReadMemberInbox;
+
+impl ReadMemberInbox {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor_id: MemberId,
+        target_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<InboxItemView>, ApplicationError> {
+        port.transact(async |transaction| {
+            if actor_id != target_id {
+                let target = transaction
+                    .space_member(target_id, space_id)
+                    .await?
+                    // 跨 Space 的 Member 不区分「不存在」和「无权访问」。
+                    .ok_or(ApplicationError::NotFound)?;
+                if target.kind != MemberKind::Agent {
+                    return Err(ApplicationError::PermissionDenied);
+                }
+                let access = transaction.member_access_level(actor_id, space_id).await?;
+                if !access.can_manage_space() {
+                    return Err(ApplicationError::PermissionDenied);
+                }
+            }
+            transaction.inbox_for_member(target_id).await
+        })
+        .await
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum HardItemRoute {

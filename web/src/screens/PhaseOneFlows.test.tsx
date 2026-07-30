@@ -199,7 +199,7 @@ describe("Phase one Human flows", () => {
     );
   });
 
-  it("shows Human Inbox attention and completes an item", async () => {
+  it("shows Human Inbox attention and opens the source", async () => {
     const itemId = "019c0000-0000-7000-8000-000000000050";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -217,8 +217,8 @@ describe("Phase one Human flows", () => {
       if (path.endsWith(`/members/${space.owner_member_id}/inbox`) && !init?.method) {
         return json([{ id: itemId, member_id: space.owner_member_id, kind: "mention", priority: "hard", channel_id: space.general_channel_id, channel_slug: "general", message_id: "message", sender_member_id: "grace", sender_display_name: "Grace Hopper", summary: "Please review this boundary.", status: "pending", available_at: "2026-07-25T00:00:00Z", created_at: "2026-07-25T00:00:00Z" }]);
       }
-      if (path.endsWith(`/inbox/${itemId}/ack`) && init?.method === "POST") {
-        return json({ id: itemId, status: "handled" });
+      if (path.endsWith(`/channels/${space.general_channel_id}/messages`) && !init?.method) {
+        return json({ messages: [], has_more: false });
       }
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -226,11 +226,13 @@ describe("Phase one Human flows", () => {
     renderRoute("/s/sumi-lab/inbox");
 
     expect(await screen.findByText("Please review this boundary.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Complete Inbox Item" }));
+    // Inbox 只读：Item 只能被打开，Human 不能在此标记完成或延后。
+    expect(screen.queryByRole("button", { name: "Complete Inbox Item" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Open #general/ }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining(`/inbox/${itemId}/ack`),
-        expect.objectContaining({ method: "POST" }),
+        expect.stringContaining(`/channels/${space.general_channel_id}/messages`),
+        expect.anything(),
       );
     });
   });

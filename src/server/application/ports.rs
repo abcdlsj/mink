@@ -211,6 +211,52 @@ pub(in crate::server) struct HumanMemberRecord {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
+/// DM Channel 及其对方 Member。DM 只有两个 Member，因此对方是确定的。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct DirectMessageView {
+    pub(in crate::server) channel_id: ChannelId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) other_member: SpaceMemberView,
+    pub(in crate::server) created_at: time::OffsetDateTime,
+}
+
+/// Member 对 Browser 可见的事实。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct SpaceMemberView {
+    pub(in crate::server) id: MemberId,
+    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) kind: MemberKind,
+    pub(in crate::server) display_name: String,
+    pub(in crate::server) handle: String,
+    pub(in crate::server) access_level: crate::server::domain::identity::AccessLevel,
+    pub(in crate::server) permissions: Vec<crate::server::domain::identity::PermissionAction>,
+}
+
+/// Member 是 Human 还是 Agent。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum MemberKind {
+    Human,
+    Agent,
+}
+
+/// Inbox Item 对 Browser 可见的投影。不含 Message 正文。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct InboxItemView {
+    pub(in crate::server) id: InboxItemId,
+    pub(in crate::server) member_id: MemberId,
+    pub(in crate::server) kind: crate::server::domain::attention::InboxItemKind,
+    pub(in crate::server) strength: crate::server::domain::attention::AttentionStrength,
+    pub(in crate::server) status: crate::server::domain::attention::InboxItemStatus,
+    pub(in crate::server) channel_id: Option<ChannelId>,
+    pub(in crate::server) channel_slug: Option<String>,
+    pub(in crate::server) thread_id: Option<crate::ids::ThreadId>,
+    pub(in crate::server) message_id: Option<MessageId>,
+    pub(in crate::server) sender_member_id: Option<MemberId>,
+    pub(in crate::server) sender_display_name: Option<String>,
+    pub(in crate::server) available_at: time::OffsetDateTime,
+    pub(in crate::server) created_at: time::OffsetDateTime,
+}
+
 /// 某个 User 在某个 Space 中的 Human Member 事实。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceHumanMember {
@@ -478,6 +524,36 @@ pub(in crate::server) trait ServerTransaction {
         user_id: uuid::Uuid,
         space_id: crate::ids::SpaceId,
     ) -> Result<Option<SpaceHumanMember>, ApplicationError>;
+
+    /// 列出某个 Member 参与的 DM，按最近活动倒序。
+    async fn direct_messages_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Vec<DirectMessageView>, ApplicationError>;
+    /// 按参与双方定位既有 DM，使重复创建不产生第二个 Channel。
+    async fn direct_message_between(
+        &mut self,
+        space_id: crate::ids::SpaceId,
+        first: MemberId,
+        second: MemberId,
+    ) -> Result<Option<DirectMessageView>, ApplicationError>;
+    /// 读取同一 Space 中的另一个未退役 Member，作为 DM 的对方。
+    async fn space_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: crate::ids::SpaceId,
+    ) -> Result<Option<SpaceMemberView>, ApplicationError>;
+    /// 列出某个 Member 的未处理 Inbox Item 投影。
+    async fn inbox_for_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Vec<InboxItemView>, ApplicationError>;
+    /// 读取 Member 所属 Space。用于把 Member 路径参数解析回授权范围。
+    async fn space_of_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
 
     async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError>;
     async fn paired_computer(

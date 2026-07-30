@@ -231,9 +231,6 @@ export interface components {
             space_slug: string;
             token?: string | null;
         };
-        DeferRequest: {
-            until: string;
-        };
         DirectMessageResponse: {
             /** Format: uuid */
             channel_id: string;
@@ -279,7 +276,7 @@ export interface components {
         /** @enum {string} */
         InboxPriority: "hard" | "ambient";
         /** @enum {string} */
-        InboxStatus: "pending" | "deferred" | "handled";
+        InboxStatus: "pending" | "leased" | "deferred" | "handled" | "dead";
         InvitationResponse: {
             accepted_at?: string | null;
             /** Format: uuid */
@@ -593,7 +590,6 @@ export type CreateSpaceInput = components["schemas"]["CreateSpaceRequest"];
 export type CreateTaskInput = components["schemas"]["CreateTaskRequest"];
 export type CreateThreadReplyInput = components["schemas"]["CreateThreadMessageRequest"];
 export type CreateUploadInput = components["schemas"]["CreateUploadRequest"];
-export type DeferInboxInput = components["schemas"]["DeferRequest"];
 export type DirectMessage = components["schemas"]["DirectMessageResponse"];
 export type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
 export type InboxItem = components["schemas"]["InboxItemResponse"];

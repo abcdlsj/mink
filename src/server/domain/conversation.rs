@@ -53,7 +53,13 @@ impl Channel {
                 slug.as_ref().is_some_and(|value| !value.trim().is_empty())
             }
         };
-        if audience.is_empty() || !valid_slug {
+        // DM 的 audience 恰好是两个 Member。Server 按这两个 Member 定位既有 DM，
+        // 多于或少于两人都会使该定位失效。
+        let valid_audience = match kind {
+            ChannelKind::Direct => audience.len() == 2,
+            ChannelKind::Public | ChannelKind::Private => !audience.is_empty(),
+        };
+        if !valid_audience || !valid_slug {
             return Err(DomainError::InvalidChannel);
         }
         Ok(Self {

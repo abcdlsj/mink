@@ -33,7 +33,6 @@ const exportedTypes = {
   CreateTaskInput: "CreateTaskRequest",
   CreateThreadReplyInput: "CreateThreadMessageRequest",
   CreateUploadInput: "CreateUploadRequest",
-  DeferInboxInput: "DeferRequest",
   DirectMessage: "DirectMessageResponse",
   ErrorEnvelope: "ErrorEnvelope",
   InboxItem: "InboxItemResponse",

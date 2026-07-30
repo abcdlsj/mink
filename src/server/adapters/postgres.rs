@@ -22,9 +22,10 @@ use crate::{
     },
     server::{
         application::ports::{
-            ApplicationError, AuthenticatedHuman, ComputerRecord, CreatedSpace, Effect,
-            HumanMemberRecord, MessageDraft, PairedComputer, PublishedMessage, ServerTransaction,
-            SpaceHumanMember, TransactionPort,
+            ApplicationError, AuthenticatedHuman, ComputerRecord, CreatedSpace, DirectMessageView,
+            Effect, HumanMemberRecord, InboxItemView, MemberKind, MessageDraft, PairedComputer,
+            PublishedMessage, ServerTransaction, SpaceHumanMember, SpaceMemberView,
+            TransactionPort,
         },
         domain::{
             access::{HumanRegistration, SpaceAccess},
@@ -526,6 +527,131 @@ impl ServerTransaction for PostgresTransaction {
                 .await
                 .map_err(map_sqlx)?;
         Ok(space_id.map(SpaceId::from_uuid))
+    }
+
+    async fn direct_messages_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<DirectMessageView>, ApplicationError> {
+        // DM 恰好两个 Member，因此对方由「同一 Channel 中不是本人」唯一确定。
+        // 排序取最后一条 Message 的时间，没有 Message 时退回 Channel 创建时间。
+        let rows = sqlx::query(
+            "SELECT c.id AS channel_id,c.created_at, \
+                    other.id,other.kind,other.display_name,other.handle,other.access_level \
+             FROM channel_members mine \
+             JOIN channels c ON c.id=mine.channel_id \
+             JOIN channel_members theirs \
+               ON theirs.channel_id=c.id AND theirs.member_id<>mine.member_id \
+             JOIN members other ON other.id=theirs.member_id \
+             WHERE mine.member_id=$1 AND c.space_id=$2 AND c.kind='direct' \
+             ORDER BY COALESCE( \
+               (SELECT max(created_at) FROM messages WHERE channel_id=c.id),c.created_at \
+             ) DESC,c.id DESC",
+        )
+        .bind(member_id.into_uuid())
+        .bind(space_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let mut views = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let permissions = self.member_permissions(row.get("id")).await?;
+            views.push(direct_message_from_row(row, space_id, permissions)?);
+        }
+        Ok(views)
+    }
+
+    async fn direct_message_between(
+        &mut self,
+        space_id: SpaceId,
+        first: MemberId,
+        second: MemberId,
+    ) -> Result<Option<DirectMessageView>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT c.id AS channel_id,c.created_at, \
+                    other.id,other.kind,other.display_name,other.handle,other.access_level \
+             FROM channels c \
+             JOIN channel_members mine ON mine.channel_id=c.id AND mine.member_id=$2 \
+             JOIN channel_members theirs ON theirs.channel_id=c.id AND theirs.member_id=$3 \
+             JOIN members other ON other.id=theirs.member_id \
+             WHERE c.space_id=$1 AND c.kind='direct'",
+        )
+        .bind(space_id.into_uuid())
+        .bind(first.into_uuid())
+        .bind(second.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        match row {
+            Some(row) => {
+                let permissions = self.member_permissions(row.get("id")).await?;
+                Ok(Some(direct_message_from_row(&row, space_id, permissions)?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn space_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceMemberView>, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT id,kind,display_name,handle,access_level FROM members \
+             WHERE id=$1 AND space_id=$2 AND retired_at IS NULL",
+        )
+        .bind(member_id.into_uuid())
+        .bind(space_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        match row {
+            Some(row) => {
+                let permissions = self.member_permissions(row.get("id")).await?;
+                Ok(Some(space_member_from_row(&row, space_id, permissions)?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn inbox_for_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Vec<InboxItemView>, ApplicationError> {
+        // 只投影仍需要注意力的 Item。handled 和 dead 是历史，不属于队列。
+        // 不选取 body_markdown：Inbox 投影不含 Message 正文。
+        let rows = sqlx::query(
+            "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+                    i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
+                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
+             FROM inbox_items i \
+             JOIN threads t ON t.id=i.thread_id \
+             JOIN channels c ON c.id=t.channel_id \
+             LEFT JOIN messages m ON m.id=i.message_id \
+             LEFT JOIN members sender ON sender.id=m.author_member_id \
+             WHERE i.agent_id=$1 AND i.status IN ('pending','leased','deferred') \
+             ORDER BY i.created_at DESC,i.id DESC",
+        )
+        .bind(member_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter().map(inbox_view_from_row).collect()
+    }
+
+    async fn space_of_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(
+            sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM members WHERE id=$1")
+                .bind(member_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?
+                .map(SpaceId::from_uuid),
+        )
     }
 
     async fn insert_invitation(
@@ -2037,6 +2163,22 @@ impl PostgresTransaction {
         let _ = sqlx::query("ROLLBACK").execute(&mut *self.connection).await;
     }
 
+    async fn member_permissions(
+        &mut self,
+        member_id: Uuid,
+    ) -> Result<Vec<PermissionAction>, ApplicationError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT action_code FROM member_permissions WHERE member_id=$1 ORDER BY action_code",
+        )
+        .bind(member_id)
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .iter()
+        .map(|code| permission_from_str(code))
+        .collect()
+    }
+
     async fn thread_audience(
         &mut self,
         thread_id: ThreadId,
@@ -2871,6 +3013,14 @@ fn permission_str(value: PermissionAction) -> &'static str {
     value.code()
 }
 
+fn permission_from_str(value: &str) -> Result<PermissionAction, ApplicationError> {
+    match value {
+        "channel.create" => Ok(PermissionAction::ChannelCreate),
+        "agent.create" => Ok(PermissionAction::AgentCreate),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+
 fn access_level_str(value: AccessLevel) -> &'static str {
     match value {
         AccessLevel::Owner => "owner",
@@ -2918,6 +3068,66 @@ fn paired_computer_from_row(
         connected: row.get::<String, _>("connection_status") == "online",
         deleted: row.get::<Option<OffsetDateTime>, _>("deleted_at").is_some(),
         last_seen_at: row.get("last_seen_at"),
+        created_at: row.get("created_at"),
+    })
+}
+
+fn member_kind_from_str(value: &str) -> Result<MemberKind, ApplicationError> {
+    match value {
+        "human" => Ok(MemberKind::Human),
+        "agent" => Ok(MemberKind::Agent),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+
+/// `permissions`由调用方单独查询后传入：一行 SQL 无法同时展开多值 Permission。
+fn space_member_from_row(
+    row: &sqlx::postgres::PgRow,
+    space_id: SpaceId,
+    permissions: Vec<PermissionAction>,
+) -> Result<SpaceMemberView, ApplicationError> {
+    Ok(SpaceMemberView {
+        id: MemberId::from_uuid(row.get("id")),
+        space_id,
+        kind: member_kind_from_str(row.get("kind"))?,
+        display_name: row.get("display_name"),
+        handle: row.get("handle"),
+        access_level: access_level_from_str(row.get("access_level"))?,
+        permissions,
+    })
+}
+
+fn direct_message_from_row(
+    row: &sqlx::postgres::PgRow,
+    space_id: SpaceId,
+    permissions: Vec<PermissionAction>,
+) -> Result<DirectMessageView, ApplicationError> {
+    Ok(DirectMessageView {
+        channel_id: ChannelId::from_uuid(row.get("channel_id")),
+        space_id,
+        other_member: space_member_from_row(row, space_id, permissions)?,
+        created_at: row.get("created_at"),
+    })
+}
+
+fn inbox_view_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItemView, ApplicationError> {
+    Ok(InboxItemView {
+        id: InboxItemId::from_uuid(row.get("id")),
+        member_id: MemberId::from_uuid(row.get("agent_id")),
+        kind: inbox_kind_from_str(row.get("kind"))?,
+        strength: strength_from_str(row.get("strength"))?,
+        status: inbox_status_from_str(row.get("status"))?,
+        channel_id: Some(ChannelId::from_uuid(row.get("channel_id"))),
+        channel_slug: row.get("channel_slug"),
+        thread_id: Some(ThreadId::from_uuid(row.get("thread_id"))),
+        message_id: row
+            .get::<Option<Uuid>, _>("message_id")
+            .map(MessageId::from_uuid),
+        sender_member_id: row
+            .get::<Option<Uuid>, _>("sender_member_id")
+            .map(MemberId::from_uuid),
+        sender_display_name: row.get("sender_name"),
+        available_at: row.get("available_at"),
         created_at: row.get("created_at"),
     })
 }

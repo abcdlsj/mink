@@ -52,7 +52,6 @@ use uuid::Uuid;
         CreateUploadRequest,
         CompleteUploadRequest,
         InboxItemResponse,
-        DeferRequest,
         TaskStatus,
         RunStatus,
         SessionContinuityState,
@@ -576,12 +575,10 @@ pub(super) enum InboxPriority {
 #[serde(rename_all = "snake_case")]
 pub(super) enum InboxStatus {
     Pending,
+    Leased,
     Deferred,
     Handled,
-}
-#[derive(Serialize, Deserialize, ToSchema)]
-pub(super) struct DeferRequest {
-    until: String,
+    Dead,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

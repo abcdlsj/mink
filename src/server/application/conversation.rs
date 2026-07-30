@@ -10,8 +10,99 @@ use crate::server::domain::{
 };
 
 use super::ports::{
-    ApplicationError, Effect, MessageDraft, PublishedMessage, ServerTransaction, TransactionPort,
+    ApplicationError, DirectMessageView, Effect, MessageDraft, PublishedMessage, ServerTransaction,
+    TransactionPort,
 };
+
+/// 列出某个 Member 参与的 DM。
+pub(in crate::server) struct ListDirectMessages;
+
+impl ListDirectMessages {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<DirectMessageView>, ApplicationError> {
+        port.transact(async |transaction| {
+            transaction
+                .direct_messages_for_member(member_id, space_id)
+                .await
+        })
+        .await
+    }
+}
+
+/// 打开与另一个 Member 的 DM。同一对 Member 只有一个 DM Channel。
+pub(in crate::server) struct OpenDirectMessage;
+
+pub(in crate::server) struct OpenDirectMessageInput {
+    pub(in crate::server) channel_id: ChannelId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) other_member_id: MemberId,
+    pub(in crate::server) now: OffsetDateTime,
+}
+
+/// 打开结果。`created`区分新建与复用，使 HTTP 层能给出 201 或 200。
+pub(in crate::server) struct OpenedDirectMessage {
+    pub(in crate::server) view: DirectMessageView,
+    pub(in crate::server) created: bool,
+}
+
+impl OpenDirectMessage {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: OpenDirectMessageInput,
+    ) -> Result<OpenedDirectMessage, ApplicationError> {
+        if input.actor_member_id == input.other_member_id {
+            return Err(ApplicationError::Conflict);
+        }
+        port.transact(async |transaction| {
+            // 对方必须是同一 Space 的 Member，否则 DM 的 audience 会跨 Space。
+            let other = transaction
+                .space_member(input.other_member_id, input.space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            // DM 没有 slug，唯一性只能按参与双方判定，因此先查既有 DM。
+            if let Some(existing) = transaction
+                .direct_message_between(
+                    input.space_id,
+                    input.actor_member_id,
+                    input.other_member_id,
+                )
+                .await?
+            {
+                return Ok(OpenedDirectMessage {
+                    view: existing,
+                    created: false,
+                });
+            }
+            let channel = Channel::create(
+                input.channel_id,
+                input.space_id,
+                [input.actor_member_id, input.other_member_id]
+                    .into_iter()
+                    .collect(),
+                ChannelKind::Direct,
+                None,
+                None,
+                input.now,
+            )?;
+            transaction.insert_channel(channel.clone()).await?;
+            transaction.emit(Effect::ChannelCreated(channel.id));
+            Ok(OpenedDirectMessage {
+                view: DirectMessageView {
+                    channel_id: channel.id,
+                    space_id: channel.space_id,
+                    other_member: other,
+                    created_at: channel.created_at,
+                },
+                created: true,
+            })
+        })
+        .await
+    }
+}
 
 pub(in crate::server) struct PublishMessage;
 

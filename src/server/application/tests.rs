@@ -31,7 +31,7 @@ use super::{
         CompleteUploadInput as CompleteAttachmentUploadInput, OpenUpload, OpenUploadInput,
         ReadAttachment, WriteUploadContent, WriteUploadContentInput,
     },
-    attention::{HardItemRoute, RouteHardItem, RouteHardItemInput},
+    attention::{HardItemRoute, ReadMemberInbox, RouteHardItem, RouteHardItemInput},
     computer::{
         AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing, ConfirmPairingInput,
         ReadPairing, ReadPairingStatus,
@@ -39,7 +39,7 @@ use super::{
     conversation::{
         CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
         CreateChannelAction, CreateChannelActionInput, CreateChannelInput, DeleteMessage,
-        EditMessage, EditMessageInput,
+        EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput,
     },
     execution::{
         AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput, CompleteRun,
@@ -55,10 +55,11 @@ use super::{
         AcceptInvitation, AcceptInvitationInput, InviteHuman, InviteHumanInput, ReadInvitation,
     },
     ports::{
-        ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord, Effect,
-        HumanMemberRecord, InvitationTokenPort, MessageDraft, PairedComputer, PairingCodePort,
-        PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
-        ServerTransaction, SessionTokenPort, SpaceHumanMember, StoredObject, TransactionPort,
+        ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord,
+        DirectMessageView, Effect, HumanMemberRecord, InboxItemView, InvitationTokenPort,
+        MemberKind, MessageDraft, PairedComputer, PairingCodePort, PasswordPort, PublishedMessage,
+        RawInvitationToken, RawPairingCode, RawSessionToken, ServerTransaction, SessionTokenPort,
+        SpaceHumanMember, SpaceMemberView, StoredObject, TransactionPort,
     },
     task::{
         CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -177,6 +178,7 @@ struct MemoryState {
     agent_spaces: HashMap<MemberId, SpaceId>,
     computer_spaces: HashMap<ComputerId, SpaceId>,
     pairings: HashMap<uuid::Uuid, (Pairing, String)>,
+    direct_messages: Vec<DirectMessageView>,
     invitations: HashMap<uuid::Uuid, Invitation>,
     spaces: HashMap<SpaceId, (String, String)>,
     human_members: HashMap<(uuid::Uuid, SpaceId), SpaceHumanMember>,
@@ -349,6 +351,127 @@ impl ServerTransaction for MemoryTransaction {
         computer_id: ComputerId,
     ) -> Result<Option<SpaceId>, ApplicationError> {
         Ok(self.state.computer_spaces.get(&computer_id).copied())
+    }
+
+    async fn direct_messages_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<DirectMessageView>, ApplicationError> {
+        Ok(self
+            .state
+            .direct_messages
+            .iter()
+            .filter(|dm| {
+                dm.space_id == space_id
+                    && self
+                        .state
+                        .channels
+                        .get(&dm.channel_id)
+                        .is_some_and(|channel| channel.audience.contains(&member_id))
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn direct_message_between(
+        &mut self,
+        space_id: SpaceId,
+        first: MemberId,
+        second: MemberId,
+    ) -> Result<Option<DirectMessageView>, ApplicationError> {
+        Ok(self
+            .state
+            .direct_messages
+            .iter()
+            .find(|dm| {
+                dm.space_id == space_id
+                    && self
+                        .state
+                        .channels
+                        .get(&dm.channel_id)
+                        .is_some_and(|channel| {
+                            channel.audience.contains(&first) && channel.audience.contains(&second)
+                        })
+            })
+            .cloned())
+    }
+
+    async fn space_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceMemberView>, ApplicationError> {
+        Ok(self
+            .state
+            .members
+            .get(&member_id)
+            .filter(|member| member.space_id == space_id)
+            .map(|member| SpaceMemberView {
+                id: member.id,
+                space_id,
+                kind: if self.state.agents.contains_key(&member.id) {
+                    MemberKind::Agent
+                } else {
+                    MemberKind::Human
+                },
+                display_name: member.display_name.clone(),
+                handle: member.handle.clone(),
+                access_level: member.access_level,
+                permissions: self
+                    .state
+                    .permissions
+                    .iter()
+                    .filter(|(id, _)| *id == member.id)
+                    .map(|(_, action)| *action)
+                    .collect(),
+            }))
+    }
+
+    async fn inbox_for_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Vec<InboxItemView>, ApplicationError> {
+        Ok(self
+            .state
+            .items
+            .values()
+            .filter(|item| {
+                item.agent_id == member_id
+                    && matches!(
+                        item.status,
+                        InboxItemStatus::Pending
+                            | InboxItemStatus::Leased
+                            | InboxItemStatus::Deferred
+                    )
+            })
+            .map(|item| InboxItemView {
+                id: item.id,
+                member_id: item.agent_id,
+                kind: item.kind,
+                strength: item.strength,
+                status: item.status,
+                channel_id: None,
+                channel_slug: None,
+                thread_id: Some(item.thread_id),
+                message_id: item.message_id,
+                sender_member_id: None,
+                sender_display_name: None,
+                available_at: item.available_at,
+                created_at: item.available_at,
+            })
+            .collect())
+    }
+
+    async fn space_of_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self
+            .state
+            .members
+            .get(&member_id)
+            .map(|member| member.space_id))
     }
 
     async fn insert_invitation(
@@ -3343,6 +3466,182 @@ async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer
             .await
             .err(),
         Some(ApplicationError::Unauthenticated)
+    );
+}
+
+fn space_member_fixture(
+    port: &mut MemoryPort,
+    id: MemberId,
+    space_id: SpaceId,
+    access_level: AccessLevel,
+) {
+    port.state.members.insert(
+        id,
+        Member {
+            id,
+            space_id,
+            display_name: "Member".into(),
+            handle: "member".into(),
+            access_level,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        },
+    );
+}
+
+#[tokio::test]
+async fn a_member_reads_only_their_own_inbox_unless_the_target_is_an_agent() {
+    let mut port = MemoryPort::default();
+    let space_id = space(1);
+    let owner = member(7001);
+    let other_human = member(7002);
+    let agent_id = member(7003);
+    space_member_fixture(&mut port, owner, space_id, AccessLevel::Owner);
+    space_member_fixture(&mut port, other_human, space_id, AccessLevel::Member);
+    space_member_fixture(&mut port, agent_id, space_id, AccessLevel::Member);
+    port.state.agents.insert(
+        agent_id,
+        Agent {
+            member_id: agent_id,
+            space_id,
+            computer_id: Some(computer(7004)),
+            role_text: "assist".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
+    for (index, holder) in [owner, other_human, agent_id].into_iter().enumerate() {
+        let item_id = item(7100 + index as u128);
+        port.state.items.insert(
+            item_id,
+            inbox(
+                item_id,
+                holder,
+                thread(7200 + index as u128),
+                None,
+                InboxItemStatus::Pending,
+            ),
+        );
+    }
+
+    // 本人读自己的 Inbox。
+    let own = ReadMemberInbox::execute(&mut port, owner, owner, space_id)
+        .await
+        .expect("a Member reads their own Inbox");
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0].member_id, owner);
+
+    // 治理者读该 Space 中 Agent 的 Inbox。
+    let agent_inbox = ReadMemberInbox::execute(&mut port, owner, agent_id, space_id)
+        .await
+        .expect("a governor reads an Agent Inbox");
+    assert_eq!(agent_inbox.len(), 1);
+
+    // 治理身份不足以读取另一个 Human 的 Inbox。
+    assert_eq!(
+        ReadMemberInbox::execute(&mut port, owner, other_human, space_id)
+            .await
+            .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+
+    // 普通 Member 不能读 Agent 的 Inbox。
+    assert_eq!(
+        ReadMemberInbox::execute(&mut port, other_human, agent_id, space_id)
+            .await
+            .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+
+    // 另一个 Space 的 Member 不区分「不存在」和「无权访问」。
+    let outsider = member(7005);
+    space_member_fixture(&mut port, outsider, space(2), AccessLevel::Owner);
+    assert_eq!(
+        ReadMemberInbox::execute(&mut port, owner, outsider, space_id)
+            .await
+            .err(),
+        Some(ApplicationError::NotFound)
+    );
+}
+
+#[tokio::test]
+async fn opening_a_direct_message_twice_reuses_one_channel() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(1);
+    let actor = member(7301);
+    let other = member(7302);
+    space_member_fixture(&mut port, actor, space_id, AccessLevel::Member);
+    space_member_fixture(&mut port, other, space_id, AccessLevel::Member);
+
+    let opened = OpenDirectMessage::execute(
+        &mut port,
+        OpenDirectMessageInput {
+            channel_id: channel(7303),
+            space_id,
+            actor_member_id: actor,
+            other_member_id: other,
+            now,
+        },
+    )
+    .await
+    .expect("opening a DM succeeds");
+    assert!(opened.created);
+    assert_eq!(opened.view.other_member.id, other);
+    // MemoryPort 不建立投影行，因此把新建的 DM 记入状态以验证复用。
+    port.state.direct_messages.push(opened.view.clone());
+
+    let reopened = OpenDirectMessage::execute(
+        &mut port,
+        OpenDirectMessageInput {
+            channel_id: channel(7399),
+            space_id,
+            actor_member_id: other,
+            other_member_id: actor,
+            now,
+        },
+    )
+    .await
+    .expect("reopening returns the existing DM");
+    assert!(!reopened.created);
+    assert_eq!(reopened.view.channel_id, channel(7303));
+    assert_eq!(port.state.channels.len(), 1);
+
+    // 与自己开 DM 不成立。
+    assert_eq!(
+        OpenDirectMessage::execute(
+            &mut port,
+            OpenDirectMessageInput {
+                channel_id: channel(7398),
+                space_id,
+                actor_member_id: actor,
+                other_member_id: actor,
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::Conflict)
+    );
+
+    // 对方必须属于同一 Space。
+    let outsider = member(7304);
+    space_member_fixture(&mut port, outsider, space(2), AccessLevel::Member);
+    assert_eq!(
+        OpenDirectMessage::execute(
+            &mut port,
+            OpenDirectMessageInput {
+                channel_id: channel(7397),
+                space_id,
+                actor_member_id: actor,
+                other_member_id: outsider,
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::NotFound)
     );
 }
 

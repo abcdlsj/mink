@@ -1,15 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Clock3, Inbox, Menu, type LucideIcon } from "lucide-react";
+import { Inbox, Menu, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import {
-  ackInboxItem,
-  deferInboxItem,
-  listInbox,
-  type InboxItem,
-  type Member,
-} from "../api/client";
+import { listInbox, type InboxItem, type Member } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 
 const inboxGroups: Array<{
@@ -68,18 +62,10 @@ function InboxWorkspace({
   members: Member[];
   openNavigation: () => void;
 }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const inbox = useQuery({
     queryKey: ["inbox", spaceId, memberId],
     queryFn: () => listInbox(memberId),
-  });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
-  const ack = useMutation({ mutationFn: ackInboxItem, onSuccess: refresh });
-  const defer = useMutation({
-    mutationFn: (itemId: string) =>
-      deferInboxItem(itemId, new Date(Date.now() + 60 * 60 * 1000).toISOString()),
-    onSuccess: refresh,
   });
   // Only Items a group renders count as attention, so the empty state matches the visible list.
   const groupedKinds = new Set<InboxItem["kind"]>(inboxGroups.flatMap((group) => group.kinds));
@@ -113,7 +99,7 @@ function InboxWorkspace({
         </button>
         <div className="channel-title">
           <h1>Inbox</h1>
-          <p>Attention that waits until you explicitly finish or defer it.</p>
+          <p>Attention routed to you. Open the source to respond.</p>
         </div>
       </header>
       <div className="inbox-list">
@@ -127,7 +113,7 @@ function InboxWorkspace({
               <div>
                 <p className="section-kicker">ATTENTION QUEUE</p>
                 <h2 id="inbox-empty-title">Nothing needs your attention</h2>
-                <p>Inbox holds collaboration you must explicitly finish or defer. It is not your Message history.</p>
+                <p>Inbox lists collaboration routed to you. It is not your Message history.</p>
               </div>
             </div>
             <ul className="inbox-empty-groups" aria-label="Empty Inbox groups">
@@ -165,18 +151,11 @@ function InboxWorkspace({
                       <span className="inbox-kind">{formatInboxKind(item.kind)}</span>
                     </span>
                   </button>
-                  <div className="inbox-actions">
-                    <button type="button" disabled={ack.isPending || defer.isPending} aria-label="Complete Inbox Item" onClick={() => ack.mutate(item.id)}><Check />DONE</button>
-                    <button type="button" disabled={ack.isPending || defer.isPending} aria-label="Defer Inbox Item one hour" onClick={() => defer.mutate(item.id)}><Clock3 />LATER</button>
-                  </div>
                 </article>
               );
             })}
           </InboxGroup>
           ) : null)}
-          {ack.error || defer.error ? (
-            <p className="timeline-status timeline-status--error">{ack.error?.message ?? defer.error?.message}</p>
-          ) : null}
         </div>
       </div>
     </section>

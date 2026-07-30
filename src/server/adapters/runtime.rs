@@ -47,7 +47,7 @@ use crate::{
             AttachmentContent, CompleteUpload, CompleteUploadInput, OpenUpload, OpenUploadInput,
             ReadAttachment, WriteUploadContent, WriteUploadContentInput,
         },
-        application::attention::{RouteHardItem, RouteHardItemInput},
+        application::attention::{ReadMemberInbox, RouteHardItem, RouteHardItemInput},
         application::computer::{
             AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing,
             ConfirmPairingInput, ListSpaceComputers, ReadPairedComputer, ReadPairing,
@@ -56,7 +56,8 @@ use crate::{
         application::conversation::{
             CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
             CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
-            DeleteMessage, EditMessage, EditMessageInput, PublishMessage,
+            DeleteMessage, EditMessage, EditMessageInput, ListDirectMessages, OpenDirectMessage,
+            OpenDirectMessageInput, PublishMessage,
         },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
@@ -82,13 +83,16 @@ use crate::{
                 ReadInvitation,
             },
             ports::{
-                AuthenticatedHuman, InvitationView, MessageDraft, PairedComputer, RawFencingToken,
-                RawInvitationToken, RawPairingCode, RawSessionToken,
+                ApplicationError, AuthenticatedHuman, DirectMessageView, InboxItemView,
+                InvitationView, MemberKind, MessageDraft, PairedComputer, RawFencingToken,
+                RawInvitationToken, RawPairingCode, RawSessionToken, ServerTransaction,
+                SpaceMemberView, TransactionPort,
             },
         },
         domain::{
             access::SessionLifetime,
             attachment::{Attachment, DeclaredContent},
+            attention::{AttentionStrength, InboxItemKind, InboxItemStatus},
             conversation::ChannelKind,
             identity::{AccessLevel, DriverKind, PermissionAction},
             task::CloseReason,
@@ -343,6 +347,11 @@ struct InviteHumanBody {
 }
 
 #[derive(Deserialize)]
+struct OpenDirectMessageBody {
+    member_id: Uuid,
+}
+
+#[derive(Deserialize)]
 struct AgentActionRequest {
     context: capability::RunContext,
     action: capability::Action,
@@ -441,7 +450,10 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         .route("/invites/{invite_token}", get(invitation_details))
         .route("/invites/{invite_token}/accept", post(accept_invitation))
         .route("/spaces/{space_id}/computers", get(list_computers))
-        .route("/spaces/{space_id}/dms", get(empty_list))
+        .route(
+            "/spaces/{space_id}/dms",
+            get(list_direct_messages).post(open_direct_message),
+        )
         .route(
             "/spaces/{space_id}/agents",
             get(list_agents).post(create_agent),
@@ -480,7 +492,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             "/messages/{message_id}",
             axum::routing::patch(update_message).delete(delete_message),
         )
-        .route("/members/{member_id}/inbox", get(empty_list))
+        .route("/members/{member_id}/inbox", get(member_inbox))
         .route(
             "/members/{member_id}/permissions/{action_code}",
             axum::routing::put(grant_permission).delete(revoke_permission),
@@ -4272,13 +4284,171 @@ fn map_sqlx(error: sqlx::Error) -> ApiError {
         ApiError::internal()
     }
 }
-async fn empty_list(
+async fn list_direct_messages(
     State(state): State<RuntimeState>,
     jar: CookieJar,
+    Path(space_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    authenticate(&state, &jar).await?;
-    Ok(Json(json!([])))
+    let member = current_member(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    let conversations = ListDirectMessages::execute(
+        &mut storage,
+        MemberId::from_uuid(member),
+        SpaceId::from_uuid(space_id),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(Value::Array(
+        conversations.iter().map(direct_message_json).collect(),
+    )))
 }
+
+async fn open_direct_message(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(space_id): Path<Uuid>,
+    Json(body): Json<OpenDirectMessageBody>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let member = current_member(&state, &jar, space_id).await?;
+    let mut storage = state.storage.clone();
+    let opened = OpenDirectMessage::execute(
+        &mut storage,
+        OpenDirectMessageInput {
+            channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(space_id),
+            actor_member_id: MemberId::from_uuid(member),
+            other_member_id: MemberId::from_uuid(body.member_id),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok((
+        if opened.created {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(direct_message_json(&opened.view)),
+    ))
+}
+
+async fn member_inbox(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(member_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let target = MemberId::from_uuid(member_id);
+    let mut storage = state.storage.clone();
+    // Member 路径参数先解析回它所属的 Space，再据此判定调用方的授权范围。
+    let space_id = storage
+        .transact(async |transaction| {
+            transaction
+                .space_of_member(target)
+                .await?
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+        .map_err(application_error)?;
+    let actor = current_member(&state, &jar, space_id.into_uuid()).await?;
+    let items =
+        ReadMemberInbox::execute(&mut storage, MemberId::from_uuid(actor), target, space_id)
+            .await
+            .map_err(application_error)?;
+    Ok(Json(Value::Array(
+        items.iter().map(inbox_item_json).collect(),
+    )))
+}
+
+fn direct_message_json(conversation: &DirectMessageView) -> Value {
+    json!({
+        "channel_id": conversation.channel_id.into_uuid(),
+        "space_id": conversation.space_id.into_uuid(),
+        "other_member": space_member_json(&conversation.other_member),
+        "created_at": timestamp(conversation.created_at)
+    })
+}
+
+fn space_member_json(member: &SpaceMemberView) -> Value {
+    json!({
+        "id": member.id.into_uuid(),
+        "kind": match member.kind {
+            MemberKind::Human => "human",
+            MemberKind::Agent => "agent",
+        },
+        "display_name": member.display_name,
+        "handle": member.handle,
+        "access_level": access_level_code(member.access_level),
+        "permissions": member.permissions.iter().map(|action| action.code()).collect::<Vec<_>>()
+    })
+}
+
+/// Inbox 投影不含 Message 正文，只给出定位来源所需的标识与时间。
+fn inbox_item_json(item: &InboxItemView) -> Value {
+    json!({
+        "id": item.id.into_uuid(),
+        "member_id": item.member_id.into_uuid(),
+        "kind": inbox_kind_code(item.kind),
+        "priority": match item.strength {
+            AttentionStrength::Hard => "hard",
+            AttentionStrength::Ambient => "ambient",
+        },
+        "channel_id": item.channel_id.map(ChannelId::into_uuid),
+        "channel_slug": item.channel_slug,
+        "thread_id": item.thread_id.map(ThreadId::into_uuid),
+        "message_id": item.message_id.map(MessageId::into_uuid),
+        "sender_member_id": item.sender_member_id.map(MemberId::into_uuid),
+        "sender_display_name": item.sender_display_name,
+        "summary": inbox_summary(item),
+        "status": inbox_status_code(item.status),
+        "available_at": timestamp(item.available_at),
+        "created_at": timestamp(item.created_at)
+    })
+}
+
+/// 摘要只描述注意力来源的类型，不含 Message 正文。
+fn inbox_summary(item: &InboxItemView) -> &'static str {
+    match item.kind {
+        InboxItemKind::Direct => "Direct message",
+        InboxItemKind::Mention => "You were mentioned",
+        InboxItemKind::Reply => "Reply to your Message",
+        InboxItemKind::TaskActivity => "Linked Thread activity",
+        InboxItemKind::ThreadActivity => "Thread activity",
+        InboxItemKind::ChannelActivity => "Channel activity",
+        InboxItemKind::System => "System notice",
+    }
+}
+
+fn inbox_kind_code(kind: InboxItemKind) -> &'static str {
+    match kind {
+        InboxItemKind::Direct => "direct",
+        InboxItemKind::Mention => "mention",
+        InboxItemKind::Reply => "reply",
+        InboxItemKind::TaskActivity => "task_activity",
+        InboxItemKind::ThreadActivity => "thread_activity",
+        InboxItemKind::ChannelActivity => "channel_activity",
+        InboxItemKind::System => "system",
+    }
+}
+
+fn inbox_status_code(status: InboxItemStatus) -> &'static str {
+    match status {
+        InboxItemStatus::Pending => "pending",
+        InboxItemStatus::Leased => "leased",
+        InboxItemStatus::Deferred => "deferred",
+        InboxItemStatus::Handled => "handled",
+        InboxItemStatus::Dead => "dead",
+    }
+}
+
+fn access_level_code(level: AccessLevel) -> &'static str {
+    match level {
+        AccessLevel::Owner => "owner",
+        AccessLevel::Admin => "admin",
+        AccessLevel::Member => "member",
+    }
+}
+
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }

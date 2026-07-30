@@ -18,6 +18,8 @@
 ```text
 GET    /api/v1/spaces/{space_id}/channels
 POST   /api/v1/spaces/{space_id}/channels
+GET    /api/v1/spaces/{space_id}/dms
+POST   /api/v1/spaces/{space_id}/dms
 GET    /api/v1/channels/{channel_id}/messages
 POST   /api/v1/channels/{channel_id}/messages
 GET    /api/v1/channels/{channel_id}/members
@@ -37,6 +39,18 @@ Message响应使用`attention_failures`返回尚未恢复的Agent attention错�
 Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
 
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
+
+#### 2.1.1 DM
+
+DM 是 audience 恰好为两个 Member 的 Channel，没有 slug。Human 与 Human、Human 与 Agent 都使用同一模型。
+
+`POST /api/v1/spaces/{space_id}/dms` 只接受`member_id`。Server 从 Session 推导另一方，因此请求不能指定双方。对方必须是同一 Space 中未退役的 Member，否则返回`not_found`；跨 Space 的 Member 不区分「不存在」和「无权访问」。
+
+同一对 Member 只有一个 DM。DM 没有 slug，唯一性按参与双方判定：既有 DM 存在时返回该 Channel 并使用 200，新建时使用 201。因此重复打开不产生第二个 Channel，客户端无需先查询再创建。
+
+与自己开 DM 返回冲突。
+
+`GET /api/v1/spaces/{space_id}/dms` 返回调用方参与的 DM，按最后一条 Message 时间倒序，没有 Message 的按 Channel 创建时间排。每项包含`channel_id`、`space_id`、对方 Member 投影和`created_at`，不含 Message 正文。Message 通过`GET /api/v1/channels/{channel_id}/messages`读取，与其他 Channel 一致。
 
 ### 2.2 Task
 
@@ -81,6 +95,18 @@ Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得
 Computer 仍有已分配 Agent 时，删除请求返回`computer_has_agents`冲突。Server 不得在该请求中自动退役或迁移 Agent。
 
 Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin 可以授予或撤销 Permission。
+
+#### 2.3.1 Inbox 读取
+
+`GET /api/v1/members/{member_id}/inbox` 是只读投影。Human 不能通过该端点标记完成或延后：Item 的终态由领取它的 Agent 在 Run 结束时决定，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
+
+授权分两种：Member 读自己的 Inbox，或 Space 治理者读该 Space 中 Agent 的 Inbox。治理身份不足以读取另一个 Human 的 Inbox，返回`permission_denied`；Human 的注意力队列属于本人。
+
+`member_id`先解析回它所属的 Space，再据此判定调用方授权。调用方不是该 Space 的 Member 时返回`not_found`，不区分「Member 不存在」和「无权访问」，避免该端点成为跨 Space 的 Member 存在性探测面。
+
+投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
+
+每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影和时间。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
 
 ### 2.4 Invitation
 

@@ -363,14 +363,6 @@ export function revokeMemberPermission(memberId: string, actionCode: string): Pr
   return mutate<Member>(`/api/v1/members/${encodeURIComponent(memberId)}/permissions/${encodeURIComponent(actionCode)}`, "DELETE");
 }
 
-export function ackInboxItem(itemId: string): Promise<InboxItem> {
-  return mutate<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/ack`, "POST");
-}
-
-export function deferInboxItem(itemId: string, until: string): Promise<InboxItem> {
-  return mutate<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/defer`, "POST", { until });
-}
-
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
