@@ -97,10 +97,11 @@ use crate::{
         },
         domain::{
             access::SessionLifetime,
-            attachment::{Attachment, DeclaredContent},
+            attachment::{Attachment, AttachmentStatus as AttachmentStatusKind, DeclaredContent},
             attention::{AttentionStrength, InboxItemKind, InboxItemStatus},
             conversation::ChannelKind,
             identity::{AccessLevel, DriverKind, PermissionAction},
+            pairing::ComputerOs as ComputerOsKind,
             task::CloseReason,
         },
     },
@@ -109,6 +110,13 @@ use crate::{
 use super::{
     credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
+    openapi::{
+        AccessLevel as AccessLevelCode, AttachmentResponse, AttachmentStatus, ComputerOs,
+        ComputerResponse, ComputerStatus, CreatedInvitationResponse, DirectMessageResponse,
+        InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
+        LoginResponse, MemberKind as MemberKindCode, MemberResponse, RegisterResponse,
+        UserResponse,
+    },
     postgres::PostgresAdapter,
     query::QueryRegistry,
 };
@@ -583,7 +591,7 @@ async fn register(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Json(body): Json<RegisterBody>,
-) -> Result<(CookieJar, (StatusCode, Json<Value>)), ApiError> {
+) -> Result<(CookieJar, (StatusCode, Json<RegisterResponse>)), ApiError> {
     let mut storage = state.storage.clone();
     let session = RegisterHuman::execute(
         &mut storage,
@@ -605,10 +613,10 @@ async fn register(
         session_cookie(jar, &session.token),
         (
             StatusCode::CREATED,
-            Json(json!({
-                "user": human_json(&session.human),
-                "next": "create_space"
-            })),
+            Json(RegisterResponse {
+                user: user_response(&session.human),
+                next: "create_space".to_owned(),
+            }),
         ),
     ))
 }
@@ -617,7 +625,7 @@ async fn login(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Json(body): Json<LoginBody>,
-) -> Result<(CookieJar, Json<Value>), ApiError> {
+) -> Result<(CookieJar, Json<LoginResponse>), ApiError> {
     let mut storage = state.storage.clone();
     let session = AuthenticateHuman::execute(
         &mut storage,
@@ -635,7 +643,9 @@ async fn login(
     .map_err(application_error)?;
     Ok((
         session_cookie(jar, &session.token),
-        Json(json!({"user": human_json(&session.human)})),
+        Json(LoginResponse {
+            user: user_response(&session.human),
+        }),
     ))
 }
 
@@ -653,9 +663,9 @@ async fn logout(State(state): State<RuntimeState>, jar: CookieJar) -> (CookieJar
 async fn current_user(
     State(state): State<RuntimeState>,
     jar: CookieJar,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<UserResponse>, ApiError> {
     let human = authenticate(&state, &jar).await?;
-    Ok(Json(human_json(&human)))
+    Ok(Json(user_response(&human)))
 }
 
 async fn begin_pairing(
@@ -720,7 +730,7 @@ async fn confirm_pairing(
     headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
     Json(body): Json<ConfirmPairingBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<ComputerResponse>), ApiError> {
     let actor_id = current_member(&state, &jar, body.space_id).await?;
     let key = idempotency_header(&headers)?;
     let mut storage = state.storage.clone();
@@ -739,7 +749,7 @@ async fn confirm_pairing(
     )
     .await
     .map_err(application_error)?;
-    Ok((StatusCode::CREATED, Json(computer_json(&computer))))
+    Ok((StatusCode::CREATED, Json(computer_response(&computer))))
 }
 
 async fn pairing_status(
@@ -770,7 +780,7 @@ async fn invite_human(
     headers: HeaderMap,
     Path(space_id): Path<Uuid>,
     Json(body): Json<InviteHumanBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<CreatedInvitationResponse>), ApiError> {
     let token = require_session_token(&jar)?;
     let key = idempotency_header(&headers)?;
     let mut storage = state.storage.clone();
@@ -804,25 +814,32 @@ async fn invite_human(
         },
         other => application_error(other),
     })?;
-    let mut projection = invitation_json(&issued.view);
-    // 明文 token 只在首次创建时存在，重放不再返回。
-    projection["token"] = issued.token.as_ref().map_or(Value::Null, |token| {
-        Value::String(token.expose().to_owned())
-    });
+    let view = invitation_response(&issued.view);
     Ok((
         if issued.token.is_some() {
             StatusCode::CREATED
         } else {
             StatusCode::OK
         },
-        Json(projection),
+        Json(CreatedInvitationResponse {
+            id: view.id,
+            space_id: view.space_id,
+            space_name: view.space_name,
+            space_slug: view.space_slug,
+            email: view.email,
+            expires_at: view.expires_at,
+            accepted_at: view.accepted_at,
+            accepted_by_member_id: view.accepted_by_member_id,
+            // 明文 token 只在首次创建时存在，重放不再返回。
+            token: issued.token.as_ref().map(|token| token.expose().to_owned()),
+        }),
     ))
 }
 
 async fn invitation_details(
     State(state): State<RuntimeState>,
     Path(invite_token): Path<String>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<InvitationResponse>, ApiError> {
     // 受邀 Human 点击链接时可能尚无账号，因此该端点不要求认证。
     let mut storage = state.storage.clone();
     let invitation = ReadInvitation::execute(
@@ -832,14 +849,14 @@ async fn invitation_details(
     )
     .await
     .map_err(invitation_error)?;
-    Ok(Json(invitation_json(&invitation)))
+    Ok(Json(invitation_response(&invitation)))
 }
 
 async fn accept_invitation(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(invite_token): Path<String>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<MemberResponse>), ApiError> {
     let human = authenticate(&state, &jar).await?;
     let member_id = Uuid::now_v7();
     let mut storage = state.storage.clone();
@@ -859,28 +876,29 @@ async fn accept_invitation(
     .map_err(accept_invitation_error)?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({
-            "id": member.member_id.into_uuid(),
-            "space_id": member.space_id.into_uuid(),
-            "kind": "human",
-            "display_name": member.display_name,
-            "handle": member.handle,
-            "access_level": "member"
-        })),
+        Json(MemberResponse {
+            id: member.member_id.into_uuid(),
+            kind: MemberKindCode::Human,
+            display_name: member.display_name,
+            handle: member.handle,
+            access_level: AccessLevelCode::Member,
+            // 接受 Invitation 只建立 Member 身份，不授予任何 Permission。
+            permissions: Vec::new(),
+        }),
     ))
 }
 
-fn invitation_json(invitation: &InvitationView) -> Value {
-    json!({
-        "id": invitation.id,
-        "space_id": invitation.space_id.into_uuid(),
-        "space_name": invitation.space_name,
-        "space_slug": invitation.space_slug,
-        "email": invitation.email,
-        "expires_at": timestamp(invitation.expires_at),
-        "accepted_at": invitation.accepted_at.map(timestamp),
-        "accepted_by_member_id": invitation.accepted_by_member_id.map(MemberId::into_uuid)
-    })
+fn invitation_response(invitation: &InvitationView) -> InvitationResponse {
+    InvitationResponse {
+        id: invitation.id,
+        space_id: invitation.space_id.into_uuid(),
+        space_name: invitation.space_name.clone(),
+        space_slug: invitation.space_slug.clone(),
+        email: invitation.email.clone(),
+        expires_at: timestamp(invitation.expires_at),
+        accepted_at: invitation.accepted_at.map(timestamp),
+        accepted_by_member_id: invitation.accepted_by_member_id.map(MemberId::into_uuid),
+    }
 }
 
 /// 未命中、已过期和已接受返回同一个错误码，使读取端点不能用于探测 token
@@ -968,27 +986,30 @@ async fn authenticate_computer(
     Ok(())
 }
 
-fn computer_json(computer: &PairedComputer) -> Value {
-    json!({
-        "id": computer.id.into_uuid(),
-        "space_id": computer.space_id.into_uuid(),
-        "name": computer.name,
-        "hostname": computer.hostname,
-        "os": computer.os.code(),
-        "daemon_version": computer.daemon_version.clone().unwrap_or_default(),
-        "status": computer_status(computer),
-        "last_seen_at": optional_timestamp(computer.last_seen_at),
-        "created_at": timestamp(computer.created_at)
-    })
+fn computer_response(computer: &PairedComputer) -> ComputerResponse {
+    ComputerResponse {
+        id: computer.id.into_uuid(),
+        space_id: computer.space_id.into_uuid(),
+        name: computer.name.clone(),
+        hostname: computer.hostname.clone(),
+        os: match computer.os {
+            ComputerOsKind::MacOs => ComputerOs::Macos,
+            ComputerOsKind::Linux => ComputerOs::Linux,
+        },
+        daemon_version: computer.daemon_version.clone().unwrap_or_default(),
+        status: computer_status(computer),
+        last_seen_at: optional_timestamp(computer.last_seen_at),
+        created_at: timestamp(computer.created_at),
+    }
 }
 
-fn computer_status(computer: &PairedComputer) -> &'static str {
+fn computer_status(computer: &PairedComputer) -> ComputerStatus {
     if computer.deleted {
-        "revoked"
+        ComputerStatus::Revoked
     } else if computer.connected {
-        "online"
+        ComputerStatus::Online
     } else {
-        "offline"
+        ComputerStatus::Offline
     }
 }
 
@@ -2450,15 +2471,13 @@ async fn list_computers(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<ComputerResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
     let computers = ListSpaceComputers::execute(&mut storage, SpaceId::from_uuid(space_id))
         .await
         .map_err(application_error)?;
-    Ok(Json(Value::Array(
-        computers.iter().map(computer_json).collect(),
-    )))
+    Ok(Json(computers.iter().map(computer_response).collect()))
 }
 
 async fn list_agents(
@@ -2604,7 +2623,7 @@ async fn delete_computer(
     jar: CookieJar,
     headers: HeaderMap,
     Path(computer_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<ComputerResponse>, ApiError> {
     let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
     let actor_id = require_computer_governor(&state, &jar, computer_id).await?;
     let mut storage = state.storage.clone();
@@ -2620,7 +2639,7 @@ async fn delete_computer(
     let computer = ReadPairedComputer::execute(&mut storage, ComputerId::from_uuid(computer_id))
         .await
         .map_err(application_error)?;
-    Ok(Json(computer_json(&computer)))
+    Ok(Json(computer_response(&computer)))
 }
 
 async fn create_agent(
@@ -3660,7 +3679,7 @@ async fn agent_create_upload(
     headers: HeaderMap,
     Path((computer_id, agent_id, run_id)): Path<(Uuid, Uuid, Uuid)>,
     Json(body): Json<AgentCreateUploadBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<AttachmentResponse>), ApiError> {
     let space_id =
         require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let key = idempotency_header(&headers)?;
@@ -3686,7 +3705,10 @@ async fn agent_create_upload(
     };
     Ok((
         status,
-        Json(attachment_json(&opened.attachment, AttachmentPath::Upload)),
+        Json(attachment_response(
+            &opened.attachment,
+            AttachmentPath::Upload,
+        )),
     ))
 }
 
@@ -3718,7 +3740,7 @@ async fn agent_complete_upload(
     headers: HeaderMap,
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
     Json(body): Json<CompleteUploadBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AttachmentResponse>, ApiError> {
     require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let key = idempotency_header(&headers)?;
     let mut storage = state.storage.clone();
@@ -3738,7 +3760,10 @@ async fn agent_complete_upload(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(attachment_json(&attachment, AttachmentPath::Download)))
+    Ok(Json(attachment_response(
+        &attachment,
+        AttachmentPath::Download,
+    )))
 }
 
 async fn agent_download_attachment(
@@ -3773,7 +3798,7 @@ async fn create_upload(
     jar: CookieJar,
     headers: HeaderMap,
     Json(body): Json<CreateUploadBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<AttachmentResponse>), ApiError> {
     let member = current_member(&state, &jar, body.space_id).await?;
     let key = idempotency_header(&headers)?;
     let mut storage = state.storage.clone();
@@ -3798,7 +3823,10 @@ async fn create_upload(
     };
     Ok((
         status,
-        Json(attachment_json(&opened.attachment, AttachmentPath::Upload)),
+        Json(attachment_response(
+            &opened.attachment,
+            AttachmentPath::Upload,
+        )),
     ))
 }
 
@@ -3831,7 +3859,7 @@ async fn complete_upload(
     headers: HeaderMap,
     Path(attachment_id): Path<Uuid>,
     Json(body): Json<CompleteUploadBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<AttachmentResponse>, ApiError> {
     let member = attachment_space_member(&state, &jar, attachment_id).await?;
     let key = idempotency_header(&headers)?;
     let mut storage = state.storage.clone();
@@ -3851,7 +3879,10 @@ async fn complete_upload(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(attachment_json(&attachment, AttachmentPath::Download)))
+    Ok(Json(attachment_response(
+        &attachment,
+        AttachmentPath::Download,
+    )))
 }
 
 async fn download_attachment(
@@ -3896,28 +3927,29 @@ enum AttachmentPath {
     Download,
 }
 
-fn attachment_json(attachment: &Attachment, path: AttachmentPath) -> Value {
+fn attachment_response(attachment: &Attachment, path: AttachmentPath) -> AttachmentResponse {
     let id = attachment.id.into_uuid();
     let (upload_path, download_path) = match path {
-        AttachmentPath::Upload => (
-            Some(format!("/api/v1/attachments/{id}/content")),
-            Value::Null,
-        ),
-        AttachmentPath::Download => (None, json!(format!("/api/v1/attachments/{id}/download"))),
+        AttachmentPath::Upload => (Some(format!("/api/v1/attachments/{id}/content")), None),
+        AttachmentPath::Download => (None, Some(format!("/api/v1/attachments/{id}/download"))),
     };
-    json!({
-        "id": id,
-        "space_id": attachment.space_id.into_uuid(),
-        "uploader_member_id": attachment.uploader_member_id.into_uuid(),
-        "original_name": attachment.name,
-        "media_type": attachment.media_type,
-        "size": attachment.length,
-        "sha256": attachment.sha256.map(hex::encode),
-        "status": attachment.status.code(),
-        "upload_path": upload_path,
-        "download_path": download_path,
-        "created_at": timestamp(attachment.created_at)
-    })
+    AttachmentResponse {
+        id,
+        space_id: attachment.space_id.into_uuid(),
+        uploader_member_id: attachment.uploader_member_id.into_uuid(),
+        original_name: attachment.name.clone(),
+        media_type: attachment.media_type.clone(),
+        size: attachment.length,
+        sha256: attachment.sha256.map(hex::encode),
+        status: match attachment.status {
+            AttachmentStatusKind::Uploading => AttachmentStatus::Uploading,
+            AttachmentStatusKind::Ready => AttachmentStatus::Ready,
+            AttachmentStatusKind::Deleted => AttachmentStatus::Deleted,
+        },
+        upload_path,
+        download_path,
+        created_at: timestamp(attachment.created_at),
+    }
 }
 
 /// 在 actor 与 idempotency key 上取事务级锁。
@@ -4126,12 +4158,12 @@ async fn channel_member(
     Ok(member_id.into_uuid())
 }
 
-fn human_json(human: &AuthenticatedHuman) -> Value {
-    json!({
-        "id": human.user_id,
-        "display_name": human.display_name,
-        "email": human.email_normalized
-    })
+fn user_response(human: &AuthenticatedHuman) -> UserResponse {
+    UserResponse {
+        id: human.user_id,
+        display_name: human.display_name.clone(),
+        email: human.email_normalized.clone(),
+    }
 }
 fn space_json(
     id: Uuid,
@@ -4561,7 +4593,7 @@ async fn list_direct_messages(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<DirectMessageResponse>>, ApiError> {
     let member = current_member(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
     let conversations = ListDirectMessages::execute(
@@ -4571,9 +4603,9 @@ async fn list_direct_messages(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(Value::Array(
-        conversations.iter().map(direct_message_json).collect(),
-    )))
+    Ok(Json(
+        conversations.iter().map(direct_message_response).collect(),
+    ))
 }
 
 async fn open_direct_message(
@@ -4581,7 +4613,7 @@ async fn open_direct_message(
     jar: CookieJar,
     Path(space_id): Path<Uuid>,
     Json(body): Json<OpenDirectMessageBody>,
-) -> Result<(StatusCode, Json<Value>), ApiError> {
+) -> Result<(StatusCode, Json<DirectMessageResponse>), ApiError> {
     let member = current_member(&state, &jar, space_id).await?;
     let mut storage = state.storage.clone();
     let opened = OpenDirectMessage::execute(
@@ -4602,7 +4634,7 @@ async fn open_direct_message(
         } else {
             StatusCode::OK
         },
-        Json(direct_message_json(&opened.view)),
+        Json(direct_message_response(&opened.view)),
     ))
 }
 
@@ -4610,7 +4642,7 @@ async fn member_inbox(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(member_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Vec<InboxItemResponse>>, ApiError> {
     let target = MemberId::from_uuid(member_id);
     let mut storage = state.storage.clone();
     // Member 路径参数先解析回它所属的 Space，再据此判定调用方的授权范围。
@@ -4628,55 +4660,57 @@ async fn member_inbox(
         ReadMemberInbox::execute(&mut storage, MemberId::from_uuid(actor), target, space_id)
             .await
             .map_err(application_error)?;
-    Ok(Json(Value::Array(
-        items.iter().map(inbox_item_json).collect(),
-    )))
+    Ok(Json(items.iter().map(inbox_item_response).collect()))
 }
 
-fn direct_message_json(conversation: &DirectMessageView) -> Value {
-    json!({
-        "channel_id": conversation.channel_id.into_uuid(),
-        "space_id": conversation.space_id.into_uuid(),
-        "other_member": space_member_json(&conversation.other_member),
-        "created_at": timestamp(conversation.created_at)
-    })
+fn direct_message_response(conversation: &DirectMessageView) -> DirectMessageResponse {
+    DirectMessageResponse {
+        channel_id: conversation.channel_id.into_uuid(),
+        space_id: conversation.space_id.into_uuid(),
+        other_member: space_member_response(&conversation.other_member),
+        created_at: timestamp(conversation.created_at),
+    }
 }
 
-fn space_member_json(member: &SpaceMemberView) -> Value {
-    json!({
-        "id": member.id.into_uuid(),
-        "kind": match member.kind {
-            MemberKind::Human => "human",
-            MemberKind::Agent => "agent",
+fn space_member_response(member: &SpaceMemberView) -> MemberResponse {
+    MemberResponse {
+        id: member.id.into_uuid(),
+        kind: match member.kind {
+            MemberKind::Human => MemberKindCode::Human,
+            MemberKind::Agent => MemberKindCode::Agent,
         },
-        "display_name": member.display_name,
-        "handle": member.handle,
-        "access_level": access_level_code(member.access_level),
-        "permissions": member.permissions.iter().map(|action| action.code()).collect::<Vec<_>>()
-    })
+        display_name: member.display_name.clone(),
+        handle: member.handle.clone(),
+        access_level: access_level_code(member.access_level),
+        permissions: member
+            .permissions
+            .iter()
+            .map(|action| action.code().to_owned())
+            .collect(),
+    }
 }
 
 /// Inbox 投影不含 Message 正文，只给出定位来源所需的标识与时间。
-fn inbox_item_json(item: &InboxItemView) -> Value {
-    json!({
-        "id": item.id.into_uuid(),
-        "member_id": item.member_id.into_uuid(),
-        "kind": inbox_kind_code(item.kind),
-        "priority": match item.strength {
-            AttentionStrength::Hard => "hard",
-            AttentionStrength::Ambient => "ambient",
+fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
+    InboxItemResponse {
+        id: item.id.into_uuid(),
+        member_id: item.member_id.into_uuid(),
+        kind: inbox_kind_code(item.kind),
+        priority: match item.strength {
+            AttentionStrength::Hard => InboxPriority::Hard,
+            AttentionStrength::Ambient => InboxPriority::Ambient,
         },
-        "channel_id": item.channel_id.map(ChannelId::into_uuid),
-        "channel_slug": item.channel_slug,
-        "thread_id": item.thread_id.map(ThreadId::into_uuid),
-        "message_id": item.message_id.map(MessageId::into_uuid),
-        "sender_member_id": item.sender_member_id.map(MemberId::into_uuid),
-        "sender_display_name": item.sender_display_name,
-        "summary": inbox_summary(item),
-        "status": inbox_status_code(item.status),
-        "available_at": timestamp(item.available_at),
-        "created_at": timestamp(item.created_at)
-    })
+        channel_id: item.channel_id.map(ChannelId::into_uuid),
+        channel_slug: item.channel_slug.clone(),
+        thread_id: item.thread_id.map(ThreadId::into_uuid),
+        message_id: item.message_id.map(MessageId::into_uuid),
+        sender_member_id: item.sender_member_id.map(MemberId::into_uuid),
+        sender_display_name: item.sender_display_name.clone(),
+        summary: inbox_summary(item).to_owned(),
+        status: inbox_status_code(item.status),
+        available_at: timestamp(item.available_at),
+        created_at: timestamp(item.created_at),
+    }
 }
 
 /// 摘要只描述注意力来源的类型，不含 Message 正文。
@@ -4692,33 +4726,33 @@ fn inbox_summary(item: &InboxItemView) -> &'static str {
     }
 }
 
-fn inbox_kind_code(kind: InboxItemKind) -> &'static str {
+fn inbox_kind_code(kind: InboxItemKind) -> InboxKind {
     match kind {
-        InboxItemKind::Direct => "direct",
-        InboxItemKind::Mention => "mention",
-        InboxItemKind::Reply => "reply",
-        InboxItemKind::TaskActivity => "task_activity",
-        InboxItemKind::ThreadActivity => "thread_activity",
-        InboxItemKind::ChannelActivity => "channel_activity",
-        InboxItemKind::System => "system",
+        InboxItemKind::Direct => InboxKind::Direct,
+        InboxItemKind::Mention => InboxKind::Mention,
+        InboxItemKind::Reply => InboxKind::Reply,
+        InboxItemKind::TaskActivity => InboxKind::TaskActivity,
+        InboxItemKind::ThreadActivity => InboxKind::ThreadActivity,
+        InboxItemKind::ChannelActivity => InboxKind::ChannelActivity,
+        InboxItemKind::System => InboxKind::System,
     }
 }
 
-fn inbox_status_code(status: InboxItemStatus) -> &'static str {
+fn inbox_status_code(status: InboxItemStatus) -> InboxStatus {
     match status {
-        InboxItemStatus::Pending => "pending",
-        InboxItemStatus::Leased => "leased",
-        InboxItemStatus::Deferred => "deferred",
-        InboxItemStatus::Handled => "handled",
-        InboxItemStatus::Dead => "dead",
+        InboxItemStatus::Pending => InboxStatus::Pending,
+        InboxItemStatus::Leased => InboxStatus::Leased,
+        InboxItemStatus::Deferred => InboxStatus::Deferred,
+        InboxItemStatus::Handled => InboxStatus::Handled,
+        InboxItemStatus::Dead => InboxStatus::Dead,
     }
 }
 
-fn access_level_code(level: AccessLevel) -> &'static str {
+fn access_level_code(level: AccessLevel) -> AccessLevelCode {
     match level {
-        AccessLevel::Owner => "owner",
-        AccessLevel::Admin => "admin",
-        AccessLevel::Member => "member",
+        AccessLevel::Owner => AccessLevelCode::Owner,
+        AccessLevel::Admin => AccessLevelCode::Admin,
+        AccessLevel::Member => AccessLevelCode::Member,
     }
 }
 
@@ -5818,7 +5852,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let attachment_id = Uuid::parse_str(created.1.0["id"].as_str().unwrap()).unwrap();
+        let attachment_id = created.1.0.id;
         let replayed = agent_create_upload(
             State(fixture.state.clone()),
             headers.clone(),
@@ -5830,7 +5864,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(replayed.1.0["id"], attachment_id.to_string());
+        assert_eq!(replayed.1.0.id, attachment_id);
 
         let content = Bytes::from_static(b"agent attachment payload");
         let attachment_path = (path.0, path.1, path.2, attachment_id);
@@ -5865,7 +5899,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(completed_again.0["status"], "ready");
+        assert!(matches!(completed_again.0.status, AttachmentStatus::Ready));
         let downloaded =
             agent_download_attachment(State(fixture.state.clone()), headers, Path(attachment_path))
                 .await

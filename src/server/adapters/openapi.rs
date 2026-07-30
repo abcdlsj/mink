@@ -87,14 +87,14 @@ pub(super) struct RegisterRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct UserResponse {
-    id: Uuid,
-    display_name: String,
-    email: String,
+    pub(super) id: Uuid,
+    pub(super) display_name: String,
+    pub(super) email: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct RegisterResponse {
-    user: UserResponse,
-    next: String,
+    pub(super) user: UserResponse,
+    pub(super) next: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct LoginRequest {
@@ -103,7 +103,7 @@ pub(super) struct LoginRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct LoginResponse {
-    user: UserResponse,
+    pub(super) user: UserResponse,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -142,15 +142,15 @@ pub(super) struct ConfirmPairingRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct ComputerResponse {
-    id: Uuid,
-    space_id: Uuid,
-    name: String,
-    hostname: String,
-    os: ComputerOs,
-    daemon_version: String,
-    status: ComputerStatus,
-    last_seen_at: Option<String>,
-    created_at: String,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) name: String,
+    pub(super) hostname: String,
+    pub(super) os: ComputerOs,
+    pub(super) daemon_version: String,
+    pub(super) status: ComputerStatus,
+    pub(super) last_seen_at: Option<String>,
+    pub(super) created_at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -310,12 +310,12 @@ pub(super) enum SuspendMode {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct MemberResponse {
-    id: Uuid,
-    kind: MemberKind,
-    display_name: String,
-    handle: String,
-    access_level: AccessLevel,
-    permissions: Vec<String>,
+    pub(super) id: Uuid,
+    pub(super) kind: MemberKind,
+    pub(super) display_name: String,
+    pub(super) handle: String,
+    pub(super) access_level: AccessLevel,
+    pub(super) permissions: Vec<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -341,27 +341,27 @@ pub(super) struct CreateInvitationRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct InvitationResponse {
-    id: Uuid,
-    space_id: Uuid,
-    space_name: String,
-    space_slug: String,
-    email: String,
-    expires_at: String,
-    accepted_at: Option<String>,
-    accepted_by_member_id: Option<Uuid>,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) space_name: String,
+    pub(super) space_slug: String,
+    pub(super) email: String,
+    pub(super) expires_at: String,
+    pub(super) accepted_at: Option<String>,
+    pub(super) accepted_by_member_id: Option<Uuid>,
 }
 /// 创建响应。`token`只在首次创建时非空，重放不返回明文。
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreatedInvitationResponse {
-    id: Uuid,
-    space_id: Uuid,
-    space_name: String,
-    space_slug: String,
-    email: String,
-    expires_at: String,
-    accepted_at: Option<String>,
-    accepted_by_member_id: Option<Uuid>,
-    token: Option<String>,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) space_name: String,
+    pub(super) space_slug: String,
+    pub(super) email: String,
+    pub(super) expires_at: String,
+    pub(super) accepted_at: Option<String>,
+    pub(super) accepted_by_member_id: Option<Uuid>,
+    pub(super) token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -394,10 +394,10 @@ pub(super) struct ChannelListResponse {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct DirectMessageResponse {
-    channel_id: Uuid,
-    space_id: Uuid,
-    other_member: MemberResponse,
-    created_at: String,
+    pub(super) channel_id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) other_member: MemberResponse,
+    pub(super) created_at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateDirectMessageRequest {
@@ -506,17 +506,17 @@ pub(super) struct UpdateMessageRequest {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct AttachmentResponse {
-    id: Uuid,
-    space_id: Uuid,
-    uploader_member_id: Uuid,
-    original_name: String,
-    media_type: String,
-    size: Option<u64>,
-    sha256: Option<String>,
-    status: AttachmentStatus,
-    upload_path: Option<String>,
-    download_path: Option<String>,
-    created_at: String,
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) uploader_member_id: Uuid,
+    pub(super) original_name: String,
+    pub(super) media_type: String,
+    pub(super) size: Option<u64>,
+    pub(super) sha256: Option<String>,
+    pub(super) status: AttachmentStatus,
+    pub(super) upload_path: Option<String>,
+    pub(super) download_path: Option<String>,
+    pub(super) created_at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -539,20 +539,20 @@ pub(super) struct CompleteUploadRequest {
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct InboxItemResponse {
-    id: Uuid,
-    member_id: Uuid,
-    kind: InboxKind,
-    priority: InboxPriority,
-    channel_id: Option<Uuid>,
-    channel_slug: Option<String>,
-    thread_id: Option<Uuid>,
-    message_id: Option<Uuid>,
-    sender_member_id: Option<Uuid>,
-    sender_display_name: Option<String>,
-    summary: String,
-    status: InboxStatus,
-    available_at: String,
-    created_at: String,
+    pub(super) id: Uuid,
+    pub(super) member_id: Uuid,
+    pub(super) kind: InboxKind,
+    pub(super) priority: InboxPriority,
+    pub(super) channel_id: Option<Uuid>,
+    pub(super) channel_slug: Option<String>,
+    pub(super) thread_id: Option<Uuid>,
+    pub(super) message_id: Option<Uuid>,
+    pub(super) sender_member_id: Option<Uuid>,
+    pub(super) sender_display_name: Option<String>,
+    pub(super) summary: String,
+    pub(super) status: InboxStatus,
+    pub(super) available_at: String,
+    pub(super) created_at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

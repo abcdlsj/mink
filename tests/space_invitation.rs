@@ -143,8 +143,14 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
     let accepted: Value = accepted.json().await?;
-    ensure!(accepted["space_id"].as_str() == Some(space_id.as_str()));
     ensure!(accepted["kind"] == "human");
+    // 该响应是 Member 投影，不含 space_id：所属 Space 由随后的 Member 名单证明。
+    ensure!(
+        accepted["permissions"]
+            .as_array()
+            .context("permissions")?
+            .is_empty()
+    );
     // 新 Member 的级别固定为 member，提升为 Admin 是独立的治理动作。
     ensure!(accepted["access_level"] == "member");
 
