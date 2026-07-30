@@ -40,6 +40,10 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
   assert.match(task, /^depends = \["db-start"\]$/m);
   assert.match(task, /RUST_LOG = "sumi=warn,tower_http=warn"/);
 
+  const developmentTask = miseConfig.match(/\[tasks\.dev\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
+  assert.ok(developmentTask, "mise.toml must define tasks.dev");
+  assert.match(developmentTask, /SUMI_SERVER__DATABASE_URL = "postgres:\/\/localhost\/sumi_dev"/);
+
   const databaseTask = miseConfig.match(/\[tasks\.db-start\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
   assert.ok(databaseTask, "mise.toml must define tasks.db-start");
   assert.match(databaseTask, /migrations\/postgres_v2\/0001_schema\.sql/);

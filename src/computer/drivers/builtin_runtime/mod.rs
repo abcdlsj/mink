@@ -515,7 +515,7 @@ async fn restrict_directory(path: &Path) -> Result<(), ApplicationError> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::fs;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -556,7 +556,7 @@ mod tests {
         for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }
-        let config = builtin_config(directory.path(), &format!("http://{address}/v1"));
+        let config = builtin_config(&format!("http://{address}/v1"));
         let mut client = BuiltinRuntimeClient::new(computer_home.clone(), &config).unwrap();
         let locator = client.create_session(agent_id).await.unwrap();
         let input = run_input(agent_id);
@@ -616,7 +616,7 @@ mod tests {
         for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }
-        let config = builtin_config(directory.path(), "http://127.0.0.1:9/v1");
+        let config = builtin_config("http://127.0.0.1:9/v1");
         let mut client = BuiltinRuntimeClient::new(computer_home, &config).unwrap();
         let locator = client.create_session(agent_id).await.unwrap();
         let run_id = RunId::from_uuid(Uuid::now_v7());
@@ -636,32 +636,13 @@ mod tests {
         );
     }
 
-    fn builtin_config(root: &Path, base_url: &str) -> ComputerConfig {
-        let settings = root.join(format!("settings-{}.json", Uuid::now_v7()));
-        let models = root.join(format!("models-{}.json", Uuid::now_v7()));
-        let auth = root.join(format!("auth-{}.json", Uuid::now_v7()));
-        fs::write(
-            &settings,
-            r#"{"defaultProvider":"local","defaultModel":"test-model"}"#,
-        )
-        .unwrap();
-        fs::write(
-            &models,
-            format!(
-                r#"{{"local":{{"models":[{{"id":"test-model","api":"openai-completions","baseUrl":"{base_url}"}}]}}}}"#
-            ),
-        )
-        .unwrap();
-        fs::write(
-            &auth,
-            r#"{"local":{"type":"api_key","key":"provider-secret"}}"#,
-        )
-        .unwrap();
-        fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
+    fn builtin_config(api_base: &str) -> ComputerConfig {
         ComputerConfig {
-            builtin_settings_source: Some(settings),
-            builtin_models_source: Some(models),
-            builtin_auth_source: Some(auth),
+            builtin: Some(crate::config::BuiltinOpenAiConfig {
+                api_base: url::Url::parse(api_base).unwrap(),
+                token: crate::config::ConfigSecret::from("provider-secret"),
+                model: "test-model".to_owned(),
+            }),
             ..ComputerConfig::default()
         }
     }

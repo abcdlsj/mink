@@ -96,10 +96,12 @@ fi
 
 [tasks.run]
 description = "Run the local Sumi server"
+env = { SUMI_SERVER__DATABASE_URL = "postgres://localhost/sumi_dev" }
 run = "cargo run -- server"
 
 [tasks.dev]
 description = "Run the Rust server and Vite development server"
+env = { SUMI_SERVER__DATABASE_URL = "postgres://localhost/sumi_dev" }
 run = '''
 trap 'kill 0' EXIT INT TERM
 cargo run -- server &

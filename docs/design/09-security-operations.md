@@ -54,6 +54,8 @@ Linux 使用 mount/process sandbox。macOS 使用系统可用的进程 sandbox�
 
 子进程环境从空集合构造。Computer Token、其他Agents目录和非当前Driver凭据不得进入环境或mount。
 
+Builtin token 可以来自 Computer TOML 或`SUMI_COMPUTER__BUILTIN__TOKEN`。包含 token 的 TOML 在 Unix 上必须仅允许文件所有者访问。配置的 Debug 输出必须隐藏 token。
+
 ## 5. 幂等与重放
 
 - 所有HTTP写操作使用idempotency key。

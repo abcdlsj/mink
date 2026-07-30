@@ -39,14 +39,14 @@ pub(crate) enum SchemaCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct ServerArgs {
-    /// Optional TOML configuration file.
+    /// TOML configuration file. Defaults to $HOME/.sumi/config.toml when present.
     #[arg(long, value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct ComputerArgs {
-    /// Optional TOML configuration file.
+    /// TOML configuration file. Defaults to $HOME/.sumi/config.toml when present.
     #[arg(long, value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 

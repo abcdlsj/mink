@@ -129,6 +129,8 @@ Server、Computer、Agent CLI 和 Driver 的代码职责、目录与依赖方向
 
 - Server、Computer 和 Agent CLI 使用 Rust，并编译为一个 `sumi` 可执行文件。
 - Server 使用 axum、tokio、sqlx 和 PostgreSQL。
+- Server 未配置数据库地址时连接`postgres://localhost/sumi_prod`。本地开发任务显式连接可重建的`postgres://localhost/sumi_dev`。
+- Server 和 Computer 默认读取`$HOME/.sumi/config.toml`；文件不存在时使用代码默认值。显式`--config`路径覆盖该默认文件。
 - Computer 本地状态使用 SQLite。
 - Browser 使用 React、TypeScript、Vite、TanStack Router 和 TanStack Query。
 - Browser API 类型从 Rust OpenAPI 生成。

@@ -60,6 +60,17 @@ Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式�
 
 Builtin Driver实现与 Codex相同的 Session和Run契约。它可以在本地保存 provider conversation state，但该状态仍属于 Provider Session缓存。
 
+Builtin 只接入 OpenAI Chat Completions 兼容协议。Computer 配置使用`api_base`、`token`和`model`三个字段；`api_base`是 API 根路径，Driver请求其`/chat/completions`端点。三个字段必须同时存在，不读取其他工具的 settings、models 或 auth 文件。
+
+```toml
+[computer.builtin]
+api_base = "https://api.example.com/v1"
+token = "replace-with-provider-token"
+model = "provider-model-id"
+```
+
+环境变量使用`SUMI_COMPUTER__BUILTIN__API_BASE`、`SUMI_COMPUTER__BUILTIN__TOKEN`和`SUMI_COMPUTER__BUILTIN__MODEL`。
+
 Builtin 的模型凭据只存在于 Computer。文件和 shell tool 只能访问当前 Agent 的 workspace、Memory 和运行临时目录。
 
 工具子进程不能获得 Computer Token 或模型 API key。

@@ -339,54 +339,14 @@ pub fn write_builtin_computer_config(
 ) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let settings = state_dir
-        .parent()
-        .context("Computer state has no parent")?
-        .join("builtin-settings.json");
-    let models = state_dir
-        .parent()
-        .context("Computer state has no parent")?
-        .join("builtin-models.json");
-    let auth = state_dir
-        .parent()
-        .context("Computer state has no parent")?
-        .join("builtin-auth.json");
-    std::fs::write(
-        &settings,
-        serde_json::to_vec(&serde_json::json!({
-            "defaultProvider": "local-test",
-            "defaultModel": "sumi-test-model"
-        }))?,
-    )?;
-    std::fs::write(
-        &models,
-        serde_json::to_vec(&serde_json::json!({
-            "local-test": {
-                "models": [{
-                    "id": "sumi-test-model",
-                    "api": "openai-completions",
-                    "baseUrl": provider_base_url
-                }]
-            }
-        }))?,
-    )?;
-    std::fs::write(
-        &auth,
-        serde_json::to_vec(&serde_json::json!({
-            "local-test": { "type": "api_key", "key": "test-only-provider-key" }
-        }))?,
-    )?;
-    std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o600))?;
     std::fs::write(
         path,
         format!(
-            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nbuiltin_settings_source = '{}'\nbuiltin_models_source = '{}'\nbuiltin_auth_source = '{}'\nmax_concurrent_runs = 1\nper_agent_timeout_seconds = 60\nshutdown_grace_period_seconds = 1\n",
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nmax_concurrent_runs = 1\nper_agent_timeout_seconds = 60\nshutdown_grace_period_seconds = 1\n\n[computer.builtin]\napi_base = '{provider_base_url}'\ntoken = 'test-only-provider-key'\nmodel = 'sumi-test-model'\n",
             state_dir.display(),
-            settings.display(),
-            models.display(),
-            auth.display(),
         ),
     )?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 

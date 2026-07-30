@@ -5,7 +5,8 @@ use figment::{
     Figment,
     providers::{Env, Format, Serialized, Toml},
 };
-use serde::{Deserialize, Serialize};
+use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -38,13 +39,80 @@ pub struct AttachmentS3Config {
     pub allow_http: bool,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct BuiltinOpenAiConfig {
+    pub api_base: Url,
+    pub token: ConfigSecret,
+    pub model: String,
+}
+
+#[derive(Clone)]
+pub struct ConfigSecret(SecretString);
+
+impl ConfigSecret {
+    pub(crate) fn expose(&self) -> &str {
+        self.0.expose_secret()
+    }
+
+    pub(crate) fn clone_secret(&self) -> SecretString {
+        self.0.clone()
+    }
+}
+
+impl From<String> for ConfigSecret {
+    fn from(value: String) -> Self {
+        Self(SecretString::from(value))
+    }
+}
+
+impl From<&str> for ConfigSecret {
+    fn from(value: &str) -> Self {
+        Self(SecretString::from(value.to_owned()))
+    }
+}
+
+impl std::fmt::Debug for ConfigSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("[REDACTED]")
+    }
+}
+
+impl<'de> Deserialize<'de> for ConfigSecret {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(|value| Self(SecretString::from(value)))
+    }
+}
+
+impl Serialize for ConfigSecret {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.expose())
+    }
+}
+
+impl std::fmt::Debug for BuiltinOpenAiConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BuiltinOpenAiConfig")
+            .field("api_base", &self.api_base)
+            .field("token", &"[REDACTED]")
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: "127.0.0.1:3000"
                 .parse()
                 .expect("valid default bind address"),
-            database_url: "postgres://localhost/sumi_dev".to_owned(),
+            database_url: "postgres://localhost/sumi_prod".to_owned(),
             web_dist: PathBuf::from("web/dist"),
             attachment_dir: default_sumi_dir().join("server/attachments"),
             attachment_s3: None,
@@ -65,9 +133,7 @@ pub struct ComputerConfig {
     pub open_pairing_browser: bool,
     pub codex_config_source: Option<PathBuf>,
     pub codex_auth_source: Option<PathBuf>,
-    pub builtin_settings_source: Option<PathBuf>,
-    pub builtin_models_source: Option<PathBuf>,
-    pub builtin_auth_source: Option<PathBuf>,
+    pub builtin: Option<BuiltinOpenAiConfig>,
     pub max_concurrent_runs: usize,
     pub per_agent_timeout_seconds: u64,
     pub shutdown_grace_period_seconds: u64,
@@ -81,9 +147,7 @@ impl Default for ComputerConfig {
             open_pairing_browser: true,
             codex_config_source: None,
             codex_auth_source: None,
-            builtin_settings_source: None,
-            builtin_models_source: None,
-            builtin_auth_source: None,
+            builtin: None,
             max_concurrent_runs: std::thread::available_parallelism()
                 .map(|count| (count.get() / 2).max(1))
                 .unwrap_or(1),
@@ -94,8 +158,12 @@ impl Default for ComputerConfig {
 }
 
 pub fn load(path: Option<&PathBuf>) -> Result<SumiConfig> {
+    let path = path.cloned().or_else(|| {
+        let default = default_config_path();
+        default.is_file().then_some(default)
+    });
     let mut source = Figment::from(Serialized::defaults(SumiConfig::default()));
-    if let Some(path) = path {
+    if let Some(path) = &path {
         source = source.merge(Toml::file(path));
     }
 
@@ -104,6 +172,7 @@ pub fn load(path: Option<&PathBuf>) -> Result<SumiConfig> {
         .extract()
         .context("invalid Sumi configuration")?;
     validate(&config)?;
+    validate_config_file_permissions(path.as_ref(), &config)?;
     Ok(config)
 }
 
@@ -146,23 +215,62 @@ fn validate(config: &SumiConfig) -> Result<()> {
         config.computer.shutdown_grace_period_seconds > 0,
         "computer.shutdown_grace_period_seconds must be positive"
     );
-    let builtin_source_count = [
-        &config.computer.builtin_settings_source,
-        &config.computer.builtin_models_source,
-        &config.computer.builtin_auth_source,
-    ]
-    .into_iter()
-    .filter(|path| path.is_some())
-    .count();
+    if let Some(builtin) = &config.computer.builtin {
+        ensure!(
+            matches!(builtin.api_base.scheme(), "http" | "https"),
+            "computer.builtin.api_base must use http or https"
+        );
+        ensure!(
+            builtin.api_base.username().is_empty() && builtin.api_base.password().is_none(),
+            "computer.builtin.api_base must not contain credentials"
+        );
+        ensure!(
+            builtin.api_base.query().is_none() && builtin.api_base.fragment().is_none(),
+            "computer.builtin.api_base must not contain a query or fragment"
+        );
+        ensure!(
+            !builtin.token.expose().trim().is_empty(),
+            "computer.builtin.token must not be empty"
+        );
+        ensure!(
+            !builtin.model.trim().is_empty(),
+            "computer.builtin.model must not be empty"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_config_file_permissions(path: Option<&PathBuf>, config: &SumiConfig) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Some(path) = path.filter(|_| config.computer.builtin.is_some()) else {
+        return Ok(());
+    };
+    let metadata = std::fs::symlink_metadata(path)
+        .with_context(|| format!("failed to inspect Sumi configuration at {}", path.display()))?;
     ensure!(
-        matches!(builtin_source_count, 0 | 3),
-        "computer Builtin settings, models, and auth source paths must be configured together"
+        metadata.file_type().is_file(),
+        "Sumi configuration must be a regular file when it contains computer.builtin.token"
     );
+    ensure!(
+        metadata.permissions().mode() & 0o077 == 0,
+        "Sumi configuration containing computer.builtin.token must not be accessible by group or other users"
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_config_file_permissions(_path: Option<&PathBuf>, _config: &SumiConfig) -> Result<()> {
     Ok(())
 }
 
 pub(crate) fn default_computer_state_dir() -> PathBuf {
     default_sumi_dir().join("computer")
+}
+
+pub(crate) fn default_config_path() -> PathBuf {
+    default_sumi_dir().join("config.toml")
 }
 
 /// Sumi 的本机持久化根目录。所有 daemon、Agent 和本地 Server 文件都必须位于此边界内。
@@ -226,25 +334,53 @@ mod tests {
     }
 
     #[test]
-    fn partial_builtin_sources_are_rejected_during_configuration_loading() {
+    fn builtin_configuration_is_complete_private_and_redacted() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("sumi.toml");
         fs::write(
             &path,
-            "[computer]\nbuiltin_settings_source = 'settings.json'\n",
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\n",
+        )
+        .unwrap();
+
+        let error = load(Some(&path)).unwrap_err();
+        assert!(error.to_string().contains("group or other users"));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        let config = load(Some(&path)).unwrap();
+        let builtin = config.computer.builtin.as_ref().unwrap();
+        assert_eq!(builtin.api_base.as_str(), "https://api.example.test/v1");
+        assert_eq!(builtin.model, "test-model");
+        assert!(!format!("{:?}", config.computer).contains("provider-secret"));
+    }
+
+    #[test]
+    fn incomplete_builtin_configuration_is_rejected() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("sumi.toml");
+        fs::write(
+            &path,
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\nmodel = 'test-model'\n",
         )
         .unwrap();
 
         let error = load(Some(&path)).unwrap_err();
 
-        assert!(error.to_string().contains("must be configured together"));
+        assert!(error.to_string().contains("invalid Sumi configuration"));
     }
 
     #[test]
     fn local_defaults_use_sumi_home_with_separate_boundaries() {
         let config = SumiConfig::default();
+        assert_eq!(config.server.database_url, "postgres://localhost/sumi_prod");
         let home = std::env::var_os("HOME").map(PathBuf::from);
         if let Some(home) = home {
+            assert_eq!(default_config_path(), home.join(".sumi/config.toml"));
             assert_eq!(config.computer.state_dir, home.join(".sumi/computer"));
             assert_eq!(
                 config.server.attachment_dir,
