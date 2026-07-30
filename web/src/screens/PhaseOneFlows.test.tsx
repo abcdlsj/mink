@@ -226,7 +226,6 @@ describe("Phase one Human flows", () => {
     renderRoute("/s/sumi-lab/inbox");
 
     expect(await screen.findByText("Please review this boundary.")).toBeVisible();
-    // Inbox 只读：Item 只能被打开，Human 不能在此标记完成或延后。
     expect(screen.queryByRole("button", { name: "Complete Inbox Item" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Open #general/ }));
     await waitFor(() => {

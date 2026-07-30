@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::{
-    access::{HumanRegistration, SessionLifetime, SpaceAccess},
+    access::{HumanRegistration, SessionLifetime, SpaceAccess, normalize_email},
     attention::{InboxItemDisposition, InboxItemStatus},
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, Member, PermissionAction,
@@ -15,7 +15,6 @@ use super::ports::{
     RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
 };
 
-/// 注册 Human 并立即建立 Browser Session。账号与 Session 在同一事务内成立。
 pub(in crate::server) struct RegisterHuman;
 
 pub(in crate::server) struct RegisterHumanInput<'a> {
@@ -68,7 +67,6 @@ impl RegisterHuman {
     }
 }
 
-/// 用 email 和密码建立 Browser Session。账号缺失与密码错误返回同一个错误。
 pub(in crate::server) struct AuthenticateHuman;
 
 pub(in crate::server) struct AuthenticateHumanInput<'a> {
@@ -86,11 +84,10 @@ impl AuthenticateHuman {
         tokens: &impl SessionTokenPort,
         input: AuthenticateHumanInput<'_>,
     ) -> Result<OpenedSession, ApplicationError> {
-        let email_normalized = input.email.trim().to_lowercase();
+        let email_normalized = normalize_email(input.email);
         let token = tokens.generate();
         port.transact(async |transaction| {
             let credential = transaction.human_credential(&email_normalized).await?;
-            // 账号不存在时同样执行到统一的失败分支，不向调用方区分两种原因。
             let Some((human, stored_hash)) = credential else {
                 return Err(ApplicationError::Unauthenticated);
             };
@@ -134,7 +131,6 @@ async fn open_session<T: ServerTransaction>(
         .await
 }
 
-/// 校验 Browser Session token 并返回账号事实。
 pub(in crate::server) struct AuthenticateSession;
 
 impl AuthenticateSession {
@@ -154,7 +150,6 @@ impl AuthenticateSession {
     }
 }
 
-/// 注销 Browser Session。重复注销成立。
 pub(in crate::server) struct CloseSession;
 
 impl CloseSession {
@@ -168,7 +163,6 @@ impl CloseSession {
     }
 }
 
-/// 把 Browser Session 解析为某个 Space 的 Member 身份。
 pub(in crate::server) struct AuthorizeSpaceAccess;
 
 impl AuthorizeSpaceAccess {
@@ -187,14 +181,12 @@ impl AuthorizeSpaceAccess {
             transaction
                 .space_access(human.user_id, space_id)
                 .await?
-                // 非成员不区分“Space 不存在”和“无权访问”。
                 .ok_or(ApplicationError::NotFound)
         })
         .await
     }
 }
 
-/// 把 Browser Session 解析为某个 Channel 的 Member 身份。要求 Channel membership。
 pub(in crate::server) struct AuthorizeChannelAccess;
 
 impl AuthorizeChannelAccess {
@@ -219,7 +211,6 @@ impl AuthorizeChannelAccess {
     }
 }
 
-/// 把 Browser Session 解析为 Attachment 所属 Space 的 Member 身份。
 pub(in crate::server) struct AuthorizeAttachmentAccess;
 
 impl AuthorizeAttachmentAccess {
@@ -248,7 +239,6 @@ impl AuthorizeAttachmentAccess {
     }
 }
 
-/// 读取 Agent 相关事实的授权。只要求同 Space Member 身份，不要求治理级别。
 pub(in crate::server) struct AuthorizeAgentAccess;
 
 impl AuthorizeAgentAccess {
@@ -277,8 +267,6 @@ impl AuthorizeAgentAccess {
     }
 }
 
-/// Agent 或 Computer 级请求的治理授权。资源所属 Space 由 Server 推导。
-/// 把 Browser Session 解析为某个 Space 的治理身份。要求 Owner 或 Admin。
 pub(in crate::server) struct AuthorizeSpaceGovernance;
 
 impl AuthorizeSpaceGovernance {
@@ -297,7 +285,6 @@ impl AuthorizeSpaceGovernance {
             let access = transaction
                 .space_access(human.user_id, space_id)
                 .await?
-                // 非成员不区分“Space 不存在”和“无权访问”。
                 .ok_or(ApplicationError::NotFound)?;
             access.require_governor()?;
             Ok(access)
@@ -462,8 +449,6 @@ impl SetPermission {
     }
 }
 
-/// Agent 的生命周期动作。与协议的 suspend mode 分离:mode 决定 Computer 如何
-/// 停止当前 Run,这里只决定 Server 侧的目标状态。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum AgentLifecycleAction {
     Suspend { cancel_current_run: bool },
@@ -471,7 +456,6 @@ pub(in crate::server) enum AgentLifecycleAction {
     RetryProvisioning,
 }
 
-/// 改写 Agent 的 Role 或生命周期。两者都是治理动作。
 pub(in crate::server) struct UpdateAgent;
 
 pub(in crate::server) struct UpdateAgentInput<'a> {
@@ -515,7 +499,6 @@ impl UpdateAgent {
                 }
             }
             transaction.save_agent(agent.clone()).await?;
-            // Role 改写后 Computer 的本地快照过期，必须重新下发配置。
             if agent.role_revision != revision_before {
                 transaction.queue_agent_configuration(&agent).await?;
             }
@@ -526,7 +509,6 @@ impl UpdateAgent {
     }
 }
 
-/// 改写 Member 的 Access Level。Owner 的级别不可改写。
 pub(in crate::server) struct UpdateMemberAccess;
 
 impl UpdateMemberAccess {
@@ -540,7 +522,6 @@ impl UpdateMemberAccess {
         port.transact(async |transaction| {
             let actor_access = transaction.member_access_level(actor_id, space_id).await?;
             let mut target = transaction.member(target_id).await?;
-            // 跨 Space 的 Member 不区分「不存在」和「无权访问」。
             if target.space_id != space_id {
                 return Err(ApplicationError::NotFound);
             }

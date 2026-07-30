@@ -64,9 +64,8 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
 
   const databaseTask = miseConfig.match(/\[tasks\.db-start\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
   assert.ok(databaseTask, "mise.toml must define tasks.db-start");
-  assert.match(databaseTask, /migrations\/postgres_v2\/0001_schema\.sql/);
   assert.match(databaseTask, /dropdb" --force sumi_dev/);
-  assert.match(databaseTask, /installed_checksum.*expected_checksum/);
+  assert.match(databaseTask, /installed_version.*!= "1"/);
 });
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {

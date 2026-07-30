@@ -190,7 +190,6 @@ impl ApiError {
         }
     }
 
-    /// Computer 未连接,或已连接但未在超时内回应。两种情况可用的事实相同。
     fn computer_unreachable() -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
@@ -417,9 +416,9 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         .context("failed to connect to PostgreSQL")?;
     let storage = PostgresAdapter::new(pool.clone());
     storage
-        .migrate()
+        .initialize_schema()
         .await
-        .context("failed to migrate PostgreSQL")?;
+        .context("failed to initialize PostgreSQL schema")?;
 
     tokio::fs::create_dir_all(&config.attachment_dir)
         .await
@@ -815,7 +814,6 @@ async fn invite_human(
     )
     .await
     .map_err(|error| match error {
-        // 创建路径上调用方唯一能触发的唯一性冲突是「同一 email 已有可用链接」。
         crate::server::application::ports::ApplicationError::Conflict => ApiError {
             status: StatusCode::CONFLICT,
             code: "invitation_already_pending",
@@ -839,7 +837,6 @@ async fn invite_human(
             expires_at: view.expires_at,
             accepted_at: view.accepted_at,
             accepted_by_member_id: view.accepted_by_member_id,
-            // 明文 token 只在首次创建时存在，重放不再返回。
             token: issued.token.as_ref().map(|token| token.expose().to_owned()),
         }),
     ))
@@ -849,7 +846,6 @@ async fn invitation_details(
     State(state): State<RuntimeState>,
     Path(invite_token): Path<String>,
 ) -> Result<Json<InvitationResponse>, ApiError> {
-    // 受邀 Human 点击链接时可能尚无账号，因此该端点不要求认证。
     let mut storage = state.storage.clone();
     let invitation = ReadInvitation::execute(
         &mut storage,
@@ -891,7 +887,6 @@ async fn accept_invitation(
             display_name: member.display_name,
             handle: member.handle,
             access_level: AccessLevelCode::Member,
-            // 接受 Invitation 只建立 Member 身份，不授予任何 Permission。
             permissions: Vec::new(),
         }),
     ))
@@ -910,8 +905,6 @@ fn invitation_response(invitation: &InvitationView) -> InvitationResponse {
     }
 }
 
-/// 未命中、已过期和已接受返回同一个错误码，使读取端点不能用于探测 token
-/// 是否存在。该端点不要求认证，因此不能区分原因。
 fn invitation_error(error: crate::server::application::ports::ApplicationError) -> ApiError {
     use crate::server::application::ports::ApplicationError;
     use crate::server::domain::DomainError;
@@ -927,8 +920,6 @@ fn invitation_error(error: crate::server::application::ports::ApplicationError) 
     }
 }
 
-/// 接受端点要求 Session，因此可以告知收件人不匹配：调用方已经证明了自己的身份，
-/// 该信息不构成新的探测面，且是 Human 纠正登录账号所必需的。
 fn accept_invitation_error(error: crate::server::application::ports::ApplicationError) -> ApiError {
     use crate::server::application::ports::ApplicationError;
     use crate::server::domain::DomainError;
@@ -955,7 +946,6 @@ async fn connect_computer(
 ) -> Result<Response, ApiError> {
     let raw = bearer_token(&headers)?;
     let mut storage = state.storage.clone();
-    // 已删除 Computer 仍可完成握手，由 negotiate 返回稳定拒绝原因。
     let identity = AuthenticateComputer::execute(
         &mut storage,
         ComputerId::from_uuid(computer_id),
@@ -2477,7 +2467,6 @@ async fn create_channel(
             topic: body.topic,
             kind: match kind {
                 ChannelKind::Public => ChannelKindCode::Public,
-                // 创建端点只接受 public 和 private，direct 走 DM 端点。
                 _ => ChannelKindCode::Private,
             },
             created_by_member_id: member_id,
@@ -2596,7 +2585,6 @@ async fn current_agent_run(
         Some(task_id) => Some(task_projection(&state.pool, task_id).await?),
         None => None,
     };
-    // Run 绑定 Task 时 Session 属于该 Task，否则属于 Focus Thread。
     let scope = match run.task_id {
         Some(task_id) => SessionScope::Task(TaskId::from_uuid(task_id)),
         None => SessionScope::Thread(ThreadId::from_uuid(run.focus.id)),
@@ -2752,12 +2740,6 @@ async fn create_agent(
     Ok((StatusCode::CREATED, Json(agent_row(&row)?)))
 }
 
-/// Agent activity 与 last_error_code 的事实来源。
-///
-/// activity 取当前非终态 Run 的 status、Focus 地址和绑定 Task；Focus 地址是
-/// `#slug:seq`，不含 Message 正文。last_error_code 先取最近一次失败 Run 上报的
-/// 错误码，没有失败 Run 时退回该 Agent pending Item 上记录的领取错误。两者都是
-/// 已落库的可验证事实，不由 lifecycle 猜测。
 const ACTIVITY_COLUMNS: &str = "\
     active_run.status AS run_status,\
     active_run.task_id AS run_task_id,\
@@ -2773,7 +2755,6 @@ const ACTIVITY_COLUMNS: &str = "\
          ORDER BY i.created_at DESC,i.id DESC LIMIT 1)\
     ) AS last_error_code";
 
-/// activity 需要的 join。与 [`ACTIVITY_COLUMNS`] 成对使用。
 const ACTIVITY_JOINS: &str = "\
     LEFT JOIN LATERAL (\
         SELECT r.status,r.task_id,r.focus_thread_id FROM agent_runs r \
@@ -2786,8 +2767,6 @@ const ACTIVITY_JOINS: &str = "\
     LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id \
     LEFT JOIN messages focus_message ON focus_message.id=focus_thread.root_message_id";
 
-/// Attention 策略。当前是 Server 的固定策略,不是每个 Agent 的可配置字段:
-/// 没有任何表保存它,写入路径也不存在。投影为只读值,使 Browser 知道生效参数。
 fn attention_policy() -> AttentionConfig {
     AttentionConfig {
         dm_immediate: true,
@@ -2799,15 +2778,12 @@ fn attention_policy() -> AttentionConfig {
     }
 }
 
-/// Focus 的可读地址。`#design:42`定位到 Channel 与 Root Message 序号，
-/// 不暴露 Message 正文。
 fn focus_address(row: &sqlx::postgres::PgRow) -> Option<String> {
     let slug: Option<String> = row.get("run_focus_slug");
     let seq: Option<i64> = row.get("run_focus_seq");
     Some(format!("#{}:{}", slug?, seq?))
 }
 
-/// activity 只描述可验证动作，见 [09-security-operations](../../../docs/design/09-security-operations.md)。
 fn agent_activity(
     row: &sqlx::postgres::PgRow,
     activity_status: AgentActivityStatus,
@@ -2835,8 +2811,6 @@ fn agent_activity(
     })
 }
 
-/// Run status 到 Agent activity 取值域的映射。未知 status 视为 idle:
-/// 该字段只描述当前可见动作，不能因为新增 Run status 就让整个投影失败。
 fn run_activity_status(status: Option<&str>) -> AgentActivityStatus {
     match status {
         Some("queued") => AgentActivityStatus::Queued,
@@ -2876,7 +2850,6 @@ fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, ApiError> {
         computer_id: row.get("computer_id"),
         name: row.get("display_name"),
         handle: row.get("handle"),
-        // Agent 不能是 Owner:Space 治理者只能是 Human。
         access_level: match row.get::<&str, _>("access_level") {
             "admin" => AgentAccessLevel::Admin,
             "member" => AgentAccessLevel::Member,
@@ -2896,7 +2869,6 @@ fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, ApiError> {
         attention_config: attention_policy(),
         activity: agent_activity(row, activity_status),
         last_error_code: row.get("last_error_code"),
-        // Memory 投影来自在线 Computer，由单资源读取补齐。
         memory_files: Vec::new(),
         created_at: timestamp(row.get("created_at")),
         updated_at: timestamp(row.get("created_at")),
@@ -2934,7 +2906,6 @@ async fn list_messages(
         channel_id,
         messages,
         snapshot_channel_seq: u64::try_from(snapshot).map_err(|_| ApiError::internal())?,
-        // 分页游标尚未实现，当前投影一次返回全部 Root Message。
         has_more_before: false,
         has_more_after: false,
     }))
@@ -3841,7 +3812,6 @@ async fn agent_download_attachment(
 ) -> Result<Bytes, ApiError> {
     require_active_agent_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let mut storage = state.storage.clone();
-    // Agent 可以取回自己刚上传、尚未链接到 Message 的 Attachment。
     let downloaded = ReadAttachment::for_uploader_or_member(
         &mut storage,
         state.objects.as_ref(),
@@ -3989,7 +3959,6 @@ fn attachment_download_response(downloaded: &AttachmentContent) -> Result<Respon
         .into_response())
 }
 
-/// Attachment 响应中返回哪个操作路径。上传态返回写入路径，就绪态返回下载路径。
 enum AttachmentPath {
     Upload,
     Download,
@@ -4020,8 +3989,6 @@ fn attachment_response(attachment: &Attachment, path: AttachmentPath) -> Attachm
     }
 }
 
-/// 在 actor 与 idempotency key 上取事务级锁。
-/// 尚未迁移到 application 的 Channel 成员写入路径继续使用该 helper。
 async fn lock_idempotency(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     actor_id: Uuid,
@@ -4233,7 +4200,6 @@ fn user_response(human: &AuthenticatedHuman) -> UserResponse {
         email: human.email_normalized.clone(),
     }
 }
-/// Space 的 accent 目前是固定值:没有对应存储也没有写入路径。
 const SPACE_ACCENT: &str = "#FFD440";
 
 fn space_response(
@@ -4266,8 +4232,6 @@ fn space_row(row: &sqlx::postgres::PgRow) -> SpaceResponse {
     )
 }
 
-/// Channel 投影只描述非 DM Channel:它要求 slug，且 kind 取值域不含 direct。
-/// DM 用 [`direct_message_response`]，两者的可见字段不同。
 fn channel_row(row: &sqlx::postgres::PgRow, creator: Uuid) -> Result<ChannelResponse, ApiError> {
     let kind = match row.get::<&str, _>("kind") {
         "public" => ChannelKindCode::Public,
@@ -4355,7 +4319,6 @@ async fn message_row(
         agent_member_id: failure.get("agent_id"),
         agent_handle: failure.get("handle"),
         error_code: failure.get("last_error_code"),
-        // 领取失败由 Server 自动重试，Human 无需操作。
         retrying: true,
     })
     .collect::<Vec<_>>();
@@ -4459,15 +4422,12 @@ fn attachment_row(row: &sqlx::postgres::PgRow) -> Result<AttachmentResponse, Api
             "deleted" => AttachmentStatus::Deleted,
             _ => return Err(ApiError::internal()),
         },
-        // 读写路径只在开启上传或下载的响应里出现，见 attachment_response。
         upload_path: None,
         download_path: None,
         created_at: timestamp(row.get("created_at")),
     })
 }
 
-/// Task 单资源读取。continuity 需要向在线 Computer 取值，因此只在单资源读取里查询；
-/// 列表投影沿用 [`task_projection`]，把 continuity 留在 `unavailable`。
 async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<TaskResponse, ApiError> {
     let mut task = task_projection(&state.pool, task_id).await?;
     if let Some(agent_id) = task.assignee_agent_member_id {
@@ -4481,8 +4441,6 @@ async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<TaskResponse
     Ok(task)
 }
 
-/// 向 Agent 所在 Computer 取 continuity 投影。Agent 未分配 Computer、Computer 离线或
-/// 超时未回应时返回 `unavailable`。
 async fn agent_continuity(
     state: &RuntimeState,
     agent_id: Uuid,
@@ -4520,7 +4478,6 @@ fn continuity_response(result: QueryResult) -> SessionContinuityResponse {
             state: match continuity.state {
                 SessionContinuityState::Warm => ContinuityStateCode::Warm,
                 SessionContinuityState::Cold => ContinuityStateCode::Cold,
-                // lost 的 Session 无法 resume，下次执行必须新建 generation。
                 SessionContinuityState::Lost => ContinuityStateCode::ResetRequired,
             },
             generation: continuity.generation,
@@ -4531,7 +4488,6 @@ fn continuity_response(result: QueryResult) -> SessionContinuityResponse {
             generation: None,
             reason_code: Some(query_error_code(code).to_owned()),
         },
-        // Computer 回了其他 query 的结果类型，该值不能回答 continuity。
         _ => unavailable_continuity(),
     }
 }
@@ -4555,8 +4511,6 @@ fn query_error_code(code: QueryErrorCode) -> &'static str {
     }
 }
 
-/// Agent capability 响应按协议是任意 JSON，因此 Task 投影在这一层序列化一次。
-/// Browser 端点直接返回 [`TaskResponse`]，不经过这里。
 fn capability_value(value: &impl serde::Serialize) -> Result<Value, capability::Error> {
     serde_json::to_value(value).map_err(|_| {
         capability_error(
@@ -4603,7 +4557,6 @@ async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<TaskResponse, A
     for run_id in run_ids {
         runs.push(run_projection(pool, run_id).await?);
     }
-    // 非终态 Run 至多一个，它就是 current_run。它同时留在 recent_runs 里。
     let current_run = runs.iter().find(|run| run.outcome.is_none()).cloned();
     Ok(TaskResponse {
         id: task_id,
@@ -4636,7 +4589,6 @@ async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<TaskResponse, A
         close_reason_note: row.get("close_reason_note"),
         current_run,
         recent_runs: runs,
-        // continuity 需要向在线 Computer 取值，由 task_detail 在单资源读取时补齐。
         session_continuity: unavailable_continuity(),
         runtime_issue_code: None,
         created_at: timestamp(row.get("created_at")),
@@ -4753,7 +4705,6 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
             code: "pairing_lapsed",
             message: "Computer pairing expired or was already confirmed",
         },
-        // 保持既有 Browser 契约：超限视为无效请求参数，不改用 413。
         ApplicationError::PayloadTooLarge => ApiError::invalid("Attachment is too large"),
         ApplicationError::Domain(crate::server::domain::DomainError::InvalidAttachment) => {
             ApiError::invalid("Attachment name and media type are required")
@@ -4768,7 +4719,6 @@ fn application_error(error: crate::server::application::ports::ApplicationError)
                 message: "Attachment upload is not open",
             }
         }
-        // 上传者不符与内容未就绪都不向调用方证明 Attachment 存在。
         ApplicationError::Domain(crate::server::domain::DomainError::AttachmentNotOwned) => {
             ApiError::permission_denied()
         }
@@ -4895,7 +4845,6 @@ async fn member_inbox(
 ) -> Result<Json<Vec<InboxItemResponse>>, ApiError> {
     let target = MemberId::from_uuid(member_id);
     let mut storage = state.storage.clone();
-    // Member 路径参数先解析回它所属的 Space，再据此判定调用方的授权范围。
     let space_id = storage
         .transact(async |transaction| {
             transaction
@@ -4940,7 +4889,6 @@ fn space_member_response(member: &SpaceMemberView) -> MemberResponse {
     }
 }
 
-/// Inbox 投影不含 Message 正文，只给出定位来源所需的标识与时间。
 fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
     InboxItemResponse {
         id: item.id.into_uuid(),
@@ -4963,7 +4911,6 @@ fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
     }
 }
 
-/// 摘要只描述注意力来源的类型，不含 Message 正文。
 fn inbox_summary(item: &InboxItemView) -> &'static str {
     match item.kind {
         InboxItemKind::Direct => "Direct message",
@@ -5032,12 +4979,10 @@ async fn update_agent(
 fn lifecycle_action(body: &LifecycleActionBody) -> Result<AgentLifecycleAction, ApiError> {
     match body.action.as_str() {
         "suspend" => Ok(AgentLifecycleAction::Suspend {
-            // 未指定 mode 时等待当前 Run 结束，不打断正在进行的工作。
             cancel_current_run: body.mode.as_deref() == Some("cancel_now"),
         }),
         "resume" => Ok(AgentLifecycleAction::Resume),
         "retry" => Ok(AgentLifecycleAction::RetryProvisioning),
-        // retire 有独立端点：它不可恢复，不与可逆动作共用入口。
         _ => Err(ApiError::invalid(
             "lifecycle action must be suspend, resume, or retry",
         )),
@@ -5063,8 +5008,6 @@ async fn read_agent_projection(
     Ok(Json(agent))
 }
 
-/// Memory 文件投影来自在线 Computer。Server 不保存投影,Computer 不可达时返回空列表:
-/// 该端点的其他事实仍然可用。
 async fn memory_files(
     state: &RuntimeState,
     computer_id: Option<Uuid>,
@@ -5103,8 +5046,6 @@ struct ReadMemoryBody {
     path: String,
 }
 
-/// 读取单个 Memory 文件正文。正文只在响应中经过 Server:不落库、不进日志,
-/// 并以 `no-store` 阻止 Browser 缓存。
 async fn read_agent_memory(
     State(state): State<RuntimeState>,
     jar: CookieJar,
@@ -5165,7 +5106,6 @@ async fn update_space_member(
     let requested = match requested {
         "admin" => AccessLevel::Admin,
         "member" => AccessLevel::Member,
-        // Owner 由创建 Space 确定，不能通过该端点授予。
         _ => return Err(ApiError::invalid("access_level must be admin or member")),
     };
     let mut storage = state.storage.clone();
@@ -5347,7 +5287,7 @@ mod tests {
             database_url.set_path(&format!("/{database_name}"));
             let pool = PgPool::connect(database_url.as_str()).await.unwrap();
             let storage = PostgresAdapter::new(pool.clone());
-            storage.migrate().await.unwrap();
+            storage.initialize_schema().await.unwrap();
 
             let space_id = Uuid::now_v7();
             let owner_id = Uuid::now_v7();
@@ -5498,23 +5438,19 @@ mod tests {
             agent_row(&row).unwrap()
         }
 
-        // 没有失败事实时 last_error_code 为空，不再由 lifecycle 猜测。
         let initial = read_agent(&fixture, agent_id).await;
         assert_eq!(initial.last_error_code, None);
 
-        // 活跃 Run 的 status 与 Focus 地址进入 activity。fixture 已建立该 Run。
         let run_id = fixture.context.run_id.into_uuid();
         let running = read_agent(&fixture, agent_id).await;
         let activity = running.activity.as_ref().unwrap();
         assert_eq!(activity.kind, "running");
-        // Focus 地址定位 Channel 与 Root Message 序号，不含 Message 正文。
         assert!(activity.label.contains("#general:1"), "{}", activity.label);
         assert!(matches!(
             running.activity_status,
             AgentActivityStatus::Running
         ));
 
-        // pending Item 上的领取错误在没有失败 Run 时作为 last_error_code。
         let item_id = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,\
@@ -5534,7 +5470,6 @@ mod tests {
             Some("run_claim_unavailable")
         );
 
-        // 失败 Run 的错误码优先于 Item 上的领取错误。
         sqlx::query(
             "UPDATE agent_runs SET status='failed',outcome_code='failed',\
              error_code='session_lost',finished_at=now() WHERE id=$1",
@@ -5545,7 +5480,6 @@ mod tests {
         .unwrap();
         let failed = read_agent(&fixture, agent_id).await;
         assert_eq!(failed.last_error_code.as_deref(), Some("session_lost"));
-        // 终态 Run 不再是活跃 Run，activity 回到空。
         assert!(failed.activity.is_none());
 
         fixture.destroy().await;

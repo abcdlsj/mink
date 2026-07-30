@@ -1,3 +1,9 @@
+CREATE TABLE schema_meta (
+    version INTEGER PRIMARY KEY CHECK (version > 0),
+    applied_at TIMESTAMPTZ NOT NULL
+);
+INSERT INTO schema_meta (version, applied_at) VALUES (1, now());
+
 CREATE TABLE users (
     id UUID PRIMARY KEY,
     email_normalized TEXT NOT NULL UNIQUE,
@@ -51,6 +57,32 @@ CREATE TABLE human_members (
     UNIQUE (space_id, user_id),
     FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
+
+CREATE TABLE space_invitations (
+    id UUID PRIMARY KEY,
+    space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
+    email_normalized TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'expired')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_by_member_id UUID NOT NULL,
+    accepted_by_member_id UUID,
+    created_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    UNIQUE (id, space_id),
+    FOREIGN KEY (created_by_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (accepted_by_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT,
+    CHECK (expires_at > created_at),
+    CHECK (
+        (status = 'pending' AND accepted_by_member_id IS NULL AND accepted_at IS NULL)
+        OR (status = 'accepted' AND accepted_by_member_id IS NOT NULL AND accepted_at IS NOT NULL)
+        OR (status = 'expired' AND accepted_by_member_id IS NULL AND accepted_at IS NULL)
+    )
+);
+CREATE UNIQUE INDEX space_invitations_one_pending_per_email
+    ON space_invitations (space_id, email_normalized) WHERE status = 'pending';
+CREATE INDEX space_invitations_space_cursor
+    ON space_invitations (space_id, created_at DESC, id DESC);
 
 CREATE TABLE member_permissions (
     member_id UUID NOT NULL,
@@ -187,6 +219,18 @@ CREATE TABLE threads (
     FOREIGN KEY (root_message_id) REFERENCES messages(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
     CHECK (id = root_message_id)
 );
+
+CREATE TABLE thread_subscriptions (
+    thread_id UUID NOT NULL,
+    space_id UUID NOT NULL,
+    member_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (thread_id, member_id),
+    FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
+);
+CREATE INDEX thread_subscriptions_by_thread ON thread_subscriptions (thread_id);
+
 ALTER TABLE messages ADD CONSTRAINT messages_thread_in_space
     FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id)
     ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
@@ -274,6 +318,17 @@ CREATE TABLE agent_runs (
     fencing_token_hash TEXT NOT NULL,
     lease_expires_at TIMESTAMPTZ NOT NULL,
     outcome_code TEXT CHECK (outcome_code IN ('completed', 'yielded', 'failed', 'canceled')),
+    error_code TEXT CHECK (
+        error_code IN (
+            'invalid_command',
+            'agent_unavailable',
+            'process_lost',
+            'session_lost',
+            'sandbox_unavailable',
+            'driver_unavailable',
+            'internal'
+        )
+    ),
     continuation_note TEXT,
     created_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
@@ -282,7 +337,8 @@ CREATE TABLE agent_runs (
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (focus_thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
     CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (finished_at IS NOT NULL)),
-    CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (outcome_code IS NOT NULL))
+    CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (outcome_code IS NOT NULL)),
+    CHECK (error_code IS NULL OR outcome_code = 'failed')
 );
 CREATE UNIQUE INDEX agent_runs_one_active_per_agent
     ON agent_runs(agent_id) WHERE status NOT IN ('completed', 'yielded', 'failed', 'canceled');
@@ -490,6 +546,27 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER tasks_enforce_source_availability
 BEFORE INSERT OR UPDATE OF source_thread_id, status ON tasks
 FOR EACH ROW EXECUTE FUNCTION enforce_task_source_availability();
+
+CREATE FUNCTION enforce_invitation_members() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM members
+        WHERE id = NEW.created_by_member_id AND space_id = NEW.space_id AND kind = 'human'
+    ) THEN
+        RAISE EXCEPTION 'Invitation creator must be a Human Member' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.accepted_by_member_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM members
+        WHERE id = NEW.accepted_by_member_id AND space_id = NEW.space_id AND kind = 'human'
+    ) THEN
+        RAISE EXCEPTION 'Invitation can only be accepted by a Human Member' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER space_invitations_enforce_members
+BEFORE INSERT OR UPDATE OF space_id, created_by_member_id, accepted_by_member_id ON space_invitations
+FOR EACH ROW EXECUTE FUNCTION enforce_invitation_members();
 
 CREATE FUNCTION enforce_run_focus() RETURNS trigger AS $$
 BEGIN

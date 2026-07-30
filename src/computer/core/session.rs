@@ -73,7 +73,6 @@ pub(in crate::computer) enum ContinuityState {
     Lost,
 }
 
-/// 下次 Run 能否复用现有 Session 的投影。不含 locator、会话正文或 transcript。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::computer) struct Continuity {
     pub(in crate::computer) state: ContinuityState,
@@ -96,7 +95,6 @@ pub(in crate::computer) fn continuity(
         };
     };
     let state = match session.state {
-        // 复用仍取决于 fingerprint 比较,warm 只说明 Session 还在。
         SessionState::Ready | SessionState::InUse => ContinuityState::Warm,
         SessionState::Closing | SessionState::Closed => ContinuityState::Cold,
         SessionState::Lost => ContinuityState::Lost,

@@ -27,7 +27,6 @@ export interface components {
         AgentActivityResponse: {
             kind: string;
             label: string;
-            /** @description Run status 没有独立时间戳，因此 activity 与 Agent 的 activity_status 同源。 */
             status: components["schemas"]["AgentActivityStatus"];
         };
         /** @enum {string} */
@@ -217,7 +216,6 @@ export interface components {
             /** Format: uuid */
             space_id: string;
         };
-        /** @description 创建响应。`token`只在首次创建时非空，重放不返回明文。 */
         CreatedInvitationResponse: {
             accepted_at?: string | null;
             /** Format: uuid */
@@ -536,7 +534,6 @@ export interface components {
             /** Format: uuid */
             thread_id: string;
         };
-        /** @description Attention 策略是 Server 的固定策略,没有存储也没有写入路径,因此不可修改。 */
         UpdateAgentRequest: {
             lifecycle?: null | components["schemas"]["LifecycleAction"];
             role_text?: string | null;

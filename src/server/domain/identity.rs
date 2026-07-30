@@ -28,9 +28,6 @@ pub(in crate::server) enum AccessLevel {
 }
 
 impl Member {
-    /// 改写 Access Level。调用方的级别决定它能授予哪一档,由
-    /// [`AccessLevel::can_grant`] 判定。Owner 不能通过该路径产生:
-    /// Space 只有一个 Owner,由创建 Space 确定。
     pub(in crate::server) fn set_access_level(
         &mut self,
         actor: AccessLevel,
@@ -39,7 +36,6 @@ impl Member {
         if !actor.can_grant(requested) {
             return Err(DomainError::GovernorRequired);
         }
-        // 现任 Owner 的级别不能被改写,否则 Space 会失去治理者。
         if self.access_level == AccessLevel::Owner {
             return Err(DomainError::GovernorRequired);
         }
@@ -109,8 +105,6 @@ impl Agent {
         Ok(())
     }
 
-    /// 改写 Role。每次改写推进 revision，使 Computer 能判断本地缓存是否过期。
-    /// 空 Role 不成立：Role 是 Agent 的行为说明，没有它 Driver 无法启动。
     pub(in crate::server) fn revise_role(&mut self, role_text: &str) -> Result<(), DomainError> {
         if self.lifecycle == AgentLifecycle::Retired {
             return Err(DomainError::AgentRetired);
@@ -127,7 +121,6 @@ impl Agent {
         Ok(())
     }
 
-    /// 暂停 Agent。只有 active 可以暂停，其他状态不构成暂停请求。
     pub(in crate::server) fn suspend(&mut self) -> Result<(), DomainError> {
         if self.lifecycle == AgentLifecycle::Retired {
             return Err(DomainError::AgentRetired);
@@ -139,7 +132,6 @@ impl Agent {
         Ok(())
     }
 
-    /// 恢复 Agent。只有 suspended 可以恢复。
     pub(in crate::server) fn resume(&mut self) -> Result<(), DomainError> {
         if self.lifecycle == AgentLifecycle::Retired {
             return Err(DomainError::AgentRetired);
@@ -151,7 +143,6 @@ impl Agent {
         Ok(())
     }
 
-    /// 重试配置失败的 Agent。error 回到 provisioning 重新走配置流程。
     pub(in crate::server) fn retry_provisioning(&mut self) -> Result<(), DomainError> {
         if self.lifecycle == AgentLifecycle::Retired {
             return Err(DomainError::AgentRetired);
@@ -233,7 +224,6 @@ mod tests {
         subject
             .revise_role("  review boundaries  ")
             .expect("the same text is accepted");
-        // 相同 Role 不推进 revision，Computer 无需重新拉取配置。
         assert_eq!(subject.role_revision, 4);
         subject.revise_role("write tests").expect("new text");
         assert_eq!(subject.role_revision, 5);
@@ -276,7 +266,6 @@ mod tests {
     #[test]
     fn access_level_changes_respect_the_actor_and_protect_the_owner() {
         let mut target = member(AccessLevel::Member);
-        // Admin 不能授予 Admin。
         assert_eq!(
             target.set_access_level(AccessLevel::Admin, AccessLevel::Admin),
             Err(DomainError::GovernorRequired)
@@ -285,12 +274,10 @@ mod tests {
             .set_access_level(AccessLevel::Owner, AccessLevel::Admin)
             .expect("owner promotes to admin");
         assert_eq!(target.access_level, AccessLevel::Admin);
-        // Owner 不能通过该路径授予。
         assert_eq!(
             target.set_access_level(AccessLevel::Owner, AccessLevel::Owner),
             Err(DomainError::GovernorRequired)
         );
-        // 现任 Owner 的级别不可改写，否则 Space 会失去治理者。
         let mut owner = member(AccessLevel::Owner);
         assert_eq!(
             owner.set_access_level(AccessLevel::Owner, AccessLevel::Member),

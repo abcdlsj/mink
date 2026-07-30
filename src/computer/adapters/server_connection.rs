@@ -72,7 +72,6 @@ impl ServerConnectionAdapter {
         ])
     }
 
-    /// 回答 Server 的 query。失败不改变任何本地状态,只映射为 `unavailable`。
     pub(in crate::computer) async fn answer_query<P: TransactionPort, H: AgentHomePort>(
         store: &mut P,
         homes: &mut H,
@@ -476,8 +475,6 @@ fn memory_projection(file: &MemoryFile) -> wire::MemoryFileProjection {
     }
 }
 
-/// `missing` 是「本地找不到目标」时的取值域:Agent 级查询给 `unknown_agent`,
-/// 单文件查询给 `unknown_path`。
 fn unavailable(error: &ApplicationError, missing: wire::QueryErrorCode) -> wire::QueryResult {
     wire::QueryResult::Unavailable {
         code: match error {

@@ -13,8 +13,6 @@ use support::{
     TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
 };
 
-/// 这五类路由此前完全不存在，请求落到 SPA fallback。该测试证明它们在真实进程
-/// 上生效，并且各自的授权与状态机约束被执行。
 #[tokio::test]
 async fn governance_routes_apply_their_authorization_and_state_rules() -> Result<()> {
     let database = TestDatabase::create("sumi_governance_routes").await?;
@@ -69,7 +67,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .context("invited Member ID")?
         .to_owned();
 
-    // PATCH /spaces/{id}/members/{mid}：Owner 可以提升为 Admin。
     let promoted: Value = client
         .patch(server_url.join(&format!("/api/v1/spaces/{space_id}/members/{member_id}"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -82,7 +79,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(promoted["access_level"] == "admin", "{promoted}");
 
-    // Owner 自身的级别不可改写，否则 Space 会失去治理者。
     let owner_member_id = space["owner_member_id"].as_str().context("owner Member")?;
     let demote_owner = client
         .patch(server_url.join(&format!(
@@ -99,7 +95,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    // Owner 不能通过该端点授予，Owner 由创建 Space 确定。
     let grant_owner = client
         .patch(server_url.join(&format!("/api/v1/spaces/{space_id}/members/{member_id}"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -109,7 +104,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(grant_owner.status() == StatusCode::BAD_REQUEST);
 
-    // POST /channels/{id}/members/me：public Channel 允许自行加入，重复加入成立。
     let private: Value = client
         .post(server_url.join(&format!("/api/v1/spaces/{space_id}/channels"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -142,7 +136,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?
         .error_for_status()?;
 
-    // private Channel 需要被加入，不能自行加入。
     let refused = client
         .post(server_url.join(&format!("/api/v1/channels/{private_id}/members/me"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -155,7 +148,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    // PUT|DELETE /threads/{id}/subscription：订阅状态在 read_thread 中可见。
     let message: Value = client
         .post(server_url.join(&format!("/api/v1/channels/{general_id}/messages"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -186,7 +178,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .error_for_status()?
         .json()
         .await?;
-    // read_thread 此前把 is_following 硬编码为 false。
     ensure!(thread["is_following"] == true, "{}", thread["is_following"]);
 
     let unfollowed: Value = client
@@ -200,7 +191,6 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(unfollowed["is_following"] == false);
 
-    // POST /channels/{id}/archive：治理动作，一次性。
     let archived: Value = client
         .post(server_url.join(&format!("/api/v1/channels/{private_id}/archive"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())

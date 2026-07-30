@@ -273,14 +273,12 @@ pub(crate) fn default_config_path() -> PathBuf {
     default_sumi_dir().join("config.toml")
 }
 
-/// Sumi 的本机持久化根目录。所有 daemon、Agent 和本地 Server 文件都必须位于此边界内。
 pub(crate) fn default_sumi_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".sumi"))
         .unwrap_or_else(|| PathBuf::from(".sumi"))
 }
 
-/// Runtime 与 Computer 状态分离，避免 socket 和临时文件污染持久状态目录。
 pub(crate) fn runtime_dir_for(state_dir: &std::path::Path) -> PathBuf {
     if let (Some(computer_id), Some(space_dir)) = (state_dir.file_name(), state_dir.parent())
         && let Some(computer_root) = space_dir.parent()

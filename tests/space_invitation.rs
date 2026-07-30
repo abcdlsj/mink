@@ -13,8 +13,6 @@ use support::{
     TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
 };
 
-/// Invitation 是 Human 加入既有 Space 的唯一途径，因此该流程跨越两个账号、
-/// 一次治理动作和一次身份建立，必须在真实进程与真实 PostgreSQL 上验证。
 #[tokio::test]
 async fn inviting_a_human_grants_membership_only_to_the_named_recipient() -> Result<()> {
     let database = TestDatabase::create("sumi_space_invitation").await?;
@@ -73,12 +71,10 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     ensure!(created["email"] == "grace@example.test");
     ensure!(created["space_slug"] == "sumi-lab");
 
-    // 同一 key 重放返回同一投影，但明文 token 只在首次创建时存在。
     let replayed: Value = invite().send().await?.error_for_status()?.json().await?;
     ensure!(replayed["id"] == created["id"]);
     ensure!(replayed["token"].is_null());
 
-    // 读取不要求认证：受邀 Human 点击链接时可能尚无账号。
     let projection: Value = client
         .get(server_url.join(&format!("/api/v1/invites/{token}"))?)
         .send()
@@ -87,11 +83,9 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
         .json()
         .await?;
     ensure!(projection["space_name"] == "sumi-lab");
-    // 投影不含 Space 内容：持有 token 的一方尚未获得授权。
     ensure!(projection.get("members").is_none());
     ensure!(projection.get("channels").is_none());
 
-    // 换一个 key 重复邀请同一 email 被拒绝：一个收件人只能持有一个可用链接。
     let duplicate = client
         .post(server_url.join(&format!("/api/v1/spaces/{space_id}/invites"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -107,7 +101,6 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let duplicate: Value = duplicate.json().await?;
     ensure!(duplicate["error"]["code"] == "invitation_already_pending");
 
-    // 未知 token 与不可用 token 返回同一个错误码，该端点不是探测面。
     let unknown = client
         .get(server_url.join("/api/v1/invites/not-a-real-token")?)
         .send()
@@ -116,7 +109,6 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let unknown: Value = unknown.json().await?;
     ensure!(unknown["error"]["code"] == "invitation_unavailable");
 
-    // 收件人以外的账号不能接受，即使持有链接。
     let stranger = register(&client, &server_url, "Alan Turing", "alan@example.test").await?;
     let rejected = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
@@ -144,17 +136,14 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     );
     let accepted: Value = accepted.json().await?;
     ensure!(accepted["kind"] == "human");
-    // 该响应是 Member 投影，不含 space_id：所属 Space 由随后的 Member 名单证明。
     ensure!(
         accepted["permissions"]
             .as_array()
             .context("permissions")?
             .is_empty()
     );
-    // 新 Member 的级别固定为 member，提升为 Admin 是独立的治理动作。
     ensure!(accepted["access_level"] == "member");
 
-    // 接受后取得 Space 授权，Member 名单包含两人。
     let members: Value = client
         .get(server_url.join(&format!("/api/v1/spaces/{space_id}/members"))?)
         .header(header::COOKIE, &recipient)
@@ -166,7 +155,6 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let members = members.as_array().context("Member list")?;
     ensure!(members.len() == 2, "{members:?}");
 
-    // 重试同一次接受返回同一个 Member，不建立第二个。
     let retried: Value = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &recipient)
@@ -177,7 +165,6 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(retried["id"] == accepted["id"]);
 
-    // 非治理成员不能签发 Invitation。
     let forbidden = client
         .post(server_url.join(&format!("/api/v1/spaces/{space_id}/invites"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())

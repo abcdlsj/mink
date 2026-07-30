@@ -4,10 +4,8 @@ use crate::ids::{ComputerId, SpaceId};
 
 use super::DomainError;
 
-/// 配对 code 与 Computer Token 的有效窗口。超过该窗口的配对不能确认。
 const PAIRING_WINDOW: Duration = Duration::minutes(10);
 
-/// Computer 支持的操作系统。schema 只接受这两个取值。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum ComputerOs {
     MacOs,
@@ -31,7 +29,6 @@ impl ComputerOs {
     }
 }
 
-/// daemon 自证的本机信息。Server 不校验其真实性，只校验形式。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct PairingRequest {
     pub(in crate::server) token_hash: String,
@@ -41,7 +38,6 @@ pub(in crate::server) struct PairingRequest {
 }
 
 impl PairingRequest {
-    /// token 由 daemon 生成，Server 只接收其 SHA-256 十六进制散列。
     pub(in crate::server) fn new(
         token_hash: &str,
         hostname: &str,
@@ -90,7 +86,6 @@ impl PairingStatus {
     }
 }
 
-/// 一次配对尝试。确认后绑定到具体 Space 和 Computer。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct Pairing {
     pub(in crate::server) request: PairingRequest,
@@ -101,7 +96,6 @@ pub(in crate::server) struct Pairing {
 }
 
 impl Pairing {
-    /// 建立待确认配对。有效期由领域常量决定，调用方不能自定义。
     pub(in crate::server) fn open(request: PairingRequest, now: OffsetDateTime) -> Self {
         Self {
             request,
@@ -112,7 +106,6 @@ impl Pairing {
         }
     }
 
-    /// 过期只在读取时判定，不依赖后台任务。
     pub(in crate::server) fn has_lapsed(&self, now: OffsetDateTime) -> bool {
         self.status == PairingStatus::Pending && self.expires_at <= now
     }
@@ -123,12 +116,10 @@ impl Pairing {
         }
     }
 
-    /// token 散列的可展示前缀。Human 用它核对 daemon 身份，不暴露完整散列。
     pub(in crate::server) fn token_fingerprint(&self) -> &str {
         &self.request.token_hash[..12]
     }
 
-    /// 确认配对并绑定 Computer。仅 pending 且未过期的配对可以确认。
     pub(in crate::server) fn confirm(
         &mut self,
         computer_id: ComputerId,
@@ -190,7 +181,6 @@ mod tests {
             .expect("confirm succeeds inside the window");
         assert_eq!(pairing.status, PairingStatus::Confirmed);
         assert_eq!(pairing.computer_id, Some(computer_id));
-        // 已确认的配对不能再次绑定另一个 Computer。
         assert_eq!(
             pairing.confirm(
                 ComputerId::from_uuid(uuid::Uuid::from_u128(3)),
@@ -218,7 +208,6 @@ mod tests {
         );
         pairing.lapse();
         assert_eq!(pairing.status, PairingStatus::Expired);
-        // 已过期后不再被 lapse 覆盖为其他状态。
         pairing.lapse();
         assert_eq!(pairing.status, PairingStatus::Expired);
     }

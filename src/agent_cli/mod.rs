@@ -1,5 +1,3 @@
-//! Run 内 Agent capability 客户端。该模块只依赖版本化 capability 协议。
-
 pub(crate) mod client;
 pub(crate) mod commands;
 

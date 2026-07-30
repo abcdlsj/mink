@@ -53,20 +53,16 @@ pub(in crate::server) trait AttachmentObjectPort: Send + Sync {
     async fn get(&self, object_key: &str) -> Result<Vec<u8>, ApplicationError>;
 }
 
-/// Human 密码的单向散列。明文只在该端口内部出现，不进入 domain 或 transaction。
 pub(in crate::server) trait PasswordPort {
     fn hash(&self, password: &str) -> Result<String, ApplicationError>;
 
-    /// 校验失败和散列格式损坏都返回 `false`，调用方不能区分二者。
     fn verify(&self, password: &str, stored_hash: &str) -> bool;
 }
 
-/// Browser Session token 的生成。token 只在建立 Session 时返回一次。
 pub(in crate::server) trait SessionTokenPort {
     fn generate(&self) -> RawSessionToken;
 }
 
-/// Browser Session token 的明文。`Debug` 不暴露内容，避免进入日志。
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::server) struct RawSessionToken(String);
 
@@ -90,7 +86,6 @@ impl fmt::Debug for RawSessionToken {
     }
 }
 
-/// 已认证的 Human 账号事实。不含凭据。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct AuthenticatedHuman {
     pub(in crate::server) user_id: uuid::Uuid,
@@ -98,18 +93,15 @@ pub(in crate::server) struct AuthenticatedHuman {
     pub(in crate::server) email_normalized: String,
 }
 
-/// 建立 Session 后返回给调用方的凭据与账号事实。
 pub(in crate::server) struct OpenedSession {
     pub(in crate::server) human: AuthenticatedHuman,
     pub(in crate::server) token: RawSessionToken,
 }
 
-/// 配对 code 的生成。code 明文只返回给发起配对的 daemon。
 pub(in crate::server) trait PairingCodePort {
     fn generate(&self) -> RawPairingCode;
 }
 
-/// 配对 code 的明文。`Debug` 不暴露内容。
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::server) struct RawPairingCode(String);
 
@@ -133,7 +125,6 @@ impl fmt::Debug for RawPairingCode {
     }
 }
 
-/// 新建 Computer 的持久化输入。
 pub(in crate::server) struct ComputerRecord {
     pub(in crate::server) id: ComputerId,
     pub(in crate::server) space_id: crate::ids::SpaceId,
@@ -145,7 +136,6 @@ pub(in crate::server) struct ComputerRecord {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
-/// Computer 对 Browser 可见的事实。不含 Token 散列。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct PairedComputer {
     pub(in crate::server) id: ComputerId,
@@ -160,12 +150,10 @@ pub(in crate::server) struct PairedComputer {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
-/// Invitation token 的生成。明文只在创建时返回一次。
 pub(in crate::server) trait InvitationTokenPort {
     fn generate(&self) -> RawInvitationToken;
 }
 
-/// Invitation token 的明文。`Debug` 不暴露内容，避免进入日志。
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::server) struct RawInvitationToken(String);
 
@@ -189,7 +177,6 @@ impl fmt::Debug for RawInvitationToken {
     }
 }
 
-/// Invitation 对调用方可见的事实。不含 token 散列。
 pub(in crate::server) struct InvitationView {
     pub(in crate::server) id: uuid::Uuid,
     pub(in crate::server) space_id: crate::ids::SpaceId,
@@ -201,7 +188,6 @@ pub(in crate::server) struct InvitationView {
     pub(in crate::server) accepted_by_member_id: Option<MemberId>,
 }
 
-/// 新建 Human Member 的持久化输入。接受 Invitation 是其唯一来源。
 pub(in crate::server) struct HumanMemberRecord {
     pub(in crate::server) member_id: MemberId,
     pub(in crate::server) space_id: crate::ids::SpaceId,
@@ -211,7 +197,6 @@ pub(in crate::server) struct HumanMemberRecord {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
-/// DM Channel 及其对方 Member。DM 只有两个 Member，因此对方是确定的。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct DirectMessageView {
     pub(in crate::server) channel_id: ChannelId,
@@ -220,7 +205,6 @@ pub(in crate::server) struct DirectMessageView {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
-/// Member 对 Browser 可见的事实。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceMemberView {
     pub(in crate::server) id: MemberId,
@@ -232,14 +216,12 @@ pub(in crate::server) struct SpaceMemberView {
     pub(in crate::server) permissions: Vec<crate::server::domain::identity::PermissionAction>,
 }
 
-/// Member 是 Human 还是 Agent。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum MemberKind {
     Human,
     Agent,
 }
 
-/// Inbox Item 对 Browser 可见的投影。不含 Message 正文。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
@@ -257,7 +239,6 @@ pub(in crate::server) struct InboxItemView {
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
-/// 某个 User 在某个 Space 中的 Human Member 事实。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceHumanMember {
     pub(in crate::server) member_id: MemberId,
@@ -266,7 +247,6 @@ pub(in crate::server) struct SpaceHumanMember {
     pub(in crate::server) handle: String,
 }
 
-/// 配对详情。只暴露 Human 核对所需字段。
 pub(in crate::server) struct PairingView {
     pub(in crate::server) pairing_id: uuid::Uuid,
     pub(in crate::server) hostname: String,
@@ -400,7 +380,6 @@ pub(in crate::server) trait ServerTransaction {
         idempotency_key: IdempotencyKey,
         now: time::OffsetDateTime,
     ) -> Result<CreatedSpace, ApplicationError>;
-    /// 插入 Human 账号。email 已被 domain 规范化，唯一约束冲突返回 `Conflict`。
     async fn insert_human(
         &mut self,
         user_id: uuid::Uuid,
@@ -408,12 +387,10 @@ pub(in crate::server) trait ServerTransaction {
         password_hash: &str,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
-    /// 按规范化 email 读取未禁用账号及其密码散列。
     async fn human_credential(
         &mut self,
         email_normalized: &str,
     ) -> Result<Option<(AuthenticatedHuman, String)>, ApplicationError>;
-    /// 保存 Session 的 token 散列与过期时间。明文 token 不进入该层。
     async fn insert_browser_session(
         &mut self,
         session_id: uuid::Uuid,
@@ -422,27 +399,22 @@ pub(in crate::server) trait ServerTransaction {
         expires_at: time::OffsetDateTime,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
-    /// 按 token 散列读取未过期 Session 对应的账号。
     async fn human_for_session(
         &mut self,
         token_hash: &str,
         now: time::OffsetDateTime,
     ) -> Result<Option<AuthenticatedHuman>, ApplicationError>;
-    /// 删除 Session。token 散列不存在时不报错，保证注销可重试。
     async fn delete_browser_session(&mut self, token_hash: &str) -> Result<(), ApplicationError>;
-    /// 读取 Human 在某个 Space 中的 Member 身份和访问级别。
     async fn space_access(
         &mut self,
         user_id: uuid::Uuid,
         space_id: crate::ids::SpaceId,
     ) -> Result<Option<crate::server::domain::access::SpaceAccess>, ApplicationError>;
-    /// 读取 Human 在某个 Channel 中的 Member 身份，要求同时是 Channel 成员。
     async fn channel_access(
         &mut self,
         user_id: uuid::Uuid,
         channel_id: ChannelId,
     ) -> Result<Option<MemberId>, ApplicationError>;
-    /// 定位资源所属 Space，用于把资源级请求转为 Space 授权判断。
     async fn space_of_agent(
         &mut self,
         agent_id: MemberId,
@@ -456,7 +428,6 @@ pub(in crate::server) trait ServerTransaction {
         attachment_id: AttachmentId,
     ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
 
-    /// 保存待确认配对。code 只以散列形式进入该层。
     async fn insert_pairing(
         &mut self,
         pairing_id: uuid::Uuid,
@@ -475,7 +446,6 @@ pub(in crate::server) trait ServerTransaction {
         pairing_id: uuid::Uuid,
         code_hash: &str,
     ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
-    /// 锁定待确认配对行，保证并发确认只成立一次。
     async fn pairing_by_code_for_update(
         &mut self,
         pairing_id: uuid::Uuid,
@@ -487,7 +457,6 @@ pub(in crate::server) trait ServerTransaction {
         token_hash: &str,
     ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError>;
 
-    /// 保存待接受邀请。token 只以散列形式进入该层。
     async fn insert_invitation(
         &mut self,
         invitation_id: uuid::Uuid,
@@ -499,64 +468,52 @@ pub(in crate::server) trait ServerTransaction {
         invitation_id: uuid::Uuid,
         invitation: &crate::server::domain::invitation::Invitation,
     ) -> Result<(), ApplicationError>;
-    /// 按 token 散列定位邀请。返回其内部 id 供后续写入定位同一行。
     async fn invitation_by_token(
         &mut self,
         token_hash: &str,
     ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>;
-    /// 锁定待接受邀请行，保证并发接受只建立一个 Member。
     async fn invitation_by_token_for_update(
         &mut self,
         token_hash: &str,
     ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>;
-    /// 读取 Space 的名称与 slug，供 Invitation 投影展示目标 Space。
     async fn space_identity(
         &mut self,
         space_id: crate::ids::SpaceId,
     ) -> Result<Option<(String, String)>, ApplicationError>;
-    /// 建立 Human Member 并加入 general Channel。
     async fn insert_human_member(
         &mut self,
         record: &HumanMemberRecord,
     ) -> Result<(), ApplicationError>;
-    /// 读取 User 在某个 Space 中已有的 Human Member。接受 Invitation 时用于
-    /// 区分「重放同一次接受」和「用另一个链接重复加入」。
     async fn space_human_member(
         &mut self,
         user_id: uuid::Uuid,
         space_id: crate::ids::SpaceId,
     ) -> Result<Option<SpaceHumanMember>, ApplicationError>;
 
-    /// 列出某个 Member 参与的 DM，按最近活动倒序。
     async fn direct_messages_for_member(
         &mut self,
         member_id: MemberId,
         space_id: crate::ids::SpaceId,
     ) -> Result<Vec<DirectMessageView>, ApplicationError>;
-    /// 按参与双方定位既有 DM，使重复创建不产生第二个 Channel。
     async fn direct_message_between(
         &mut self,
         space_id: crate::ids::SpaceId,
         first: MemberId,
         second: MemberId,
     ) -> Result<Option<DirectMessageView>, ApplicationError>;
-    /// 读取同一 Space 中的另一个未退役 Member，作为 DM 的对方。
     async fn space_member(
         &mut self,
         member_id: MemberId,
         space_id: crate::ids::SpaceId,
     ) -> Result<Option<SpaceMemberView>, ApplicationError>;
-    /// 列出某个 Member 的未处理 Inbox Item 投影。
     async fn inbox_for_member(
         &mut self,
         member_id: MemberId,
     ) -> Result<Vec<InboxItemView>, ApplicationError>;
-    /// 读取 Member 所属 Space。用于把 Member 路径参数解析回授权范围。
     async fn space_of_member(
         &mut self,
         member_id: MemberId,
     ) -> Result<Option<crate::ids::SpaceId>, ApplicationError>;
-    /// 锁定 Member 行以改写它。
     async fn member(
         &mut self,
         member_id: MemberId,
@@ -569,21 +526,16 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         channel: crate::server::domain::conversation::Channel,
     ) -> Result<(), ApplicationError>;
-    /// 向 Agent 所在 Computer 下发暂停命令。Agent 未分配 Computer 时无需下发:
-    /// 没有 daemon 持有它的 Run。
     async fn queue_agent_suspend(
         &mut self,
         agent_id: MemberId,
         computer_id: Option<ComputerId>,
         cancel_current_run: bool,
     ) -> Result<(), ApplicationError>;
-    /// 向 Agent 所在 Computer 下发新的配置快照,使 Role 改写生效。
     async fn queue_agent_configuration(
         &mut self,
         agent: &crate::server::domain::identity::Agent,
     ) -> Result<(), ApplicationError>;
-    /// 写入 Thread 订阅。订阅是 Member 对单个 Thread 的显式关注,
-    /// 是 thread_activity Item 的路由依据。
     async fn set_thread_subscription(
         &mut self,
         thread_id: crate::ids::ThreadId,
@@ -601,13 +553,11 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         space_id: crate::ids::SpaceId,
     ) -> Result<Vec<PairedComputer>, ApplicationError>;
-    /// 按 Token 散列定位 Computer，返回它是否已被删除。
     async fn computer_for_token(
         &mut self,
         computer_id: ComputerId,
         token_hash: &str,
     ) -> Result<Option<bool>, ApplicationError>;
-    /// 在 actor 与 idempotency key 上取事务级锁。
     async fn lock_idempotency(
         &mut self,
         actor: MemberId,
@@ -627,13 +577,11 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         attachment: &crate::server::domain::attachment::Attachment,
     ) -> Result<(), ApplicationError>;
-    /// Attachment 是否通过某条 Message 对该 Member 可见。
     async fn attachment_is_visible(
         &mut self,
         id: AttachmentId,
         viewer: MemberId,
     ) -> Result<bool, ApplicationError>;
-    /// 一次写入 Attachment 的幂等记录、audit 和 outbox 事件。
     #[allow(clippy::too_many_arguments)]
     async fn record_attachment_write(
         &mut self,

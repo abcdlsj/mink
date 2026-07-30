@@ -14,7 +14,6 @@ use super::ports::{
     TransactionPort,
 };
 
-/// 归档 Channel。归档不删除 Message、Thread 或 Task。
 pub(in crate::server) struct ArchiveChannel;
 
 impl ArchiveChannel {
@@ -29,7 +28,6 @@ impl ArchiveChannel {
             let access = transaction
                 .member_access_level(actor_member_id, channel.space_id)
                 .await?;
-            // 归档是治理动作。Channel 成员身份本身不足以归档。
             if !access.can_manage_space() {
                 return Err(ApplicationError::PermissionDenied);
             }
@@ -42,7 +40,6 @@ impl ArchiveChannel {
     }
 }
 
-/// Member 自行加入 public Channel。重复加入成立。
 pub(in crate::server) struct JoinChannel;
 
 impl JoinChannel {
@@ -53,7 +50,6 @@ impl JoinChannel {
     ) -> Result<Channel, ApplicationError> {
         port.transact(async |transaction| {
             let mut channel = transaction.channel(channel_id).await?;
-            // 必须先是该 Space 的 Member。member_access_level 对非成员返回错误。
             transaction
                 .member_access_level(actor_member_id, channel.space_id)
                 .await?;
@@ -66,7 +62,6 @@ impl JoinChannel {
     }
 }
 
-/// 设置 Thread 订阅。订阅要求调用方能读取该 Thread。
 pub(in crate::server) struct SetThreadSubscription;
 
 impl SetThreadSubscription {
@@ -78,7 +73,6 @@ impl SetThreadSubscription {
         now: OffsetDateTime,
     ) -> Result<bool, ApplicationError> {
         port.transact(async |transaction| {
-            // 订阅不授予读取权限，因此不能订阅读不到的 Thread。
             if !transaction
                 .can_read_thread(actor_member_id, thread_id)
                 .await?
@@ -94,7 +88,6 @@ impl SetThreadSubscription {
     }
 }
 
-/// 列出某个 Member 参与的 DM。
 pub(in crate::server) struct ListDirectMessages;
 
 impl ListDirectMessages {
@@ -112,7 +105,6 @@ impl ListDirectMessages {
     }
 }
 
-/// 打开与另一个 Member 的 DM。同一对 Member 只有一个 DM Channel。
 pub(in crate::server) struct OpenDirectMessage;
 
 pub(in crate::server) struct OpenDirectMessageInput {
@@ -123,7 +115,6 @@ pub(in crate::server) struct OpenDirectMessageInput {
     pub(in crate::server) now: OffsetDateTime,
 }
 
-/// 打开结果。`created`区分新建与复用，使 HTTP 层能给出 201 或 200。
 pub(in crate::server) struct OpenedDirectMessage {
     pub(in crate::server) view: DirectMessageView,
     pub(in crate::server) created: bool,
@@ -138,12 +129,10 @@ impl OpenDirectMessage {
             return Err(ApplicationError::Conflict);
         }
         port.transact(async |transaction| {
-            // 对方必须是同一 Space 的 Member，否则 DM 的 audience 会跨 Space。
             let other = transaction
                 .space_member(input.other_member_id, input.space_id)
                 .await?
                 .ok_or(ApplicationError::NotFound)?;
-            // DM 没有 slug，唯一性只能按参与双方判定，因此先查既有 DM。
             if let Some(existing) = transaction
                 .direct_message_between(
                     input.space_id,

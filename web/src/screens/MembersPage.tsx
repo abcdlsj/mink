@@ -69,7 +69,6 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   const invitation = useMutation({
     mutationFn: (email: string) => createInvitation(space.id, { email }),
     onSuccess: (created) => {
-      // token 由 Server 生成，明文只在创建响应里出现一次。
       setInviteLink(
         created.token ? `${window.location.origin}/invite/${created.token}` : undefined,
       );

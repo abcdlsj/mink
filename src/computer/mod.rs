@@ -1,5 +1,3 @@
-//! Computer daemon 的 crate 内 facade。
-
 mod adapters;
 mod application;
 mod core;

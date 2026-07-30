@@ -9,7 +9,6 @@ use super::ports::{ApplicationError, AttachmentObjectPort, ServerTransaction, Tr
 const CREATE_ACTION: &str = "attachment.upload.create";
 const COMPLETE_ACTION: &str = "attachment.upload.complete";
 
-/// 建立待上传 Attachment。Attachment、幂等记录、audit 和事件在同一事务成立。
 pub(in crate::server) struct OpenUpload;
 
 pub(in crate::server) struct OpenUploadInput<'a> {
@@ -24,7 +23,6 @@ pub(in crate::server) struct OpenUploadInput<'a> {
 
 pub(in crate::server) struct OpenedUpload {
     pub(in crate::server) attachment: Attachment,
-    /// 重放已有记录时为 `false`，用于区分 201 与 200。
     pub(in crate::server) created: bool,
 }
 
@@ -87,7 +85,6 @@ impl OpenUpload {
     }
 }
 
-/// 写入上传内容。只有上传者能写，且上传窗口必须仍然打开。
 pub(in crate::server) struct WriteUploadContent;
 
 pub(in crate::server) struct WriteUploadContentInput {
@@ -117,13 +114,12 @@ impl WriteUploadContent {
                 Ok(attachment)
             })
             .await?;
-        // 对象写入在事务外执行：内容不属于 PostgreSQL 事实，重复写入是幂等的。
+        // Object content is external to PostgreSQL and this write is idempotent.
         objects.put(&attachment.object_key, input.content).await?;
         Ok(attachment.space_id)
     }
 }
 
-/// 用实测度量完成上传。重复 complete 返回同一结果，不重复写事件。
 pub(in crate::server) struct CompleteUpload;
 
 pub(in crate::server) struct CompleteUploadInput {
@@ -150,7 +146,6 @@ impl CompleteUpload {
                 Ok(attachment)
             })
             .await?;
-        // 度量以对象存储中的实际内容为准，不采信请求声明。
         let stored = objects.get(&attachment.object_key).await?;
         let actual = ContentDigest {
             length: stored.len() as u64,
@@ -202,7 +197,6 @@ impl CompleteUpload {
     }
 }
 
-/// 读取 Attachment 内容。可见范围由 Message 链接的 Channel membership 决定。
 pub(in crate::server) struct ReadAttachment;
 
 pub(in crate::server) struct AttachmentContent {
@@ -211,7 +205,6 @@ pub(in crate::server) struct AttachmentContent {
 }
 
 impl ReadAttachment {
-    /// Human 下载：必须通过某条可读 Message 链接到该 Attachment。
     pub(in crate::server) async fn for_member<P: TransactionPort>(
         port: &mut P,
         objects: &impl AttachmentObjectPort,
@@ -221,7 +214,6 @@ impl ReadAttachment {
         Self::read(port, objects, attachment_id, viewer, false).await
     }
 
-    /// Agent 下载：额外允许读取本 Agent 自己上传但尚未链接的 Attachment。
     pub(in crate::server) async fn for_uploader_or_member<P: TransactionPort>(
         port: &mut P,
         objects: &impl AttachmentObjectPort,

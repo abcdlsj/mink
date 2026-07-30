@@ -9,10 +9,6 @@ use super::ports::{
     ApplicationError, Effect, InboxItemView, MemberKind, ServerTransaction, TransactionPort,
 };
 
-/// 读取某个 Member 的 Inbox 投影。
-///
-/// 授权分两种：Member 读自己的 Inbox，或 Space 治理者读该 Space 中 Agent 的
-/// Inbox。Human 的 Inbox 属于本人，治理身份不足以读取他人的注意力队列。
 pub(in crate::server) struct ReadMemberInbox;
 
 impl ReadMemberInbox {
@@ -27,7 +23,6 @@ impl ReadMemberInbox {
                 let target = transaction
                     .space_member(target_id, space_id)
                     .await?
-                    // 跨 Space 的 Member 不区分「不存在」和「无权访问」。
                     .ok_or(ApplicationError::NotFound)?;
                 if target.kind != MemberKind::Agent {
                     return Err(ApplicationError::PermissionDenied);

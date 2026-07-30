@@ -2498,7 +2498,6 @@ fn complete_run_input(run_id: RunId, token: &str, item_id: InboxItemId) -> Compl
     }
 }
 
-/// 测试用密码端口：散列是可预测的前缀拼接，校验只比较该形式。
 struct StubPasswords;
 
 impl PasswordPort for StubPasswords {
@@ -2511,7 +2510,6 @@ impl PasswordPort for StubPasswords {
     }
 }
 
-/// 测试用 token 端口：每次调用返回递增 token，便于断言 Session 隔离。
 struct StubTokens {
     next: std::cell::Cell<u32>,
 }
@@ -2563,13 +2561,11 @@ async fn registration_establishes_a_session_and_rejects_a_duplicate_email() {
     assert_eq!(session.human.email_normalized, "casey@example.com");
     assert_eq!(session.human.display_name, "Casey");
 
-    // Session 立即可用，且解析回同一个账号。
     let authenticated = AuthenticateSession::execute(&mut port, &session.token, now)
         .await
         .expect("session resolves");
     assert_eq!(authenticated, session.human);
 
-    // 同一个规范化 email 不能注册两次。
     let duplicate = RegisterHuman::execute(
         &mut port,
         &passwords,
@@ -2639,7 +2635,6 @@ async fn authentication_hides_whether_the_account_exists_and_closing_a_session_i
     .await
     .expect("registration succeeds");
 
-    // 未知账号和错误密码返回同一个错误码。
     for (email, password) in [
         ("missing@example.com", "correct horse battery"),
         ("casey@example.com", "wrong password entirely"),
@@ -2676,7 +2671,6 @@ async fn authentication_hides_whether_the_account_exists_and_closing_a_session_i
     .expect("login succeeds");
     assert_ne!(logged_in.token.expose(), registered.token.expose());
 
-    // 注销只作用于本 Session，且可以重复执行。
     CloseSession::execute(&mut port, &logged_in.token)
         .await
         .expect("close succeeds");
@@ -2780,7 +2774,6 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
         .expect("member resolves");
     assert_eq!(access.member_id, plain_id);
 
-    // 治理动作要求 Owner/Admin，普通 Member 得到领域级拒绝。
     assert_eq!(
         AuthorizeAgentGovernance::execute(&mut port, &plain_token, agent_id, now)
             .await
@@ -2794,7 +2787,6 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
         .expect("admin governs the agent");
     assert_eq!(governed.member_id, admin_id);
 
-    // 非成员访问与 Space 不存在返回同一个错误码。
     let outsider = RegisterHuman::execute(
         &mut port,
         &StubPasswords,
@@ -2831,7 +2823,6 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
     );
 }
 
-/// 测试用对象存储：内存 map，记录写入次数以验证内容路径的幂等性。
 #[derive(Default)]
 struct MemoryObjects {
     objects: std::sync::Mutex<HashMap<String, Vec<u8>>>,
@@ -2961,7 +2952,6 @@ async fn an_upload_completes_once_and_replays_without_a_second_ready_event() {
     .await
     .expect("replay succeeds");
     assert_eq!(replayed, completed);
-    // ready 事件只产生一次，重复 complete 不再写事件。
     assert_eq!(
         port.state
             .attachment_writes
@@ -3033,7 +3023,6 @@ async fn a_mismatched_declaration_keeps_the_upload_open_and_writes_no_content_tw
     .await
     .expect("content is written");
 
-    // 声明与实际内容不一致时拒绝，且不改变状态。
     let mut wrong = declared(&content);
     wrong.size += 1;
     assert_eq!(
@@ -3059,7 +3048,6 @@ async fn a_mismatched_declaration_keeps_the_upload_open_and_writes_no_content_tw
         AttachmentStatus::Uploading
     );
 
-    // 重新写入同一内容后可以完成，写入路径本身是幂等的。
     WriteUploadContent::execute(
         &mut port,
         &objects,
@@ -3135,7 +3123,6 @@ async fn only_the_uploader_writes_content_and_an_oversized_body_is_rejected() {
         .err(),
         Some(ApplicationError::PayloadTooLarge)
     );
-    // 两次拒绝都不落对象存储。
     assert_eq!(objects.puts.load(std::sync::atomic::Ordering::Relaxed), 0);
 }
 
@@ -3155,7 +3142,6 @@ async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders(
     )
     .await;
 
-    // 未就绪时任何身份都读不到，且不区分是否存在。
     assert_eq!(
         ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
             .await
@@ -3192,14 +3178,12 @@ async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders(
     .await
     .expect("upload completes");
 
-    // 就绪后仍需通过某条可读 Message 链接才可见。
     assert_eq!(
         ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
             .await
             .err(),
         Some(ApplicationError::PermissionDenied)
     );
-    // 上传者本人在 Agent 路径上可以取回未链接的 Attachment。
     assert_eq!(
         ReadAttachment::for_uploader_or_member(&mut port, &objects, attachment_id, uploader)
             .await
@@ -3207,7 +3191,6 @@ async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders(
             .content,
         content
     );
-    // Human 路径不给上传者例外，仍要求链接。
     assert_eq!(
         ReadAttachment::for_member(&mut port, &objects, attachment_id, uploader)
             .await
@@ -3227,7 +3210,6 @@ async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders(
     );
 }
 
-/// 测试用配对 code 端口：返回固定 code，便于构造错误 code 的对照请求。
 struct StubPairingCodes;
 
 impl PairingCodePort for StubPairingCodes {
@@ -3291,7 +3273,6 @@ async fn confirming_a_pairing_creates_one_computer_and_replays_the_same_result()
     assert_eq!(confirmed.hostname, "workstation");
     assert!(!confirmed.connected);
 
-    // 同一 key 重放返回既有 Computer，不创建第二个。
     let replayed = ConfirmPairing::execute(
         &mut port,
         ConfirmPairingInput {
@@ -3309,7 +3290,6 @@ async fn confirming_a_pairing_creates_one_computer_and_replays_the_same_result()
     .expect("replay succeeds");
     assert_eq!(replayed, confirmed);
     assert_eq!(port.state.paired_computers.len(), 1);
-    // 重放路径取过 idempotency 锁，说明并发确认在同一键上串行。
     assert!(
         port.state
             .idempotency_locks
@@ -3374,7 +3354,6 @@ async fn a_wrong_code_and_a_second_confirmation_cannot_create_another_computer()
     .await
     .expect("first confirm succeeds");
 
-    // 另一个 idempotency key 也不能重复确认同一个配对。
     assert_eq!(
         ConfirmPairing::execute(
             &mut port,
@@ -3411,7 +3390,6 @@ async fn a_lapsed_pairing_is_recorded_as_expired_on_read_and_rejects_confirmatio
         .await
         .expect("read succeeds");
     assert_eq!(view.status, PairingStatus::Expired);
-    // 过期在读取时落库，daemon 轮询看到同一状态。
     assert_eq!(
         port.state.pairings[&pairing_id].0.status,
         PairingStatus::Expired
@@ -3464,7 +3442,6 @@ async fn pairing_details_never_expose_the_full_token_hash_and_status_requires_th
     assert!(DAEMON_TOKEN_HASH.starts_with(&view.token_fingerprint));
     assert_ne!(view.token_fingerprint, DAEMON_TOKEN_HASH);
 
-    // 未知 daemon token 得到认证失败，不泄露配对是否存在。
     assert_eq!(
         ReadPairingStatus::execute(&mut port, pairing_id, &"b".repeat(64), now)
             .await
@@ -3506,7 +3483,6 @@ async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer
         .await
         .expect("an active computer may call the Computer API");
 
-    // 错误 token 与错误 Computer 都不能认证。
     assert_eq!(
         AuthenticateComputer::execute(&mut port, computer_id, &"c".repeat(64))
             .await
@@ -3520,7 +3496,6 @@ async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer
         Some(ApplicationError::Unauthenticated)
     );
 
-    // 删除后握手仍能认证，但 Computer API 被拒绝。
     port.state.paired_computers[0].deleted = true;
     assert!(
         AuthenticateComputer::execute(&mut port, computer_id, DAEMON_TOKEN_HASH)
@@ -3592,20 +3567,17 @@ async fn a_member_reads_only_their_own_inbox_unless_the_target_is_an_agent() {
         );
     }
 
-    // 本人读自己的 Inbox。
     let own = ReadMemberInbox::execute(&mut port, owner, owner, space_id)
         .await
         .expect("a Member reads their own Inbox");
     assert_eq!(own.len(), 1);
     assert_eq!(own[0].member_id, owner);
 
-    // 治理者读该 Space 中 Agent 的 Inbox。
     let agent_inbox = ReadMemberInbox::execute(&mut port, owner, agent_id, space_id)
         .await
         .expect("a governor reads an Agent Inbox");
     assert_eq!(agent_inbox.len(), 1);
 
-    // 治理身份不足以读取另一个 Human 的 Inbox。
     assert_eq!(
         ReadMemberInbox::execute(&mut port, owner, other_human, space_id)
             .await
@@ -3613,7 +3585,6 @@ async fn a_member_reads_only_their_own_inbox_unless_the_target_is_an_agent() {
         Some(ApplicationError::PermissionDenied)
     );
 
-    // 普通 Member 不能读 Agent 的 Inbox。
     assert_eq!(
         ReadMemberInbox::execute(&mut port, other_human, agent_id, space_id)
             .await
@@ -3621,7 +3592,6 @@ async fn a_member_reads_only_their_own_inbox_unless_the_target_is_an_agent() {
         Some(ApplicationError::PermissionDenied)
     );
 
-    // 另一个 Space 的 Member 不区分「不存在」和「无权访问」。
     let outsider = member(7005);
     space_member_fixture(&mut port, outsider, space(2), AccessLevel::Owner);
     assert_eq!(
@@ -3656,7 +3626,6 @@ async fn opening_a_direct_message_twice_reuses_one_channel() {
     .expect("opening a DM succeeds");
     assert!(opened.created);
     assert_eq!(opened.view.other_member.id, other);
-    // MemoryPort 不建立投影行，因此把新建的 DM 记入状态以验证复用。
     port.state.direct_messages.push(opened.view.clone());
 
     let reopened = OpenDirectMessage::execute(
@@ -3675,7 +3644,6 @@ async fn opening_a_direct_message_twice_reuses_one_channel() {
     assert_eq!(reopened.view.channel_id, channel(7303));
     assert_eq!(port.state.channels.len(), 1);
 
-    // 与自己开 DM 不成立。
     assert_eq!(
         OpenDirectMessage::execute(
             &mut port,
@@ -3692,7 +3660,6 @@ async fn opening_a_direct_message_twice_reuses_one_channel() {
         Some(ApplicationError::Conflict)
     );
 
-    // 对方必须属于同一 Space。
     let outsider = member(7304);
     space_member_fixture(&mut port, outsider, space(2), AccessLevel::Member);
     assert_eq!(
@@ -3770,7 +3737,6 @@ async fn creating_an_invitation_returns_the_token_once_and_replays_without_it() 
         Some("invitation-token")
     );
 
-    // 同一 key 重放返回同一投影，但不再返回明文 token。
     let replayed = InviteHuman::execute(
         &mut port,
         &StubInvitationTokens,
@@ -3787,7 +3753,6 @@ async fn creating_an_invitation_returns_the_token_once_and_replays_without_it() 
     .expect("replay succeeds");
     assert!(replayed.token.is_none());
     assert_eq!(port.state.invitations.len(), 1);
-    // 重放路径取过 idempotency 锁，说明并发创建在同一键上串行。
     assert!(port.state.idempotency_locks.contains(&(
         actor_id,
         "space.invitation.create".into(),
@@ -3819,7 +3784,6 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
     let token = StubInvitationTokens.generate();
     let user_id = Uuid::from_u128(6105);
 
-    // 收件人不符时不建立 Member。
     assert_eq!(
         AcceptInvitation::execute(
             &mut port,
@@ -3859,7 +3823,6 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
     assert_eq!(accepted.space_id, space_id);
     assert_eq!(accepted.display_name, "Invitee");
 
-    // 同一 User 重试返回同一个 Member，不建立第二个。
     let replayed = AcceptInvitation::execute(
         &mut port,
         AcceptInvitationInput {
@@ -3906,7 +3869,6 @@ async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
     ReadInvitation::execute(&mut port, &token, after)
         .await
         .expect("reading a lapsed invitation still projects it");
-    // 过期在读取路径落库，后续不再重复判定。
     assert_eq!(
         port.state.invitations[&invitation_id].status,
         crate::server::domain::invitation::InvitationStatus::Expired
@@ -3931,7 +3893,6 @@ async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
         ))
     );
     assert!(port.state.human_members.is_empty());
-    // 未知 token 与已过期的 token 都不建立 Member。
     assert_eq!(
         ReadInvitation::execute(&mut port, &RawInvitationToken::new("unknown".into()), now)
             .await

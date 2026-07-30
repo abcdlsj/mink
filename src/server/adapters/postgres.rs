@@ -48,7 +48,7 @@ use crate::{
     },
 };
 
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres_v2");
+const BASELINE: &str = include_str!("../../../schema/postgres.sql");
 
 #[derive(Clone)]
 pub(super) struct PostgresAdapter {
@@ -65,8 +65,27 @@ impl PostgresAdapter {
         Self { pool }
     }
 
-    pub(super) async fn migrate(&self) -> Result<(), sqlx::migrate::MigrateError> {
-        MIGRATOR.run(&self.pool).await
+    pub(super) async fn initialize_schema(&self) -> Result<(), sqlx::Error> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('sumi-schema-baseline', 0))")
+            .execute(&mut *transaction)
+            .await?;
+        let initialized: bool =
+            sqlx::query_scalar("SELECT to_regclass('public.schema_meta') IS NOT NULL")
+                .fetch_one(&mut *transaction)
+                .await?;
+        if !initialized {
+            sqlx::raw_sql(BASELINE).execute(&mut *transaction).await?;
+        }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version != 1 {
+            return Err(sqlx::Error::Protocol(format!(
+                "unsupported schema baseline version {version}"
+            )));
+        }
+        transaction.commit().await
     }
 
     pub(super) async fn pending_commands(
@@ -534,8 +553,6 @@ impl ServerTransaction for PostgresTransaction {
         member_id: MemberId,
         space_id: SpaceId,
     ) -> Result<Vec<DirectMessageView>, ApplicationError> {
-        // DM 恰好两个 Member，因此对方由「同一 Channel 中不是本人」唯一确定。
-        // 排序取最后一条 Message 的时间，没有 Message 时退回 Channel 创建时间。
         let rows = sqlx::query(
             "SELECT c.id AS channel_id,c.created_at, \
                     other.id,other.kind,other.display_name,other.handle,other.access_level \
@@ -619,8 +636,6 @@ impl ServerTransaction for PostgresTransaction {
         &mut self,
         member_id: MemberId,
     ) -> Result<Vec<InboxItemView>, ApplicationError> {
-        // 只投影仍需要注意力的 Item。handled 和 dead 是历史，不属于队列。
-        // 不选取 body_markdown：Inbox 投影不含 Message 正文。
         let rows = sqlx::query(
             "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
@@ -760,7 +775,6 @@ impl ServerTransaction for PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-        // 新 Member 加入 general Channel，与 Space Owner 的初始成员身份一致。
         sqlx::query(
             "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) \
              SELECT id,space_id,$2,$3 FROM channels WHERE space_id=$1 AND slug='general'",
@@ -1998,7 +2012,6 @@ impl ServerTransaction for PostgresTransaction {
         if changed.rows_affected() != 1 {
             return Err(ApplicationError::NotFound);
         }
-        // audience 只增不减：移出 Channel 是独立动作，不由保存路径推断。
         for member in channel.audience {
             sqlx::query(
                 "INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) \
@@ -2056,7 +2069,6 @@ impl ServerTransaction for PostgresTransaction {
         computer_id: Option<ComputerId>,
         cancel_current_run: bool,
     ) -> Result<(), ApplicationError> {
-        // 未分配 Computer 的 Agent 没有 daemon 持有它的 Run,无命令可下发。
         let Some(computer_id) = computer_id else {
             return Ok(());
         };
@@ -3210,7 +3222,6 @@ fn member_kind_from_str(value: &str) -> Result<MemberKind, ApplicationError> {
     }
 }
 
-/// `permissions`由调用方单独查询后传入：一行 SQL 无法同时展开多值 Permission。
 fn space_member_from_row(
     row: &sqlx::postgres::PgRow,
     space_id: SpaceId,
@@ -3344,7 +3355,10 @@ mod tests {
         database_url.set_path(&format!("/{database_name}"));
         let result = async {
             let pool = PgPool::connect(database_url.as_str()).await.unwrap();
-            PostgresAdapter::new(pool.clone()).migrate().await.unwrap();
+            PostgresAdapter::new(pool.clone())
+                .initialize_schema()
+                .await
+                .unwrap();
 
             let active_index: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM pg_indexes \
@@ -3401,7 +3415,7 @@ mod tests {
 
         let pool = PgPool::connect(database_url.as_str()).await.unwrap();
         let mut adapter = PostgresAdapter::new(pool.clone());
-        adapter.migrate().await.unwrap();
+        adapter.initialize_schema().await.unwrap();
         let space = Uuid::now_v7();
         let member = Uuid::now_v7();
         let channel = Uuid::now_v7();
@@ -3580,7 +3594,7 @@ mod tests {
 
         let pool = PgPool::connect(database_url.as_str()).await.unwrap();
         let mut adapter = PostgresAdapter::new(pool.clone());
-        adapter.migrate().await.unwrap();
+        adapter.initialize_schema().await.unwrap();
         let space_id = Uuid::now_v7();
         let owner_id = Uuid::now_v7();
         let agent_id = Uuid::now_v7();

@@ -249,7 +249,6 @@ pub(super) async fn submit_run_result<P: TransactionPort + Clone>(
     Ok(StatusCode::OK)
 }
 
-/// 协议错误码到 domain 取值域的翻译。两侧取值一一对应,新增协议变体会在此处暴露为编译错误。
 pub(super) fn run_error_code(
     code: crate::protocol::computer::ComputerErrorCode,
 ) -> crate::server::domain::execution::RunErrorCode {

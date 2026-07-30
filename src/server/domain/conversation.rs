@@ -54,8 +54,6 @@ impl Channel {
                 slug.as_ref().is_some_and(|value| !value.trim().is_empty())
             }
         };
-        // DM 的 audience 恰好是两个 Member。Server 按这两个 Member 定位既有 DM，
-        // 多于或少于两人都会使该定位失效。
         let valid_audience = match kind {
             ChannelKind::Direct => audience.len() == 2,
             ChannelKind::Public | ChannelKind::Private => !audience.is_empty(),
@@ -75,10 +73,7 @@ impl Channel {
         })
     }
 
-    /// 归档 Channel。归档不删除 Message、Thread 或 Task，只停止新的协作。
-    /// 见 [协作模型](../../../docs/design/02-collaboration.md)。
     pub(in crate::server) fn archive(&mut self, now: OffsetDateTime) -> Result<(), DomainError> {
-        // DM 没有 slug 也没有治理者，归档语义对它不成立。
         if self.kind == ChannelKind::Direct {
             return Err(DomainError::InvalidChannel);
         }
@@ -89,8 +84,6 @@ impl Channel {
         Ok(())
     }
 
-    /// Member 自行加入。只有 public Channel 允许，private 需要被加入。
-    /// 已在 audience 中时保持成立，使重试幂等。
     pub(in crate::server) fn admit(&mut self, member_id: MemberId) -> Result<(), DomainError> {
         if self.kind != ChannelKind::Public {
             return Err(DomainError::ChannelNotJoinable);
@@ -221,7 +214,6 @@ mod tests {
     #[test]
     fn a_direct_channel_holds_exactly_two_members() {
         assert!(channel(ChannelKind::Direct, &[member(3), member(4)]).is_ok());
-        // 一人或三人都会让「按双方定位既有 DM」失效。
         assert_eq!(
             channel(ChannelKind::Direct, &[member(3)]),
             Err(DomainError::InvalidChannel)
@@ -230,7 +222,6 @@ mod tests {
             channel(ChannelKind::Direct, &[member(3), member(4), member(5)]),
             Err(DomainError::InvalidChannel)
         );
-        // 非 DM 不受两人限制。
         assert!(channel(ChannelKind::Public, &[member(3)]).is_ok());
     }
 
@@ -239,7 +230,6 @@ mod tests {
         let mut public = channel(ChannelKind::Public, &[member(3)]).expect("public channel");
         public.admit(member(4)).expect("public admits");
         assert!(public.audience.contains(&member(4)));
-        // 重复加入成立，使重试幂等。
         public.admit(member(4)).expect("repeat admits");
         assert_eq!(public.audience.len(), 2);
 
@@ -263,10 +253,8 @@ mod tests {
         public.archive(now).expect("archives once");
         assert_eq!(public.archived_at, Some(now));
         assert_eq!(public.archive(now), Err(DomainError::InvalidTransition));
-        // 归档后不再接受新成员。
         assert_eq!(public.admit(member(4)), Err(DomainError::InvalidTransition));
 
-        // DM 没有治理者，归档语义对它不成立。
         let mut direct =
             channel(ChannelKind::Direct, &[member(3), member(4)]).expect("direct channel");
         assert_eq!(direct.archive(now), Err(DomainError::InvalidChannel));

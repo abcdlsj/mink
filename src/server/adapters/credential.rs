@@ -6,7 +6,6 @@ use crate::server::application::ports::{
     RawPairingCode, RawSessionToken, SessionTokenPort,
 };
 
-/// Argon2 密码散列。salt 每次注册重新生成。
 pub(super) struct Argon2Passwords;
 
 impl PasswordPort for Argon2Passwords {
@@ -20,7 +19,7 @@ impl PasswordPort for Argon2Passwords {
     }
 
     fn verify(&self, password: &str, stored_hash: &str) -> bool {
-        // 散列损坏与密码不符都返回 false：调用方不得据此区分账号是否存在。
+        // A malformed hash and a wrong password are intentionally indistinguishable.
         PasswordHash::new(stored_hash).is_ok_and(|parsed| {
             Argon2::default()
                 .verify_password(password.as_bytes(), &parsed)
@@ -29,7 +28,6 @@ impl PasswordPort for Argon2Passwords {
     }
 }
 
-/// Browser Session token。两个 UUIDv7 拼接提供 256 位随机源。
 pub(super) struct UuidSessionTokens;
 
 impl SessionTokenPort for UuidSessionTokens {
@@ -42,7 +40,6 @@ impl SessionTokenPort for UuidSessionTokens {
     }
 }
 
-/// Invitation token。出现在链接里，随机源与 Session token 相同。
 pub(super) struct UuidInvitationTokens;
 
 impl InvitationTokenPort for UuidInvitationTokens {
@@ -55,7 +52,6 @@ impl InvitationTokenPort for UuidInvitationTokens {
     }
 }
 
-/// 六位配对 code。Human 需要手动转录，因此使用十进制数字。
 pub(super) struct NumericPairingCodes;
 
 impl PairingCodePort for NumericPairingCodes {

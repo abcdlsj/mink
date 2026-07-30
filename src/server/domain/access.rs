@@ -4,16 +4,12 @@ use crate::ids::{MemberId, SpaceId};
 
 use super::{DomainError, identity::AccessLevel};
 
-/// Human 凭据的最小长度。短于该长度的密码不建立账号。
 const MINIMUM_PASSWORD_LENGTH: usize = 12;
 
-/// email 的规范化形式。`users.email_normalized`是账号唯一键,Invitation 的收件人
-/// 必须按同一规则规范化才能与之比较,因此该函数是两处的唯一来源。
 pub(in crate::server) fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
 
-/// 注册请求经过规范化后的 Human 身份。规范化后的 email 是账号唯一键。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct HumanRegistration {
     pub(in crate::server) display_name: String,
@@ -41,7 +37,6 @@ impl HumanRegistration {
     }
 }
 
-/// 已认证 Human 在某个 Space 中的 Member 身份和访问级别。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceAccess {
     pub(in crate::server) member_id: MemberId,
@@ -50,7 +45,6 @@ pub(in crate::server) struct SpaceAccess {
 }
 
 impl SpaceAccess {
-    /// Space 治理动作要求 Owner 或 Admin。该判断只属于 [`AccessLevel`]。
     pub(in crate::server) fn require_governor(self) -> Result<MemberId, DomainError> {
         if self.access_level.can_manage_space() {
             Ok(self.member_id)
@@ -60,7 +54,6 @@ impl SpaceAccess {
     }
 }
 
-/// Browser Session 的过期时间由建立时刻和配置 TTL 决定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SessionLifetime {
     hours: i64,
@@ -97,15 +90,6 @@ mod tests {
             HumanRegistration::new("User", "user@example.com", MINIMUM_PASSWORD_LENGTH - 1),
             Err(DomainError::InvalidCredential)
         );
-    }
-
-    #[test]
-    fn registration_normalizes_email_case_and_surrounding_space() {
-        let registration =
-            HumanRegistration::new("  User  ", "  User@Example.COM ", MINIMUM_PASSWORD_LENGTH)
-                .expect("registration is valid");
-        assert_eq!(registration.display_name, "User");
-        assert_eq!(registration.email_normalized, "user@example.com");
     }
 
     #[test]

@@ -9,7 +9,6 @@ use super::ports::{
     ServerTransaction, TransactionPort,
 };
 
-/// 建立待确认配对，并返回一次性 code。code 明文不落库。
 pub(in crate::server) struct BeginPairing;
 
 pub(in crate::server) struct BeginPairingInput<'a> {
@@ -57,7 +56,6 @@ impl BeginPairing {
     }
 }
 
-/// 读取配对详情供 Human 核对。code 错误与配对不存在返回同一个错误码。
 pub(in crate::server) struct ReadPairing;
 
 impl ReadPairing {
@@ -87,7 +85,6 @@ impl ReadPairing {
     }
 }
 
-/// daemon 用 Computer Token 轮询自身配对结果。
 pub(in crate::server) struct ReadPairingStatus;
 
 pub(in crate::server) struct PairingProgress {
@@ -107,7 +104,6 @@ impl ReadPairingStatus {
             let mut pairing = transaction
                 .pairing_by_token(pairing_id, token_hash)
                 .await?
-                // 未知 token 视为认证失败，不透露配对是否存在。
                 .ok_or(ApplicationError::Unauthenticated)?;
             lapse_if_needed(transaction, pairing_id, &mut pairing, now).await?;
             Ok(PairingProgress {
@@ -120,7 +116,6 @@ impl ReadPairingStatus {
     }
 }
 
-/// 确认配对并创建 Computer。Computer、配对状态和幂等记录在同一事务成立。
 pub(in crate::server) struct ConfirmPairing;
 
 pub(in crate::server) struct ConfirmPairingInput<'a> {
@@ -146,7 +141,6 @@ impl ConfirmPairing {
             return Err(crate::server::domain::DomainError::InvalidPairing.into());
         }
         port.transact(async |transaction| {
-            // 并发确认在同一 actor 与 key 上串行化，避免创建两个 Computer。
             transaction
                 .lock_idempotency(input.actor_id, CONFIRM_ACTION, input.idempotency_key)
                 .await?;
@@ -163,7 +157,6 @@ impl ConfirmPairing {
                 .pairing_by_code_for_update(input.pairing_id, input.code_hash)
                 .await?
                 .ok_or(ApplicationError::NotFound)?;
-            // 过期状态先落库，daemon 轮询才能看到 expired 而不是继续等待。
             if pairing.has_lapsed(input.now) {
                 pairing.lapse();
                 transaction
@@ -223,7 +216,6 @@ async fn lapse_if_needed<T: ServerTransaction>(
     Ok(())
 }
 
-/// 读取单个 Computer 的可见事实。
 pub(in crate::server) struct ReadPairedComputer;
 
 impl ReadPairedComputer {
@@ -241,7 +233,6 @@ impl ReadPairedComputer {
     }
 }
 
-/// 列出 Space 内全部 Computer，含已撤销记录。
 pub(in crate::server) struct ListSpaceComputers;
 
 impl ListSpaceComputers {
@@ -254,7 +245,6 @@ impl ListSpaceComputers {
     }
 }
 
-/// 用 Computer Token 认证 daemon。返回是否已被删除，供连接层决定握手结果。
 pub(in crate::server) struct AuthenticateComputer;
 
 pub(in crate::server) struct ComputerIdentity {
@@ -277,7 +267,6 @@ impl AuthenticateComputer {
         .await
     }
 
-    /// 已删除 Computer 不能继续调用 Computer API。
     pub(in crate::server) async fn require_active<P: TransactionPort>(
         port: &mut P,
         computer_id: ComputerId,

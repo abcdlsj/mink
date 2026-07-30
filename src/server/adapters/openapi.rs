@@ -217,7 +217,6 @@ pub(super) enum AgentAccessLevel {
 pub(super) struct AgentActivityResponse {
     pub(super) kind: String,
     pub(super) label: String,
-    /// Run status 没有独立时间戳，因此 activity 与 Agent 的 activity_status 同源。
     pub(super) status: AgentActivityStatus,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -289,7 +288,6 @@ pub(super) struct MemoryContentResponse {
     pub(super) content: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
-/// Attention 策略是 Server 的固定策略,没有存储也没有写入路径,因此不可修改。
 pub(super) struct UpdateAgentRequest {
     role_text: Option<String>,
     lifecycle: Option<LifecycleAction>,
@@ -351,7 +349,6 @@ pub(super) struct InvitationResponse {
     pub(super) accepted_at: Option<String>,
     pub(super) accepted_by_member_id: Option<Uuid>,
 }
-/// 创建响应。`token`只在首次创建时非空，重放不返回明文。
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreatedInvitationResponse {
     pub(super) id: Uuid,

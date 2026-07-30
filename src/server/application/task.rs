@@ -262,7 +262,6 @@ impl FinishAgentTaskRun {
             run.finish(
                 &input.fencing_token_hash,
                 crate::server::domain::execution::RunOutcome::Completed,
-                // 提交 Task 结果是成功终态,没有错误码。
                 None,
                 None,
                 input.now,

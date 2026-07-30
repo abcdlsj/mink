@@ -272,7 +272,7 @@ impl AgentHomePort for AgentHomeAdapter {
                 let metadata = tokio::fs::symlink_metadata(&path)
                     .await
                     .map_err(|_| ApplicationError::Internal)?;
-                // symlink 可能指向 memory 根之外,投影不跟随它。
+                // Never follow a symlink that may escape the Memory root.
                 if metadata.file_type().is_symlink() {
                     continue;
                 }

@@ -170,7 +170,6 @@ pub(in crate::server) struct CompleteRunInput {
     pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) outcome: RunOutcome,
-    /// Computer 上报的失败原因。只有失败终态允许非空,由`Run::finish`拒绝其他组合。
     pub(in crate::server) error_code: Option<RunErrorCode>,
     pub(in crate::server) item_dispositions: Vec<ItemDispositionInput>,
     pub(in crate::server) continuation_note: Option<String>,

@@ -370,6 +370,7 @@ pub(crate) enum NoticeLocation {
     },
 }
 
+// Server frames intentionally omit Debug because they may carry Message content.
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum ServerFrame {
@@ -391,8 +392,6 @@ pub(crate) enum ComputerFrame {
     QueryResult { result: QueryResultEnvelope },
 }
 
-/// Server 向 Computer 取值。与 command 相反,query 不持久化、不重放、不进
-/// command 序号:它只读取当前值,连接断开后未完成的 query 直接失效。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct QueryEnvelope {
@@ -403,13 +402,10 @@ pub(crate) struct QueryEnvelope {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload", deny_unknown_fields)]
 pub(crate) enum Query {
-    /// 取 Agent 在某个 scope 下当前 Session 的 generation 与状态。
     #[serde(rename = "session.continuity")]
     SessionContinuity(SessionContinuityQuery),
-    /// 取 Agent Memory 的文件投影,不含正文。
     #[serde(rename = "memory.list")]
     MemoryList(MemoryQuery),
-    /// 取单个 Memory 文件正文。
     #[serde(rename = "memory.read")]
     MemoryRead(MemoryReadQuery),
 }
@@ -450,8 +446,6 @@ pub(crate) enum QueryResult {
     MemoryList(MemoryListResult),
     #[serde(rename = "memory.read")]
     MemoryRead(MemoryReadResult),
-    /// Computer 无法回答该 query。取值域与 Run 的失败原因分开:
-    /// query 失败不改变任何状态,不进 agent_runs.error_code。
     #[serde(rename = "unavailable")]
     Unavailable { code: QueryErrorCode },
 }
@@ -463,13 +457,10 @@ pub(crate) enum QueryErrorCode {
     UnknownPath,
     SessionLost,
     DriverUnavailable,
-    /// Computer 未连接,或已连接但未在超时内回应。Server 合成该结果,
-    /// 两种情况可用的事实相同,调用方不需要区分。
     Unreachable,
     Internal,
 }
 
-/// continuity 投影。不含 locator、会话正文或 provider transcript。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SessionContinuityResult {
@@ -492,7 +483,6 @@ pub(crate) struct MemoryListResult {
     pub(crate) files: Vec<MemoryFileProjection>,
 }
 
-/// Memory 文件投影。正文不在此结构中:Server 不保存 Memory 正文。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MemoryFileProjection {
@@ -503,7 +493,6 @@ pub(crate) struct MemoryFileProjection {
     pub(crate) updated_at: OffsetDateTime,
 }
 
-/// Memory 正文。只在响应中经过 Server,不落库、不进日志。
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MemoryReadResult {
@@ -764,7 +753,6 @@ mod tests {
         assert_eq!(value["type"], "query");
         assert_eq!(value["query"]["query"]["kind"], "session.continuity");
         assert_eq!(value["query"]["query"]["payload"]["scope"]["kind"], "task");
-        // ServerFrame 不实现 Debug:它承载 Message 正文,断言不能把正文打进测试输出。
         assert!(serde_json::from_value::<ServerFrame>(value).unwrap() == frame);
 
         let result = ComputerFrame::QueryResult {

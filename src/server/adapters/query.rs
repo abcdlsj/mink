@@ -13,11 +13,8 @@ use crate::{
     },
 };
 
-/// Computer 回应 query 的等待上限。超时与离线返回同一个结果:调用方可用的事实相同。
 const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// 在线 Computer 的出站通道与未完成 query 的登记表。query 不持久化,进程重启或
-/// 连接断开后登记表随之失效,调用方重新发起。
 #[derive(Clone, Default)]
 pub(super) struct QueryRegistry {
     state: Arc<Mutex<RegistryState>>,
@@ -35,8 +32,6 @@ struct Connection {
     frames: mpsc::UnboundedSender<ServerFrame>,
 }
 
-/// 连接登记凭证。`id` 用于区分同一个 Computer 的先后两次连接,断开时只清理自己
-/// 那次,避免关掉已经重连上来的通道。
 pub(super) struct ConnectionHandle {
     computer_id: Uuid,
     id: u64,
@@ -59,6 +54,7 @@ impl QueryRegistry {
 
     pub(super) fn disconnect(&self, handle: ConnectionHandle) {
         let mut state = self.state.lock().expect("query registry lock");
+        // A stale disconnect must not remove a newer connection for the same Computer.
         if state
             .computers
             .get(&handle.computer_id)
@@ -68,7 +64,6 @@ impl QueryRegistry {
         }
     }
 
-    /// 向 Computer 取值。Computer 未连接或未在超时内回应时返回 `unreachable`。
     pub(super) async fn ask(&self, computer_id: Uuid, query: Query) -> QueryResult {
         let query_id = QueryId::from_uuid(Uuid::now_v7());
         let (sender, receiver) = oneshot::channel();

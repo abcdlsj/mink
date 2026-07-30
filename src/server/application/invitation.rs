@@ -11,7 +11,6 @@ use super::ports::{
 
 const CREATE_ACTION: &str = "space.invitation.create";
 
-/// 创建待接受邀请，并返回一次性 token。token 明文不落库。
 pub(in crate::server) struct InviteHuman;
 
 pub(in crate::server) struct InviteHumanInput<'a> {
@@ -23,7 +22,6 @@ pub(in crate::server) struct InviteHumanInput<'a> {
     pub(in crate::server) now: OffsetDateTime,
 }
 
-/// 创建结果。`token`只在首次创建时存在，重放不返回明文。
 pub(in crate::server) struct IssuedInvitation {
     pub(in crate::server) view: InvitationView,
     pub(in crate::server) token: Option<RawInvitationToken>,
@@ -44,7 +42,6 @@ impl InviteHuman {
         )?;
         let invitation = Invitation::open(draft, input.now);
         port.transact(async |transaction| {
-            // 并发创建在同一 actor 与 key 上串行化，避免签发两个可用链接。
             transaction
                 .lock_idempotency(input.actor_id, CREATE_ACTION, input.idempotency_key)
                 .await?;
@@ -52,9 +49,9 @@ impl InviteHuman {
                 .resource_for_idempotency(input.actor_id, CREATE_ACTION, input.idempotency_key)
                 .await?
             {
-                // 重放不返回明文 token：明文只在首次生成时存在。
                 return Ok(IssuedInvitation {
                     view: read_view(transaction, invitation_id, &invitation).await?,
+                    // The plaintext token exists only during the original request.
                     token: None,
                 });
             }
@@ -78,8 +75,6 @@ impl InviteHuman {
     }
 }
 
-/// 读取邀请投影。未命中、已过期和已接受返回同一个错误，
-/// 使该端点不能用于探测 token 是否存在。
 pub(in crate::server) struct ReadInvitation;
 
 impl ReadInvitation {
@@ -94,7 +89,6 @@ impl ReadInvitation {
                 .invitation_by_token(&token_hash)
                 .await?
                 .ok_or(ApplicationError::NotFound)?;
-            // 过期状态先落库，后续读取不必重复判定。
             if invitation.has_lapsed(now) {
                 invitation.lapse();
                 transaction
@@ -107,7 +101,6 @@ impl ReadInvitation {
     }
 }
 
-/// 接受邀请并建立 Human Member。邀请状态、Member 与幂等记录在同一事务成立。
 pub(in crate::server) struct AcceptInvitation;
 
 pub(in crate::server) struct AcceptInvitationInput<'a> {
@@ -131,8 +124,6 @@ impl AcceptInvitation {
             return Err(crate::server::domain::DomainError::InvalidInvitation.into());
         }
         port.transact(async |transaction| {
-            // 行锁使并发接受串行化。token 与 User 共同标识一次接受，
-            // 因此重试不需要额外的 idempotency key。
             let (invitation_id, mut invitation) = transaction
                 .invitation_by_token_for_update(&token_hash)
                 .await?
@@ -141,14 +132,11 @@ impl AcceptInvitation {
                 .space_human_member(input.user_id, invitation.draft.space_id)
                 .await?
             {
-                // 已接受且接受者就是本 User 时返回同一个 Member，重试成立。
-                // 通过另一个链接重复加入同一 Space 属于冲突。
                 if invitation.accepted_by_member_id == Some(existing.member_id) {
                     return Ok(existing);
                 }
                 return Err(ApplicationError::Conflict);
             }
-            // 过期状态先落库，再拒绝接受。
             if invitation.has_lapsed(input.now) {
                 invitation.lapse();
                 transaction

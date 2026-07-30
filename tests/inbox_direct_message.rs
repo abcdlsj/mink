@@ -13,8 +13,6 @@ use support::{
     TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
 };
 
-/// Inbox 与 DM 之前是返回空数组的假实现。该测试证明两者投影真实事实，
-/// 并且 Inbox 的授权边界拒绝跨 Space 与跨 Human 读取。
 #[tokio::test]
 async fn inbox_projects_routed_attention_and_refuses_foreign_readers() -> Result<()> {
     let database = TestDatabase::create("sumi_inbox_dm").await?;
@@ -51,7 +49,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         .context("owner Member ID")?
         .to_owned();
 
-    // 邀请第二个 Human，用于验证 DM 的两方 audience 和 Inbox 的跨 Human 拒绝。
     let recipient_cookie = invite_and_accept(
         &client,
         &server_url,
@@ -80,7 +77,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         .context("recipient Member ID")?
         .to_owned();
 
-    // DM 列表初始为空，打开后返回同一个 Channel。
     let empty: Value = client
         .get(server_url.join(&format!("/api/v1/spaces/{space_id}/dms"))?)
         .header(header::COOKIE, &owner)
@@ -111,13 +107,11 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
     let opened: Value = opened.json().await?;
     ensure!(opened["other_member"]["id"].as_str() == Some(recipient_member_id.as_str()));
 
-    // 再次打开返回既有 DM 而不是第二个 Channel。
     let reopened = open().send().await?;
     ensure!(reopened.status() == StatusCode::OK, "{}", server.log_text());
     let reopened: Value = reopened.json().await?;
     ensure!(reopened["channel_id"] == opened["channel_id"]);
 
-    // 双方都能看到这个 DM。
     for cookie in [&owner, &recipient_cookie] {
         let conversations: Value = client
             .get(server_url.join(&format!("/api/v1/spaces/{space_id}/dms"))?)
@@ -132,7 +126,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         ensure!(conversations[0]["channel_id"] == opened["channel_id"]);
     }
 
-    // 与自己开 DM 不成立。
     let self_dm = client
         .post(server_url.join(&format!("/api/v1/spaces/{space_id}/dms"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -146,7 +139,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    // Inbox 只有 Agent 会收到 Item，Human 自己的队列为空但可读。
     let own_inbox: Value = client
         .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
         .header(header::COOKIE, &owner)
@@ -157,7 +149,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(own_inbox.as_array().context("Inbox")?.is_empty());
 
-    // 治理身份不足以读取另一个 Human 的 Inbox。
     let foreign = client
         .get(server_url.join(&format!("/api/v1/members/{recipient_member_id}/inbox"))?)
         .header(header::COOKIE, &owner)
@@ -169,7 +160,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    // 另一个 Space 的 Member 不区分「不存在」和「无权访问」。
     let outsider = register(&client, &server_url, "Alan Turing", "alan@example.test").await?;
     let other_space = create_space(&client, &server_url, &outsider, "other-lab").await?;
     let other_member_id = other_space["owner_member_id"]
@@ -185,7 +175,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         "{}",
         server.log_text()
     );
-    // 反向同样被拒：另一个 Space 的 Human 读不到本 Space 的 Member。
     let reverse = client
         .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
         .header(header::COOKIE, &outsider)
@@ -197,7 +186,6 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    // 未认证的调用不能读取任何 Inbox。
     let anonymous = client
         .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
         .send()

@@ -30,21 +30,18 @@ impl AttachmentStatus {
     }
 }
 
-/// 上传内容的实际度量。由 Server 从对象存储读出，不采信客户端声明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct ContentDigest {
     pub(in crate::server) length: u64,
     pub(in crate::server) sha256: [u8; 32],
 }
 
-/// 客户端在 complete 请求中声明的度量。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct DeclaredContent {
     pub(in crate::server) size: u64,
     pub(in crate::server) sha256_hex: String,
 }
 
-/// Attachment 聚合。正文本身存在对象存储，这里只保存事实与状态。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct Attachment {
     pub(in crate::server) id: AttachmentId,
@@ -61,7 +58,6 @@ pub(in crate::server) struct Attachment {
 }
 
 impl Attachment {
-    /// 建立待上传 Attachment。object key 由 Space 与 Attachment ID 决定。
     pub(in crate::server) fn open(
         id: AttachmentId,
         space_id: SpaceId,
@@ -94,7 +90,6 @@ impl Attachment {
         })
     }
 
-    /// 只有上传者可以写入或完成同一个 Attachment。
     pub(in crate::server) fn require_uploader(&self, actor: MemberId) -> Result<(), DomainError> {
         if self.uploader_member_id == actor {
             Ok(())
@@ -103,7 +98,6 @@ impl Attachment {
         }
     }
 
-    /// 写入内容要求上传窗口仍然打开。
     pub(in crate::server) fn require_open(&self) -> Result<(), DomainError> {
         if self.status == AttachmentStatus::Uploading {
             Ok(())
@@ -112,7 +106,6 @@ impl Attachment {
         }
     }
 
-    /// 用实测度量收尾。客户端声明与实测不一致时拒绝，不修改状态。
     pub(in crate::server) fn complete(
         &mut self,
         declared: &DeclaredContent,
@@ -132,17 +125,15 @@ impl Attachment {
         Ok(())
     }
 
-    /// 下载要求内容已经就绪。
     pub(in crate::server) fn require_ready(&self) -> Result<(), DomainError> {
         if self.status == AttachmentStatus::Ready {
             Ok(())
         } else {
-            // 未就绪的 Attachment 不向调用方证明其存在。
+            // Callers must not learn whether an unavailable Attachment exists.
             Err(DomainError::AttachmentNotReady)
         }
     }
 
-    /// Content-Disposition 用的文件名。移除会截断该头部的字符。
     pub(in crate::server) fn header_safe_name(&self) -> String {
         self.name.replace(['\\', '"', '\r', '\n'], "_")
     }
@@ -221,7 +212,6 @@ mod tests {
             attachment.complete(&wrong_hash, actual, OffsetDateTime::UNIX_EPOCH),
             Err(DomainError::AttachmentContentMismatch)
         );
-        // 失败不改变状态，客户端可以重新上传后重试。
         assert_eq!(attachment.status, AttachmentStatus::Uploading);
         assert_eq!(attachment.length, None);
     }
@@ -243,7 +233,6 @@ mod tests {
         assert_eq!(attachment.length, Some(actual.length));
         assert_eq!(attachment.ready_at, Some(now));
         attachment.require_ready().expect("ready");
-        // 完成后窗口关闭，二次完成被拒绝。
         assert_eq!(
             attachment.complete(&declared, actual, now),
             Err(DomainError::AttachmentNotOpen)

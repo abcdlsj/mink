@@ -146,7 +146,7 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 
 过期在读取时判定，不依赖后台任务。`expires_at > created_at`由 CHECK 保证。
 
-见`0003_invitations.sql`。
+该结构由 PostgreSQL 基线 schema 创建。
 
 ## 5. 对话
 
@@ -318,7 +318,7 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 `error_code`保存 Computer 上报的稳定错误码，取值域是`invalid_command`、`agent_unavailable`、`process_lost`、`session_lost`、`sandbox_unavailable`、`driver_unavailable`、`internal`，与协议的`ComputerErrorCode`一致。稳定取值使 Browser 与运维统计可以按错误码归类失败，无需解析文本。
 
-`outcome_code`回答 Run 以哪种终态结束，`error_code`回答失败的机器可读原因。只有`outcome_code='failed'`允许非空`error_code`；`completed`、`yielded`、`canceled`不是失败终态，`error_code`必须为空。该约束由 CHECK 表达，见`0002_run_error_code.sql`。
+`outcome_code`回答 Run 以哪种终态结束，`error_code`回答失败的机器可读原因。只有`outcome_code='failed'`允许非空`error_code`；`completed`、`yielded`、`canceled`不是失败终态，`error_code`必须为空。该约束由 PostgreSQL 基线 schema 的 CHECK 表达。
 
 ### 7.4 `thread_subscriptions`
 
@@ -333,7 +333,7 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 两个外键都使用`(id, space_id)`复合形式，保证 Thread 与 Member 属于同一 Space。
 
-见`0004_thread_subscriptions.sql`。
+该结构由 PostgreSQL 基线 schema 创建。
 
 ### 7.5 `run_items`
 
@@ -450,6 +450,8 @@ Session 关闭失败不能回滚已完成 Task。
 ### 11.1 Schema 基线
 
 新版本建立一个干净基线。项目不提供从旧版本到该基线的 migration。
+
+仓库分别使用`schema/postgres.sql`和`schema/computer.sql`保存 PostgreSQL 与 Computer SQLite 的完整基线。每种数据库在基线阶段只有一个 schema 文件。
 
 基线进入共享环境后，每次 schema 变更必须新增前向 migration。不得修改已经应用的 migration。
 

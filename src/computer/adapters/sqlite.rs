@@ -17,7 +17,7 @@ use crate::{
     ids::{AgentId, CommandId, EventId, InboxItemId, NoticeId, RunId, TaskId, ThreadId},
 };
 
-const BASELINE: &str = include_str!("../../../migrations/computer/0001_schema.sql");
+const BASELINE: &str = include_str!("../../../schema/computer.sql");
 
 pub(in crate::computer) struct SqliteAdapter {
     connection: SqliteConnection,

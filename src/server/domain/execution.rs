@@ -39,9 +39,6 @@ pub(in crate::server) enum RunOutcome {
     Canceled,
 }
 
-/// Computer 上报的失败原因。domain 层不能依赖协议模块,因此取值域在此独立声明,
-/// 并与协议的`ComputerErrorCode`以及`agent_runs.error_code`的 CHECK 保持同一组 wire 取值。
-/// 翻译发生在 HTTP 适配层,新增协议变体会在那里暴露为编译错误。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum RunErrorCode {
     InvalidCommand,
@@ -72,7 +69,6 @@ pub(in crate::server) struct Run {
     pub(in crate::server) lease_expires_at: OffsetDateTime,
     pub(in crate::server) items: Vec<RunItem>,
     pub(in crate::server) outcome: Option<RunOutcome>,
-    /// 只有`RunOutcome::Failed`终态允许非空,与`agent_runs`的 CHECK 一致。
     pub(in crate::server) error_code: Option<RunErrorCode>,
     pub(in crate::server) continuation_note: Option<String>,
     pub(in crate::server) started_at: Option<OffsetDateTime>,
@@ -204,7 +200,7 @@ impl Run {
         if self.items.iter().any(|item| item.disposition.is_none()) {
             return Err(DomainError::IncompleteItemDisposition);
         }
-        // 只有失败终态承载错误码。completed、yielded、canceled 带错误码会与 CHECK 冲突。
+        // The database permits an error code only for a failed outcome.
         if error_code.is_some() && outcome != RunOutcome::Failed {
             return Err(DomainError::InvalidTransition);
         }
@@ -283,7 +279,6 @@ mod tests {
                 run.finish(TOKEN, outcome, Some(RunErrorCode::Internal), None, now),
                 Err(DomainError::InvalidTransition)
             );
-            // 被拒绝的终态不改变 Run。
             assert_eq!(run.status, RunStatus::Finalizing);
             assert_eq!(run.error_code, None);
             run.finish(TOKEN, outcome, None, None, now)
