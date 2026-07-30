@@ -4,39 +4,29 @@ use std::{fs, path::Path};
 fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     assert_forbidden(
         "src/protocol",
-        &[
-            "crate::server",
-            "crate::computer",
-            "crate::legacy_",
-            "crate::driver",
-        ],
+        &["crate::server", "crate::computer", "crate::driver"],
     );
     assert_forbidden(
         "src/server/domain",
         &[
             "crate::protocol",
             "crate::computer",
-            "crate::legacy_",
             "crate::driver",
         ],
     );
     assert_forbidden(
         "src/server/application",
-        &["crate::computer", "crate::legacy_", "crate::driver"],
+        &["crate::computer", "crate::driver"],
     );
     assert_forbidden(
         "src/computer/core",
         &[
             "crate::protocol",
             "crate::server",
-            "crate::legacy_",
             "crate::driver",
         ],
     );
-    assert_forbidden(
-        "src/computer/application",
-        &["crate::server", "crate::legacy_"],
-    );
+    assert_forbidden("src/computer/application", &["crate::server"]);
     assert_forbidden(
         "src/computer/adapters",
         &[
@@ -44,23 +34,19 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
             "computer::core",
             "core::{",
             "crate::server",
-            "crate::legacy_",
             "crate::driver",
         ],
     );
     assert_forbidden(
         "src/computer/drivers",
-        &["crate::server", "crate::legacy_server", "sqlx::postgres"],
+        &["crate::server", "sqlx::postgres"],
     );
-    assert_forbidden("src/server", &["crate::legacy_"]);
-    assert_forbidden("src/computer", &["crate::legacy_"]);
     assert_forbidden(
         "src/agent_cli",
         &[
             "crate::server",
             "crate::computer::core",
             "sqlx",
-            "crate::legacy_",
         ],
     );
     assert_scoped_visibility("src/ids.rs");
