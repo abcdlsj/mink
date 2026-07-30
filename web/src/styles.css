@@ -1599,53 +1599,6 @@ h1 {
 .inbox-empty-groups small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .inbox-empty-groups b { font-size: 24px; font-variant-numeric: tabular-nums; text-align: right; }
 
-.approval-list {
-  margin-bottom: 24px;
-  border-bottom: 2px solid var(--ink);
-  padding-bottom: 12px;
-}
-
-.approval-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.approval-heading span {
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.approval-heading h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.approval-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  margin-bottom: 12px;
-  border: 2px solid var(--ink);
-  border-left: 9px solid var(--accent-soft);
-  background: var(--paper);
-  box-shadow: 4px 4px 0 var(--ink);
-}
-
-.approval-item > div:first-child {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 7px 12px;
-  padding: 14px;
-}
-
-.approval-item p {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: #55514a;
-}
-
 .inbox-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1723,8 +1676,7 @@ h1 {
 }
 
 @media (max-width: 700px) {
-  .inbox-item,
-  .approval-item {
+  .inbox-item {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -5617,8 +5569,7 @@ h1 {
   border-bottom: 2px solid var(--ink);
 }
 
-.inbox-item,
-.approval-item {
+.inbox-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   margin: 0;
@@ -5628,8 +5579,7 @@ h1 {
   box-shadow: none;
 }
 
-.inbox-item:last-child,
-.approval-item:last-child {
+.inbox-item:last-child {
   border-bottom: 0;
 }
 
@@ -5719,8 +5669,7 @@ h1 {
   white-space: nowrap;
 }
 
-.inbox-summary,
-.approval-item p {
+.inbox-summary {
   min-width: 0;
   margin: 0;
   color: #55514a;
@@ -5732,13 +5681,6 @@ h1 {
 .inbox-item-copy > .inbox-kind {
   justify-self: start;
   margin-top: 2px;
-}
-
-.approval-detail {
-  color: rgb(20 17 17 / 50%);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
 }
 
 .inbox-actions {
@@ -5778,13 +5720,8 @@ h1 {
   opacity: .45;
 }
 
-.inbox-item .inbox-actions button:first-child,
-.approval-item .inbox-actions button:first-child {
+.inbox-item .inbox-actions button:first-child {
   background: var(--green);
-}
-
-.approval-item .inbox-actions button:last-child {
-  background: var(--red);
 }
 
 .inbox-empty {
@@ -5807,8 +5744,7 @@ h1 {
     padding-left: 8px;
   }
 
-  .inbox-item,
-  .approval-item {
+  .inbox-item {
     grid-template-columns: minmax(0, 1fr);
   }
 

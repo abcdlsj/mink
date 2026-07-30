@@ -436,7 +436,6 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         )
         .route("/agents/{agent_id}", get(get_agent).delete(retire_agent))
         .route("/agents/{agent_id}/runs/current", get(current_agent_run))
-        .route("/spaces/{space_id}/approvals", get(empty_list))
         .route("/spaces/{space_id}/tasks", get(list_tasks))
         .route("/tasks/{task_id}", get(get_task).patch(update_task))
         .route("/tasks/{task_id}/runs", get(task_runs))

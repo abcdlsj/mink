@@ -72,7 +72,7 @@ describe("Phase one Human flows", () => {
             display_name: "Grace Hopper",
             handle: "grace-hopper",
             access_level: "member",
-            permissions: ["channel:create"],
+            permissions: ["channel.create"],
           },
           {
             id: "019c0000-0000-7000-8000-000000000030",
@@ -129,6 +129,10 @@ describe("Phase one Human flows", () => {
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
+    // Server returns dotted action codes, so the toggle must reflect the granted Permission.
+    const granted = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"))!;
+    expect(within(granted).getByRole("checkbox", { name: /Create Channels/ })).toBeChecked();
+    expect(within(granted).getByRole("checkbox", { name: /Create Agents/ })).not.toBeChecked();
 
     fireEvent.change(access, { target: { value: "admin" } });
 

@@ -25,7 +25,7 @@ export function ComputersPage() {
           canManage={["owner", "admin"].includes(currentMember.access_level)}
           canCreateAgent={
             ["owner", "admin"].includes(currentMember.access_level) ||
-            currentMember.permissions.includes("agent:create")
+            currentMember.permissions.includes("agent.create")
           }
           isOwner={currentMember.access_level === "owner"}
           openNavigation={openNavigation}

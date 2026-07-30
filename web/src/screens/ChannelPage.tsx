@@ -58,7 +58,7 @@ export function ChannelPage() {
               canPairComputer: ["owner", "admin"].includes(currentMember.access_level),
               canCreateAgent:
                 ["owner", "admin"].includes(currentMember.access_level) ||
-                currentMember.permissions.includes("agent:create"),
+                currentMember.permissions.includes("agent.create"),
             } : undefined}
           />
         );

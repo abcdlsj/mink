@@ -65,8 +65,6 @@ use uuid::Uuid;
         CompleteTaskRequest,
         CloseTaskRequest,
         AgentRuntimeResponse,
-        AgentCreateApprovalPayload,
-        ApprovalResponse,
         CreateThreadMessageRequest,
         ThreadReadResponse,
         ThreadSubscriptionResponse
@@ -543,7 +541,6 @@ pub(super) struct InboxItemResponse {
     status: InboxStatus,
     available_at: String,
     created_at: String,
-    approval_id: Option<Uuid>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -551,9 +548,9 @@ pub(super) enum InboxKind {
     Direct,
     Mention,
     Reply,
+    TaskActivity,
     ThreadActivity,
     ChannelActivity,
-    Approval,
     System,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -710,42 +707,6 @@ pub(super) struct AgentRuntimeResponse {
     focus: Option<ThreadReferenceResponse>,
     another_item_waiting: bool,
     session_continuity: SessionContinuityResponse,
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub(super) struct AgentCreateApprovalPayload {
-    computer_id: Uuid,
-    name: String,
-    role_text: String,
-    driver_kind: DriverKind,
-    access_level: AgentAccessLevel,
-    permissions: Vec<String>,
-}
-#[derive(Serialize, Deserialize, ToSchema)]
-pub(super) struct ApprovalResponse {
-    id: Uuid,
-    space_id: Uuid,
-    kind: ApprovalKind,
-    status: ApprovalStatus,
-    requested_by_member_id: Uuid,
-    requester_name: String,
-    payload: AgentCreateApprovalPayload,
-    resolved_by_member_id: Option<Uuid>,
-    created_at: String,
-    resolved_at: Option<String>,
-}
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum ApprovalKind {
-    AgentCreate,
-}
-#[derive(Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum ApprovalStatus {
-    Pending,
-    Approved,
-    Rejected,
-    Canceled,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

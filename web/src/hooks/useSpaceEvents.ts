@@ -35,10 +35,6 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "computer.changed") {
         void queryClient.invalidateQueries({ queryKey: ["computers", spaceId] });
       }
-      if (payload.type.startsWith("approval.")) {
-        void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
-      }
       if (payload.type.startsWith("task.")) {
         void queryClient.invalidateQueries({ queryKey: ["tasks", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["messages"] });

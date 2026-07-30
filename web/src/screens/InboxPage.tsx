@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Clock3, Inbox, Menu, ShieldCheck, X, type LucideIcon } from "lucide-react";
+import { Check, Clock3, Inbox, Menu, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import {
   ackInboxItem,
   deferInboxItem,
-  listApprovals,
   listInbox,
-  resolveApproval,
   type InboxItem,
   type Member,
 } from "../api/client";
@@ -50,7 +48,6 @@ export function InboxPage() {
           spaceId={space.id}
           memberId={currentMember.id}
           members={members}
-          currentMember={currentMember}
           openNavigation={openNavigation}
         />
       )}
@@ -63,14 +60,12 @@ function InboxWorkspace({
   spaceId,
   memberId,
   members,
-  currentMember,
   openNavigation,
 }: {
   spaceSlug: string;
   spaceId: string;
   memberId: string;
   members: Member[];
-  currentMember: Member;
   openNavigation: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -79,12 +74,6 @@ function InboxWorkspace({
     queryKey: ["inbox", spaceId, memberId],
     queryFn: () => listInbox(memberId),
   });
-  const canGovern = currentMember.access_level === "owner" || currentMember.access_level === "admin";
-  const approvals = useQuery({
-    queryKey: ["approvals", spaceId],
-    queryFn: () => listApprovals(spaceId),
-    enabled: canGovern,
-  });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
   const ack = useMutation({ mutationFn: ackInboxItem, onSuccess: refresh });
   const defer = useMutation({
@@ -92,16 +81,9 @@ function InboxWorkspace({
       deferInboxItem(itemId, new Date(Date.now() + 60 * 60 * 1000).toISOString()),
     onSuccess: refresh,
   });
-  const resolve = useMutation({
-    mutationFn: ({ approvalId, decision }: { approvalId: string; decision: "approve" | "reject" }) =>
-      resolveApproval(approvalId, decision),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
-      void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
-    },
-  });
-  const pendingApprovals = approvals.data?.filter((approval) => approval.status === "pending") ?? [];
-  const attentionItems = inbox.data?.filter((item) => item.kind !== "approval") ?? [];
+  // Only Items a group renders count as attention, so the empty state matches the visible list.
+  const groupedKinds = new Set<InboxItem["kind"]>(inboxGroups.flatMap((group) => group.kinds));
+  const attentionItems = inbox.data?.filter((item) => groupedKinds.has(item.kind)) ?? [];
   const groupedItems = inboxGroups.map((group) => ({
     ...group,
     items: attentionItems.filter((item) => group.kinds.includes(item.kind)),
@@ -136,59 +118,9 @@ function InboxWorkspace({
       </header>
       <div className="inbox-list">
         <div className="inbox-list-inner">
-          {canGovern && pendingApprovals.length > 0 ? (
-          <InboxGroup
-            id="approvals"
-            label="Approvals"
-            description="Governance decisions waiting for you"
-            count={pendingApprovals.length}
-            icon={ShieldCheck}
-          >
-            {pendingApprovals.map((approval) => (
-              <article className="approval-item" key={approval.id}>
-                <div className="inbox-item-identity">
-                  <PixelIdentity
-                    name={approval.requester_name}
-                    kind={members.find((member) => member.id === approval.requested_by_member_id)?.kind ?? "human"}
-                    seed={approval.requested_by_member_id}
-                  />
-                  <div className="inbox-item-copy">
-                    <div className="inbox-item-meta">
-                      <strong>{approval.requester_name}</strong>
-                      <span className="inbox-kind">approval</span>
-                      <time dateTime={approval.created_at}>{formatInboxTime(approval.created_at)}</time>
-                    </div>
-                    <p>Requests a new Agent: <b>{approval.payload.name}</b></p>
-                    <span className="approval-detail">{approval.payload.driver_kind} Driver · {approval.payload.access_level} access</span>
-                  </div>
-                </div>
-                <div className="inbox-actions">
-                  <button
-                    type="button"
-                    disabled={resolve.isPending}
-                    aria-label={`Approve ${approval.payload.name}`}
-                    onClick={() => resolve.mutate({ approvalId: approval.id, decision: "approve" })}
-                  >
-                    <Check />APPROVE
-                  </button>
-                  <button
-                    type="button"
-                    disabled={resolve.isPending}
-                    aria-label={`Reject ${approval.payload.name}`}
-                    onClick={() => resolve.mutate({ approvalId: approval.id, decision: "reject" })}
-                  >
-                    <X />REJECT
-                  </button>
-                </div>
-              </article>
-            ))}
-            {resolve.error ? <p className="timeline-status timeline-status--error">{resolve.error.message}</p> : null}
-          </InboxGroup>
-          ) : null}
           {inbox.isPending ? <p className="timeline-status">Loading Inbox...</p> : null}
           {inbox.error ? <p className="timeline-status timeline-status--error">{inbox.error.message}</p> : null}
-          {canGovern && approvals.error ? <p className="timeline-status timeline-status--error">{approvals.error.message}</p> : null}
-          {!inbox.isPending && !inbox.error && (!canGovern || (!approvals.isPending && !approvals.error)) && attentionItems.length === 0 && pendingApprovals.length === 0 ? (
+          {!inbox.isPending && !inbox.error && attentionItems.length === 0 ? (
           <section className="inbox-empty" aria-labelledby="inbox-empty-title">
             <div className="inbox-empty-intro">
               <span className="inbox-empty-icon" aria-hidden="true"><Inbox /></span>
@@ -199,7 +131,6 @@ function InboxWorkspace({
               </div>
             </div>
             <ul className="inbox-empty-groups" aria-label="Empty Inbox groups">
-              <li><span><strong>Approvals</strong><small>Governance decisions waiting for you</small></span><b>0</b></li>
               <li><span><strong>DM &amp; mentions</strong><small>Direct requests and explicit mentions</small></span><b>0</b></li>
               <li><span><strong>Replies</strong><small>Thread and Message responses to revisit</small></span><b>0</b></li>
               <li><span><strong>Channel activity</strong><small>Ambient collaboration worth reviewing</small></span><b>0</b></li>

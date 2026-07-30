@@ -27,10 +27,10 @@ import {
 import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
-const explicitPermissions = ["channel:create", "agent:create"] as const;
+const explicitPermissions = ["channel.create", "agent.create"] as const;
 const permissionLabels: Record<(typeof explicitPermissions)[number], { title: string; description: string }> = {
-  "channel:create": { title: "Create Channels", description: "Add a Channel to this Space" },
-  "agent:create": { title: "Create Agents", description: "Provision an Agent in this Space" },
+  "channel.create": { title: "Create Channels", description: "Add a Channel to this Space" },
+  "agent.create": { title: "Create Agents", description: "Provision an Agent in this Space" },
 };
 
 export function MembersPage() {

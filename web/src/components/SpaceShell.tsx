@@ -558,7 +558,7 @@ function ComputersNavigation({ computers, spaceSlug, activeHash, canManage }: { 
 }
 
 function InboxNavigation() {
-  return <div className="context-groups" aria-label="Inbox groups"><span><strong>01</strong> Approvals</span><span><strong>02</strong> DM &amp; mentions</span><span><strong>03</strong> Replies</span><span><strong>04</strong> Channel activity</span></div>;
+  return <div className="context-groups" aria-label="Inbox groups"><span><strong>01</strong> DM &amp; mentions</span><span><strong>02</strong> Replies</span><span><strong>03</strong> Channel activity</span></div>;
 }
 
 function TasksNavigation() {
