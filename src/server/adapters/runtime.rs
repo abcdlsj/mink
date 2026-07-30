@@ -37,9 +37,14 @@ use crate::{
         },
     },
     server::{
+        application::conversation::{
+            CreateAgentAction, CreateAgentActionInput, CreateChannelAction,
+            CreateChannelActionInput,
+        },
         application::task::{
             CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
-            LinkThreadInput, LinkThreadToTask, TaskAction, TaskSource, UpdateTask, UpdateTaskInput,
+            LinkThreadInput, LinkThreadToTask, TaskAction, TaskSource, UnlinkThreadFromTask,
+            UpdateTask, UpdateTaskInput,
         },
         application::{
             execution::{
@@ -48,7 +53,7 @@ use crate::{
             },
             ports::{AttachmentObjectPort, RawFencingToken},
         },
-        domain::task::CloseReason,
+        domain::{conversation::ChannelKind, identity::DriverKind, task::CloseReason},
     },
 };
 
@@ -1013,6 +1018,145 @@ async fn execute_agent_action(
             task_projection(&state.pool, task.id.into_uuid())
                 .await
                 .map_err(api_to_capability)
+        }
+        capability::Action::TaskLinkThread { thread_id } => {
+            let task_id = context.task_id.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::Conflict,
+                    "Run is not bound to a Task",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            LinkThreadToTask::execute(
+                &mut storage,
+                LinkThreadInput {
+                    task_id,
+                    target_thread_id: thread_id,
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            task_projection(&state.pool, task_id.into_uuid())
+                .await
+                .map_err(api_to_capability)
+        }
+        capability::Action::TaskUnlinkThread { thread_id } => {
+            let task_id = context.task_id.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::Conflict,
+                    "Run is not bound to a Task",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            UnlinkThreadFromTask::execute(
+                &mut storage,
+                LinkThreadInput {
+                    task_id,
+                    target_thread_id: thread_id,
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            task_projection(&state.pool, task_id.into_uuid())
+                .await
+                .map_err(api_to_capability)
+        }
+        capability::Action::TaskUpdate { title } => {
+            let task_id = context.task_id.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::Conflict,
+                    "Run is not bound to a Task",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            UpdateTask::execute(
+                &mut storage,
+                UpdateTaskInput {
+                    task_id,
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    action: TaskAction::Rename { title },
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            task_projection(&state.pool, task_id.into_uuid())
+                .await
+                .map_err(api_to_capability)
+        }
+        capability::Action::ChannelCreate { name, private } => {
+            let audience = if private {
+                sqlx::query_scalar::<_, Uuid>(
+                    "SELECT member_id FROM channel_members WHERE channel_id=(SELECT channel_id FROM threads WHERE id=$1)",
+                )
+                .bind(context.focus_thread_id.into_uuid())
+                .fetch_all(&state.pool)
+                .await
+            } else {
+                sqlx::query_scalar::<_, Uuid>("SELECT id FROM members WHERE space_id=$1 AND retired_at IS NULL")
+                    .bind(context.space_id.into_uuid())
+                    .fetch_all(&state.pool)
+                    .await
+            }
+            .map_err(|_| capability_error(capability::ErrorCode::Internal, "Channel audience could not be resolved", false))?
+            .into_iter()
+            .map(MemberId::from_uuid)
+            .collect();
+            let channel_id = crate::ids::ChannelId::from_uuid(Uuid::now_v7());
+            let mut storage = state.storage.clone();
+            let channel = CreateChannelAction::execute(
+                &mut storage,
+                CreateChannelActionInput {
+                    channel_id,
+                    audience,
+                    kind: if private {
+                        ChannelKind::Private
+                    } else {
+                        ChannelKind::Public
+                    },
+                    slug: Some(unique_handle(&name, channel_id.into_uuid())),
+                    topic: Some(name),
+                    action_message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    current_run_id: context.run_id,
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
+        }
+        capability::Action::AgentCreate { name, role, driver } => {
+            let agent_id = MemberId::from_uuid(Uuid::now_v7());
+            let mut storage = state.storage.clone();
+            let agent = CreateAgentAction::execute(
+                &mut storage,
+                CreateAgentActionInput {
+                    agent_member_id: agent_id,
+                    display_name: name.clone(),
+                    handle: unique_handle(&name, agent_id.into_uuid()),
+                    role_text: role,
+                    computer_id: ComputerId::from_uuid(computer_id),
+                    driver_kind: match driver {
+                        capability::DriverKind::Codex => DriverKind::Codex,
+                        capability::DriverKind::Builtin => DriverKind::Builtin,
+                    },
+                    action_message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    current_run_id: context.run_id,
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            Ok(json!({"agent_id":agent.member_id,"lifecycle":"provisioning"}))
         }
         capability::Action::InboxCurrent => {
             let rows=sqlx::query("SELECT i.id,i.kind,i.strength,i.status,i.available_at,ri.disposition FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id WHERE ri.run_id=$1 ORDER BY ri.delivery_seq").bind(context.run_id.into_uuid()).fetch_all(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Run Items could not be read",false))?;
@@ -2333,4 +2477,293 @@ async fn empty_list(
 }
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{str::FromStr, sync::Arc};
+
+    use axum::http::{HeaderMap, HeaderValue};
+    use object_store::local::LocalFileSystem;
+    use sqlx::{Connection, PgConnection, postgres::PgConnectOptions};
+    use tempfile::TempDir;
+    use url::Url;
+
+    use super::*;
+
+    struct CapabilityFixture {
+        state: RuntimeState,
+        admin: PgConnection,
+        database_name: String,
+        _objects: TempDir,
+        headers: HeaderMap,
+        computer_id: Uuid,
+        context: capability::RunContext,
+        handled_item_id: InboxItemId,
+        deferred_item_id: InboxItemId,
+    }
+
+    impl CapabilityFixture {
+        async fn create() -> Self {
+            let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+                .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+            let database_name = format!("sumi_capability_{}", Uuid::now_v7().simple());
+            let mut admin =
+                PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+                    .await
+                    .unwrap();
+            sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+                .execute(&mut admin)
+                .await
+                .unwrap();
+            let mut database_url = Url::parse(&admin_url).unwrap();
+            database_url.set_path(&format!("/{database_name}"));
+            let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+            let storage = PostgresAdapter::new(pool.clone());
+            storage.migrate().await.unwrap();
+
+            let space_id = Uuid::now_v7();
+            let owner_id = Uuid::now_v7();
+            let agent_id = Uuid::now_v7();
+            let computer_id = Uuid::now_v7();
+            let channel_id = Uuid::now_v7();
+            let focus_id = Uuid::now_v7();
+            let run_id = Uuid::now_v7();
+            let handled_item_id = Uuid::now_v7();
+            let deferred_item_id = Uuid::now_v7();
+            let computer_token = "capability-computer-token";
+            let fencing_token = "capability-fencing-token";
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','{owner_id}',now());
+                 INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner','owner',now());
+                 INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','agent','member',now());
+                 INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','{}','online',1,now());
+                 INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent_id}','{space_id}','{computer_id}','Test',1,'active','codex',now());
+                 INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel_id}','{space_id}','private','general',2,now());
+                 INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0);
+                 INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{agent_id}',now(),0);
+                 INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',1,'root','text','{owner_id}','source',now());
+                 INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',now());
+                 INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space_id}','{agent_id}','{focus_id}','running','{}',now()+interval '1 hour',now(),now());
+                 INSERT INTO inbox_items(id,space_id,agent_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,created_at) VALUES
+                   ('{handled_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now()),
+                   ('{deferred_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now());
+                 INSERT INTO run_items(run_id,inbox_item_id,delivery_seq,attached_at) VALUES
+                   ('{run_id}','{handled_item_id}',1,now()),
+                   ('{run_id}','{deferred_item_id}',2,now());
+                 COMMIT;",
+                token_hash(computer_token),
+                token_hash(fencing_token),
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let objects = tempfile::tempdir().unwrap();
+            let object_store = LocalFileSystem::new_with_prefix(objects.path()).unwrap();
+            let state = RuntimeState {
+                pool,
+                storage,
+                objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
+                session_ttl_hours: 1,
+            };
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "Authorization",
+                HeaderValue::from_str(&format!("Bearer {computer_token}")).unwrap(),
+            );
+            Self {
+                state,
+                admin,
+                database_name,
+                _objects: objects,
+                headers,
+                computer_id,
+                context: capability::RunContext {
+                    agent_id: AgentId::from_uuid(agent_id),
+                    space_id: crate::ids::SpaceId::from_uuid(space_id),
+                    task_id: None,
+                    focus_thread_id: ThreadId::from_uuid(focus_id),
+                    run_id: RunId::from_uuid(run_id),
+                    fencing_token: fencing_token.to_owned(),
+                    message_snapshot_sequence: 1,
+                },
+                handled_item_id: InboxItemId::from_uuid(handled_item_id),
+                deferred_item_id: InboxItemId::from_uuid(deferred_item_id),
+            }
+        }
+
+        async fn execute(&self, action: capability::Action) -> Result<Value, capability::Error> {
+            execute_agent_action(
+                &self.state,
+                &self.headers,
+                self.computer_id,
+                AgentActionRequest {
+                    context: self.context.clone(),
+                    action,
+                    idempotency_key: Some(crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7())),
+                },
+            )
+            .await
+        }
+
+        async fn destroy(mut self) {
+            self.state.pool.close().await;
+            sqlx::query(&format!(
+                "DROP DATABASE \"{}\" WITH (FORCE)",
+                self.database_name
+            ))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
+        let fixture = CapabilityFixture::create().await;
+        sqlx::raw_sql(
+            "CREATE FUNCTION test_reject_run_item_disposition() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN RAISE EXCEPTION 'forced capability rollback'; END $$;
+             CREATE CONSTRAINT TRIGGER test_reject_run_item_disposition
+             AFTER UPDATE OF disposition ON run_items DEFERRABLE INITIALLY DEFERRED
+             FOR EACH ROW EXECUTE FUNCTION test_reject_run_item_disposition();",
+        )
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+        let failed = fixture
+            .execute(capability::Action::MessageSend(capability::MessageSend {
+                target: capability::MessageTarget::Focus,
+                body: "must roll back".to_owned(),
+                handle_item_id: Some(fixture.handled_item_id),
+                snapshot_sequence: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(failed.code, capability::ErrorCode::Internal);
+        let rolled_back: (i64, Option<String>) = (
+            sqlx::query_scalar(
+                "SELECT count(*) FROM messages WHERE body_markdown='must roll back'",
+            )
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap(),
+            sqlx::query_scalar(
+                "SELECT disposition FROM run_items WHERE run_id=$1 AND inbox_item_id=$2",
+            )
+            .bind(fixture.context.run_id.into_uuid())
+            .bind(fixture.handled_item_id.into_uuid())
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap(),
+        );
+        assert_eq!(rolled_back, (0, None));
+        sqlx::raw_sql(
+            "DROP TRIGGER test_reject_run_item_disposition ON run_items;
+             DROP FUNCTION test_reject_run_item_disposition();",
+        )
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+
+        let ack = capability::Action::InboxAck {
+            item_id: fixture.handled_item_id,
+            reason: Some("handled".to_owned()),
+        };
+        fixture.execute(ack.clone()).await.unwrap();
+        fixture.execute(ack).await.unwrap();
+        let defer_until = OffsetDateTime::now_utc() + Duration::hours(2);
+        let defer = capability::Action::InboxDefer {
+            item_id: fixture.deferred_item_id,
+            until: defer_until,
+        };
+        fixture.execute(defer.clone()).await.unwrap();
+        fixture.execute(defer).await.unwrap();
+
+        let facts: (String, String, String, String) = sqlx::query_as(
+            "SELECT handled.disposition,deferred.disposition,handled_item.status,deferred_item.status
+             FROM run_items handled
+             JOIN run_items deferred ON deferred.run_id=handled.run_id
+             JOIN inbox_items handled_item ON handled_item.id=handled.inbox_item_id
+             JOIN inbox_items deferred_item ON deferred_item.id=deferred.inbox_item_id
+             WHERE handled.inbox_item_id=$1 AND deferred.inbox_item_id=$2",
+        )
+        .bind(fixture.handled_item_id.into_uuid())
+        .bind(fixture.deferred_item_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            facts,
+            (
+                "handled".into(),
+                "deferred".into(),
+                "leased".into(),
+                "leased".into()
+            )
+        );
+
+        let conflict = fixture
+            .execute(capability::Action::InboxDefer {
+                item_id: fixture.handled_item_id,
+                until: defer_until,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(conflict.code, capability::ErrorCode::Conflict);
+
+        let submitted = super::super::http::submit_run_result(
+            &fixture.state.storage,
+            super::super::http::ComputerPrincipal {
+                computer_id: ComputerId::from_uuid(fixture.computer_id),
+            },
+            crate::protocol::computer::RunResult {
+                event_id: crate::ids::EventId::from_uuid(Uuid::now_v7()),
+                run_id: fixture.context.run_id,
+                fencing_token: crate::protocol::computer::FencingToken::new(
+                    fixture.context.fencing_token.clone(),
+                ),
+                status: crate::protocol::computer::RunTerminalStatus::Yielded,
+                item_outcomes: vec![
+                    crate::protocol::computer::ItemOutcome {
+                        item_id: fixture.handled_item_id,
+                        disposition: crate::protocol::computer::ItemDisposition::Handled,
+                    },
+                    crate::protocol::computer::ItemOutcome {
+                        item_id: fixture.deferred_item_id,
+                        disposition: crate::protocol::computer::ItemDisposition::Deferred,
+                    },
+                ],
+                continuation_note: Some("continue later".to_owned()),
+                error_code: None,
+            },
+        )
+        .await;
+        assert!(submitted.is_ok());
+        let yielded: (String, Option<String>, String, String) = sqlx::query_as(
+            "SELECT runs.status,runs.continuation_note,handled.status,deferred.status
+             FROM agent_runs runs
+             JOIN inbox_items handled ON handled.lease_run_id IS NULL AND handled.id=$2
+             JOIN inbox_items deferred ON deferred.lease_run_id IS NULL AND deferred.id=$3
+             WHERE runs.id=$1",
+        )
+        .bind(fixture.context.run_id.into_uuid())
+        .bind(fixture.handled_item_id.into_uuid())
+        .bind(fixture.deferred_item_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            yielded,
+            (
+                "yielded".into(),
+                Some("continue later".into()),
+                "handled".into(),
+                "deferred".into()
+            )
+        );
+        fixture.destroy().await;
+    }
 }

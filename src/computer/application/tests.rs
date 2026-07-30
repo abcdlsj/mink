@@ -1211,6 +1211,70 @@ async fn completed_driver_turn_preserves_explicit_item_disposition() {
 }
 
 #[tokio::test]
+async fn yield_atomically_preserves_dispositions_releases_remaining_and_wins_completion_race() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let handled = item_id();
+    let remaining = item_id();
+    let run = local_run(
+        None,
+        thread_id,
+        [(handled, None, thread_id), (remaining, None, thread_id)],
+    );
+    let run_id = run.id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::record_item_disposition(&mut store, run_id, handled, ItemDisposition::Handled)
+        .await
+        .unwrap();
+
+    let event_id = RunService::yield_run(
+        &mut store,
+        run_id,
+        Some("continue after higher-priority work".to_owned()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Yielded);
+    assert!(matches!(
+        store.state.events[&event_id],
+        LocalEvent::RunResult {
+            status: TerminalStatus::Yielded,
+            ref item_outcomes,
+            continuation_note: Some(ref note),
+            ..
+        } if item_outcomes == &vec![
+            (handled, ItemDisposition::Handled),
+            (remaining, ItemDisposition::Released),
+        ] && note == "continue after higher-priority work"
+    ));
+    assert_eq!(
+        RunService::finish_driver_turn(&mut store, run_id, DriverTurnOutcome::Interrupted)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .state
+            .events
+            .values()
+            .filter(|event| matches!(event, LocalEvent::RunResult { .. }))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver {

@@ -114,6 +114,9 @@ pub(in crate::server) struct LinkThreadInput {
 }
 
 pub(in crate::server) enum TaskAction {
+    Rename {
+        title: String,
+    },
     Start {
         assignee: MemberId,
     },
@@ -149,6 +152,7 @@ impl UpdateTask {
                 return Err(ApplicationError::PermissionDenied);
             }
             match input.action {
+                TaskAction::Rename { title } => task.rename(title, input.now),
                 TaskAction::Start { assignee } => {
                     if !transaction.can_assign_agent(assignee, &source).await? {
                         return Err(ApplicationError::PermissionDenied);
@@ -219,6 +223,37 @@ impl LinkThreadToTask {
             task.add_related_thread(&source, &target, input.actor_member_id, input.now)?;
             transaction.save_task(task.clone()).await?;
             transaction.emit(Effect::ThreadLinked {
+                task_id: task.id,
+                thread_id: target.id,
+            });
+            Ok(task)
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct UnlinkThreadFromTask;
+
+impl UnlinkThreadFromTask {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: LinkThreadInput,
+    ) -> Result<Task, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut task = transaction.task(input.task_id).await?;
+            let target = transaction.thread(input.target_thread_id).await?;
+            if !transaction
+                .can_link_thread(input.actor_member_id, &task, &target)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            if !task.linked_to(target.id) {
+                return Ok(task);
+            }
+            task.remove_related_thread(target.id, input.now)?;
+            transaction.save_task(task.clone()).await?;
+            transaction.emit(Effect::ThreadUnlinked {
                 task_id: task.id,
                 thread_id: target.id,
             });

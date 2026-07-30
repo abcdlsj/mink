@@ -102,6 +102,11 @@ impl Task {
                 .any(|link| link.thread_id == thread_id)
     }
 
+    pub(in crate::server) fn rename(&mut self, title: String, now: OffsetDateTime) {
+        self.title = title;
+        self.updated_at = now;
+    }
+
     pub(in crate::server) fn add_related_thread(
         &mut self,
         source: &Thread,

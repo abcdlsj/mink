@@ -96,6 +96,59 @@ impl RunService {
             .await
     }
 
+    pub(in crate::computer) async fn yield_run<P: TransactionPort>(
+        store: &mut P,
+        run_id: RunId,
+        continuation_note: Option<String>,
+    ) -> Result<EventId, ApplicationError> {
+        let run = store
+            .transact(async |transaction| {
+                transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
+            })
+            .await?;
+        if run.state != LocalRunState::Running {
+            return Err(ApplicationError::Conflict);
+        }
+        let item_outcomes = run
+            .deliveries
+            .values()
+            .map(|delivery| {
+                (
+                    delivery.item.item_id,
+                    delivery.disposition.unwrap_or(ItemDisposition::Released),
+                )
+            })
+            .collect();
+        Self::finish(
+            store,
+            run_id,
+            TerminalStatus::Yielded,
+            item_outcomes,
+            continuation_note,
+            None,
+        )
+        .await
+    }
+
+    pub(in crate::computer) async fn interrupt_terminal<P: TransactionPort, D: DriverPort>(
+        store: &mut P,
+        driver: &mut D,
+        run_id: RunId,
+    ) -> Result<(), ApplicationError> {
+        let run = store
+            .transact(async |transaction| {
+                transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
+            })
+            .await?;
+        if !run.state.is_terminal() {
+            return Err(ApplicationError::Conflict);
+        }
+        match driver.interrupt(&run).await {
+            Ok(()) | Err(ApplicationError::NotFound) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(in crate::computer) async fn start<P: TransactionPort, D: DriverPort>(
         store: &mut P,
         driver: &mut D,

@@ -88,6 +88,7 @@ impl LocalIpcAdapter {
     pub(in crate::computer) async fn serve_capability<P: TransactionPort>(
         &self,
         store: &mut P,
+        on_yield: impl FnOnce(crate::ids::RunId),
         forward: impl AsyncFnOnce(
             wire::RunContext,
             wire::Action,
@@ -127,6 +128,24 @@ impl LocalIpcAdapter {
                     Err(error) => return application_failure(error),
                 };
             let action = request.action;
+            if let wire::Action::RunYield { note } = action {
+                return match crate::computer::application::run::RunService::yield_run(
+                    store,
+                    context.run_id,
+                    note,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        on_yield(context.run_id);
+                        wire::Response::success(serde_json::json!({
+                            "run_id": context.run_id,
+                            "status": "yielded"
+                        }))
+                    }
+                    Err(error) => application_failure(error),
+                };
+            }
             let response = forward(
                 wire::RunContext {
                     agent_id: context.agent_id,
@@ -207,7 +226,7 @@ impl Drop for LocalIpcAdapter {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use std::{cell::Cell, os::unix::fs::PermissionsExt};
 
     use super::*;
     use crate::{
@@ -217,7 +236,7 @@ mod tests {
             application::{
                 AgentInput, ClaimedItemInput, FencingToken, LocalRun, LocalRunState, NewRun,
                 RunContextInput, RunInput, RunPriority, TaskInput, WorkInput, WorkStrength,
-                ports::{ComputerTransaction, TransactionPort},
+                ports::{ComputerTransaction, LocalEvent, TransactionPort},
             },
         },
         ids::{AgentId, RunId, SpaceId, TaskId, ThreadId},
@@ -315,6 +334,7 @@ mod tests {
         let server =
             adapter.serve_capability(
                 &mut store,
+                |_| {},
                 |context: crate::protocol::capability::RunContext,
                  action: Action,
                  _idempotency_key| async move {
@@ -344,6 +364,7 @@ mod tests {
 
         let rejected_server = adapter.serve_capability(
             &mut store,
+            |_| {},
             |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unauthenticated capability must not be forwarded")
             },
@@ -365,6 +386,7 @@ mod tests {
 
         let path_server = adapter.serve_capability(
             &mut store,
+            |_| {},
             |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
                 panic!("unsafe local path must not be forwarded")
             },
@@ -384,5 +406,44 @@ mod tests {
             response.error.unwrap().code,
             wire::ErrorCode::InvalidArgument
         );
+
+        let interrupted = Cell::new(None);
+        let yield_server = adapter.serve_capability(
+            &mut store,
+            |yielded_run_id| interrupted.set(Some(yielded_run_id)),
+            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+                panic!("run yield must be committed locally before Server result delivery")
+            },
+        );
+        let yield_client = client::call_with(
+            &socket_path,
+            "run-secret".to_owned(),
+            Action::RunYield {
+                note: Some("continue later".to_owned()),
+            },
+            None,
+        );
+        let (served, response) = tokio::join!(yield_server, yield_client);
+        served.unwrap();
+        assert!(response.unwrap().ok);
+        assert_eq!(interrupted.get(), Some(run_id));
+        store
+            .transact(async |transaction| {
+                assert_eq!(
+                    transaction.run(run_id)?.unwrap().state,
+                    LocalRunState::Yielded
+                );
+                assert!(transaction.pending_events()?.iter().any(|event| matches!(
+                    event,
+                    LocalEvent::RunResult {
+                        run_id: yielded_run_id,
+                        continuation_note: Some(note),
+                        ..
+                    } if *yielded_run_id == run_id && note == "continue later"
+                )));
+                Ok(())
+            })
+            .await
+            .unwrap();
     }
 }

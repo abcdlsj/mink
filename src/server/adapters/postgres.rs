@@ -923,6 +923,13 @@ impl PostgresTransaction {
                     json!({"task_id": task_id, "thread_id": thread_id}),
                 ));
             }
+            Effect::ThreadUnlinked { task_id, thread_id } => {
+                return Ok((
+                    self.space_for_task(task_id).await?,
+                    "task.unlinked",
+                    json!({"task_id": task_id, "thread_id": thread_id}),
+                ));
+            }
             Effect::ItemAttached {
                 run_id,
                 item_id,

@@ -61,6 +61,10 @@ pub(in crate::server) enum Effect {
         task_id: TaskId,
         thread_id: ThreadId,
     },
+    ThreadUnlinked {
+        task_id: TaskId,
+        thread_id: ThreadId,
+    },
     ItemAttached {
         run_id: RunId,
         item_id: InboxItemId,

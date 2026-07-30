@@ -110,6 +110,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     ))?;
     let capability_token = secrets.token.clone();
     let capability_client = reqwest::Client::new();
+    let (yield_interrupt_tx, mut yield_interrupt_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
             let endpoint = capability_endpoint.clone();
@@ -118,6 +119,9 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
             let result = ipc
                 .serve_capability(
                     &mut capability_store,
+                    |run_id| {
+                        let _ = yield_interrupt_tx.send(run_id);
+                    },
                     move |context, action, idempotency_key| async move {
                         let response = client
                             .post(endpoint)
@@ -165,6 +169,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         &mut driver,
         &mut homes,
         config.max_concurrent_runs,
+        &mut yield_interrupt_rx,
     )
     .await
 }
@@ -185,6 +190,7 @@ async fn connect<P, D, H>(
     driver: &mut D,
     homes: &mut H,
     max_concurrent_runs: usize,
+    yield_interrupts: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ids::RunId>,
 ) -> anyhow::Result<()>
 where
     P: application::ports::TransactionPort,
@@ -253,6 +259,12 @@ where
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
+            Some(run_id) = yield_interrupts.recv() => {
+                if let Err(error) = application::run::RunService::interrupt_terminal(storage, driver, run_id).await {
+                    tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
+                }
+                send_pending_events(storage, &mut writer).await?;
+            }
             _ = heartbeat.tick() => {
                 let frame=ComputerFrame::Heartbeat{heartbeat:Heartbeat{daemon_session_id,active_runs:0,observed_at:time::OffsetDateTime::now_utc()}};
                 writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
