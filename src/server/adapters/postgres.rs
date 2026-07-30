@@ -59,11 +59,8 @@ impl PostgresAdapter {
         Self { pool }
     }
 
-    pub(super) async fn migrate(&self) -> Result<(), ApplicationError> {
-        MIGRATOR
-            .run(&self.pool)
-            .await
-            .map_err(|_| ApplicationError::Unavailable)
+    pub(super) async fn migrate(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        MIGRATOR.run(&self.pool).await
     }
 
     pub(super) async fn pending_commands(

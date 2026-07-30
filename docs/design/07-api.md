@@ -21,6 +21,7 @@ POST   /api/v1/spaces/{space_id}/channels
 GET    /api/v1/channels/{channel_id}/messages
 POST   /api/v1/channels/{channel_id}/messages
 GET    /api/v1/channels/{channel_id}/members
+POST   /api/v1/channels/{channel_id}/members
 GET    /api/v1/threads/{thread_id}
 POST   /api/v1/threads/{thread_id}/messages
 PATCH  /api/v1/messages/{message_id}
@@ -32,6 +33,8 @@ DELETE /api/v1/messages/{message_id}
 Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影。Browser 不能从正文解析 Action Message。
 
 Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
+
+Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
 
 ### 2.2 Task
 

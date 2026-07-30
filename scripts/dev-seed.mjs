@@ -10,7 +10,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -24,7 +24,7 @@ const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery 
 const SEED_MARKER = "[dev-seed]";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
-export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi", "computer");
+export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi-dev-seed", "computer");
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([
@@ -115,6 +115,21 @@ function sessionCookie(response) {
   const raw = response.headers.get("set-cookie");
   if (!raw) throw new Error("auth response did not set a session cookie");
   return raw.split(";")[0];
+}
+
+export function extractComputerPairingUrl(line) {
+  // eslint-disable-next-line no-control-regex
+  const clean = line.replace(/\x1b\[[0-9;]*m/g, "");
+  const raw = clean.split("url=")[1]?.split(/\s+/)[0]?.replaceAll('"', "");
+  if (!raw) return undefined;
+  try {
+    const candidate = new URL(raw);
+    if (!["http:", "https:"].includes(candidate.protocol)) return undefined;
+    if (!candidate.pathname.startsWith("/computers/pair/")) return undefined;
+    return raw;
+  } catch {
+    return undefined;
+  }
 }
 
 // A Session created by Node belongs to Node's HTTP client, not to the user's
@@ -238,12 +253,8 @@ function spawnCodexDaemon(stateDir, expectPairing) {
   const timer = expectPairing ? setTimeout(() => rejectPairing(new Error("timed out waiting for pairing URL")), 90_000) : undefined;
   rl.on("line", (line) => {
       process.stderr.write(`  [daemon] ${line}\n`);
-      if (!expectPairing || !line.includes("Open this URL to pair the Computer")) return;
-      // tracing emits ANSI colour codes even over a pipe; strip them, then take
-      // the first whitespace-delimited token after `url=` (mirrors the tests).
-      // eslint-disable-next-line no-control-regex
-      const clean = line.replace(/\[[0-9;]*m/g, "");
-      const raw = clean.split("url=")[1]?.split(/\s+/)[0]?.replace(/"/g, "");
+      if (!expectPairing) return;
+      const raw = extractComputerPairingUrl(line);
       if (raw) {
         clearTimeout(timer);
         resolvePairing(raw);
@@ -310,19 +321,6 @@ export function findComputerStateForSpace(computerRoot, spaceId) {
   }
   if (matches.length > 1) throw new Error(`multiple Dev Computers exist for Space ${spaceId}`);
   return matches[0];
-}
-
-async function stopDaemon(child) {
-  if (child.exitCode !== null) return;
-  const exited = new Promise((resolve) => child.once("exit", resolve));
-  child.kill("SIGINT");
-  await Promise.race([
-    exited,
-    sleep(5_000).then(() => {
-      if (child.exitCode === null) child.kill("SIGKILL");
-      return exited;
-    }),
-  ]);
 }
 
 async function createAgent(cookie, spaceId, computerId, profile) {
@@ -401,10 +399,9 @@ async function main() {
 
   const existingState = findComputerStateForSpace(DEV_COMPUTER_ROOT, space.id);
   const pairedIdentity = existingState?.pairedIdentity;
-  let stateDir = existingState?.stateDir ?? join(DEV_COMPUTER_ROOT, "pending", uuidv7());
-  prepareComputerStateDirectory(stateDir);
-  log(`spawning codex Computer daemon (state: ${stateDir})`);
-  let { child, pairingUrl } = spawnCodexDaemon(stateDir, !pairedIdentity);
+  prepareComputerStateDirectory(DEV_COMPUTER_ROOT);
+  log(`spawning codex Computer daemon (state root: ${DEV_COMPUTER_ROOT})`);
+  const { child, pairingUrl } = spawnCodexDaemon(DEV_COMPUTER_ROOT, !pairedIdentity);
   process.on("exit", () => child.kill("SIGINT"));
 
   let computer;
@@ -418,15 +415,7 @@ async function main() {
     log("pairing URL captured — confirming");
     computer = await confirmPairing(cookie, space.id, resolvedPairingUrl);
     online = await waitForComputerOnline(cookie, space.id, computer.id);
-    await stopDaemon(child);
-    const finalStateDir = computerStateDirectory(DEV_COMPUTER_ROOT, space.id, computer.id);
-    prepareComputerStateDirectory(join(DEV_COMPUTER_ROOT, space.id));
-    if (existsSync(finalStateDir)) throw new Error(`Computer state already exists: ${finalStateDir}`);
-    renameSync(stateDir, finalStateDir);
-    stateDir = finalStateDir;
-    ({ child } = spawnCodexDaemon(stateDir, false));
-    online = await waitForComputerOnline(cookie, space.id, computer.id);
-    log(`stored Computer state at ${stateDir}`);
+    log(`stored Computer state at ${computerStateDirectory(DEV_COMPUTER_ROOT, space.id, computer.id)}`);
   }
   log(`Computer "${online.name ?? "Dev Computer"}" is online`);
 

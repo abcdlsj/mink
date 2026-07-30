@@ -461,10 +461,7 @@ pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result
 
 pub async fn pairing_url_from_daemon(daemon: &mut SumiProcess) -> Result<Url> {
     let line = daemon
-        .wait_for_stderr(
-            "Open this URL to pair the Computer",
-            std::time::Duration::from_secs(15),
-        )
+        .wait_for_stderr("/computers/pair/", std::time::Duration::from_secs(15))
         .await?;
     let raw = line
         .split_once("url=")
@@ -485,7 +482,7 @@ pub async fn confirm_pairing(
 ) -> Result<ComputerResponse> {
     let pairing_id = pairing_url
         .path_segments()
-        .and_then(|mut segments| segments.nth(1))
+        .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
         .context("pairing URL has no pairing id")?
         .parse::<Uuid>()?;
     let code = pairing_url

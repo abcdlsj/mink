@@ -350,6 +350,63 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     ensure!(exact_conflict.status() == StatusCode::CONFLICT);
 
     let pool = PgPool::connect_with(PgConnectOptions::from_str(&database.url)?).await?;
+    let computer_id = Uuid::now_v7();
+    let agent_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES($1,$2,'Test Computer','localhost','linux','test-token-hash','online',1,now())")
+        .bind(computer_id)
+        .bind(created.id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'agent','Lin','lin','member',now())")
+        .bind(agent_id)
+        .bind(created.id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES($1,$2,$3,'Review changes',1,'active','codex',now())")
+        .bind(agent_id)
+        .bind(created.id)
+        .bind(computer_id)
+        .execute(&pool)
+        .await?;
+    let add_member_key = Uuid::now_v7();
+    let add_agent = || {
+        client
+            .post(
+                server_url
+                    .join(&format!(
+                        "/api/v1/channels/{}/members",
+                        created.general_channel_id
+                    ))
+                    .expect("valid Channel member URL"),
+            )
+            .header("idempotency-key", add_member_key.to_string())
+            .header(header::COOKIE, &cookie)
+            .json(&serde_json::json!({"agent_member_ids": [agent_id]}))
+    };
+    let members: serde_json::Value = add_agent().send().await?.error_for_status()?.json().await?;
+    let replayed_members: serde_json::Value =
+        add_agent().send().await?.error_for_status()?.json().await?;
+    ensure!(members == replayed_members);
+    ensure!(members["members"].as_array().is_some_and(|members| {
+        members
+            .iter()
+            .any(|member| member["id"] == agent_id.to_string())
+    }));
+    let membership_facts: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+           (SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=$2), \
+           (SELECT count(*) FROM idempotency_records WHERE actor_member_id=$3 AND action='channel.members.add' AND idempotency_key=$4), \
+           (SELECT count(*) FROM audit_events WHERE actor_member_id=$3 AND action='channel.members_added' AND subject_id=$1), \
+           (SELECT count(*) FROM outbox_events WHERE kind='member.changed' AND payload_json->>'resource_id'=$2::text)",
+    )
+    .bind(created.general_channel_id)
+    .bind(agent_id)
+    .bind(created.owner_member_id)
+    .bind(add_member_key)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(membership_facts == (1, 1, 1, 1));
+
     let facts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT \
            (SELECT count(*) FROM spaces WHERE id = $1 AND slug = 'sumi-lab'), \

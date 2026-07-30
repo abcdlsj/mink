@@ -8,11 +8,7 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     );
     assert_forbidden(
         "src/server/domain",
-        &[
-            "crate::protocol",
-            "crate::computer",
-            "crate::driver",
-        ],
+        &["crate::protocol", "crate::computer", "crate::driver"],
     );
     assert_forbidden(
         "src/server/application",
@@ -20,11 +16,7 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     );
     assert_forbidden(
         "src/computer/core",
-        &[
-            "crate::protocol",
-            "crate::server",
-            "crate::driver",
-        ],
+        &["crate::protocol", "crate::server", "crate::driver"],
     );
     assert_forbidden("src/computer/application", &["crate::server"]);
     assert_forbidden(
@@ -37,17 +29,10 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
             "crate::driver",
         ],
     );
-    assert_forbidden(
-        "src/computer/drivers",
-        &["crate::server", "sqlx::postgres"],
-    );
+    assert_forbidden("src/computer/drivers", &["crate::server", "sqlx::postgres"]);
     assert_forbidden(
         "src/agent_cli",
-        &[
-            "crate::server",
-            "crate::computer::core",
-            "sqlx",
-        ],
+        &["crate::server", "crate::computer::core", "sqlx"],
     );
     assert_scoped_visibility("src/ids.rs");
     assert_scoped_visibility("src/protocol");

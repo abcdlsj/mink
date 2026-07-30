@@ -193,6 +193,12 @@ struct CreateChannelBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AddChannelAgentsBody {
+    agent_member_ids: Vec<Uuid>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateAgentBody {
     computer_id: Uuid,
     name: String,
@@ -321,7 +327,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     storage
         .migrate()
         .await
-        .map_err(|error| anyhow::anyhow!(error))?;
+        .context("failed to migrate PostgreSQL")?;
 
     tokio::fs::create_dir_all(&config.attachment_dir)
         .await
@@ -429,7 +435,10 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             "/channels/{channel_id}/messages",
             get(list_messages).post(create_root_message),
         )
-        .route("/channels/{channel_id}/members", get(list_channel_members))
+        .route(
+            "/channels/{channel_id}/members",
+            get(list_channel_members).post(add_channel_agents),
+        )
         .route("/threads/{thread_id}", get(read_thread))
         .route("/threads/{thread_id}/messages", post(create_thread_reply))
         .route(
@@ -628,7 +637,7 @@ async fn confirm_pairing(
     headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
     Json(body): Json<ConfirmPairingBody>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<(StatusCode, Json<Value>), ApiError> {
     let actor_id = current_member(&state, &jar, body.space_id).await?;
     let key = idempotency_header(&headers)?;
     expire_pairing(&state.pool, pairing_id).await?;
@@ -646,13 +655,16 @@ async fn confirm_pairing(
     .map_err(map_sqlx)?
     {
         transaction.commit().await.map_err(map_sqlx)?;
-        return Ok(Json(json!({
-            "id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),
-            "name":row.get::<String,_>("name"),"hostname":row.get::<String,_>("hostname"),
-            "os":row.get::<String,_>("os"),"daemon_version":row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
-            "status":"offline","last_seen_at":optional_timestamp(row.get("last_seen_at")),
-            "created_at":timestamp(row.get("created_at"))
-        })));
+        return Ok((
+            StatusCode::CREATED,
+            Json(json!({
+                "id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),
+                "name":row.get::<String,_>("name"),"hostname":row.get::<String,_>("hostname"),
+                "os":row.get::<String,_>("os"),"daemon_version":row.get::<Option<String>,_>("daemon_version").unwrap_or_default(),
+                "status":"offline","last_seen_at":optional_timestamp(row.get("last_seen_at")),
+                "created_at":timestamp(row.get("created_at"))
+            })),
+        ));
     }
     let pairing=sqlx::query("SELECT * FROM computer_pairings WHERE id=$1 AND code_hash=$2 AND status='pending' FOR UPDATE").bind(pairing_id).bind(token_hash(&body.code)).fetch_optional(&mut *transaction).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
     let computer_id = Uuid::now_v7();
@@ -666,8 +678,11 @@ async fn confirm_pairing(
         .bind(actor_id).bind(key).bind(computer_id).bind(result_hash.as_slice()).bind(now)
         .execute(&mut *transaction).await.map_err(map_sqlx)?;
     transaction.commit().await.map_err(map_sqlx)?;
-    Ok(Json(
-        json!({"id":computer_id,"space_id":body.space_id,"name":body.name,"hostname":pairing.get::<String,_>("hostname"),"os":pairing.get::<String,_>("os"),"daemon_version":pairing.get::<String,_>("daemon_version"),"status":"offline","last_seen_at":Value::Null,"created_at":timestamp(now)}),
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            json!({"id":computer_id,"space_id":body.space_id,"name":body.name,"hostname":pairing.get::<String,_>("hostname"),"os":pairing.get::<String,_>("os"),"daemon_version":pairing.get::<String,_>("daemon_version"),"status":"offline","last_seen_at":Value::Null,"created_at":timestamp(now)}),
+        ),
     ))
 }
 
@@ -2481,10 +2496,20 @@ async fn list_channel_members(
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let viewer_id = channel_member(&state, &jar, channel_id).await?;
+    Ok(Json(
+        channel_members_json(&state.pool, channel_id, viewer_id).await?,
+    ))
+}
+
+async fn channel_members_json(
+    pool: &PgPool,
+    channel_id: Uuid,
+    viewer_id: Uuid,
+) -> Result<Value, ApiError> {
     let can_manage: bool =
         sqlx::query_scalar("SELECT access_level IN ('owner','admin') FROM members WHERE id=$1")
             .bind(viewer_id)
-            .fetch_one(&state.pool)
+            .fetch_one(pool)
             .await
             .map_err(map_sqlx)?;
     let rows = sqlx::query(
@@ -2493,14 +2518,114 @@ async fn list_channel_members(
          WHERE channel_members.channel_id=$1 ORDER BY channel_members.joined_at,members.id",
     )
     .bind(channel_id)
-    .fetch_all(&state.pool)
+    .fetch_all(pool)
     .await
     .map_err(map_sqlx)?;
     let mut members = Vec::with_capacity(rows.len());
     for row in &rows {
-        members.push(member_row(&state.pool, row).await?);
+        members.push(member_row(pool, row).await?);
     }
-    Ok(Json(json!({"members":members,"can_manage":can_manage})))
+    Ok(json!({"members":members,"can_manage":can_manage}))
+}
+
+async fn add_channel_agents(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(channel_id): Path<Uuid>,
+    Json(body): Json<AddChannelAgentsBody>,
+) -> Result<Json<Value>, ApiError> {
+    let actor_id = channel_member(&state, &jar, channel_id).await?;
+    let key = idempotency_header(&headers)?;
+    let agent_ids = body.agent_member_ids.into_iter().collect::<BTreeSet<_>>();
+    if agent_ids.is_empty() {
+        return Err(ApiError::invalid("At least one Agent is required"));
+    }
+    let agent_ids = agent_ids.into_iter().collect::<Vec<_>>();
+    let mut transaction = state.pool.begin().await.map_err(map_sqlx)?;
+    lock_idempotency(&mut transaction, actor_id, "channel.members.add", key).await?;
+    let channel = sqlx::query(
+        "SELECT c.space_id,c.kind,m.access_level FROM channels c \
+         JOIN members m ON m.id=$2 AND m.space_id=c.space_id \
+         JOIN channel_members cm ON cm.channel_id=c.id AND cm.member_id=m.id \
+         WHERE c.id=$1 FOR UPDATE OF c",
+    )
+    .bind(channel_id)
+    .bind(actor_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?
+    .ok_or_else(ApiError::not_found)?;
+    if !matches!(channel.get::<&str, _>("access_level"), "owner" | "admin") {
+        return Err(ApiError::permission_denied());
+    }
+    if channel.get::<&str, _>("kind") == "direct" {
+        return Err(ApiError::invalid("DM membership cannot be changed"));
+    }
+    let space_id: Uuid = channel.get("space_id");
+    let valid_agent_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM members m JOIN agents a ON a.member_id=m.id \
+         WHERE m.space_id=$1 AND m.kind='agent' AND a.lifecycle<>'retired' AND m.id=ANY($2)",
+    )
+    .bind(space_id)
+    .bind(&agent_ids)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
+    if valid_agent_count != agent_ids.len() as i64 {
+        return Err(ApiError::invalid(
+            "Channel members must be active Agents in the same Space",
+        ));
+    }
+    let replayed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM idempotency_records WHERE actor_member_id=$1 \
+         AND action='channel.members.add' AND idempotency_key=$2 AND resource_id=$3)",
+    )
+    .bind(actor_id)
+    .bind(key)
+    .bind(channel_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_sqlx)?;
+    if !replayed {
+        let now = OffsetDateTime::now_utc();
+        let inserted = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) \
+             SELECT $1,$2,requested.member_id,$4,0 FROM UNNEST($3::uuid[]) AS requested(member_id) \
+             ON CONFLICT DO NOTHING RETURNING member_id",
+        )
+        .bind(channel_id)
+        .bind(space_id)
+        .bind(&agent_ids)
+        .bind(now)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(map_sqlx)?;
+        let mut result_hasher = Sha256::new();
+        result_hasher.update(channel_id.as_bytes());
+        for agent_id in &agent_ids {
+            result_hasher.update(agent_id.as_bytes());
+        }
+        let result_hash = result_hasher.finalize();
+        sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'channel.members.add',$2,'ok',$3,$4,$5)")
+            .bind(actor_id).bind(key).bind(channel_id).bind(result_hash.as_slice()).bind(now)
+            .execute(&mut *transaction).await.map_err(map_sqlx)?;
+        if !inserted.is_empty() {
+            sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) VALUES($1,$2,$3,'channel.members_added','channel',$4,$5,$6)")
+                .bind(Uuid::now_v7()).bind(space_id).bind(actor_id).bind(channel_id)
+                .bind(json!({"added_count": inserted.len()})).bind(now)
+                .execute(&mut *transaction).await.map_err(map_sqlx)?;
+            for member_id in inserted {
+                sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'member.changed',$3,$4)")
+                    .bind(Uuid::now_v7()).bind(space_id).bind(json!({"resource_id":member_id})).bind(now)
+                    .execute(&mut *transaction).await.map_err(map_sqlx)?;
+            }
+        }
+    }
+    transaction.commit().await.map_err(map_sqlx)?;
+    Ok(Json(
+        channel_members_json(&state.pool, channel_id, actor_id).await?,
+    ))
 }
 
 async fn create_root_message(

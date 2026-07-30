@@ -83,6 +83,14 @@ brew services start postgresql@17
 pg_bin="$(brew --prefix postgresql@17)/bin"
 if ! "$pg_bin/psql" --dbname postgres --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'sumi_dev'" | grep -qx 1; then
   "$pg_bin/createdb" sumi_dev
+else
+  expected_checksum="$(shasum -a 384 migrations/postgres_v2/0001_schema.sql | awk '{print $1}')"
+  installed_checksum="$("$pg_bin/psql" --dbname sumi_dev --tuples-only --no-align --command "SELECT encode(checksum, 'hex') FROM _sqlx_migrations WHERE version = 1" 2>/dev/null || true)"
+  if [ "$installed_checksum" != "$expected_checksum" ]; then
+    echo "sumi_dev uses an incompatible schema baseline; recreating the development database" >&2
+    "$pg_bin/dropdb" --force sumi_dev
+    "$pg_bin/createdb" sumi_dev
+  fi
 fi
 '''
 

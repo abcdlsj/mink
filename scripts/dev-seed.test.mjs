@@ -11,9 +11,25 @@ import {
   DEV_SPACE,
   computerStateDirectory,
   createBrowserSessionHandoff,
+  extractComputerPairingUrl,
   findComputerStateForSpace,
   prepareComputerStateDirectory,
 } from "./dev-seed.mjs";
+
+test("development seed extracts the Computer pairing URL without depending on log prose", () => {
+  const pairingUrl = "http://127.0.0.1:3000/computers/pair/019fa900-0000-7000-8000-000000000001/?code=test-code";
+
+  assert.equal(
+    extractComputerPairingUrl(`INFO Confirm this Computer in Sumi url=${pairingUrl} expires_at=2026-07-30T06:00:00Z`),
+    pairingUrl,
+  );
+  assert.equal(
+    extractComputerPairingUrl(`INFO Open this URL to pair the Computer url=\"${pairingUrl}\"`),
+    pairingUrl,
+  );
+  assert.equal(extractComputerPairingUrl("INFO request completed url=http://127.0.0.1:3000/api/v1/health"), undefined);
+  assert.equal(extractComputerPairingUrl("INFO Confirm this Computer in Sumi url=not-a-url"), undefined);
+});
 
 test("dev-seed provisions its PostgreSQL database before starting the server", () => {
   const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -23,6 +39,12 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
   assert.ok(task, "mise.toml must define tasks.dev-seed");
   assert.match(task, /^depends = \["db-start"\]$/m);
   assert.match(task, /RUST_LOG = "sumi=warn,tower_http=warn"/);
+
+  const databaseTask = miseConfig.match(/\[tasks\.db-start\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
+  assert.ok(databaseTask, "mise.toml must define tasks.db-start");
+  assert.match(databaseTask, /migrations\/postgres_v2\/0001_schema\.sql/);
+  assert.match(databaseTask, /dropdb" --force sumi_dev/);
+  assert.match(databaseTask, /installed_checksum.*expected_checksum/);
 });
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
