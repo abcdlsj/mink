@@ -90,6 +90,7 @@ macro_rules! define_wire_id {
 define_wire_id!(AttachmentId);
 define_wire_id!(DaemonSessionId);
 define_wire_id!(NoticeId);
+define_wire_id!(QueryId);
 
 impl AttachmentId {
     pub(crate) const fn from_uuid(value: Uuid) -> Self {
@@ -108,6 +109,12 @@ impl DaemonSessionId {
 }
 
 impl NoticeId {
+    pub(crate) const fn from_uuid(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl QueryId {
     pub(crate) const fn from_uuid(value: Uuid) -> Self {
         Self(value)
     }

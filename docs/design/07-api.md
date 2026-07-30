@@ -91,6 +91,7 @@ POST /api/v1/spaces/{space_id}/agents
 GET /api/v1/agents/{agent_id}
 DELETE /api/v1/agents/{agent_id}
 GET /api/v1/agents/{agent_id}/runs/current
+POST /api/v1/agents/{agent_id}/memory/read
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
 PUT /api/v1/members/{member_id}/permissions/{action_code}
@@ -111,6 +112,10 @@ Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`lab
 `last_error_code`先取该 Agent 最近一次失败 Run 上报的`error_code`，没有失败 Run 时退回其 pending Item 记录的`last_error_code`。两者都是已落库事实，不由 lifecycle 推测。
 
 `attention_config`是 Server 的固定策略，没有对应存储也没有写入路径，因此只出现在读取投影中。`PATCH /api/v1/agents/{agent_id}`不接受该字段。
+
+`memory_files`和`session_continuity`来自向在线 Computer 发起的 query，Server 不保存它们。Agent 未分配 Computer 或 Computer 不可达时，`memory_files`是空列表，`session_continuity.state`是`unavailable`，同一响应中的其他字段仍然可用。`session_continuity`只出现在单个 Task、`GET /api/v1/agents/{agent_id}/runs/current`和`sumi agent context current`中；Task 列表不发起 query。
+
+`POST /api/v1/agents/{agent_id}/memory/read`接受`path`并返回该文件的投影与正文。调用方需要 Agent 治理权限。Computer 报告路径不存在时返回`not_found`，Computer 不可达时返回`computer_unreachable`。响应设置`Cache-Control: no-store`。
 
 删除 Agent 表示退役并清除 Computer assignment，不删除历史 Member、Message、Task 或 Result。
 
@@ -221,7 +226,32 @@ Server 先持久化 command，再通过 WebSocket 投递。
 
 `run.start` 包含可选 Task 和 Focus 的结构化快照。`run.attach_item` 包含递增的 delivery sequence。`run.notice` 不改变 Inbox Item lease。
 
-## 5. Browser SSE
+## 5. WebSocket query
+
+Command 是单向投递:Server 持久化后下发,daemon 回 ACK 与结果。continuity 和 Memory 正文不能用这个形状表达,因为它们是 Server 向 Computer 取值,取到的内容不落库。见 [Computer 与 Agent](04-computer-agent.md) 对 `provider_session_locator` 和 Memory 正文的约束。
+
+Query 因此是独立的请求响应通道:
+
+- Server 发 `query` frame,含 `query_id` 和查询体。
+- Computer 回 `query_result` frame,含同一个 `query_id` 和结果体。
+
+Query 不持久化,不重放,不进 command 序号。Server 重启或连接断开后未完成的 query 直接失效,调用方重新发起。这与 command 的持久语义相反:command 描述必须发生的状态改变,query 只读取当前值。
+
+查询类型:
+
+- `session.continuity`:按 Agent 与 scope 取当前 Session 的 generation 与状态。响应只含 `generation`、`state` 和可选 `reason_code`,不含 locator、会话正文或 transcript。
+- `memory.list`:取 Agent Memory 的文件名、大小、SHA-256 和更新时间投影。
+- `memory.read`:取单个 Memory 文件正文。正文只在响应中经过 Server,不落库、不进日志。
+
+Computer 离线时 Server 不发起 query,直接返回 `unavailable`。Computer 在线但超时未响应同样返回 `unavailable`:Browser 无法区分二者,也不需要区分,两种情况下可用的事实相同。两种情况共用错误码 `unreachable`。
+
+Computer 回答不了 query 时返回 `unavailable` 与错误码:`unknown_agent`表示该 Computer 上没有这个 Agent,`unknown_path`表示 Memory 文件不存在,`session_lost`、`driver_unavailable`和`internal`表示本地状态无法回答。query 失败不改变任何状态,不写入 `agent_runs.error_code`。
+
+`memory.read` 的响应正文经 Server 转发给 Browser 时设置 `Cache-Control: no-store`。Server 不保存副本。
+
+Query 不改变任何状态,因此不接受 idempotency key:重复发起等价于重新读取。
+
+## 6. Browser SSE
 
 ```text
 GET /api/v1/spaces/{space_id}/events
@@ -240,7 +270,7 @@ GET /api/v1/spaces/{space_id}/events
 
 Browser 使用 `Last-Event-ID` 重连。事件超过保留窗口时，Browser 重新读取当前页面投影。
 
-## 6. 内容和分页
+## 7. 内容和分页
 
 Message 按 Channel sequence 使用 cursor 分页。Task 和 Run 按更新时间与 ID 使用 cursor 分页。
 

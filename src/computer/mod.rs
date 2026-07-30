@@ -614,6 +614,10 @@ where
                         send_pending_events(storage,&mut writer).await?;
                     }
                     ServerFrame::Receipt{receipt}=>application::recovery::RecoveryService::acknowledge(storage,receipt.event_id).await.map_err(|error|anyhow::anyhow!(error))?,
+                    ServerFrame::Query{query}=>{
+                        let frame=adapters::server_connection::ServerConnectionAdapter::answer_query(storage,homes,query).await;
+                        writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
+                    }
                     ServerFrame::Shutdown{code}=>anyhow::bail!("Server stopped Computer connection: {code:?}"),
                 }
             }

@@ -3,15 +3,16 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, DriverKind,
-        FencingToken, ItemDisposition, LocalAgent, LocalAgentState, LocalRun, NewRun,
-        NoticeLocationInput, RunContextInput, RunInput, RunPriority, SessionFingerprint,
-        SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContinuityState,
+        DriverKind, FencingToken, ItemDisposition, LocalAgent, LocalAgentState, LocalRun,
+        MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
+        SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
             LocalEvent, TransactionPort,
         },
+        query::QueryService,
     },
     protocol::computer as wire,
 };
@@ -69,6 +70,61 @@ impl ServerConnectionAdapter {
                 },
             },
         ])
+    }
+
+    /// 回答 Server 的 query。失败不改变任何本地状态,只映射为 `unavailable`。
+    pub(in crate::computer) async fn answer_query<P: TransactionPort, H: AgentHomePort>(
+        store: &mut P,
+        homes: &mut H,
+        envelope: wire::QueryEnvelope,
+    ) -> wire::ComputerFrame {
+        let result = match envelope.query {
+            wire::Query::SessionContinuity(query) => {
+                match QueryService::session_continuity(
+                    store,
+                    query.agent_id,
+                    local_scope(query.scope),
+                )
+                .await
+                {
+                    Ok(continuity) => {
+                        wire::QueryResult::SessionContinuity(wire::SessionContinuityResult {
+                            state: match continuity.state {
+                                ContinuityState::Warm => wire::SessionContinuityState::Warm,
+                                ContinuityState::Cold => wire::SessionContinuityState::Cold,
+                                ContinuityState::Lost => wire::SessionContinuityState::Lost,
+                            },
+                            generation: continuity.generation,
+                            reason_code: None,
+                        })
+                    }
+                    Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownAgent),
+                }
+            }
+            wire::Query::MemoryList(query) => {
+                match QueryService::memory_files(homes, query.agent_id).await {
+                    Ok(files) => wire::QueryResult::MemoryList(wire::MemoryListResult {
+                        files: files.iter().map(memory_projection).collect(),
+                    }),
+                    Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownAgent),
+                }
+            }
+            wire::Query::MemoryRead(query) => {
+                match QueryService::memory_content(homes, query.agent_id, &query.path).await {
+                    Ok((file, content)) => wire::QueryResult::MemoryRead(wire::MemoryReadResult {
+                        file: memory_projection(&file),
+                        content,
+                    }),
+                    Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownPath),
+                }
+            }
+        };
+        wire::ComputerFrame::QueryResult {
+            result: wire::QueryResultEnvelope {
+                query_id: envelope.query_id,
+                result,
+            },
+        }
     }
 
     async fn application_command<P: TransactionPort, H: AgentHomePort>(
@@ -408,6 +464,31 @@ fn local_error(error: LocalErrorCode) -> wire::ComputerErrorCode {
         LocalErrorCode::SessionLost => wire::ComputerErrorCode::SessionLost,
         LocalErrorCode::DriverUnavailable => wire::ComputerErrorCode::DriverUnavailable,
         LocalErrorCode::Internal => wire::ComputerErrorCode::Internal,
+    }
+}
+
+fn memory_projection(file: &MemoryFile) -> wire::MemoryFileProjection {
+    wire::MemoryFileProjection {
+        path: file.path.clone(),
+        size: file.size,
+        sha256: file.sha256.clone(),
+        updated_at: file.updated_at,
+    }
+}
+
+/// `missing` 是「本地找不到目标」时的取值域:Agent 级查询给 `unknown_agent`,
+/// 单文件查询给 `unknown_path`。
+fn unavailable(error: &ApplicationError, missing: wire::QueryErrorCode) -> wire::QueryResult {
+    wire::QueryResult::Unavailable {
+        code: match error {
+            ApplicationError::NotFound | ApplicationError::Conflict => missing,
+            ApplicationError::SessionLost => wire::QueryErrorCode::SessionLost,
+            ApplicationError::DriverUnavailable => wire::QueryErrorCode::DriverUnavailable,
+            ApplicationError::AlreadyApplied
+            | ApplicationError::Unauthenticated
+            | ApplicationError::Core(_)
+            | ApplicationError::Internal => wire::QueryErrorCode::Internal,
+        },
     }
 }
 

@@ -6,7 +6,9 @@ use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
-    computer::application::{ApplicationError, LocalAgent, LocalAgentState, ports::AgentHomePort},
+    computer::application::{
+        ApplicationError, LocalAgent, LocalAgentState, MemoryFile, ports::AgentHomePort,
+    },
     ids::AgentId,
 };
 
@@ -246,6 +248,64 @@ impl AgentHomePort for AgentHomeAdapter {
         agent_id: AgentId,
     ) -> Result<String, ApplicationError> {
         self.fingerprint(agent_id).await
+    }
+
+    async fn list_memory(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<Vec<MemoryFile>, ApplicationError> {
+        let root = tokio::fs::canonicalize(self.agent_home_for_id(agent_id).join("memory"))
+            .await
+            .map_err(|_| ApplicationError::NotFound)?;
+        let mut files = Vec::new();
+        let mut pending = vec![root.clone()];
+        while let Some(directory) = pending.pop() {
+            let mut entries = tokio::fs::read_dir(&directory)
+                .await
+                .map_err(|_| ApplicationError::Internal)?;
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|_| ApplicationError::Internal)?
+            {
+                let path = entry.path();
+                let metadata = tokio::fs::symlink_metadata(&path)
+                    .await
+                    .map_err(|_| ApplicationError::Internal)?;
+                // symlink 可能指向 memory 根之外,投影不跟随它。
+                if metadata.file_type().is_symlink() {
+                    continue;
+                }
+                if metadata.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if !metadata.is_file() {
+                    continue;
+                }
+                let Ok(relative) = path.strip_prefix(&root) else {
+                    continue;
+                };
+                let Some(relative) = relative.to_str() else {
+                    continue;
+                };
+                let content = tokio::fs::read(&path)
+                    .await
+                    .map_err(|_| ApplicationError::Internal)?;
+                let updated_at = metadata
+                    .modified()
+                    .map_err(|_| ApplicationError::Internal)?
+                    .into();
+                files.push(MemoryFile {
+                    path: relative.to_owned(),
+                    size: content.len() as u64,
+                    sha256: hex::encode(Sha256::digest(&content)),
+                    updated_at,
+                });
+            }
+        }
+        files.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(files)
     }
 
     async fn read_memory(
@@ -544,6 +604,56 @@ mod tests {
                 .await,
             Err(ApplicationError::Conflict)
         ));
+    }
+
+    #[tokio::test]
+    async fn memory_listing_walks_subdirectories_and_skips_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
+        let agent = LocalAgent {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(Uuid::now_v7()),
+            name: "agent".to_owned(),
+            handle: "agent".to_owned(),
+            role_revision: 1,
+            role: "role".to_owned(),
+            driver: DriverKind::Codex,
+            state: LocalAgentState::Active,
+        };
+        let agent_id = agent.agent_id;
+        homes.provision(agent).await.unwrap();
+        let memory = computer_home
+            .join("agents")
+            .join(agent_id.to_string())
+            .join("memory");
+        tokio::fs::write(memory.join("MEMORY.md"), b"root note")
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(memory.join("notes"))
+            .await
+            .unwrap();
+        tokio::fs::write(memory.join("notes/deploy.md"), b"nested")
+            .await
+            .unwrap();
+        #[cfg(unix)]
+        {
+            let outside = directory.path().join("outside.md");
+            tokio::fs::write(&outside, b"secret").await.unwrap();
+            std::os::unix::fs::symlink(&outside, memory.join("link.md")).unwrap();
+        }
+
+        let files = homes.list_memory(agent_id).await.unwrap();
+
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["MEMORY.md", "notes/deploy.md"]
+        );
+        assert_eq!(files[0].size, 9);
+        assert_eq!(files[0].sha256, hex::encode(Sha256::digest(b"root note")));
     }
 
     #[tokio::test]

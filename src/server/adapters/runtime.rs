@@ -35,12 +35,16 @@ use uuid::Uuid;
 use crate::config::ServerConfig;
 use crate::{
     ids::{
-        AttachmentId, ChannelId, ComputerId, InboxItemId, MemberId, MessageId, RunId, SpaceId,
-        TaskId, ThreadId,
+        AgentId, AttachmentId, ChannelId, ComputerId, InboxItemId, MemberId, MessageId, RunId,
+        SpaceId, TaskId, ThreadId,
     },
     protocol::{
         capability,
-        computer::{ComputerFrame, ComputerHello, ServerFrame},
+        computer::{
+            ComputerFrame, ComputerHello, MemoryQuery, MemoryReadQuery, Query as ComputerQuery,
+            QueryErrorCode, QueryResult, ServerFrame, SessionContinuityQuery,
+            SessionContinuityState, SessionScope,
+        },
     },
     server::{
         application::attachment::{
@@ -106,6 +110,7 @@ use super::{
     credential::{Argon2Passwords, NumericPairingCodes, UuidInvitationTokens, UuidSessionTokens},
     object_storage::AttachmentObjectStore,
     postgres::PostgresAdapter,
+    query::QueryRegistry,
 };
 
 const SESSION_COOKIE: &str = "sumi_session";
@@ -117,6 +122,7 @@ struct RuntimeState {
     objects: Arc<AttachmentObjectStore>,
     session_lifetime: SessionLifetime,
     attachment_max_bytes: u64,
+    queries: QueryRegistry,
 }
 
 #[derive(Debug)]
@@ -164,6 +170,15 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
             message: "Server could not complete the request",
+        }
+    }
+
+    /// Computer 未连接,或已连接但未在超时内回应。两种情况可用的事实相同。
+    fn computer_unreachable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "computer_unreachable",
+            message: "Computer did not answer the query",
         }
     }
 
@@ -403,6 +418,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         session_lifetime: SessionLifetime::from_hours(config.session_ttl_hours)
             .context("Server session TTL must be a positive number of hours")?,
         attachment_max_bytes: config.attachment_max_bytes,
+        queries: QueryRegistry::default(),
     };
     let api = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -492,6 +508,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(get_agent).patch(update_agent).delete(retire_agent),
         )
         .route("/agents/{agent_id}/runs/current", get(current_agent_run))
+        .route("/agents/{agent_id}/memory/read", post(read_agent_memory))
         .route("/spaces/{space_id}/tasks", get(list_tasks))
         .route("/tasks/{task_id}", get(get_task).patch(update_task))
         .route("/tasks/{task_id}/runs", get(task_runs))
@@ -921,8 +938,16 @@ async fn connect_computer(
     .map_err(application_error)?;
     let storage = state.storage.clone();
     let pool = state.pool.clone();
+    let queries = state.queries.clone();
     Ok(upgrade.on_upgrade(move |socket| {
-        computer_socket(socket, storage, pool, computer_id, identity.deleted)
+        computer_socket(
+            socket,
+            storage,
+            pool,
+            queries,
+            computer_id,
+            identity.deleted,
+        )
     }))
 }
 
@@ -1280,6 +1305,7 @@ async fn computer_socket(
     mut socket: WebSocket,
     storage: PostgresAdapter,
     pool: PgPool,
+    queries: QueryRegistry,
     computer_id: Uuid,
     deleted: bool,
 ) {
@@ -1322,7 +1348,21 @@ async fn computer_socket(
             }
         }
     }
-    while let Some(frame) = socket.next().await {
+    let (connection, mut outbound) = queries.connect(computer_id);
+    loop {
+        let frame = tokio::select! {
+            outgoing = outbound.recv() => {
+                let Some(outgoing) = outgoing else { break };
+                if send_json(&mut socket, &outgoing).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            frame = socket.next() => match frame {
+                Some(frame) => frame,
+                None => break,
+            },
+        };
         let Ok(WebSocketMessage::Text(encoded)) = frame else {
             continue;
         };
@@ -1330,6 +1370,7 @@ async fn computer_socket(
             continue;
         };
         match frame {
+            ComputerFrame::QueryResult { result } => queries.resolve(result),
             ComputerFrame::Heartbeat { heartbeat } => {
                 let _ = sqlx::query("UPDATE computers SET last_seen_at=$2 WHERE id=$1")
                     .bind(computer_id)
@@ -1456,6 +1497,7 @@ async fn computer_socket(
             }
         }
     }
+    queries.disconnect(connection);
     let _ = sqlx::query("UPDATE computers SET connection_status='offline' WHERE id=$1")
         .bind(computer_id)
         .execute(&pool)
@@ -1585,8 +1627,13 @@ async fn execute_agent_action(
                 None => None,
             };
             let items=sqlx::query("SELECT i.id,i.kind,i.strength,i.status,i.available_at FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id WHERE ri.run_id=$1 ORDER BY ri.delivery_seq").bind(context.run_id.into_uuid()).fetch_all(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Run Items could not be read",false))?;
+            let scope = match context.task_id {
+                Some(task_id) => SessionScope::Task(task_id),
+                None => SessionScope::Thread(context.focus_thread_id),
+            };
+            let continuity = agent_continuity(state, context.agent_id.into_uuid(), scope).await;
             Ok(
-                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"claimed_items":items.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at"))})).collect::<Vec<_>>(),"session_continuity":{"state":"unavailable"}}),
+                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"claimed_items":items.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at"))})).collect::<Vec<_>>(),"session_continuity":continuity}),
             )
         }
         capability::Action::MessageRead(page) => {
@@ -2454,7 +2501,9 @@ async fn get_agent(
     .map_err(map_sqlx)?
     .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, row.get("space_id")).await?;
-    Ok(Json(agent_row(&row)))
+    let mut agent = agent_row(&row);
+    agent["memory_files"] = memory_files(&state, row.get("computer_id"), agent_id).await;
+    Ok(Json(agent))
 }
 
 async fn current_agent_run(
@@ -2492,6 +2541,17 @@ async fn current_agent_run(
         Some(task_id) => task_projection(&state.pool, task_id).await?,
         None => Value::Null,
     };
+    // Run 绑定 Task 时 Session 属于该 Task,否则属于 Focus Thread。
+    let scope = match task_id {
+        Some(task_id) => SessionScope::Task(TaskId::from_uuid(task_id)),
+        None => SessionScope::Thread(ThreadId::from_uuid(
+            run["focus"]["id"]
+                .as_str()
+                .and_then(|value| Uuid::parse_str(value).ok())
+                .ok_or_else(ApiError::internal)?,
+        )),
+    };
+    let continuity = agent_continuity(&state, agent_id, scope).await;
     let another_item_waiting: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM inbox_items WHERE agent_id=$1 AND status='pending')",
     )
@@ -2504,7 +2564,7 @@ async fn current_agent_run(
         "current_run": run,
         "current_task": current_task,
         "another_item_waiting": another_item_waiting,
-        "session_continuity": {"state":"unavailable","generation":Value::Null,"reason_code":Value::Null}
+        "session_continuity": continuity
     })))
 }
 
@@ -3213,7 +3273,7 @@ async fn get_task(
         .map_err(map_sqlx)?
         .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, space_id).await?;
-    Ok(Json(task_projection(&state.pool, task_id).await?))
+    Ok(Json(task_detail(&state, task_id).await?))
 }
 
 async fn task_runs(
@@ -3290,7 +3350,7 @@ async fn create_task(
     })?;
     Ok((
         StatusCode::CREATED,
-        Json(task_projection(&state.pool, task.0.id.into_uuid()).await?),
+        Json(task_detail(&state, task.0.id.into_uuid()).await?),
     ))
 }
 
@@ -3315,7 +3375,7 @@ async fn link_task_thread(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(task_projection(&state.pool, task_id).await?))
+    Ok(Json(task_detail(&state, task_id).await?))
 }
 
 async fn unlink_task_thread(
@@ -3338,7 +3398,7 @@ async fn unlink_task_thread(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(task_projection(&state.pool, task_id).await?))
+    Ok(Json(task_detail(&state, task_id).await?))
 }
 
 async fn update_task(
@@ -3458,7 +3518,7 @@ async fn complete_task(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(task_projection(&state.pool, task_id).await?))
+    Ok(Json(task_detail(&state, task_id).await?))
 }
 
 async fn update_task_action(
@@ -3482,7 +3542,7 @@ async fn update_task_action(
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(task_projection(&state.pool, task_id).await?))
+    Ok(Json(task_detail(state, task_id).await?))
 }
 
 async fn task_actor(
@@ -4200,6 +4260,88 @@ async fn message_row(
 fn attachment_row(row: &sqlx::postgres::PgRow) -> Value {
     json!({"id":row.get::<Uuid,_>("id"),"space_id":row.get::<Uuid,_>("space_id"),"uploader_member_id":row.get::<Uuid,_>("uploader_member_id"),"original_name":row.get::<String,_>("name"),"media_type":row.get::<String,_>("media_type"),"size":row.get::<Option<i64>,_>("length"),"sha256":row.get::<Option<Vec<u8>>,_>("sha256").map(hex::encode),"status":row.get::<String,_>("status"),"upload_path":Value::Null,"download_path":Value::Null,"created_at":timestamp(row.get("created_at"))})
 }
+/// Task 单资源读取。continuity 需要向在线 Computer 取值,因此只在单资源读取里查询;
+/// 列表投影沿用 `task_projection`,把 continuity 留在 `unavailable`。
+async fn task_detail(state: &RuntimeState, task_id: Uuid) -> Result<Value, ApiError> {
+    let mut task = task_projection(&state.pool, task_id).await?;
+    let assignee = task["assignee_agent_member_id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok());
+    if let Some(agent_id) = assignee {
+        task["session_continuity"] = agent_continuity(
+            state,
+            agent_id,
+            SessionScope::Task(TaskId::from_uuid(task_id)),
+        )
+        .await;
+    }
+    Ok(task)
+}
+
+/// 向 Agent 所在 Computer 取 continuity 投影。Agent 未分配 Computer、Computer 离线或
+/// 超时未回应时返回 `unavailable`。
+async fn agent_continuity(state: &RuntimeState, agent_id: Uuid, scope: SessionScope) -> Value {
+    let computer_id =
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
+            .bind(agent_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+    let Some(computer_id) = computer_id else {
+        return continuity_json(QueryResult::Unavailable {
+            code: QueryErrorCode::Unreachable,
+        });
+    };
+    let result = state
+        .queries
+        .ask(
+            computer_id,
+            ComputerQuery::SessionContinuity(SessionContinuityQuery {
+                agent_id: AgentId::from_uuid(agent_id),
+                scope,
+            }),
+        )
+        .await;
+    continuity_json(result)
+}
+
+fn continuity_json(result: QueryResult) -> Value {
+    match result {
+        QueryResult::SessionContinuity(continuity) => json!({
+            "state": match continuity.state {
+                SessionContinuityState::Warm => "warm",
+                SessionContinuityState::Cold => "cold",
+                // lost 的 Session 无法 resume,下次执行必须新建 generation。
+                SessionContinuityState::Lost => "reset_required",
+            },
+            "generation": continuity.generation,
+            "reason_code": continuity.reason_code
+        }),
+        // Computer 回了其他 query 的结果类型,该值不能回答 continuity。
+        other => json!({
+            "state": "unavailable",
+            "generation": Value::Null,
+            "reason_code": match other {
+                QueryResult::Unavailable { code } => query_error_code(code),
+                _ => "internal",
+            }
+        }),
+    }
+}
+
+fn query_error_code(code: QueryErrorCode) -> &'static str {
+    match code {
+        QueryErrorCode::UnknownAgent => "unknown_agent",
+        QueryErrorCode::UnknownPath => "unknown_path",
+        QueryErrorCode::SessionLost => "session_lost",
+        QueryErrorCode::DriverUnavailable => "driver_unavailable",
+        QueryErrorCode::Unreachable => "unreachable",
+        QueryErrorCode::Internal => "internal",
+    }
+}
+
 async fn task_projection(pool: &PgPool, task_id: Uuid) -> Result<Value, ApiError> {
     let row=sqlx::query("SELECT t.*,creator.display_name AS creator_name,assignee.display_name AS assignee_name FROM tasks t JOIN members creator ON creator.id=t.creator_member_id LEFT JOIN members assignee ON assignee.id=t.assignee_agent_member_id WHERE t.id=$1").bind(task_id).fetch_optional(pool).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
     let source = thread_reference(pool, row.get("source_thread_id"), "source").await?;
@@ -4632,7 +4774,97 @@ async fn read_agent_projection(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
-    Ok(Json(agent_row(&row)))
+    let mut agent = agent_row(&row);
+    agent["memory_files"] = memory_files(state, row.get("computer_id"), agent_id).await;
+    Ok(Json(agent))
+}
+
+/// Memory 文件投影来自在线 Computer。Server 不保存投影,Computer 不可达时返回空列表:
+/// 该端点的其他事实仍然可用。
+async fn memory_files(state: &RuntimeState, computer_id: Option<Uuid>, agent_id: Uuid) -> Value {
+    let Some(computer_id) = computer_id else {
+        return Value::Array(Vec::new());
+    };
+    let result = state
+        .queries
+        .ask(
+            computer_id,
+            ComputerQuery::MemoryList(MemoryQuery {
+                agent_id: AgentId::from_uuid(agent_id),
+            }),
+        )
+        .await;
+    match result {
+        QueryResult::MemoryList(list) => Value::Array(
+            list.files
+                .iter()
+                .map(|file| {
+                    json!({
+                        "path": file.path,
+                        "size": file.size,
+                        "sha256": file.sha256,
+                        "updated_at": timestamp(file.updated_at)
+                    })
+                })
+                .collect(),
+        ),
+        _ => Value::Array(Vec::new()),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadMemoryBody {
+    path: String,
+}
+
+/// 读取单个 Memory 文件正文。正文只在响应中经过 Server:不落库、不进日志,
+/// 并以 `no-store` 阻止 Browser 缓存。
+async fn read_agent_memory(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(agent_id): Path<Uuid>,
+    Json(body): Json<ReadMemoryBody>,
+) -> Result<Response, ApiError> {
+    require_agent_governor(&state, &jar, agent_id).await?;
+    let computer_id =
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
+            .bind(agent_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(map_sqlx)?
+            .flatten()
+            .ok_or_else(ApiError::computer_unreachable)?;
+    let result = state
+        .queries
+        .ask(
+            computer_id,
+            ComputerQuery::MemoryRead(MemoryReadQuery {
+                agent_id: AgentId::from_uuid(agent_id),
+                path: body.path,
+            }),
+        )
+        .await;
+    let QueryResult::MemoryRead(read) = result else {
+        return Err(match result {
+            QueryResult::Unavailable {
+                code: QueryErrorCode::UnknownPath,
+            } => ApiError::not_found(),
+            _ => ApiError::computer_unreachable(),
+        });
+    };
+    let mut response = Json(json!({
+        "path": read.file.path,
+        "size": read.file.size,
+        "sha256": read.file.sha256,
+        "updated_at": timestamp(read.file.updated_at),
+        "content": read.content
+    }))
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 async fn update_space_member(
@@ -4878,6 +5110,7 @@ mod tests {
                 objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
                 session_lifetime: SessionLifetime::from_hours(1).unwrap(),
                 attachment_max_bytes: 100 * 1024 * 1024,
+                queries: QueryRegistry::default(),
             };
             let mut headers = HeaderMap::new();
             headers.insert(

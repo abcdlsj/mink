@@ -230,6 +230,27 @@ impl AgentHomePort for MemoryHome {
         Ok("workspace".to_owned())
     }
 
+    async fn list_memory(
+        &mut self,
+        agent_id: AgentId,
+    ) -> Result<Vec<crate::computer::application::MemoryFile>, ApplicationError> {
+        let mut files = self
+            .memory
+            .iter()
+            .filter(|((owner, _), _)| *owner == agent_id)
+            .map(
+                |((_, path), content)| crate::computer::application::MemoryFile {
+                    path: path.to_string_lossy().into_owned(),
+                    size: content.len() as u64,
+                    sha256: hex::encode(<sha2::Sha256 as sha2::Digest>::digest(content)),
+                    updated_at: time::OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .collect::<Vec<_>>();
+        files.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(files)
+    }
+
     async fn read_memory(
         &mut self,
         agent_id: AgentId,

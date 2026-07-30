@@ -66,6 +66,47 @@ impl fmt::Debug for ProviderSession {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::computer) enum ContinuityState {
+    Warm,
+    Cold,
+    Lost,
+}
+
+/// 下次 Run 能否复用现有 Session 的投影。不含 locator、会话正文或 transcript。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::computer) struct Continuity {
+    pub(in crate::computer) state: ContinuityState,
+    pub(in crate::computer) generation: Option<u64>,
+}
+
+pub(in crate::computer) fn continuity(
+    sessions: &[ProviderSession],
+    agent_id: AgentId,
+    scope: SessionScope,
+) -> Continuity {
+    let latest = sessions
+        .iter()
+        .filter(|session| session.agent_id == agent_id && session.scope == scope)
+        .max_by_key(|session| session.generation);
+    let Some(session) = latest else {
+        return Continuity {
+            state: ContinuityState::Cold,
+            generation: None,
+        };
+    };
+    let state = match session.state {
+        // 复用仍取决于 fingerprint 比较,warm 只说明 Session 还在。
+        SessionState::Ready | SessionState::InUse => ContinuityState::Warm,
+        SessionState::Closing | SessionState::Closed => ContinuityState::Cold,
+        SessionState::Lost => ContinuityState::Lost,
+    };
+    Continuity {
+        state,
+        generation: Some(session.generation),
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::computer) enum ResolveDecision {
     Resume(ProviderSession),

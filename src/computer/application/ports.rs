@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{AgentId, CommandId, EventId, InboxItemId, RunId};
 
 use crate::computer::core::{
-    home::LocalAgent,
+    home::{LocalAgent, MemoryFile},
     session::{ProviderSession, SessionFingerprint, SessionScope},
     supervisor::{DeliveryState, ItemDisposition, LocalRun, TerminalStatus},
 };
@@ -114,6 +114,10 @@ pub(in crate::computer) trait AgentHomePort: Send {
         &mut self,
         agent_id: AgentId,
     ) -> Result<String, ApplicationError>;
+    /// 列出 Memory 文件的投影。只返回文件名、大小、内容摘要和更新时间,
+    /// 不返回正文:Server 不保存 Memory 正文。
+    async fn list_memory(&mut self, agent_id: AgentId)
+    -> Result<Vec<MemoryFile>, ApplicationError>;
     async fn read_memory(
         &mut self,
         agent_id: AgentId,

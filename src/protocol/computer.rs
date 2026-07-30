@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 use crate::ids::{
     AgentId, ChannelId, CommandId, DaemonSessionId, EventId, InboxItemId, MemberId, MessageId,
-    NoticeId, RunId, SpaceId, TaskId, ThreadId,
+    NoticeId, QueryId, RunId, SpaceId, TaskId, ThreadId,
 };
 
 use super::version::{ProtocolVersion, ProtocolVersionRange};
@@ -375,6 +375,7 @@ pub(crate) enum NoticeLocation {
 pub(crate) enum ServerFrame {
     Command { envelope: Box<CommandEnvelope> },
     Receipt { receipt: Receipt },
+    Query { query: QueryEnvelope },
     Shutdown { code: ShutdownCode },
 }
 
@@ -387,6 +388,137 @@ pub(crate) enum ComputerFrame {
     RunStarted { started: RunStarted },
     DeliveryReceipt { receipt: DeliveryReceipt },
     RunResult { result: RunResult },
+    QueryResult { result: QueryResultEnvelope },
+}
+
+/// Server 向 Computer 取值。与 command 相反,query 不持久化、不重放、不进
+/// command 序号:它只读取当前值,连接断开后未完成的 query 直接失效。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct QueryEnvelope {
+    pub(crate) query_id: QueryId,
+    pub(crate) query: Query,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "payload", deny_unknown_fields)]
+pub(crate) enum Query {
+    /// 取 Agent 在某个 scope 下当前 Session 的 generation 与状态。
+    #[serde(rename = "session.continuity")]
+    SessionContinuity(SessionContinuityQuery),
+    /// 取 Agent Memory 的文件投影,不含正文。
+    #[serde(rename = "memory.list")]
+    MemoryList(MemoryQuery),
+    /// 取单个 Memory 文件正文。
+    #[serde(rename = "memory.read")]
+    MemoryRead(MemoryReadQuery),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionContinuityQuery {
+    pub(crate) agent_id: AgentId,
+    pub(crate) scope: SessionScope,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MemoryQuery {
+    pub(crate) agent_id: AgentId,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MemoryReadQuery {
+    pub(crate) agent_id: AgentId,
+    pub(crate) path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct QueryResultEnvelope {
+    pub(crate) query_id: QueryId,
+    pub(crate) result: QueryResult,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "payload", deny_unknown_fields)]
+pub(crate) enum QueryResult {
+    #[serde(rename = "session.continuity")]
+    SessionContinuity(SessionContinuityResult),
+    #[serde(rename = "memory.list")]
+    MemoryList(MemoryListResult),
+    #[serde(rename = "memory.read")]
+    MemoryRead(MemoryReadResult),
+    /// Computer 无法回答该 query。取值域与 Run 的失败原因分开:
+    /// query 失败不改变任何状态,不进 agent_runs.error_code。
+    #[serde(rename = "unavailable")]
+    Unavailable { code: QueryErrorCode },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum QueryErrorCode {
+    UnknownAgent,
+    UnknownPath,
+    SessionLost,
+    DriverUnavailable,
+    /// Computer 未连接,或已连接但未在超时内回应。Server 合成该结果,
+    /// 两种情况可用的事实相同,调用方不需要区分。
+    Unreachable,
+    Internal,
+}
+
+/// continuity 投影。不含 locator、会话正文或 provider transcript。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionContinuityResult {
+    pub(crate) state: SessionContinuityState,
+    pub(crate) generation: Option<u64>,
+    pub(crate) reason_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionContinuityState {
+    Warm,
+    Cold,
+    Lost,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MemoryListResult {
+    pub(crate) files: Vec<MemoryFileProjection>,
+}
+
+/// Memory 文件投影。正文不在此结构中:Server 不保存 Memory 正文。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MemoryFileProjection {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) updated_at: OffsetDateTime,
+}
+
+/// Memory 正文。只在响应中经过 Server,不落库、不进日志。
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MemoryReadResult {
+    pub(crate) file: MemoryFileProjection,
+    pub(crate) content: String,
+}
+
+impl fmt::Debug for MemoryReadResult {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MemoryReadResult")
+            .field("file", &self.file)
+            .field("content", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -528,10 +660,13 @@ mod tests {
 
     use super::{
         AttentionNotice, AttentionStrength, Command, CommandEnvelope, CommandSequence,
-        ComputerHello, DaemonCapability, InboxSourceKind, NoticeLocation, RunStop, StopReason,
+        ComputerFrame, ComputerHello, DaemonCapability, InboxSourceKind, MemoryFileProjection,
+        MemoryReadResult, NoticeLocation, Query, QueryEnvelope, QueryErrorCode, QueryResult,
+        QueryResultEnvelope, RunStop, ServerFrame, SessionContinuityQuery, SessionScope,
+        StopReason,
     };
     use crate::{
-        ids::{CommandId, DaemonSessionId, NoticeId, RunId},
+        ids::{AgentId, CommandId, DaemonSessionId, NoticeId, QueryId, RunId, TaskId},
         protocol::version::SUPPORTED,
     };
     use time::OffsetDateTime;
@@ -610,5 +745,58 @@ mod tests {
         assert_eq!(value["location"]["visibility"], "restricted");
         assert!(value["location"].get("task_id").is_none());
         assert!(value["location"].get("thread_id").is_none());
+    }
+
+    #[test]
+    fn a_query_round_trips_by_kind_and_keeps_the_query_id() {
+        let query_id = QueryId::from_uuid(Uuid::now_v7());
+        let frame = ServerFrame::Query {
+            query: QueryEnvelope {
+                query_id,
+                query: Query::SessionContinuity(SessionContinuityQuery {
+                    agent_id: AgentId::from_uuid(Uuid::now_v7()),
+                    scope: SessionScope::Task(TaskId::from_uuid(Uuid::now_v7())),
+                }),
+            },
+        };
+        let value = serde_json::to_value(&frame).unwrap();
+
+        assert_eq!(value["type"], "query");
+        assert_eq!(value["query"]["query"]["kind"], "session.continuity");
+        assert_eq!(value["query"]["query"]["payload"]["scope"]["kind"], "task");
+        // ServerFrame 不实现 Debug:它承载 Message 正文,断言不能把正文打进测试输出。
+        assert!(serde_json::from_value::<ServerFrame>(value).unwrap() == frame);
+
+        let result = ComputerFrame::QueryResult {
+            result: QueryResultEnvelope {
+                query_id,
+                result: QueryResult::Unavailable {
+                    code: QueryErrorCode::Unreachable,
+                },
+            },
+        };
+        let value = serde_json::to_value(&result).unwrap();
+
+        assert_eq!(value["result"]["result"]["kind"], "unavailable");
+        assert_eq!(value["result"]["result"]["payload"]["code"], "unreachable");
+        assert!(serde_json::from_value::<ComputerFrame>(value).unwrap() == result);
+    }
+
+    #[test]
+    fn a_memory_read_result_hides_the_body_from_debug_output() {
+        let result = MemoryReadResult {
+            file: MemoryFileProjection {
+                path: "MEMORY.md".to_owned(),
+                size: 9,
+                sha256: "abcd".to_owned(),
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            content: "private note".to_owned(),
+        };
+
+        let rendered = format!("{result:?}");
+
+        assert!(rendered.contains("[REDACTED]"));
+        assert!(!rendered.contains("private note"));
     }
 }

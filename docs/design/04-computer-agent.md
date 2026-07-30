@@ -112,7 +112,9 @@ Computer 为每个 Session 保存：
 
 `provider_session_locator`只存在于 Computer。Server 不保存 locator、会话正文、provider transcript 或 continuity 投影。
 
-Browser 需要 continuity 时，Server 向在线 Computer 查询。Computer 离线时返回`unavailable`。
+Browser 需要 continuity 时，Server 向在线 Computer 查询，见 [API 与事件](07-api.md) 的 WebSocket query。Computer 离线时返回`unavailable`。
+
+Computer 按 scope 下最高 generation 的 Session 状态回答：`ready`和`in_use`是`warm`，`closing`和`closed`是`cold`，`lost`是`reset_required`。scope 下没有 Session 时是`cold`。`warm`只说明 Session 还在，实际能否 resume 仍取决于 Run 启动时的 fingerprint 比较。
 
 ## 6. Session 解析
 
@@ -187,9 +189,11 @@ workspace 也属于 Agent。Task 可以在 workspace 中使用分支、目录或
 
 Computer 用 fingerprint 判断当前 Session 是否还能安全复用。
 
-Memory 正文和 workspace 文件不上传 Server。Server 只保存文件名、大小、hash 和更新时间等投影。
+Memory 正文和 workspace 文件不上传 Server。Server 不保存 Memory 投影：文件名、大小、SHA-256 和更新时间在每次读取时向在线 Computer 查询。
 
 UI 读取正文时必须经在线 Computer 临时转发，并设置`no-store`。
+
+Computer 生成投影时递归遍历 Memory 目录，路径相对 Memory 根。symlink 可能指向 Memory 根之外，投影和正文读取都不跟随它。
 
 ## 11. Computer 删除与 Agent 迁移
 
