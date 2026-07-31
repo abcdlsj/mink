@@ -312,6 +312,11 @@ pub(in crate::server) enum Effect {
         computer_id: ComputerId,
     },
     PermissionChanged(MemberId),
+    /// A Member's Inbox queue changed. Emitted for the owning Member, not for a resource, because
+    /// the Inbox projection is read per Member.
+    InboxChanged(MemberId),
+    /// A Thread gained a reply or changed its reply count, so open Thread panes must refresh.
+    ThreadUpdated(ThreadId),
 }
 
 pub(in crate::server) struct MessageDraft {
@@ -332,6 +337,9 @@ pub(in crate::server) struct MessageDraft {
 pub(in crate::server) struct PublishedMessage {
     pub(in crate::server) message_id: MessageId,
     pub(in crate::server) hard_item_ids: Vec<InboxItemId>,
+    /// Agents that received an Item from this Message, hard or ambient. Drives `inbox.changed`, so
+    /// it covers ambient recipients that `hard_item_ids` omits.
+    pub(in crate::server) notified_agent_ids: Vec<MemberId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -636,6 +644,13 @@ pub(in crate::server) trait ServerTransaction {
         &mut self,
         event_id: EventId,
     ) -> Result<Option<RunId>, ApplicationError>;
+    /// Non-terminal Runs whose ownership lease already lapsed, oldest first. Bounded by `limit` so
+    /// one sweep cannot hold a transaction open across an unbounded backlog.
+    async fn runs_with_expired_lease(
+        &mut self,
+        now: time::OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<RunId>, ApplicationError>;
 
     async fn can_read_thread(
         &mut self,
@@ -696,6 +711,15 @@ pub(in crate::server) trait ServerTransaction {
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError>;
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError>;
+    /// Records that an Item was retired without being handled. Carries no Message, so the notice
+    /// states the failure without copying the source body. Returns the new Item's ID.
+    async fn insert_dead_item_notice(
+        &mut self,
+        agent_id: MemberId,
+        thread_id: ThreadId,
+        error_code: &'static str,
+        now: time::OffsetDateTime,
+    ) -> Result<InboxItemId, ApplicationError>;
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError>;
     async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError>;
     async fn grant_permission(

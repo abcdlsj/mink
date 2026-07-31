@@ -118,18 +118,23 @@ impl CreateTaskFromRootMessage {
 pub(in crate::server) enum TaskPostTarget {
     Focus,
     Source,
+    Thread(ThreadId),
 }
 
-pub(in crate::server) enum FinishAgentTaskAction {
+/// Message a Task outcome publishes. `submit_review` may omit it; `done` requires it, because
+/// `tasks.result_message_id` must point at a stored Message.
+pub(in crate::server) struct OutcomeMessage {
+    pub(in crate::server) message_id: MessageId,
+    pub(in crate::server) body_markdown: String,
+    pub(in crate::server) post_to: TaskPostTarget,
+}
+
+pub(in crate::server) enum TaskOutcome {
     SubmitReview {
-        message_id: MessageId,
-        body: String,
-        post_to: TaskPostTarget,
+        message: Option<OutcomeMessage>,
     },
     Done {
-        message_id: MessageId,
-        result: String,
-        post_to: TaskPostTarget,
+        result: OutcomeMessage,
     },
     Close {
         reason: CloseReason,
@@ -137,7 +142,7 @@ pub(in crate::server) enum FinishAgentTaskAction {
     },
 }
 
-impl FinishAgentTaskAction {
+impl TaskOutcome {
     fn action_name(&self) -> &'static str {
         match self {
             Self::SubmitReview { .. } => "task.submit_review",
@@ -147,26 +152,37 @@ impl FinishAgentTaskAction {
     }
 }
 
-pub(in crate::server) struct FinishAgentTaskInput {
+/// Run ownership proof supplied when an Agent records the outcome from inside its Run. Absent for
+/// Browser callers, which hold no Run and therefore complete no Run.
+pub(in crate::server) struct OutcomeRunContext {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) actor_member_id: MemberId,
     pub(in crate::server) fencing_token_hash: String,
-    pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) message_snapshot_sequence: u64,
-    pub(in crate::server) action: FinishAgentTaskAction,
+}
+
+pub(in crate::server) enum TaskOutcomeScope {
+    Browser { task_id: TaskId },
+    AgentRun(OutcomeRunContext),
+}
+
+pub(in crate::server) struct RecordTaskOutcomeInput {
+    pub(in crate::server) scope: TaskOutcomeScope,
+    pub(in crate::server) actor_member_id: MemberId,
+    pub(in crate::server) idempotency_key: IdempotencyKey,
+    pub(in crate::server) outcome: TaskOutcome,
     pub(in crate::server) now: OffsetDateTime,
 }
 
-pub(in crate::server) struct FinishAgentTaskRun;
+pub(in crate::server) struct RecordTaskOutcome;
 
-impl FinishAgentTaskRun {
+impl RecordTaskOutcome {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
-        input: FinishAgentTaskInput,
+        input: RecordTaskOutcomeInput,
     ) -> Result<Task, ApplicationError> {
         port.transact(async |transaction| {
-            let action_name = input.action.action_name();
+            let action_name = input.outcome.action_name();
             if let Some(task_id) = transaction
                 .task_for_idempotency(input.actor_member_id, action_name, input.idempotency_key)
                 .await?
@@ -174,67 +190,70 @@ impl FinishAgentTaskRun {
                 return transaction.task(task_id).await;
             }
 
-            let mut run = transaction.run(input.run_id).await?;
-            if run.agent_id != input.actor_member_id
-                || !transaction
-                    .can_operate_agent(input.computer_id, run.agent_id)
-                    .await?
-            {
-                return Err(ApplicationError::PermissionDenied);
-            }
-            run.validate_fencing(&input.fencing_token_hash)?;
-            let task_id = run.task_id.ok_or(ApplicationError::ContextChanged)?;
+            // An Agent proves Run ownership before the Task changes; a Browser caller holds no Run
+            // and therefore reaches the same transitions without a Run to finalize.
+            let mut run = match &input.scope {
+                TaskOutcomeScope::Browser { .. } => None,
+                TaskOutcomeScope::AgentRun(context) => {
+                    let run = transaction.run(context.run_id).await?;
+                    if run.agent_id != input.actor_member_id
+                        || !transaction
+                            .can_operate_agent(context.computer_id, run.agent_id)
+                            .await?
+                    {
+                        return Err(ApplicationError::PermissionDenied);
+                    }
+                    run.validate_fencing(&context.fencing_token_hash)?;
+                    if transaction
+                        .thread_message_sequence(run.focus_thread_id)
+                        .await?
+                        != context.message_snapshot_sequence
+                    {
+                        return Err(ApplicationError::ContextChanged);
+                    }
+                    Some(run)
+                }
+            };
+            let task_id = match (&input.scope, &run) {
+                (TaskOutcomeScope::Browser { task_id }, _) => *task_id,
+                (TaskOutcomeScope::AgentRun(_), Some(run)) => {
+                    run.task_id.ok_or(ApplicationError::ContextChanged)?
+                }
+                (TaskOutcomeScope::AgentRun(_), None) => {
+                    unreachable!("an Agent scope resolves its Run above")
+                }
+            };
             let mut task = transaction.task(task_id).await?;
-            if transaction
-                .thread_message_sequence(run.focus_thread_id)
-                .await?
-                != input.message_snapshot_sequence
-            {
-                return Err(ApplicationError::ContextChanged);
-            }
 
-            let message = match input.action {
-                FinishAgentTaskAction::SubmitReview {
-                    message_id,
-                    body,
-                    post_to,
-                } => {
-                    let thread_id = post_thread(&task, &run, post_to);
-                    ensure_post_allowed(transaction, input.actor_member_id, &task, thread_id)
-                        .await?;
+            let message = match input.outcome {
+                TaskOutcome::SubmitReview { message } => {
+                    let message = resolve_outcome_message(
+                        transaction,
+                        input.actor_member_id,
+                        &task,
+                        run.as_ref(),
+                        message,
+                        input.now,
+                    )
+                    .await?;
                     task.request_review(input.actor_member_id, input.now)?;
-                    Some(Message {
-                        id: message_id,
-                        thread_id,
-                        author_member_id: input.actor_member_id,
-                        placement: MessagePlacement::Reply,
-                        content: MessageContent::Text(body),
-                        created_at: input.now,
-                        edited_at: None,
-                        deleted_at: None,
-                    })
+                    message
                 }
-                FinishAgentTaskAction::Done {
-                    message_id,
-                    result,
-                    post_to,
-                } => {
-                    let thread_id = post_thread(&task, &run, post_to);
-                    ensure_post_allowed(transaction, input.actor_member_id, &task, thread_id)
-                        .await?;
-                    task.finish(input.actor_member_id, true, message_id, input.now)?;
-                    Some(Message {
-                        id: message_id,
-                        thread_id,
-                        author_member_id: input.actor_member_id,
-                        placement: MessagePlacement::Reply,
-                        content: MessageContent::Text(result),
-                        created_at: input.now,
-                        edited_at: None,
-                        deleted_at: None,
-                    })
+                TaskOutcome::Done { result } => {
+                    let result_id = result.message_id;
+                    let message = resolve_outcome_message(
+                        transaction,
+                        input.actor_member_id,
+                        &task,
+                        run.as_ref(),
+                        Some(result),
+                        input.now,
+                    )
+                    .await?;
+                    task.finish(input.actor_member_id, true, result_id, input.now)?;
+                    message
                 }
-                FinishAgentTaskAction::Close { reason, note } => {
+                TaskOutcome::Close { reason, note } => {
                     let allowed = task.creator_member_id == input.actor_member_id
                         || task.assignee_agent_member_id == Some(input.actor_member_id)
                         || transaction
@@ -248,24 +267,32 @@ impl FinishAgentTaskRun {
                 }
             };
 
-            run.begin_finalizing(&input.fencing_token_hash)?;
-            for index in 0..run.items.len() {
-                let item_id = run.items[index].inbox_item_id;
-                let disposition = run.items[index]
-                    .disposition
-                    .unwrap_or(crate::server::domain::attention::InboxItemDisposition::Handled);
-                run.set_item_disposition(item_id, disposition)?;
-                let mut item = transaction.inbox_item(item_id).await?;
-                item.apply_disposition(run.id, disposition, input.now)?;
-                transaction.save_inbox_item(item).await?;
+            if let Some(run) = run.as_mut() {
+                let fencing_token_hash = match &input.scope {
+                    TaskOutcomeScope::AgentRun(context) => context.fencing_token_hash.clone(),
+                    TaskOutcomeScope::Browser { .. } => {
+                        unreachable!("only an Agent scope carries a Run")
+                    }
+                };
+                run.begin_finalizing(&fencing_token_hash)?;
+                for index in 0..run.items.len() {
+                    let item_id = run.items[index].inbox_item_id;
+                    let disposition = run.items[index]
+                        .disposition
+                        .unwrap_or(crate::server::domain::attention::InboxItemDisposition::Handled);
+                    run.set_item_disposition(item_id, disposition)?;
+                    let mut item = transaction.inbox_item(item_id).await?;
+                    item.apply_disposition(run.id, disposition, input.now)?;
+                    transaction.save_inbox_item(item).await?;
+                }
+                run.finish(
+                    &fencing_token_hash,
+                    crate::server::domain::execution::RunOutcome::Completed,
+                    None,
+                    None,
+                    input.now,
+                )?;
             }
-            run.finish(
-                &input.fencing_token_hash,
-                crate::server::domain::execution::RunOutcome::Completed,
-                None,
-                None,
-                input.now,
-            )?;
 
             if let Some(message) = message {
                 let message_id = message.id;
@@ -273,7 +300,10 @@ impl FinishAgentTaskRun {
                 transaction.emit(Effect::MessageCreated(message_id));
             }
             transaction.save_task(task.clone()).await?;
-            transaction.save_run(run.clone()).await?;
+            if let Some(run) = run {
+                transaction.save_run(run.clone()).await?;
+                transaction.emit(Effect::RunCompleted(run.id));
+            }
             transaction
                 .record_task_idempotency(
                     input.actor_member_id,
@@ -285,7 +315,6 @@ impl FinishAgentTaskRun {
             transaction
                 .record_task_audit(input.actor_member_id, action_name, task.id, input.now)
                 .await?;
-            transaction.emit(Effect::RunCompleted(run.id));
             match action_name {
                 "task.submit_review" => {
                     transaction.emit(Effect::TaskUpdated(task.id));
@@ -301,7 +330,7 @@ impl FinishAgentTaskRun {
                     transaction.emit(Effect::TaskFinished(task.id));
                     transaction.emit(Effect::SessionClose(task.id));
                 }
-                _ => unreachable!("agent Task action has a stable name"),
+                _ => unreachable!("a Task outcome has a stable action name"),
             }
             Ok(task)
         })
@@ -309,27 +338,40 @@ impl FinishAgentTaskRun {
     }
 }
 
-fn post_thread(
-    task: &Task,
-    run: &crate::server::domain::execution::Run,
-    target: TaskPostTarget,
-) -> ThreadId {
-    match target {
-        TaskPostTarget::Focus => run.focus_thread_id,
-        TaskPostTarget::Source => task.source_thread_id,
-    }
-}
-
-async fn ensure_post_allowed(
+/// Resolves the target Thread and authorizes the post. `Focus` requires a Run, so a Browser caller
+/// addresses the Thread explicitly or falls back to the Source Thread.
+async fn resolve_outcome_message(
     transaction: &mut impl ServerTransaction,
     actor: MemberId,
     task: &Task,
-    thread_id: ThreadId,
-) -> Result<(), ApplicationError> {
+    run: Option<&crate::server::domain::execution::Run>,
+    message: Option<OutcomeMessage>,
+    now: OffsetDateTime,
+) -> Result<Option<Message>, ApplicationError> {
+    let Some(message) = message else {
+        return Ok(None);
+    };
+    let thread_id = match message.post_to {
+        TaskPostTarget::Focus => match run {
+            Some(run) => run.focus_thread_id,
+            None => task.source_thread_id,
+        },
+        TaskPostTarget::Source => task.source_thread_id,
+        TaskPostTarget::Thread(thread_id) => thread_id,
+    };
     if !task.linked_to(thread_id) || !transaction.can_read_thread(actor, thread_id).await? {
         return Err(ApplicationError::PermissionDenied);
     }
-    Ok(())
+    Ok(Some(Message {
+        id: message.message_id,
+        thread_id,
+        author_member_id: actor,
+        placement: MessagePlacement::Reply,
+        content: MessageContent::Text(message.body_markdown),
+        created_at: now,
+        edited_at: None,
+        deleted_at: None,
+    }))
 }
 
 pub(in crate::server) struct LinkThreadInput {
@@ -340,20 +382,13 @@ pub(in crate::server) struct LinkThreadInput {
     pub(in crate::server) now: OffsetDateTime,
 }
 
+/// Task changes that publish no Message and reach no terminal state. Terminal outcomes belong to
+/// [`RecordTaskOutcome`], so `done`, `submit_review` and `close` are absent here.
 pub(in crate::server) enum TaskAction {
-    Rename {
-        title: String,
-    },
-    Start {
-        assignee: MemberId,
-    },
-    SubmitReview,
+    Rename { title: String },
+    Start { assignee: MemberId },
     RequestChanges,
     ResetSession,
-    Close {
-        reason: CloseReason,
-        note: Option<String>,
-    },
 }
 
 impl TaskAction {
@@ -361,10 +396,8 @@ impl TaskAction {
         match self {
             Self::Rename { .. } => "task.rename",
             Self::Start { .. } => "task.start",
-            Self::SubmitReview => "task.submit_review",
             Self::RequestChanges => "task.request_changes",
             Self::ResetSession => "task.reset_session",
-            Self::Close { .. } => "task.close",
         }
     }
 }
@@ -412,10 +445,6 @@ impl UpdateTask {
                     task.start(assignee, input.now)?;
                     true
                 }
-                TaskAction::SubmitReview => {
-                    task.request_review(input.actor_member_id, input.now)?;
-                    true
-                }
                 TaskAction::RequestChanges => {
                     task.return_from_review(input.actor_member_id, true, input.now)?;
                     true
@@ -430,18 +459,6 @@ impl UpdateTask {
                     }
                     transaction.emit(Effect::SessionReset(task.id));
                     false
-                }
-                TaskAction::Close { reason, note } => {
-                    let allowed = task.creator_member_id == input.actor_member_id
-                        || task.assignee_agent_member_id == Some(input.actor_member_id)
-                        || transaction
-                            .can_govern_task(input.actor_member_id, &task)
-                            .await?;
-                    if !allowed {
-                        return Err(ApplicationError::PermissionDenied);
-                    }
-                    task.close(reason, note, input.now)?;
-                    true
                 }
             };
             if task_changed {
@@ -568,75 +585,6 @@ impl UnlinkThreadFromTask {
                     task.id,
                 )
                 .await?;
-            Ok(task)
-        })
-        .await
-    }
-}
-
-pub(in crate::server) struct CompleteTaskInput {
-    pub(in crate::server) task_id: TaskId,
-    pub(in crate::server) actor_member_id: MemberId,
-    pub(in crate::server) idempotency_key: IdempotencyKey,
-    pub(in crate::server) result_message_id: MessageId,
-    pub(in crate::server) result_thread_id: ThreadId,
-    pub(in crate::server) result_markdown: String,
-    pub(in crate::server) now: OffsetDateTime,
-}
-
-pub(in crate::server) struct CompleteTask;
-
-impl CompleteTask {
-    pub(in crate::server) async fn execute<P: TransactionPort>(
-        port: &mut P,
-        input: CompleteTaskInput,
-    ) -> Result<Task, ApplicationError> {
-        port.transact(async |transaction| {
-            if let Some(task_id) = transaction
-                .task_for_idempotency(input.actor_member_id, "task.done", input.idempotency_key)
-                .await?
-            {
-                return transaction.task(task_id).await;
-            }
-            let mut task = transaction.task(input.task_id).await?;
-            if task.result_message_id == Some(input.result_message_id)
-                && task.status == crate::server::domain::task::TaskStatus::Done
-            {
-                return Ok(task);
-            }
-            if !task.linked_to(input.result_thread_id)
-                || !transaction
-                    .can_read_thread(input.actor_member_id, input.result_thread_id)
-                    .await?
-            {
-                return Err(ApplicationError::PermissionDenied);
-            }
-            let result = Message {
-                id: input.result_message_id,
-                thread_id: input.result_thread_id,
-                author_member_id: input.actor_member_id,
-                placement: MessagePlacement::Reply,
-                content: MessageContent::Text(input.result_markdown),
-                created_at: input.now,
-                edited_at: None,
-                deleted_at: None,
-            };
-            task.finish(input.actor_member_id, true, result.id, input.now)?;
-            transaction.insert_message(result).await?;
-            transaction.save_task(task.clone()).await?;
-            transaction
-                .record_task_idempotency(
-                    input.actor_member_id,
-                    "task.done",
-                    input.idempotency_key,
-                    task.id,
-                )
-                .await?;
-            transaction.emit(Effect::TaskCompleted {
-                task_id: task.id,
-                result_message_id: input.result_message_id,
-            });
-            transaction.emit(Effect::SessionClose(task.id));
             Ok(task)
         })
         .await

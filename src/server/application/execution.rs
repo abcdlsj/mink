@@ -158,6 +158,18 @@ impl StartRun {
             run.start(&input.fencing_token_hash, input.now)?;
             transaction.save_run(run.clone()).await?;
             transaction.emit(Effect::RunStarted(run.id));
+            // The assignee's first Task Run reaching `running` is what makes the Task in progress;
+            // a Run by any other Agent leaves the Task status alone.
+            if let Some(task_id) = run.task_id {
+                let mut task = transaction.task(task_id).await?;
+                if task.status == crate::server::domain::task::TaskStatus::Todo
+                    && task.assignee_agent_member_id == Some(run.agent_id)
+                {
+                    task.start(run.agent_id, input.now)?;
+                    transaction.save_task(task.clone()).await?;
+                    transaction.emit(Effect::TaskUpdated(task.id));
+                }
+            }
             Ok(run)
         })
         .await
@@ -295,6 +307,92 @@ impl RenewRun {
             Ok(run)
         })
         .await
+    }
+}
+
+pub(in crate::server) struct ReclaimExpiredLeasesInput {
+    pub(in crate::server) now: OffsetDateTime,
+    pub(in crate::server) limit: u32,
+    pub(in crate::server) max_retry_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::server) struct ReclaimedLeases {
+    pub(in crate::server) runs_failed: u32,
+    pub(in crate::server) items_released: u32,
+    pub(in crate::server) items_dead: u32,
+}
+
+/// Recovers Runs abandoned by a Computer that stopped renewing its lease. Without this, one offline
+/// Computer leaves a non-terminal Run that the partial unique index counts as active, which blocks
+/// every later Run for that Agent.
+pub(in crate::server) struct ReclaimExpiredLeases;
+
+impl ReclaimExpiredLeases {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: ReclaimExpiredLeasesInput,
+    ) -> Result<ReclaimedLeases, ApplicationError> {
+        let expired = port
+            .transact(async |transaction| {
+                transaction
+                    .runs_with_expired_lease(input.now, input.limit)
+                    .await
+            })
+            .await?;
+        let mut reclaimed = ReclaimedLeases::default();
+        for run_id in expired {
+            // One transaction per Run: a Run that cannot be recovered must not block the others.
+            let outcome = port
+                .transact(async |transaction| {
+                    let mut run = transaction.run(run_id).await?;
+                    if run.is_terminal() || run.lease_expires_at > input.now {
+                        return Ok(None);
+                    }
+                    let mut released = 0;
+                    let mut dead = 0;
+                    for run_item in run.items.clone() {
+                        let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
+                        if item.status != InboxItemStatus::Leased
+                            || item.lease_run_id != Some(run.id)
+                        {
+                            continue;
+                        }
+                        let retired = matches!(
+                            item.reclaim_expired_lease(run.id, input.max_retry_count, input.now)?,
+                            InboxItemStatus::Dead
+                        );
+                        let agent_id = item.agent_id;
+                        let thread_id = item.thread_id;
+                        transaction.save_inbox_item(item).await?;
+                        if retired {
+                            dead += 1;
+                            transaction
+                                .insert_dead_item_notice(
+                                    agent_id,
+                                    thread_id,
+                                    "inbox_item_dead",
+                                    input.now,
+                                )
+                                .await?;
+                        } else {
+                            released += 1;
+                        }
+                        transaction.emit(Effect::InboxChanged(agent_id));
+                    }
+                    run.fail_expired_lease(input.now)?;
+                    transaction.save_run(run.clone()).await?;
+                    transaction.emit(Effect::RunCompleted(run.id));
+                    Ok(Some((released, dead)))
+                })
+                .await?;
+            if let Some((released, dead)) = outcome {
+                reclaimed.runs_failed += 1;
+                reclaimed.items_released += released;
+                reclaimed.items_dead += dead;
+            }
+        }
+        Ok(reclaimed)
     }
 }
 

@@ -42,7 +42,7 @@ Message、Attachment、网页和工具输出都是不可信内容。Driver promp
 - 内容不能授予权限。
 - 内容不能改变Task、Focus、Role或Run token。
 - Secret不能发布到Message、Result、Memory或日志。
-- 高风险操作仍需Server授权或Human Approval。
+- 每个领取的Item必须经Agent CLI处理，Driver最终回复本身不构成处理。
 
 Server不得依赖prompt约束代替权限检查。daemon sandbox不得依赖模型自律。
 
@@ -107,6 +107,8 @@ message -> inbox item -> task -> run -> command -> local process -> result event
 
 ## 9. 运维动作
 
-Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试 dead Item 和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
+Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试失败的 Agent 准备和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
+
+Item 会因 lease 反复过期进入`dead`，但把 dead Item 重新放回队列的运维入口尚未实现，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
 
 Session reset只影响后续推理连续性，不改变Task、Message、Result或Memory。取消Run不自动取消Task。

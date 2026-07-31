@@ -67,7 +67,27 @@ interface DynamicOperation {
 
 type DynamicPaths = Record<string, Record<"get" | "post" | "put" | "patch" | "delete", DynamicOperation>>;
 
-const browserApi: Client<DynamicPaths> = createClient({ credentials: "same-origin" });
+// `openapi-fetch` builds a `Request`, which rejects a relative URL, so the client needs an absolute
+// base. The wrapper then calls the global `fetch` in `(url, init)` form, resolving it per request:
+// reading the global at call time honours a replaced implementation, and passing the path keeps each
+// request identifiable instead of opaque behind a Request object.
+const browserApi: Client<DynamicPaths> = createClient({
+  baseUrl: globalThis.location?.origin ?? "http://localhost",
+  credentials: "same-origin",
+  fetch: async (request) => {
+    const hasBody = request.method !== "GET" && request.method !== "HEAD";
+    const body = hasBody ? await request.text() : undefined;
+    const { pathname, search } = new URL(request.url);
+    return globalThis.fetch(`${pathname}${search}`, {
+      // A read passes no `method`, leaving `fetch` to default to GET, so a caller inspecting the
+      // init can tell reads from writes.
+      method: request.method === "GET" ? undefined : request.method,
+      headers: Object.fromEntries(request.headers),
+      body: body === "" ? undefined : body,
+      credentials: "same-origin",
+    });
+  },
+});
 
 export async function register(input: RegisterInput): Promise<User> {
   const response = await mutate<RegisterResponse>("/api/v1/auth/register", "POST", input);

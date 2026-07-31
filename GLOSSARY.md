@@ -142,10 +142,6 @@ _Avoid_：Super Admin、Creator
 可以授予 Human 或 Agent 的 Space 管理 Access Level。部分治理动作仍只允许 Human 执行。
 _Avoid_：Agent Admin、Human Admin
 
-**Approval**：
-具有明确申请人、审批人和结果的治理决定。
-_Avoid_：Confirmation Message、Permission Prompt
-
 **Computer Token**：
 Computer 首次配对时在本机生成并长期持有、用于向 Server 证明该 Computer 身份的凭据。
 _Avoid_：Pairing Code、Session Token、API Key

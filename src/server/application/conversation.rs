@@ -195,10 +195,13 @@ impl PublishMessage {
                 return Ok(PublishedMessage {
                     message_id: MessageId::from_uuid(message_id),
                     hard_item_ids: Vec::new(),
+                    notified_agent_ids: Vec::new(),
                 });
             }
             let actor = draft.author_member_id;
             let key = draft.idempotency_key;
+            // A Root Message creates its Thread, so only a reply changes an existing one.
+            let replied_thread_id = draft.thread_id;
             let published = transaction.publish_message(draft).await?;
             transaction
                 .record_resource_idempotency(
@@ -209,6 +212,12 @@ impl PublishMessage {
                 )
                 .await?;
             transaction.emit(Effect::MessageCreated(published.message_id));
+            if let Some(thread_id) = replied_thread_id {
+                transaction.emit(Effect::ThreadUpdated(thread_id));
+            }
+            for agent_id in &published.notified_agent_ids {
+                transaction.emit(Effect::InboxChanged(*agent_id));
+            }
             Ok(published)
         })
         .await

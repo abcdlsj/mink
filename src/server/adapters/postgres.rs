@@ -141,9 +141,13 @@ impl PostgresAdapter {
         }
     }
 
+    /// Reads the Space event window as one viewer sees it. `viewer_member_id` filters events whose
+    /// payload names a Channel the viewer cannot read, and Inbox events belonging to another
+    /// Member, so a private Channel does not leak through the stream.
     pub(super) async fn browser_events(
         &self,
         space_id: SpaceId,
+        viewer_member_id: MemberId,
         last_event_id: Option<EventId>,
     ) -> Result<Option<Vec<super::realtime::BrowserEvent<serde_json::Value>>>, ApplicationError>
     {
@@ -184,6 +188,24 @@ impl PostgresAdapter {
             .await
             .map_err(map_sqlx)?
         };
+        let readable_channels = sqlx::query_scalar::<_, Uuid>(
+            "SELECT channel_id FROM channel_members WHERE member_id=$1",
+        )
+        .bind(viewer_member_id.into_uuid())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+        // Governors read Agent Inboxes, so they must also receive their `inbox.changed`.
+        let governs_space = sqlx::query_scalar::<_, bool>(
+            "SELECT access_level IN ('owner','admin') FROM members WHERE id=$1",
+        )
+        .bind(viewer_member_id.into_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?
+        .unwrap_or(false);
         Ok(Some(
             rows.into_iter()
                 .map(|row| super::realtime::BrowserEvent {
@@ -191,11 +213,47 @@ impl PostgresAdapter {
                     event_type: row.get("kind"),
                     space_id,
                     occurred_at: row.get("created_at"),
-                    data: row.get("payload_json"),
+                    data: row.get::<serde_json::Value, _>("payload_json"),
+                })
+                .filter(|event| {
+                    event_is_visible(
+                        &event.data,
+                        viewer_member_id,
+                        governs_space,
+                        &readable_channels,
+                    )
                 })
                 .collect(),
         ))
     }
+}
+
+/// Decides whether one event may reach a viewer. An event that names no Channel and no Member
+/// carries only a resource ID the viewer already reaches through an authorized read, so it passes.
+fn event_is_visible(
+    payload: &serde_json::Value,
+    viewer_member_id: MemberId,
+    governs_space: bool,
+    readable_channels: &std::collections::HashSet<Uuid>,
+) -> bool {
+    let payload_uuid = |field: &str| {
+        payload
+            .get(field)
+            .and_then(|value| value.as_str())
+            .and_then(|value| value.parse::<Uuid>().ok())
+    };
+    if let Some(channel_id) = payload_uuid("channel_id")
+        && !readable_channels.contains(&channel_id)
+    {
+        return false;
+    }
+    if let Some(member_id) = payload_uuid("member_id")
+        && member_id != viewer_member_id.into_uuid()
+        && !governs_space
+    {
+        return false;
+    }
+    true
 }
 
 impl TransactionPort for PostgresAdapter {
@@ -1708,8 +1766,24 @@ impl ServerTransaction for PostgresTransaction {
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        // An explicit Thread subscription raises ordinary activity above channel_activity. Read only
+        // for a reply: a Root Message creates its Thread, which nobody can have subscribed to yet.
+        let subscribers = if draft.thread_id.is_some() {
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT member_id FROM thread_subscriptions WHERE thread_id=$1",
+            )
+            .bind(thread_id.into_uuid())
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+        } else {
+            BTreeSet::new()
+        };
         let mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
         let mut hard_item_ids = Vec::new();
+        let mut notified_agent_ids = Vec::new();
         for recipient in recipients {
             let agent_id = MemberId::from_uuid(recipient);
             let (kind, strength) = if task_id.is_some() {
@@ -1720,6 +1794,8 @@ impl ServerTransaction for PostgresTransaction {
                 ("mention", "hard")
             } else if reply_author == Some(recipient) {
                 ("reply", "hard")
+            } else if subscribers.contains(&recipient) {
+                ("thread_activity", "ambient")
             } else {
                 ("channel_activity", "ambient")
             };
@@ -1744,10 +1820,12 @@ impl ServerTransaction for PostgresTransaction {
             if strength == "hard" {
                 hard_item_ids.push(item_id);
             }
+            notified_agent_ids.push(agent_id);
         }
         Ok(PublishedMessage {
             message_id: draft.message_id,
             hard_item_ids,
+            notified_agent_ids,
         })
     }
 
@@ -1843,6 +1921,50 @@ impl ServerTransaction for PostgresTransaction {
             .map_err(map_sqlx)?;
         }
         Ok(())
+    }
+
+    async fn runs_with_expired_lease(
+        &mut self,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<RunId>, ApplicationError> {
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM agent_runs \
+             WHERE status NOT IN ('completed','yielded','failed','canceled') \
+               AND lease_expires_at<=$1 ORDER BY lease_expires_at,id LIMIT $2",
+        )
+        .bind(now)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)
+        .map(|rows| rows.into_iter().map(RunId::from_uuid).collect())
+    }
+
+    async fn insert_dead_item_notice(
+        &mut self,
+        agent_id: MemberId,
+        thread_id: ThreadId,
+        error_code: &'static str,
+        now: OffsetDateTime,
+    ) -> Result<InboxItemId, ApplicationError> {
+        let item_id = InboxItemId::from_uuid(Uuid::now_v7());
+        sqlx::query(
+            "INSERT INTO inbox_items \
+             (id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,\
+              available_at,last_error_code,created_at) \
+             SELECT $1,agents.space_id,$2,NULL,$3,NULL,'system','hard','pending',$4,$5,$4 \
+             FROM agents WHERE agents.member_id=$2",
+        )
+        .bind(item_id.into_uuid())
+        .bind(agent_id.into_uuid())
+        .bind(thread_id.into_uuid())
+        .bind(now)
+        .bind(error_code)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(item_id)
     }
 
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
@@ -2531,6 +2653,34 @@ impl PostgresTransaction {
                 ("agent.created", agent_id.into_uuid())
             }
             Effect::PermissionChanged(id) => ("member.changed", id.into_uuid()),
+            Effect::InboxChanged(member_id) => {
+                let space_id =
+                    sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM members WHERE id=$1")
+                        .bind(member_id.into_uuid())
+                        .fetch_one(&mut *self.connection)
+                        .await
+                        .map_err(map_sqlx)?;
+                return Ok((
+                    SpaceId::from_uuid(space_id),
+                    "inbox.changed",
+                    json!({"member_id": member_id}),
+                ));
+            }
+            Effect::ThreadUpdated(thread_id) => {
+                let row = sqlx::query("SELECT space_id,channel_id FROM threads WHERE id=$1")
+                    .bind(thread_id.into_uuid())
+                    .fetch_one(&mut *self.connection)
+                    .await
+                    .map_err(map_sqlx)?;
+                return Ok((
+                    SpaceId::from_uuid(row.get("space_id")),
+                    "thread.updated",
+                    json!({
+                        "resource_id": thread_id,
+                        "channel_id": row.get::<Uuid, _>("channel_id"),
+                    }),
+                ));
+            }
         };
         if kind.starts_with("message.") {
             let row = sqlx::query("SELECT space_id,channel_id FROM messages WHERE id=$1")
@@ -3331,11 +3481,58 @@ mod tests {
 
     use super::*;
     use crate::server::application::conversation::{CreateAgentAction, CreateAgentActionInput};
-    use crate::server::application::execution::{ClaimRun, ClaimRunInput};
+    use crate::server::application::execution::{
+        ClaimRun, ClaimRunInput, ReclaimExpiredLeases, ReclaimExpiredLeasesInput,
+    };
     use crate::server::application::ports::RawFencingToken;
     use crate::server::application::task::{
         CreateTaskFromRootMessage, CreateTaskInput, TaskSource,
     };
+
+    #[test]
+    fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
+        let viewer = MemberId::from_uuid(Uuid::now_v7());
+        let other_member = MemberId::from_uuid(Uuid::now_v7());
+        let readable = Uuid::now_v7();
+        let private = Uuid::now_v7();
+        let channels = std::collections::HashSet::from([readable]);
+
+        let in_readable_channel = json!({"resource_id": Uuid::now_v7(), "channel_id": readable});
+        let in_private_channel = json!({"resource_id": Uuid::now_v7(), "channel_id": private});
+        assert!(event_is_visible(
+            &in_readable_channel,
+            viewer,
+            false,
+            &channels
+        ));
+        assert!(!event_is_visible(
+            &in_private_channel,
+            viewer,
+            false,
+            &channels
+        ));
+        // A governor reads Agent Inboxes but still holds no membership in a private Channel.
+        assert!(!event_is_visible(
+            &in_private_channel,
+            viewer,
+            true,
+            &channels
+        ));
+
+        let own_inbox = json!({"member_id": viewer});
+        let foreign_inbox = json!({"member_id": other_member});
+        assert!(event_is_visible(&own_inbox, viewer, false, &channels));
+        assert!(!event_is_visible(&foreign_inbox, viewer, false, &channels));
+        assert!(event_is_visible(&foreign_inbox, viewer, true, &channels));
+
+        // An event naming no Channel and no Member reaches every Space Member.
+        assert!(event_is_visible(
+            &json!({"resource_id": Uuid::now_v7()}),
+            viewer,
+            false,
+            &channels
+        ));
+    }
 
     #[tokio::test]
     async fn empty_database_builds_final_schema_with_concurrency_constraints() {
@@ -3386,6 +3583,142 @@ mod tests {
             assert!(active_index);
             assert!(deferred_thread_cycle);
             assert!(!legacy_session_table);
+            pool.close().await;
+        }
+        .await;
+
+        sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread_activity() {
+        let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+        let database_name = format!("sumi_lease_reclaim_{}", Uuid::now_v7().simple());
+        let mut admin =
+            PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+                .await
+                .unwrap();
+        sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let mut database_url = Url::parse(&admin_url).unwrap();
+        database_url.set_path(&format!("/{database_name}"));
+
+        let result = async {
+            let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+            let mut adapter = PostgresAdapter::new(pool.clone());
+            adapter.initialize_schema().await.unwrap();
+            let space = Uuid::now_v7();
+            let owner = Uuid::now_v7();
+            let agent = Uuid::now_v7();
+            let subscriber = Uuid::now_v7();
+            let computer_id = Uuid::now_v7();
+            let channel = Uuid::now_v7();
+            let root = Uuid::now_v7();
+            let stale_run = Uuid::now_v7();
+            let stale_item = Uuid::now_v7();
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{owner}',now());
+                 INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner','owner',now());
+                 INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','lin','member',now());
+                 INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{subscriber}','{space}','agent','Ada','ada','member',now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
+                 INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
+                 INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{subscriber}','{space}','{computer_id}','Watch',1,'active','codex',now());
+                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+                 INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0),('{channel}','{space}','{subscriber}',now(),0);
+                 INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+                 INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
+                 INSERT INTO thread_subscriptions (thread_id,space_id,member_id,created_at) VALUES ('{root}','{space}','{subscriber}',now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','running','hash',now()-interval '5 minutes',now(),now());
+                 INSERT INTO inbox_items (id,space_id,agent_id,message_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','leased',now(),'{stale_run}',now()-interval '5 minutes',0,now());
+                 INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{stale_run}','{stale_item}',1,now());
+                 COMMIT;"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let reclaimed = ReclaimExpiredLeases::execute(
+                &mut adapter,
+                ReclaimExpiredLeasesInput {
+                    now: OffsetDateTime::now_utc(),
+                    limit: 10,
+                    max_retry_count: 5,
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(reclaimed.runs_failed, 1);
+            assert_eq!(reclaimed.items_released, 1);
+
+            let recovered: (String, String, String, i32) = sqlx::query_as(
+                "SELECT r.status,r.outcome_code,i.status,i.retry_count \
+                 FROM agent_runs r JOIN inbox_items i ON i.id=$2 WHERE r.id=$1",
+            )
+            .bind(stale_run)
+            .bind(stale_item)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                recovered,
+                ("failed".into(), "failed".into(), "pending".into(), 1)
+            );
+
+            // The Run is terminal, so the partial unique index now admits a new Run for that Agent.
+            sqlx::query(
+                "INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,\
+                 fencing_token_hash,lease_expires_at,created_at) \
+                 VALUES ($1,$2,$3,$4,'queued','fresh',now()+interval '1 hour',now())",
+            )
+            .bind(Uuid::now_v7())
+            .bind(space)
+            .bind(agent)
+            .bind(root)
+            .execute(&pool)
+            .await
+            .expect("reclaiming the abandoned Run unblocks the Agent");
+
+            // A reply routes thread_activity to the subscriber and channel_activity to the rest.
+            adapter
+                .transact(async |transaction| {
+                    transaction
+                        .publish_message(MessageDraft {
+                            message_id: MessageId::from_uuid(Uuid::now_v7()),
+                            channel_id: ChannelId::from_uuid(channel),
+                            author_member_id: MemberId::from_uuid(owner),
+                            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                            body_markdown: "reply".into(),
+                            thread_id: Some(ThreadId::from_uuid(root)),
+                            reply_to_message_id: None,
+                            mentions: Vec::new(),
+                            attachment_ids: Vec::new(),
+                            handled_item: None,
+                            expected_snapshot: None,
+                            now: OffsetDateTime::now_utc(),
+                        })
+                        .await
+                })
+                .await
+                .unwrap();
+            let routed: (String, String) = sqlx::query_as(
+                "SELECT (SELECT kind FROM inbox_items WHERE agent_id=$1 ORDER BY created_at DESC LIMIT 1), \
+                        (SELECT kind FROM inbox_items WHERE agent_id=$2 ORDER BY created_at DESC LIMIT 1)",
+            )
+            .bind(subscriber)
+            .bind(agent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(routed, ("thread_activity".into(), "channel_activity".into()));
             pool.close().await;
         }
         .await;

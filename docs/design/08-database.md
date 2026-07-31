@@ -262,7 +262,7 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 - `computer_id`
 - `role_text`
 - `role_revision`
-- `lifecycle=active|suspended|retired`
+- `lifecycle=provisioning|active|suspended|retired|error`
 - `driver_kind`
 - `driver_config_json`
 - `created_at`
@@ -270,7 +270,9 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 
 `member_id`是主键，并引用`kind=agent`的 Member。
 
-`computer_id`对 active 和 suspended Agent 必填。Agent 退役事务将 lifecycle 改为`retired`、填写`retired_at`并清空`computer_id`。
+`computer_id`对 provisioning、active、suspended 和 error Agent 必填。Agent 退役事务将 lifecycle 改为`retired`、填写`retired_at`并清空`computer_id`。
+
+`provisioning`表示 Server 已创建 Agent，Computer 尚未确认本地 Home 就绪。`error`表示本地准备失败，只有`PATCH /api/v1/agents/{agent_id}`的`retry`可以离开该状态，见 [API 与事件](07-api.md)。
 
 Agent assignment 事务必须拒绝`deleted`Computer。
 
@@ -286,7 +288,7 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `strength=hard|ambient`
 - `status=pending|leased|deferred|handled|dead`
 - `available_at`
-- `lease_id`
+- `lease_run_id`
 - `lease_expires_at`
 - `retry_count`
 - `handled_at`
@@ -353,7 +355,29 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assigned Agents；仍存在 assignment 时返回冲突，否则填写`deleted_at`并撤销 token hash。
 
-### 8.2 `computer_commands`
+### 8.2 `computer_pairings`
+
+- `id`
+- `code_hash`、`token_hash`
+- `hostname`、`os`、`daemon_version`
+- `status=pending|confirmed|expired`
+- `expires_at`
+- `computer_id`、`space_id`
+- `created_at`、`confirmed_at`
+
+配对是 Computer 取得 Token 的唯一途径。表只保存配对码与 Token 的散列；两者的明文都只存在于本机和一次性响应中。
+
+`computer_id`唯一，因此一次配对最多产生一个 Computer。CHECK 保证`pending`没有 Computer、Space 和`confirmed_at`，`confirmed`三者都有。过期在读取时判定，不依赖后台任务。
+
+### 8.3 `run_result_events`
+
+- `event_id`
+- `run_id`
+- `created_at`
+
+Run 结果上报的幂等记录。`event_id`是主键，`run_id`唯一，因此重复上报既不会重复处理 Item，也不会让一个 Run 产生第二个终态，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
+
+### 8.4 `computer_commands`
 
 - `id`
 - `computer_id`
@@ -366,7 +390,7 @@ Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assign
 
 `(computer_id, computer_seq)`和`result_event_id`必须唯一。payload 只保存交付所需数据，并按保留策略清理正文。
 
-### 8.3 `outbox_events`
+### 8.5 `outbox_events`
 
 - `id`
 - `space_id`
@@ -377,11 +401,11 @@ Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assign
 
 业务写入和 outbox 写入属于同一事务。
 
-### 8.4 `idempotency_records`
+### 8.6 `idempotency_records`
 
 按认证主体、action 和 idempotency key 唯一。记录只保存响应代码、资源 ID 和结果 hash，不保存正文。
 
-### 8.5 `audit_events`
+### 8.7 `audit_events`
 
 保存 actor、action、subject、时间和安全 metadata。Audit 不承担当前状态查询，也不保存正文。
 

@@ -65,16 +65,17 @@ use crate::{
             SetThreadSubscription,
         },
         application::task::{
-            CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
-            FinishAgentTaskAction, FinishAgentTaskInput, FinishAgentTaskRun, LinkThreadInput,
-            LinkThreadToTask, TaskAction, TaskPostTarget, TaskSource, UnlinkThreadFromTask,
-            UpdateTask, UpdateTaskInput,
+            CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,
+            OutcomeMessage, OutcomeRunContext, RecordTaskOutcome, RecordTaskOutcomeInput,
+            TaskAction, TaskOutcome, TaskOutcomeScope, TaskPostTarget, TaskSource,
+            UnlinkThreadFromTask, UpdateTask, UpdateTaskInput,
         },
         application::{
             execution::{
                 AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput,
-                CompleteRun, CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
-                RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
+                CompleteRun, CompleteRunInput, ItemDispositionInput, ReclaimExpiredLeases,
+                ReclaimExpiredLeasesInput, RecordRunItemDisposition, RecordRunItemDispositionInput,
+                RenewRun, RenewRunInput, StartRun, StartRunInput,
             },
             identity::{
                 AgentLifecycleAction, AuthenticateHuman, AuthenticateHumanInput,
@@ -579,7 +580,8 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             get(download_attachment),
         )
         .route("/computers/{computer_id}", axum::routing::delete(delete_computer))
-        .with_state(state);
+        .with_state(state.clone());
+    let reclaim = tokio::spawn(reclaim_expired_leases_forever(state.storage.clone()));
     let app = Router::new()
         .nest("/api/v1", api)
         .fallback_service(
@@ -591,10 +593,50 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .with_context(|| format!("failed to bind Server at {}", config.bind))?;
-    axum::serve(listener, app)
+    let served = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .context("Server stopped unexpectedly")
+        .context("Server stopped unexpectedly");
+    reclaim.abort();
+    served
+}
+
+/// Lease reclaim interval. Shorter than the two-minute lease so an abandoned Run is recovered within
+/// roughly one lease period, and long enough that the sweep is not a constant query load.
+const LEASE_RECLAIM_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// Runs recovered per sweep. Bounds how long a single sweep holds database connections.
+const LEASE_RECLAIM_BATCH: u32 = 50;
+
+async fn reclaim_expired_leases_forever(mut storage: PostgresAdapter) {
+    let mut ticker = tokio::time::interval(LEASE_RECLAIM_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        ticker.tick().await;
+        match ReclaimExpiredLeases::execute(
+            &mut storage,
+            ReclaimExpiredLeasesInput {
+                now: OffsetDateTime::now_utc(),
+                limit: LEASE_RECLAIM_BATCH,
+                max_retry_count: ATTENTION_MAX_RETRY_COUNT,
+            },
+        )
+        .await
+        {
+            Ok(reclaimed) if reclaimed.runs_failed > 0 => tracing::warn!(
+                runs_failed = reclaimed.runs_failed,
+                items_released = reclaimed.items_released,
+                items_dead = reclaimed.items_dead,
+                "reclaimed Runs whose ownership lease expired"
+            ),
+            Ok(_) => {}
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "lease reclaim sweep failed; retrying on the next tick"
+                );
+            }
+        }
+    }
 }
 
 async fn register(
@@ -1901,10 +1943,12 @@ async fn execute_agent_action(
                 computer_id,
                 context,
                 request.idempotency_key,
-                FinishAgentTaskAction::SubmitReview {
-                    message_id: MessageId::from_uuid(Uuid::now_v7()),
-                    body,
-                    post_to: task_post_target(post_to),
+                TaskOutcome::SubmitReview {
+                    message: Some(OutcomeMessage {
+                        message_id: MessageId::from_uuid(Uuid::now_v7()),
+                        body_markdown: body,
+                        post_to: task_post_target(post_to),
+                    }),
                 },
             )
             .await
@@ -1915,10 +1959,12 @@ async fn execute_agent_action(
                 computer_id,
                 context,
                 request.idempotency_key,
-                FinishAgentTaskAction::Done {
-                    message_id: MessageId::from_uuid(Uuid::now_v7()),
-                    result,
-                    post_to: task_post_target(post_to),
+                TaskOutcome::Done {
+                    result: OutcomeMessage {
+                        message_id: MessageId::from_uuid(Uuid::now_v7()),
+                        body_markdown: result,
+                        post_to: task_post_target(post_to),
+                    },
                 },
             )
             .await
@@ -1936,7 +1982,7 @@ async fn execute_agent_action(
                 computer_id,
                 context,
                 request.idempotency_key,
-                FinishAgentTaskAction::Close { reason, note },
+                TaskOutcome::Close { reason, note },
             )
             .await
         }
@@ -2071,7 +2117,7 @@ async fn finish_agent_task(
     computer_id: Uuid,
     context: &capability::RunContext,
     idempotency_key: Option<crate::ids::IdempotencyKey>,
-    action: FinishAgentTaskAction,
+    outcome: TaskOutcome,
 ) -> Result<Value, capability::Error> {
     let task_id = context.task_id.ok_or_else(|| {
         capability_error(
@@ -2088,16 +2134,18 @@ async fn finish_agent_task(
         )
     })?;
     let mut storage = state.storage.clone();
-    FinishAgentTaskRun::execute(
+    RecordTaskOutcome::execute(
         &mut storage,
-        FinishAgentTaskInput {
-            run_id: context.run_id,
-            computer_id: ComputerId::from_uuid(computer_id),
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::AgentRun(OutcomeRunContext {
+                run_id: context.run_id,
+                computer_id: ComputerId::from_uuid(computer_id),
+                fencing_token_hash: token_hash(&context.fencing_token),
+                message_snapshot_sequence: context.message_snapshot_sequence,
+            }),
             actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
-            fencing_token_hash: token_hash(&context.fencing_token),
             idempotency_key,
-            message_snapshot_sequence: context.message_snapshot_sequence,
-            action,
+            outcome,
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -2769,6 +2817,10 @@ const ACTIVITY_JOINS: &str = "\
     LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id \
     LEFT JOIN messages focus_message ON focus_message.id=focus_thread.root_message_id";
 
+/// Failed delivery attempts an Inbox Item survives before it is retired as `dead`. The projection in
+/// `attention_policy` reports this same value, so the published policy matches the enforced one.
+const ATTENTION_MAX_RETRY_COUNT: u32 = 5;
+
 fn attention_policy() -> AttentionConfig {
     AttentionConfig {
         dm_immediate: true,
@@ -2776,7 +2828,7 @@ fn attention_policy() -> AttentionConfig {
         ambient_enabled: true,
         ambient_debounce_seconds: 30,
         ambient_max_wait_seconds: 300,
-        max_retry_count: 5,
+        max_retry_count: ATTENTION_MAX_RETRY_COUNT,
     }
 }
 
@@ -3506,7 +3558,14 @@ async fn submit_task_review(
     headers: HeaderMap,
     Path(task_id): Path<Uuid>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    update_task_action(&state, &jar, &headers, task_id, TaskAction::SubmitReview).await
+    record_task_outcome(
+        &state,
+        &jar,
+        &headers,
+        task_id,
+        TaskOutcome::SubmitReview { message: None },
+    )
+    .await
 }
 
 async fn request_task_changes(
@@ -3533,12 +3592,12 @@ async fn close_task(
         "other" => CloseReason::Other,
         _ => return Err(ApiError::invalid("close reason is invalid")),
     };
-    update_task_action(
+    record_task_outcome(
         &state,
         &jar,
         &headers,
         task_id,
-        TaskAction::Close {
+        TaskOutcome::Close {
             reason,
             note: body.note,
         },
@@ -3562,23 +3621,46 @@ async fn complete_task(
     Path(task_id): Path<Uuid>,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let actor = task_actor(&state, &jar, task_id).await?;
+    record_task_outcome(
+        &state,
+        &jar,
+        &headers,
+        task_id,
+        TaskOutcome::Done {
+            result: OutcomeMessage {
+                message_id: MessageId::from_uuid(Uuid::now_v7()),
+                body_markdown: body.result_markdown,
+                post_to: TaskPostTarget::Thread(ThreadId::from_uuid(body.result_thread_id)),
+            },
+        },
+    )
+    .await
+}
+
+async fn record_task_outcome(
+    state: &RuntimeState,
+    jar: &CookieJar,
+    headers: &HeaderMap,
+    task_id: Uuid,
+    outcome: TaskOutcome,
+) -> Result<Json<TaskResponse>, ApiError> {
+    let actor = task_actor(state, jar, task_id).await?;
     let mut storage = state.storage.clone();
-    CompleteTask::execute(
+    RecordTaskOutcome::execute(
         &mut storage,
-        CompleteTaskInput {
-            task_id: TaskId::from_uuid(task_id),
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::Browser {
+                task_id: TaskId::from_uuid(task_id),
+            },
             actor_member_id: MemberId::from_uuid(actor),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
-            result_message_id: MessageId::from_uuid(Uuid::now_v7()),
-            result_thread_id: ThreadId::from_uuid(body.result_thread_id),
-            result_markdown: body.result_markdown,
+            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
+            outcome,
             now: OffsetDateTime::now_utc(),
         },
     )
     .await
     .map_err(application_error)?;
-    Ok(Json(task_detail(&state, task_id).await?))
+    Ok(Json(task_detail(state, task_id).await?))
 }
 
 async fn update_task_action(
@@ -4131,7 +4213,7 @@ async fn space_events(
     headers: HeaderMap,
     Path(space_id): Path<Uuid>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
-    current_member(&state, &jar, space_id).await?;
+    let viewer = current_member(&state, &jar, space_id).await?;
     let space_id = SpaceId::from_uuid(space_id);
     let last_event_id = headers
         .get("last-event-id")
@@ -4143,9 +4225,10 @@ async fn space_events(
                 .ok_or_else(|| ApiError::invalid("Last-Event-ID is invalid"))
         })
         .transpose()?;
+    let viewer = MemberId::from_uuid(viewer);
     let initial = state
         .storage
-        .browser_events(space_id, last_event_id)
+        .browser_events(space_id, viewer, last_event_id)
         .await
         .map_err(application_error)?
         .ok_or_else(ApiError::context_changed)?;
@@ -4156,7 +4239,7 @@ async fn space_events(
             last_event_id,
             VecDeque::from(initial),
         ),
-        |(storage, space_id, mut cursor, mut buffered)| async move {
+        move |(storage, space_id, mut cursor, mut buffered)| async move {
             loop {
                 if let Some(event) = buffered.pop_front() {
                     cursor = Some(event.event_id);
@@ -4167,7 +4250,7 @@ async fn space_events(
                     return Some((Ok(event), (storage, space_id, cursor, buffered)));
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                buffered = match storage.browser_events(space_id, cursor).await {
+                buffered = match storage.browser_events(space_id, viewer, cursor).await {
                     Ok(Some(events)) => VecDeque::from(events),
                     Ok(None) | Err(_) => return None,
                 };
@@ -5678,7 +5761,11 @@ mod tests {
         let events = fixture
             .state
             .storage
-            .browser_events(fixture.context.space_id, None)
+            .browser_events(
+                fixture.context.space_id,
+                MemberId::from_uuid(fixture.owner_id),
+                None,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -5694,7 +5781,11 @@ mod tests {
             fixture
                 .state
                 .storage
-                .browser_events(fixture.context.space_id, Some(last_event_id))
+                .browser_events(
+                    fixture.context.space_id,
+                    MemberId::from_uuid(fixture.owner_id),
+                    Some(last_event_id),
+                )
                 .await
                 .unwrap()
                 .unwrap()

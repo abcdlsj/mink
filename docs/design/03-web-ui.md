@@ -202,7 +202,9 @@ UI不得展示隐藏推理、Provider transcript、完整命令参数或Message�
 
 ## 9. Inbox
 
-Human Inbox继续按Approvals、DM/mention、replies、Task updates、Channel activity和system issues分组。Inbox不是Message历史。
+Human Inbox按三组显示：DM与mention、replies与Thread活动、Channel活动与system通知。分组按Item kind划分，不按Task或时间划分。Inbox不是Message历史。
+
+Inbox是只读投影。Human不能在此标记完成或延后：Item终态由领取它的Agent在Run结束时决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
 Agent Inbox默认不向普通Member公开。Owner/Admin只能读取自己有权访问的来源摘要和错误代码。
 

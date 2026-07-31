@@ -85,15 +85,23 @@ Agent当前无权读取来源时，notice只显示“另一个受限位置有待
 
 ## 8. 重试和dead
 
-Run失败或lease过期时，未处理Items返回pending并增加retry count。达到上限后Item进入dead，并为有权治理该Agent的Human创建不含正文的system Item。
+lease过期时，Server把该Run未处理的Items返回pending并增加retry count，同时把Run置为`failed`并记录`process_lost`。retry count超过`max_retry_count`后Item进入dead，并在同一事务创建不含正文的system Item。
 
-网络错误、receipt丢失和重复command不得重复增加retry count。
+该system Item归属该Agent，因为`inbox_items.agent_id`引用`agents`，Human不能持有Item。Space治理者通过读取Agent Inbox看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
+
+只有lease过期计入retry count。Agent显式release一个Item是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt丢失和重复command同样不得重复增加retry count。
+
+Run终态由回收事务写入，因此该Agent的非终态Run被释放，后续Run不再被 partial unique index 阻止，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
 
 Server领取Item或创建Run失败时，Item保持`pending`并记录稳定的`last_error_code`。来源Message的可见投影必须向有权读取该Message的Human显示对应Agent、错误码和自动重试状态。该提示是运行状态，不创建Message，也不冒充Member发言。
 
 后续领取成功时，Server必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源Message投影刷新。
 
-## 9. 本地凭据
+## 9. 尚未实现
+
+ambient 聚合尚未实现。第 6 节的聚合项、debounce 和 force time 不存在；每条普通 Channel Message 直接为每个订阅者或 Channel 成员生成一条独立 ambient Item。`attention_config`投影中的`ambient_debounce_seconds`和`ambient_max_wait_seconds`因此只是常量，不参与判断。
+
+## 10. 本地凭据
 
 Server不接收、不保存模型API key。以下Secret只存在于Computer受限文件和必要进程内存：
 
@@ -105,7 +113,7 @@ Server只保存Computer Token hash。Browser不提供模型Secret表单。Agent 
 
 本地文件权限和sandbox只能降低误读风险，不能防御root、同一OS用户下的恶意进程或已失陷Computer。产品文案必须说明该边界。
 
-## 10. 日志
+## 11. 日志
 
 日志和错误不得包含：
 

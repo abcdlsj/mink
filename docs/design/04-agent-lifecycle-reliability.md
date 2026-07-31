@@ -91,10 +91,10 @@ Agent收到不同 Focus notice 后可以继续当前 Run，也可以 yield。系
 3. 校验Item的可选Task和Thread与Run scope相同。
 4. 将 Item 从 `pending` 改为 `leased`。
 5. 创建 `run_items` 关系。
-6. 分配递增 `run_delivery_seq`。
+6. 分配递增 `run_items.delivery_seq`。
 7. 写入 Computer command 和 outbox。
 
-Computer按 `run_delivery_seq` 幂等接收。重复交付不得重复 steer。Run在事务前进入 finalizing 时，Item保持 pending。
+Computer按该 delivery sequence 幂等接收。重复交付不得重复 steer。Run在事务前进入 finalizing 时，Item保持 pending。
 
 普通 Run 的`task_id`为空。Agent 从当前 Focus 创建 Task 时，Server 在 Task 事务中填写 Run 和已领取 Item 的`task_id`。
 
@@ -148,7 +148,17 @@ Computer先在 SQLite 原子保存本地终态和 result outbox，再重试上�
 
 Server为 Run生成 ownership lease 和 fencing token。`run_started`、renew、Item delivery receipt、activity 和 result 都必须携带 token。
 
-lease 过期后，Server可以使 token 失效并释放 Items。旧 Computer 后续上报只能写诊断记录，不能改变 Task、Run 或 Inbox。
+lease 过期后，Server使 token 失效并释放 Items。旧 Computer 后续上报只能写诊断记录，不能改变 Task、Run 或 Inbox。
+
+Server 周期性扫描 lease 已过期且未到终态的 Runs。每个 Run 单独一个事务，因此一个无法恢复的 Run 不阻塞其余 Run。事务内：
+
+1. 释放该 Run 仍持有 lease 的 Items，并增加 retry count，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
+2. 保留 Agent 已经上报的 disposition。已 handled 的工作不因过期被撤销。
+3. 将 Run 置为`failed`并写入`process_lost`。
+
+回收不校验 fencing token：过期本身表示原 Computer 已停止证明所有权，用它的 token 把关会使无人能恢复该 Run。回收后 Run 是终态，旧 Computer 的迟到上报因此被拒绝。
+
+`queued`和`starting`同样可以被回收。Computer 在启动 Driver 前离线，留下的 Run 与执行中死亡的 Run 一样阻塞该 Agent。
 
 Command delivery 使用 at-least-once。所有 command、event 和 receipt 都有稳定 ID，并由接收方幂等处理。
 

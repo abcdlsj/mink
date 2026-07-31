@@ -165,6 +165,37 @@ impl Run {
         self.finished_at = Some(now);
     }
 
+    /// Fails a Run whose ownership lease expired. Takes no fencing token: the point is that the
+    /// owning Computer stopped proving ownership, so its token must not gate the recovery. Any later
+    /// report from that Computer is rejected, because the Run is now terminal.
+    ///
+    /// Reachable from every non-terminal status, including `queued` and `starting`: a Computer that
+    /// goes offline before starting the Driver leaves the Run just as stuck as one that dies mid-turn.
+    pub(in crate::server) fn fail_expired_lease(
+        &mut self,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.is_terminal() {
+            return Err(DomainError::InvalidTransition);
+        }
+        for item in &mut self.items {
+            item.disposition
+                .get_or_insert(InboxItemDisposition::Released);
+        }
+        self.status = RunStatus::Failed;
+        self.outcome = Some(RunOutcome::Failed);
+        self.error_code = Some(RunErrorCode::ProcessLost);
+        self.finished_at = Some(now);
+        Ok(())
+    }
+
+    pub(in crate::server) fn is_terminal(&self) -> bool {
+        matches!(
+            self.status,
+            RunStatus::Completed | RunStatus::Yielded | RunStatus::Failed | RunStatus::Canceled
+        )
+    }
+
     pub(in crate::server) fn set_item_disposition(
         &mut self,
         item_id: InboxItemId,
@@ -303,5 +334,64 @@ mod tests {
         run.cancel_for_agent_retirement(OffsetDateTime::UNIX_EPOCH);
         assert_eq!(run.outcome, Some(RunOutcome::Canceled));
         assert_eq!(run.error_code, None);
+    }
+
+    #[test]
+    fn an_expired_lease_fails_the_run_from_any_live_status_and_only_once() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        for status in [
+            RunStatus::Queued,
+            RunStatus::Starting,
+            RunStatus::Running,
+            RunStatus::Finalizing,
+            RunStatus::Stopping,
+        ] {
+            let mut run = finalizing_run();
+            run.status = status;
+            run.fail_expired_lease(now)
+                .expect("a live Run yields to lease expiry");
+            assert_eq!(run.status, RunStatus::Failed);
+            assert_eq!(run.outcome, Some(RunOutcome::Failed));
+            assert_eq!(run.error_code, Some(RunErrorCode::ProcessLost));
+            assert_eq!(run.finished_at, Some(now));
+            // Terminal now, so a late report from the old Computer cannot reopen it.
+            assert_eq!(
+                run.fail_expired_lease(now),
+                Err(DomainError::InvalidTransition)
+            );
+        }
+    }
+
+    #[test]
+    fn reclaiming_an_expired_lease_preserves_a_disposition_the_agent_already_recorded() {
+        let mut run = finalizing_run();
+        let handled = InboxItemId::from_uuid(uuid::Uuid::from_u128(11));
+        let untouched = InboxItemId::from_uuid(uuid::Uuid::from_u128(12));
+        run.status = RunStatus::Running;
+        run.items = vec![
+            RunItem {
+                inbox_item_id: handled,
+                delivery_sequence: 1,
+                disposition: Some(InboxItemDisposition::Handled),
+            },
+            RunItem {
+                inbox_item_id: untouched,
+                delivery_sequence: 2,
+                disposition: None,
+            },
+        ];
+
+        run.fail_expired_lease(OffsetDateTime::UNIX_EPOCH)
+            .expect("a running Run yields to lease expiry");
+
+        assert_eq!(
+            run.items[0].disposition,
+            Some(InboxItemDisposition::Handled),
+            "work the Agent reported as handled is not undone by expiry"
+        );
+        assert_eq!(
+            run.items[1].disposition,
+            Some(InboxItemDisposition::Released)
+        );
     }
 }

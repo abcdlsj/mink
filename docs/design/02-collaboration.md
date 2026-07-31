@@ -179,6 +179,8 @@ Task 进入`done`或`closed`后，系统保留 Source Thread、Linked Thread、R
 
 Computer 应关闭对应的 Provider Session。关闭失败不能回滚 Task 终态。
 
+`in_review`、`done`和`closed`由同一个事务入口写入，见 [产品基础与系统结构](01-foundations.md)。Agent 从 Run 内提交时，同一事务额外校验 fencing token、处理已领取 Items 并完成 Run；Human 从 Browser 提交时不持有 Run。两条路径不得各自实现一套终态事务。
+
 ## 7. 权限
 
 - 创建 Task 的 Member 必须能读取 source Root Message。

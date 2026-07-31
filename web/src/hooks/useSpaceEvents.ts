@@ -21,6 +21,12 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "inbox.changed") {
         void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
       }
+      if (payload.type === "thread.updated") {
+        void queryClient.invalidateQueries({ queryKey: ["thread"] });
+        if (payload.data.channel_id) {
+          void queryClient.invalidateQueries({ queryKey: ["messages", payload.data.channel_id] });
+        }
+      }
       if (payload.type.startsWith("channel.")) {
         void queryClient.invalidateQueries({ queryKey: ["channels", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["direct-messages", spaceId] });
@@ -28,7 +34,7 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "member.changed") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       }
-      if (payload.type === "agent.changed" || payload.type === "run.changed" || payload.type === "run.activity_changed") {
+      if (payload.type === "agent.changed" || payload.type === "agent.updated" || payload.type === "run.changed") {
         void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["agent"] });
       }
@@ -48,14 +54,17 @@ export function useSpaceEvents(spaceId?: string) {
       "thread.updated",
       "inbox.changed",
       "channel.created",
+      "channel.updated",
       "member.changed",
       "agent.changed",
+      "agent.created",
+      "agent.updated",
       "computer.changed",
       "run.changed",
-      "run.activity_changed",
       "task.created",
       "task.updated",
       "task.linked",
+      "task.unlinked",
       "task.finished",
     ];
     for (const type of eventTypes) source.addEventListener(type, invalidate as EventListener);

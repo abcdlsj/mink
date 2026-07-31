@@ -15,7 +15,7 @@ use crate::server::domain::{
         AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
-    execution::{Run, RunItem, RunOutcome, RunStatus},
+    execution::{Run, RunErrorCode, RunItem, RunOutcome, RunStatus},
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
@@ -39,12 +39,13 @@ use super::{
     conversation::{
         CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
         CreateChannelAction, CreateChannelActionInput, CreateChannelInput, DeleteMessage,
-        EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput,
+        EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput, PublishMessage,
     },
     execution::{
         AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput, CompleteRun,
-        CompleteRunInput, ItemDispositionInput, RecordRunItemDisposition,
-        RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
+        CompleteRunInput, ItemDispositionInput, ReclaimExpiredLeases, ReclaimExpiredLeasesInput,
+        ReclaimedLeases, RecordRunItemDisposition, RecordRunItemDispositionInput, RenewRun,
+        RenewRunInput, StartRun, StartRunInput,
     },
     identity::{
         AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession, AuthorizeAgentGovernance,
@@ -62,9 +63,9 @@ use super::{
         SpaceHumanMember, SpaceMemberView, StoredObject, TransactionPort,
     },
     task::{
-        CompleteTask, CompleteTaskInput, CreateTaskFromRootMessage, CreateTaskInput,
-        FinishAgentTaskAction, FinishAgentTaskInput, FinishAgentTaskRun, LinkThreadInput,
-        LinkThreadToTask, TaskAction, TaskPostTarget, TaskSource, UpdateTask, UpdateTaskInput,
+        CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,
+        OutcomeMessage, OutcomeRunContext, RecordTaskOutcome, RecordTaskOutcomeInput, TaskAction,
+        TaskOutcome, TaskOutcomeScope, TaskPostTarget, TaskSource, UpdateTask, UpdateTaskInput,
     },
 };
 
@@ -170,6 +171,9 @@ struct MemoryState {
     permissions: HashSet<(MemberId, PermissionAction)>,
     computer_assignments: HashSet<(ComputerId, MemberId)>,
     effects: Vec<Effect>,
+    /// Agents the memory port reports as having received an Item from a published Message.
+    notified_agents: Vec<MemberId>,
+    dead_item_notices: Vec<(MemberId, &'static str)>,
     reject_message_insert: bool,
     humans: HashMap<String, (AuthenticatedHuman, String)>,
     sessions: HashMap<String, (uuid::Uuid, OffsetDateTime)>,
@@ -1114,6 +1118,7 @@ impl ServerTransaction for MemoryTransaction {
         Ok(PublishedMessage {
             message_id: draft.message_id,
             hard_item_ids: Vec::new(),
+            notified_agent_ids: self.state.notified_agents.clone(),
         })
     }
 
@@ -1137,6 +1142,42 @@ impl ServerTransaction for MemoryTransaction {
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         self.state.items.insert(item.id, item);
         Ok(())
+    }
+
+    async fn runs_with_expired_lease(
+        &mut self,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<RunId>, ApplicationError> {
+        let mut expired = self
+            .state
+            .runs
+            .values()
+            .filter(|run| !run.is_terminal() && run.lease_expires_at <= now)
+            .map(|run| (run.lease_expires_at, run.id))
+            .collect::<Vec<_>>();
+        expired.sort();
+        Ok(expired
+            .into_iter()
+            .take(limit as usize)
+            .map(|(_, id)| id)
+            .collect())
+    }
+
+    async fn insert_dead_item_notice(
+        &mut self,
+        agent_id: MemberId,
+        thread_id: ThreadId,
+        error_code: &'static str,
+        now: OffsetDateTime,
+    ) -> Result<InboxItemId, ApplicationError> {
+        let item_id = InboxItemId::from_uuid(uuid::Uuid::now_v7());
+        let mut notice = inbox(item_id, agent_id, thread_id, None, InboxItemStatus::Pending);
+        notice.kind = InboxItemKind::System;
+        notice.available_at = now;
+        self.state.items.insert(item_id, notice);
+        self.state.dead_item_notices.push((agent_id, error_code));
+        Ok(item_id)
     }
 
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError> {
@@ -1561,6 +1602,202 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
 }
 
 #[tokio::test]
+async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() {
+    let assignee = member(240);
+    let other_agent = member(241);
+    let focus = thread(242);
+    let task_id = task(243);
+    let token_hash = hex::encode(Sha256::digest(b"token"));
+    let queued = |run_id, agent| {
+        let mut queued = running_run(run_id, agent, focus, Some(task_id), Vec::new());
+        queued.status = RunStatus::Queued;
+        queued.started_at = None;
+        queued.fencing_token_hash = token_hash.clone();
+        queued
+    };
+    let start = |run_id| StartRunInput {
+        run_id,
+        computer_id: computer(999),
+        fencing_token_hash: token_hash.clone(),
+        now: OffsetDateTime::UNIX_EPOCH,
+    };
+
+    // A Run by an Agent that does not own the Task leaves the status alone.
+    let foreign_run = run(244);
+    let mut port = MemoryPort::default();
+    let mut todo = make_task(task_id, focus, assignee, TaskStatus::Todo);
+    todo.assignee_agent_member_id = Some(assignee);
+    port.state.tasks.insert(task_id, todo.clone());
+    port.state
+        .runs
+        .insert(foreign_run, queued(foreign_run, other_agent));
+    port.state
+        .computer_assignments
+        .insert((computer(999), other_agent));
+    StartRun::execute(&mut port, start(foreign_run))
+        .await
+        .unwrap();
+    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::Todo);
+
+    // The assignee's Run advances it, and a replay does not transition twice.
+    let owned_run = run(245);
+    let mut port = MemoryPort::default();
+    port.state.tasks.insert(task_id, todo);
+    port.state
+        .runs
+        .insert(owned_run, queued(owned_run, assignee));
+    port.state
+        .computer_assignments
+        .insert((computer(999), assignee));
+    StartRun::execute(&mut port, start(owned_run))
+        .await
+        .unwrap();
+    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert!(
+        port.state
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::TaskUpdated(id) if *id == task_id))
+    );
+    port.state.effects.clear();
+    StartRun::execute(&mut port, start(owned_run))
+        .await
+        .unwrap();
+    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert!(port.state.effects.is_empty());
+}
+
+#[tokio::test]
+async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
+    let author = member(250);
+    let first_agent = member(251);
+    let second_agent = member(252);
+    let root = thread(253);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, root, &[author, first_agent, second_agent]);
+    port.state.notified_agents = vec![first_agent, second_agent];
+
+    PublishMessage::execute(
+        &mut port,
+        MessageDraft {
+            message_id: message(254),
+            channel_id: channel(1),
+            author_member_id: author,
+            idempotency_key: idempotency(255),
+            body_markdown: "回复".into(),
+            thread_id: Some(root),
+            reply_to_message_id: None,
+            mentions: Vec::new(),
+            attachment_ids: Vec::new(),
+            handled_item: None,
+            expected_snapshot: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        port.state
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::ThreadUpdated(id) if *id == root))
+    );
+    let notified = port
+        .state
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::InboxChanged(member_id) => Some(*member_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(notified, vec![first_agent, second_agent]);
+}
+
+#[tokio::test]
+async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items() {
+    let agent = member(260);
+    let focus = thread(261);
+    let expired_run = run(262);
+    let live_run = run(263);
+    let retryable = item(264);
+    let exhausted = item(265);
+    let now = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(5);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+
+    let mut abandoned = running_run(expired_run, agent, focus, None, vec![retryable, exhausted]);
+    abandoned.lease_expires_at = now - time::Duration::minutes(1);
+    port.state.runs.insert(expired_run, abandoned);
+    // A Run whose lease still holds must survive the sweep untouched.
+    let mut healthy = running_run(live_run, member(266), focus, None, Vec::new());
+    healthy.lease_expires_at = now + time::Duration::minutes(1);
+    port.state.runs.insert(live_run, healthy);
+    for (item_id, retry_count) in [(retryable, 0), (exhausted, 2)] {
+        let mut leased = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
+        leased.lease_run_id = Some(expired_run);
+        leased.lease_expires_at = Some(now - time::Duration::minutes(1));
+        leased.retry_count = retry_count;
+        port.state.items.insert(item_id, leased);
+    }
+
+    let reclaimed = ReclaimExpiredLeases::execute(
+        &mut port,
+        ReclaimExpiredLeasesInput {
+            now,
+            limit: 10,
+            max_retry_count: 2,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        reclaimed,
+        ReclaimedLeases {
+            runs_failed: 1,
+            items_released: 1,
+            items_dead: 1,
+        }
+    );
+    assert_eq!(port.state.runs[&expired_run].status, RunStatus::Failed);
+    assert_eq!(
+        port.state.runs[&expired_run].error_code,
+        Some(RunErrorCode::ProcessLost)
+    );
+    assert_eq!(
+        port.state.runs[&live_run].status,
+        RunStatus::Running,
+        "a Run holding a valid lease is untouched"
+    );
+    assert_eq!(
+        port.state.items[&retryable].status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(port.state.items[&exhausted].status, InboxItemStatus::Dead);
+    assert_eq!(
+        port.state.dead_item_notices,
+        vec![(agent, "inbox_item_dead")],
+        "a retired Item reports itself without copying the source Message"
+    );
+
+    // The sweep is idempotent: the Run is terminal, so a second pass changes nothing.
+    let repeated = ReclaimExpiredLeases::execute(
+        &mut port,
+        ReclaimExpiredLeasesInput {
+            now,
+            limit: 10,
+            max_retry_count: 2,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(repeated, ReclaimedLeases::default());
+    assert_eq!(port.state.items[&retryable].retry_count, 1);
+}
+
+#[tokio::test]
 async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
     let agent = member(137);
     let focus = thread(138);
@@ -1820,15 +2057,19 @@ async fn result_message_failure_rolls_back_task_completion() {
     );
     port.state.reject_message_insert = true;
 
-    let error = CompleteTask::execute(
+    let error = RecordTaskOutcome::execute(
         &mut port,
-        CompleteTaskInput {
-            task_id,
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::Browser { task_id },
             actor_member_id: assignee,
             idempotency_key: idempotency(203),
-            result_message_id: result_id,
-            result_thread_id: focus,
-            result_markdown: "完成".into(),
+            outcome: TaskOutcome::Done {
+                result: OutcomeMessage {
+                    message_id: result_id,
+                    body_markdown: "完成".into(),
+                    post_to: TaskPostTarget::Thread(focus),
+                },
+            },
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
@@ -1880,21 +2121,25 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
     current_run.items[1].disposition = Some(InboxItemDisposition::Deferred);
     port.state.runs.insert(run_id, current_run);
 
-    let input = || FinishAgentTaskInput {
-        run_id,
-        computer_id,
+    let input = || RecordTaskOutcomeInput {
+        scope: TaskOutcomeScope::AgentRun(OutcomeRunContext {
+            run_id,
+            computer_id,
+            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
+            message_snapshot_sequence: 0,
+        }),
         actor_member_id: agent,
-        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
         idempotency_key: key,
-        message_snapshot_sequence: 0,
-        action: FinishAgentTaskAction::Done {
-            message_id: result_id,
-            result: "完成".into(),
-            post_to: TaskPostTarget::Focus,
+        outcome: TaskOutcome::Done {
+            result: OutcomeMessage {
+                message_id: result_id,
+                body_markdown: "完成".into(),
+                post_to: TaskPostTarget::Focus,
+            },
         },
         now,
     };
-    let completed = FinishAgentTaskRun::execute(&mut port, input())
+    let completed = RecordTaskOutcome::execute(&mut port, input())
         .await
         .unwrap();
 
@@ -1914,7 +2159,7 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
         vec![(agent, "task.done".into(), task_id)]
     );
 
-    let replayed = FinishAgentTaskRun::execute(&mut port, input())
+    let replayed = RecordTaskOutcome::execute(&mut port, input())
         .await
         .unwrap();
     assert_eq!(replayed, completed);
@@ -2018,13 +2263,13 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
         make_task(task_id, focus, assignee, TaskStatus::InProgress),
     );
 
-    UpdateTask::execute(
+    RecordTaskOutcome::execute(
         &mut port,
-        UpdateTaskInput {
-            task_id,
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::Browser { task_id },
             actor_member_id: assignee,
             idempotency_key: idempotency(204),
-            action: TaskAction::SubmitReview,
+            outcome: TaskOutcome::SubmitReview { message: None },
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
@@ -2060,13 +2305,13 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
     .unwrap();
     assert_eq!(returned.status, TaskStatus::InProgress);
 
-    let closed = UpdateTask::execute(
+    let closed = RecordTaskOutcome::execute(
         &mut port,
-        UpdateTaskInput {
-            task_id,
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::Browser { task_id },
             actor_member_id: assignee,
             idempotency_key: idempotency(207),
-            action: TaskAction::Close {
+            outcome: TaskOutcome::Close {
                 reason: CloseReason::Obsolete,
                 note: None,
             },

@@ -35,6 +35,8 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
         &["crate::server", "crate::computer::core", "sqlx"],
     );
     assert_scoped_visibility("src/ids.rs");
+    assert_scoped_visibility("src/config.rs");
+    assert_scoped_visibility("src/cli.rs");
     assert_scoped_visibility("src/protocol");
     assert_scoped_visibility("src/server");
     assert_scoped_visibility("src/computer");
