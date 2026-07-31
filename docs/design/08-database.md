@@ -291,6 +291,7 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `lease_run_id`
 - `lease_expires_at`
 - `retry_count`
+- `requeue_count`
 - `handled_at`
 - `last_error_code`
 - `created_at`
@@ -300,6 +301,8 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `force_at`
 
 Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路由事实。
+
+`retry_count`记录失败的投递尝试，达到上限后 Item 进入`dead`。`requeue_count`记录治理者把该 Item 从`dead`放回队列的次数；放回会重置`retry_count`，因此只有`requeue_count`能说明该 Item 曾被人工恢复，见 [安全与运维](09-security-operations.md) 的运维动作。
 
 后四列描述一个 ambient 聚合覆盖的 Message 区间，见 [Inbox 与凭据](06-inbox-credentials.md) 的 Ambient 聚合。它们由 CHECK 约束为同时存在或同时为空，只允许出现在`strength='ambient'`的行上，且该行的`message_id`必须为空：聚合项代表区间，不代表单条 Message。`aggregated_count`不得超过`last_message_seq - first_message_seq + 1`。
 

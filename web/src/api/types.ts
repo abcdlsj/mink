@@ -262,6 +262,16 @@ export interface components {
             /** Format: uuid */
             message_id?: string | null;
             priority: components["schemas"]["InboxPriority"];
+            /**
+             * Format: int32
+             * @description Times a governor returned this Item from `dead` to the queue.
+             */
+            requeue_count: number;
+            /**
+             * Format: int32
+             * @description Failed delivery attempts so far. Reaching `max_retry_count` retires the Item as `dead`.
+             */
+            retry_count: number;
             sender_display_name?: string | null;
             /** Format: uuid */
             sender_member_id?: string | null;

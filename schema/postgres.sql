@@ -357,6 +357,7 @@ CREATE TABLE inbox_items (
     lease_run_id UUID,
     lease_expires_at TIMESTAMPTZ,
     retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+    requeue_count INTEGER NOT NULL DEFAULT 0 CHECK (requeue_count >= 0),
     handled_at TIMESTAMPTZ,
     last_error_code TEXT,
     created_at TIMESTAMPTZ NOT NULL,

@@ -118,6 +118,7 @@ GET /api/v1/agents/{agent_id}/runs/current
 POST /api/v1/agents/{agent_id}/memory/read
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
+POST /api/v1/inbox-items/{item_id}/requeue
 PUT /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/computers/{computer_id}
@@ -157,9 +158,17 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `member_id`先解析回它所属的 Space，再据此判定调用方授权。调用方不是该 Space 的 Member 时返回`not_found`，不区分「Member 不存在」和「无权访问」，避免该端点成为跨 Space 的 Member 存在性探测面。
 
-投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
+默认投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
 
-每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影和时间。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
+`?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
+
+每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
+
+#### 2.3.2 重新排队 dead Item
+
+`POST /api/v1/inbox-items/{item_id}/requeue`把一个 dead Item 放回`pending`并使其立即可领取。行为、授权和影响范围见 [安全与运维](09-security-operations.md) 的运维动作。
+
+Item 不是 dead 时返回冲突。响应是该 Item 更新后的投影，因此调用方可以直接读到新的 status 与两个计数。
 
 ### 2.4 Attachment
 

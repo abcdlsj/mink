@@ -222,6 +222,14 @@ pub(in crate::server) enum MemberKind {
     Agent,
 }
 
+/// Which Items an Inbox read returns. The queue is the default; retired Items are a separate view so a
+/// governor can find what to requeue without turning history into part of the queue.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum InboxScope {
+    Queue,
+    Dead,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
@@ -237,6 +245,8 @@ pub(in crate::server) struct InboxItemView {
     pub(in crate::server) sender_display_name: Option<String>,
     pub(in crate::server) available_at: time::OffsetDateTime,
     pub(in crate::server) created_at: time::OffsetDateTime,
+    pub(in crate::server) retry_count: u32,
+    pub(in crate::server) requeue_count: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -517,7 +527,12 @@ pub(in crate::server) trait ServerTransaction {
     async fn inbox_for_member(
         &mut self,
         member_id: MemberId,
+        scope: InboxScope,
     ) -> Result<Vec<InboxItemView>, ApplicationError>;
+    async fn inbox_item_view(
+        &mut self,
+        item_id: InboxItemId,
+    ) -> Result<InboxItemView, ApplicationError>;
     async fn space_of_member(
         &mut self,
         member_id: MemberId,
@@ -762,6 +777,15 @@ pub(in crate::server) trait ServerTransaction {
         actor: MemberId,
         action: &str,
         task_id: TaskId,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    /// Records a governance action taken on one Inbox Item. Carries no Message body, so the audit
+    /// states what was done to which Item without copying the source.
+    async fn record_inbox_item_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        item_id: InboxItemId,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
     fn emit(&mut self, effect: Effect);

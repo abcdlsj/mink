@@ -551,6 +551,10 @@ pub(super) struct InboxItemResponse {
     pub(super) status: InboxStatus,
     pub(super) available_at: String,
     pub(super) created_at: String,
+    /// Failed delivery attempts so far. Reaching `max_retry_count` retires the Item as `dead`.
+    pub(super) retry_count: u32,
+    /// Times a governor returned this Item from `dead` to the queue.
+    pub(super) requeue_count: u32,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

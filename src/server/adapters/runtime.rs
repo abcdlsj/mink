@@ -51,7 +51,10 @@ use crate::{
             AttachmentContent, CompleteUpload, CompleteUploadInput, OpenUpload, OpenUploadInput,
             ReadAttachment, WriteUploadContent, WriteUploadContentInput,
         },
-        application::attention::{ReadMemberInbox, RouteHardItem, RouteHardItemInput},
+        application::attention::{
+            ReadMemberInbox, RequeueDeadItem, RequeueDeadItemInput, RouteHardItem,
+            RouteHardItemInput,
+        },
         application::computer::{
             AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing,
             ConfirmPairingInput, ListSpaceComputers, ReadPairedComputer, ReadPairing,
@@ -90,7 +93,7 @@ use crate::{
                 ReadInvitation,
             },
             ports::{
-                ApplicationError, AuthenticatedHuman, DirectMessageView, InboxItemView,
+                ApplicationError, AuthenticatedHuman, DirectMessageView, InboxItemView, InboxScope,
                 InvitationView, MemberKind, MessageDraft, PairedComputer, RawFencingToken,
                 RawInvitationToken, RawPairingCode, RawSessionToken, ServerTransaction,
                 SpaceMemberView, TransactionPort,
@@ -561,6 +564,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             axum::routing::patch(update_message).delete(delete_message),
         )
         .route("/members/{member_id}/inbox", get(member_inbox))
+        .route("/inbox-items/{item_id}/requeue", post(requeue_inbox_item))
         .route(
             "/members/{member_id}/permissions/{action_code}",
             axum::routing::put(grant_permission).delete(revoke_permission),
@@ -4920,11 +4924,23 @@ async fn open_direct_message(
     ))
 }
 
+#[derive(serde::Deserialize)]
+struct InboxQuery {
+    /// Absent reads the queue. `dead` reads retired Items, which a governor needs to requeue them.
+    status: Option<String>,
+}
+
 async fn member_inbox(
     State(state): State<RuntimeState>,
     jar: CookieJar,
     Path(member_id): Path<Uuid>,
+    Query(query): Query<InboxQuery>,
 ) -> Result<Json<Vec<InboxItemResponse>>, ApiError> {
+    let scope = match query.status.as_deref() {
+        None => InboxScope::Queue,
+        Some("dead") => InboxScope::Dead,
+        Some(_) => return Err(ApiError::invalid("status accepts only dead")),
+    };
     let target = MemberId::from_uuid(member_id);
     let mut storage = state.storage.clone();
     let space_id = storage
@@ -4937,11 +4953,45 @@ async fn member_inbox(
         .await
         .map_err(application_error)?;
     let actor = current_member(&state, &jar, space_id.into_uuid()).await?;
-    let items =
-        ReadMemberInbox::execute(&mut storage, MemberId::from_uuid(actor), target, space_id)
-            .await
-            .map_err(application_error)?;
+    let items = ReadMemberInbox::execute(
+        &mut storage,
+        MemberId::from_uuid(actor),
+        target,
+        space_id,
+        scope,
+    )
+    .await
+    .map_err(application_error)?;
     Ok(Json(items.iter().map(inbox_item_response).collect()))
+}
+
+/// Returns a retired Item to the queue. The Item belongs to an Agent, so the caller is authorized as a
+/// governor of that Agent's Space; the Space is resolved from the Item rather than taken from the path.
+async fn requeue_inbox_item(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(item_id): Path<Uuid>,
+) -> Result<Json<InboxItemResponse>, ApiError> {
+    let item_id = InboxItemId::from_uuid(item_id);
+    let mut storage = state.storage.clone();
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM inbox_items WHERE id=$1")
+        .bind(item_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = current_member(&state, &jar, space_id).await?;
+    let item = RequeueDeadItem::execute(
+        &mut storage,
+        RequeueDeadItemInput {
+            item_id,
+            actor_id: MemberId::from_uuid(actor),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(inbox_item_response(&item)))
 }
 
 fn direct_message_response(conversation: &DirectMessageView) -> DirectMessageResponse {
@@ -4990,6 +5040,8 @@ fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
         status: inbox_status_code(item.status),
         available_at: timestamp(item.available_at),
         created_at: timestamp(item.created_at),
+        retry_count: item.retry_count,
+        requeue_count: item.requeue_count,
     }
 }
 

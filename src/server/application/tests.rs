@@ -31,7 +31,10 @@ use super::{
         CompleteUploadInput as CompleteAttachmentUploadInput, OpenUpload, OpenUploadInput,
         ReadAttachment, WriteUploadContent, WriteUploadContentInput,
     },
-    attention::{HardItemRoute, ReadMemberInbox, RouteHardItem, RouteHardItemInput},
+    attention::{
+        HardItemRoute, ReadMemberInbox, RequeueDeadItem, RequeueDeadItemInput, RouteHardItem,
+        RouteHardItemInput,
+    },
     computer::{
         AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing, ConfirmPairingInput,
         ReadPairing, ReadPairingStatus,
@@ -57,10 +60,11 @@ use super::{
     },
     ports::{
         ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord,
-        DirectMessageView, Effect, HumanMemberRecord, InboxItemView, InvitationTokenPort,
-        MemberKind, MessageDraft, PairedComputer, PairingCodePort, PasswordPort, PublishedMessage,
-        RawInvitationToken, RawPairingCode, RawSessionToken, ServerTransaction, SessionTokenPort,
-        SpaceHumanMember, SpaceMemberView, StoredObject, TransactionPort,
+        DirectMessageView, Effect, HumanMemberRecord, InboxItemView, InboxScope,
+        InvitationTokenPort, MemberKind, MessageDraft, PairedComputer, PairingCodePort,
+        PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
+        ServerTransaction, SessionTokenPort, SpaceHumanMember, SpaceMemberView, StoredObject,
+        TransactionPort,
     },
     task::{
         CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,
@@ -166,6 +170,7 @@ struct MemoryState {
     idempotency: HashMap<(MemberId, String, IdempotencyKey), TaskId>,
     resource_idempotency: HashMap<(MemberId, String, IdempotencyKey), uuid::Uuid>,
     task_audits: Vec<(MemberId, String, TaskId)>,
+    inbox_item_audits: Vec<(MemberId, String, InboxItemId)>,
     completed_run_events: HashMap<EventId, RunId>,
     assignable_agents: HashSet<MemberId>,
     permissions: HashSet<(MemberId, PermissionAction)>,
@@ -502,6 +507,7 @@ impl ServerTransaction for MemoryTransaction {
     async fn inbox_for_member(
         &mut self,
         member_id: MemberId,
+        scope: InboxScope,
     ) -> Result<Vec<InboxItemView>, ApplicationError> {
         Ok(self
             .state
@@ -509,29 +515,29 @@ impl ServerTransaction for MemoryTransaction {
             .values()
             .filter(|item| {
                 item.agent_id == member_id
-                    && matches!(
-                        item.status,
-                        InboxItemStatus::Pending
-                            | InboxItemStatus::Leased
-                            | InboxItemStatus::Deferred
-                    )
+                    && match scope {
+                        InboxScope::Queue => matches!(
+                            item.status,
+                            InboxItemStatus::Pending
+                                | InboxItemStatus::Leased
+                                | InboxItemStatus::Deferred
+                        ),
+                        InboxScope::Dead => item.status == InboxItemStatus::Dead,
+                    }
             })
-            .map(|item| InboxItemView {
-                id: item.id,
-                member_id: item.agent_id,
-                kind: item.kind,
-                strength: item.strength,
-                status: item.status,
-                channel_id: None,
-                channel_slug: None,
-                thread_id: Some(item.thread_id),
-                message_id: item.message_id,
-                sender_member_id: None,
-                sender_display_name: None,
-                available_at: item.available_at,
-                created_at: item.available_at,
-            })
+            .map(inbox_view)
             .collect())
+    }
+
+    async fn inbox_item_view(
+        &mut self,
+        item_id: InboxItemId,
+    ) -> Result<InboxItemView, ApplicationError> {
+        self.state
+            .items
+            .get(&item_id)
+            .map(inbox_view)
+            .ok_or(ApplicationError::NotFound)
     }
 
     async fn space_of_member(
@@ -1300,6 +1306,19 @@ impl ServerTransaction for MemoryTransaction {
         self.state
             .task_audits
             .push((actor, action.to_owned(), task_id));
+        Ok(())
+    }
+
+    async fn record_inbox_item_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        item_id: InboxItemId,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .inbox_item_audits
+            .push((actor, action.to_owned(), item_id));
         Ok(())
     }
 
@@ -2682,6 +2701,26 @@ fn running_run(
     }
 }
 
+fn inbox_view(item: &InboxItem) -> InboxItemView {
+    InboxItemView {
+        id: item.id,
+        member_id: item.agent_id,
+        kind: item.kind,
+        strength: item.strength,
+        status: item.status,
+        channel_id: None,
+        channel_slug: None,
+        thread_id: Some(item.thread_id),
+        message_id: item.message_id,
+        sender_member_id: None,
+        sender_display_name: None,
+        available_at: item.available_at,
+        created_at: item.available_at,
+        retry_count: item.retry_count,
+        requeue_count: item.requeue_count,
+    }
+}
+
 fn inbox(
     id: InboxItemId,
     agent: MemberId,
@@ -2704,6 +2743,7 @@ fn inbox(
             .then_some(run(if id.into_uuid().as_u128() == 3 { 4 } else { 53 })),
         lease_expires_at: (status == InboxItemStatus::Leased).then_some(OffsetDateTime::UNIX_EPOCH),
         retry_count: 0,
+        requeue_count: 0,
         handled_at: None,
         ambient: None,
     }
@@ -3813,39 +3853,142 @@ async fn a_member_reads_only_their_own_inbox_unless_the_target_is_an_agent() {
         );
     }
 
-    let own = ReadMemberInbox::execute(&mut port, owner, owner, space_id)
+    let own = ReadMemberInbox::execute(&mut port, owner, owner, space_id, InboxScope::Queue)
         .await
         .expect("a Member reads their own Inbox");
     assert_eq!(own.len(), 1);
     assert_eq!(own[0].member_id, owner);
 
-    let agent_inbox = ReadMemberInbox::execute(&mut port, owner, agent_id, space_id)
-        .await
-        .expect("a governor reads an Agent Inbox");
+    let agent_inbox =
+        ReadMemberInbox::execute(&mut port, owner, agent_id, space_id, InboxScope::Queue)
+            .await
+            .expect("a governor reads an Agent Inbox");
     assert_eq!(agent_inbox.len(), 1);
 
     assert_eq!(
-        ReadMemberInbox::execute(&mut port, owner, other_human, space_id)
+        ReadMemberInbox::execute(&mut port, owner, other_human, space_id, InboxScope::Queue)
             .await
             .err(),
         Some(ApplicationError::PermissionDenied)
     );
 
     assert_eq!(
-        ReadMemberInbox::execute(&mut port, other_human, agent_id, space_id)
-            .await
-            .err(),
+        ReadMemberInbox::execute(
+            &mut port,
+            other_human,
+            agent_id,
+            space_id,
+            InboxScope::Queue
+        )
+        .await
+        .err(),
         Some(ApplicationError::PermissionDenied)
     );
 
     let outsider = member(7005);
     space_member_fixture(&mut port, outsider, space(2), AccessLevel::Owner);
     assert_eq!(
-        ReadMemberInbox::execute(&mut port, owner, outsider, space_id)
+        ReadMemberInbox::execute(&mut port, owner, outsider, space_id, InboxScope::Queue)
             .await
             .err(),
         Some(ApplicationError::NotFound)
     );
+}
+
+#[tokio::test]
+async fn only_a_governor_requeues_a_dead_item_and_the_queue_hides_it_until_then() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(1);
+    let owner = member(7401);
+    let plain = member(7402);
+    let agent_id = member(7403);
+    space_member_fixture(&mut port, owner, space_id, AccessLevel::Owner);
+    space_member_fixture(&mut port, plain, space_id, AccessLevel::Member);
+    space_member_fixture(&mut port, agent_id, space_id, AccessLevel::Member);
+    port.state.agents.insert(
+        agent_id,
+        Agent {
+            member_id: agent_id,
+            space_id,
+            computer_id: Some(computer(7406)),
+            role_text: "assist".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
+
+    let item_id = item(7404);
+    let mut dead = inbox(item_id, agent_id, thread(7405), None, InboxItemStatus::Dead);
+    dead.retry_count = 5;
+    port.state.items.insert(item_id, dead);
+
+    // A retired Item is history, so the queue omits it while a governance read finds it.
+    assert!(
+        ReadMemberInbox::execute(&mut port, owner, agent_id, space_id, InboxScope::Queue)
+            .await
+            .expect("a governor reads the Agent queue")
+            .is_empty()
+    );
+    assert_eq!(
+        ReadMemberInbox::execute(&mut port, owner, agent_id, space_id, InboxScope::Dead)
+            .await
+            .expect("a governor reads retired Items")
+            .len(),
+        1
+    );
+
+    // Governing the Space is required; ordinary membership is not enough.
+    assert_eq!(
+        RequeueDeadItem::execute(
+            &mut port,
+            RequeueDeadItemInput {
+                item_id,
+                actor_id: plain,
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Dead);
+    assert!(port.state.inbox_item_audits.is_empty());
+
+    let view = RequeueDeadItem::execute(
+        &mut port,
+        RequeueDeadItemInput {
+            item_id,
+            actor_id: owner,
+            now,
+        },
+    )
+    .await
+    .expect("a governor returns the Item to the queue");
+    assert_eq!(view.status, InboxItemStatus::Pending);
+    assert_eq!((view.retry_count, view.requeue_count), (0, 1));
+    assert_eq!(
+        port.state.inbox_item_audits,
+        vec![(owner, "inbox_item.requeued".to_owned(), item_id)]
+    );
+    assert!(port.state.effects.contains(&Effect::InboxChanged(agent_id)));
+
+    // The Item is back in the queue, so requeueing it again is not a valid transition.
+    assert!(matches!(
+        RequeueDeadItem::execute(
+            &mut port,
+            RequeueDeadItemInput {
+                item_id,
+                actor_id: owner,
+                now,
+            },
+        )
+        .await,
+        Err(ApplicationError::Domain(_))
+    ));
+    assert_eq!(port.state.items[&item_id].requeue_count, 1);
 }
 
 #[tokio::test]

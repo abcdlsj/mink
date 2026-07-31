@@ -105,6 +105,9 @@ pub(in crate::server) struct InboxItem {
     pub(in crate::server) lease_run_id: Option<RunId>,
     pub(in crate::server) lease_expires_at: Option<OffsetDateTime>,
     pub(in crate::server) retry_count: u32,
+    /// Times a governor returned this Item from `dead` to the queue. Retained across those returns so
+    /// a repeatedly failing source stays distinguishable from a fresh Item.
+    pub(in crate::server) requeue_count: u32,
     pub(in crate::server) handled_at: Option<OffsetDateTime>,
     /// Present only on ambient Items, which stand for a range of Messages instead of one.
     pub(in crate::server) ambient: Option<AmbientAggregate>,
@@ -138,6 +141,7 @@ impl InboxItem {
             lease_run_id: None,
             lease_expires_at: None,
             retry_count: 0,
+            requeue_count: 0,
             handled_at: None,
             ambient: Some(ambient),
         }
@@ -265,6 +269,26 @@ impl InboxItem {
         Ok(self.status)
     }
 
+    /// Returns a retired Item to the queue on a governor's decision.
+    ///
+    /// Clearing `retry_count` is what makes the action useful: a `dead` Item has already exhausted
+    /// `max_retry_count`, so keeping the count would retire it again on the next expiry. `requeue_count`
+    /// records that a governor overrode the retirement, so a source that keeps failing stays visible
+    /// instead of looking like a fresh Item.
+    pub(in crate::server) fn requeue_from_dead(
+        &mut self,
+        now: OffsetDateTime,
+    ) -> Result<(), DomainError> {
+        if self.status != InboxItemStatus::Dead {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.status = InboxItemStatus::Pending;
+        self.available_at = now;
+        self.retry_count = 0;
+        self.requeue_count += 1;
+        Ok(())
+    }
+
     pub(in crate::server) fn prepare_defer(
         &mut self,
         run_id: RunId,
@@ -301,6 +325,7 @@ mod tests {
             lease_run_id: Some(run_id),
             lease_expires_at: Some(OffsetDateTime::UNIX_EPOCH),
             retry_count,
+            requeue_count: 0,
             handled_at: None,
             ambient: None,
         }
@@ -400,6 +425,65 @@ mod tests {
             hard.absorb_ambient_message(11, now),
             Err(DomainError::ItemIsNotAmbientAggregate)
         );
+    }
+
+    #[test]
+    fn requeueing_a_dead_item_restores_its_retry_budget_and_counts_the_override() {
+        let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
+        let retired_at = OffsetDateTime::UNIX_EPOCH;
+        let requeued_at = retired_at + Duration::hours(1);
+
+        let mut item = leased_item(run_id, 2);
+        assert_eq!(
+            item.reclaim_expired_lease(run_id, 2, retired_at),
+            Ok(InboxItemStatus::Dead)
+        );
+
+        item.requeue_from_dead(requeued_at)
+            .expect("a governor may return a retired Item to the queue");
+        assert_eq!(item.status, InboxItemStatus::Pending);
+        assert_eq!(item.available_at, requeued_at);
+        assert_eq!(
+            item.retry_count, 0,
+            "without a fresh budget the next expiry would retire it again"
+        );
+        assert_eq!(item.requeue_count, 1);
+
+        // A second round trip accumulates, so a source that keeps failing stays visible.
+        item.lease_for_run(run_id, requeued_at)
+            .expect("the requeued Item is claimable again");
+        assert_eq!(
+            item.reclaim_expired_lease(run_id, 0, requeued_at),
+            Ok(InboxItemStatus::Dead)
+        );
+        item.requeue_from_dead(requeued_at).expect("requeued again");
+        assert_eq!(item.requeue_count, 2);
+    }
+
+    #[test]
+    fn only_a_dead_item_can_be_requeued() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
+
+        // A leased Item belongs to a live Run; requeueing it would strip that Run's lease.
+        let mut leased = leased_item(run_id, 0);
+        assert_eq!(
+            leased.requeue_from_dead(now),
+            Err(DomainError::InvalidTransition)
+        );
+        assert_eq!(leased.lease_run_id, Some(run_id));
+
+        // A handled Item is resolved history, not a retirement to undo.
+        let mut handled = leased_item(run_id, 0);
+        handled
+            .apply_disposition(run_id, InboxItemDisposition::Handled, now)
+            .expect("the owning Run resolves its Item");
+        assert_eq!(
+            handled.requeue_from_dead(now),
+            Err(DomainError::InvalidTransition)
+        );
+        assert_eq!(handled.status, InboxItemStatus::Handled);
+        assert_eq!(handled.requeue_count, 0);
     }
 
     #[test]

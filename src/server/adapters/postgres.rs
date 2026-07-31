@@ -23,8 +23,8 @@ use crate::{
     server::{
         application::ports::{
             ApplicationError, AuthenticatedHuman, ComputerRecord, CreatedSpace, DirectMessageView,
-            Effect, HumanMemberRecord, InboxItemView, MemberKind, MessageDraft, PairedComputer,
-            PublishedMessage, ServerTransaction, SpaceHumanMember, SpaceMemberView,
+            Effect, HumanMemberRecord, InboxItemView, InboxScope, MemberKind, MessageDraft,
+            PairedComputer, PublishedMessage, ServerTransaction, SpaceHumanMember, SpaceMemberView,
             TransactionPort,
         },
         domain::{
@@ -694,9 +694,15 @@ impl ServerTransaction for PostgresTransaction {
     async fn inbox_for_member(
         &mut self,
         member_id: MemberId,
+        scope: InboxScope,
     ) -> Result<Vec<InboxItemView>, ApplicationError> {
+        let statuses: &[&str] = match scope {
+            InboxScope::Queue => &["pending", "leased", "deferred"],
+            InboxScope::Dead => &["dead"],
+        };
         let rows = sqlx::query(
             "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+                    i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
              FROM inbox_items i \
@@ -704,14 +710,40 @@ impl ServerTransaction for PostgresTransaction {
              JOIN channels c ON c.id=t.channel_id \
              LEFT JOIN messages m ON m.id=i.message_id \
              LEFT JOIN members sender ON sender.id=m.author_member_id \
-             WHERE i.agent_id=$1 AND i.status IN ('pending','leased','deferred') \
+             WHERE i.agent_id=$1 AND i.status = ANY($2) \
              ORDER BY i.created_at DESC,i.id DESC",
         )
         .bind(member_id.into_uuid())
+        .bind(statuses)
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
         rows.iter().map(inbox_view_from_row).collect()
+    }
+
+    /// Reads one Item regardless of status, unlike `inbox_for_member`, which projects only the queue.
+    /// A governor acting on a retired Item needs to see the result of that action.
+    async fn inbox_item_view(
+        &mut self,
+        item_id: InboxItemId,
+    ) -> Result<InboxItemView, ApplicationError> {
+        let row = sqlx::query(
+            "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+                    i.retry_count,i.requeue_count,\
+                    i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
+                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
+             FROM inbox_items i \
+             JOIN threads t ON t.id=i.thread_id \
+             JOIN channels c ON c.id=t.channel_id \
+             LEFT JOIN messages m ON m.id=i.message_id \
+             LEFT JOIN members sender ON sender.id=m.author_member_id \
+             WHERE i.id=$1",
+        )
+        .bind(item_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        inbox_view_from_row(&row)
     }
 
     async fn space_of_member(
@@ -1987,7 +2019,7 @@ impl ServerTransaction for PostgresTransaction {
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         let changed = sqlx::query(
             "UPDATE inbox_items SET task_id=$2,status=$3,available_at=$4,lease_run_id=$5, \
-             lease_expires_at=$6,retry_count=$7,handled_at=$8, \
+             lease_expires_at=$6,retry_count=$7,handled_at=$8,requeue_count=$9, \
              last_error_code=CASE WHEN $3='leased' THEN NULL ELSE last_error_code END WHERE id=$1",
         )
         .bind(item.id.into_uuid())
@@ -1998,6 +2030,7 @@ impl ServerTransaction for PostgresTransaction {
         .bind(item.lease_expires_at)
         .bind(i32::try_from(item.retry_count).map_err(|_| ApplicationError::Conflict)?)
         .bind(item.handled_at)
+        .bind(i32::try_from(item.requeue_count).map_err(|_| ApplicationError::Conflict)?)
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
@@ -2432,6 +2465,30 @@ impl ServerTransaction for PostgresTransaction {
         Ok(())
     }
 
+    async fn record_inbox_item_audit(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        item_id: InboxItemId,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO audit_events \
+             (id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) \
+             SELECT $1,i.space_id,$2,$3,'inbox_item',i.id,'{}',$5 \
+             FROM inbox_items i WHERE i.id=$4",
+        )
+        .bind(Uuid::now_v7())
+        .bind(actor.into_uuid())
+        .bind(action)
+        .bind(item_id.into_uuid())
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     fn emit(&mut self, effect: Effect) {
         self.effects.push(effect);
     }
@@ -2457,8 +2514,8 @@ impl PostgresTransaction {
     ) -> Result<(), ApplicationError> {
         let open = sqlx::query(
             "SELECT id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,\
-                    available_at,lease_run_id,lease_expires_at,retry_count,handled_at,\
-                    first_message_seq,last_message_seq,aggregated_count,force_at \
+                    available_at,lease_run_id,lease_expires_at,retry_count,requeue_count,\
+                    handled_at,first_message_seq,last_message_seq,aggregated_count,force_at \
              FROM inbox_items \
              WHERE agent_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \
                AND retry_count=0 \
@@ -3250,6 +3307,8 @@ fn inbox_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItem, ApplicationE
         lease_expires_at: row.get("lease_expires_at"),
         retry_count: u32::try_from(row.get::<i32, _>("retry_count"))
             .map_err(|_| ApplicationError::Internal)?,
+        requeue_count: u32::try_from(row.get::<i32, _>("requeue_count"))
+            .map_err(|_| ApplicationError::Internal)?,
         handled_at: row.get("handled_at"),
         ambient: ambient_from_row(row)?,
     })
@@ -3530,6 +3589,10 @@ fn inbox_view_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItemView, App
         sender_display_name: row.get("sender_name"),
         available_at: row.get("available_at"),
         created_at: row.get("created_at"),
+        retry_count: u32::try_from(row.get::<i32, _>("retry_count"))
+            .map_err(|_| ApplicationError::Internal)?,
+        requeue_count: u32::try_from(row.get::<i32, _>("requeue_count"))
+            .map_err(|_| ApplicationError::Internal)?,
     })
 }
 
@@ -3590,6 +3653,7 @@ mod tests {
     use url::Url;
 
     use super::*;
+    use crate::server::application::attention::{RequeueDeadItem, RequeueDeadItemInput};
     use crate::server::application::conversation::{CreateAgentAction, CreateAgentActionInput};
     use crate::server::application::execution::{
         ClaimRun, ClaimRunInput, ReclaimExpiredLeases, ReclaimExpiredLeasesInput,
@@ -3829,6 +3893,83 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(routed, ("thread_activity".into(), "channel_activity".into()));
+
+            // Exhausting the retry budget retires the Item, and a governor's requeue must make it
+            // claimable again rather than leaving it to be retired on the next expiry.
+            let retired_run = Uuid::now_v7();
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 UPDATE inbox_items SET status='dead',lease_run_id=NULL,lease_expires_at=NULL,retry_count=5 WHERE id='{stale_item}';
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,outcome_code,created_at,started_at,finished_at) VALUES ('{retired_run}','{space}','{agent}','{root}','completed','hash',now(),'completed',now(),now(),now());
+                 COMMIT;"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            // Terminate the queued Run inserted above so the Agent has capacity to claim again.
+            sqlx::query(
+                "UPDATE agent_runs SET status='canceled',outcome_code='canceled',finished_at=now() \
+                 WHERE agent_id=$1 AND status='queued'",
+            )
+            .bind(agent)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            let requeued = RequeueDeadItem::execute(
+                &mut adapter,
+                RequeueDeadItemInput {
+                    item_id: InboxItemId::from_uuid(stale_item),
+                    actor_id: MemberId::from_uuid(owner),
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .expect("the Space Owner returns a retired Item to the queue");
+            assert_eq!(requeued.status, InboxItemStatus::Pending);
+            assert_eq!((requeued.retry_count, requeued.requeue_count), (0, 1));
+
+            // A fresh retry budget is what makes the requeue useful, so the Item must survive a claim.
+            ClaimRun::execute(
+                &mut adapter,
+                ClaimRunInput {
+                    run_id: RunId::from_uuid(Uuid::now_v7()),
+                    agent_id: MemberId::from_uuid(agent),
+                    computer_id: ComputerId::from_uuid(computer_id),
+                    task_id: None,
+                    focus_thread_id: ThreadId::from_uuid(root),
+                    item_ids: vec![InboxItemId::from_uuid(stale_item)],
+                    fencing_token: RawFencingToken::new("requeued".into()),
+                    lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
+                },
+            )
+            .await
+            .expect("a requeued Item can be claimed again");
+
+            // An Item already back in the queue is not a retirement to undo.
+            assert!(
+                RequeueDeadItem::execute(
+                    &mut adapter,
+                    RequeueDeadItemInput {
+                        item_id: InboxItemId::from_uuid(stale_item),
+                        actor_id: MemberId::from_uuid(owner),
+                        now: OffsetDateTime::now_utc(),
+                    },
+                )
+                .await
+                .is_err()
+            );
+
+            let audited: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM audit_events \
+                 WHERE action='inbox_item.requeued' AND subject_type='inbox_item' AND subject_id=$1",
+            )
+            .bind(stale_item)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(audited, 1, "only the accepted requeue is audited");
+
             pool.close().await;
         }
         .await;
