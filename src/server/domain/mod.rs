@@ -30,6 +30,8 @@ pub(in crate::server) enum DomainError {
     ItemScopeMismatch,
     #[error("ambient inbox item cannot attach to an active run")]
     AmbientItemCannotAttach,
+    #[error("inbox item does not aggregate ambient activity")]
+    ItemIsNotAmbientAggregate,
     #[error("run no longer accepts inbox items")]
     RunNotAcceptingItems,
     #[error("run item disposition is incomplete")]

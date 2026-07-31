@@ -99,7 +99,7 @@ use crate::{
         domain::{
             access::SessionLifetime,
             attachment::{Attachment, AttachmentStatus as AttachmentStatusKind, DeclaredContent},
-            attention::{AttentionStrength, InboxItemKind, InboxItemStatus},
+            attention::{AttentionPolicy, AttentionStrength, InboxItemKind, InboxItemStatus},
             conversation::ChannelKind,
             identity::{AccessLevel, DriverKind, PermissionAction},
             pairing::ComputerOs as ComputerOsKind,
@@ -617,7 +617,7 @@ async fn reclaim_expired_leases_forever(mut storage: PostgresAdapter) {
             ReclaimExpiredLeasesInput {
                 now: OffsetDateTime::now_utc(),
                 limit: LEASE_RECLAIM_BATCH,
-                max_retry_count: ATTENTION_MAX_RETRY_COUNT,
+                max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
             },
         )
         .await
@@ -2817,18 +2817,15 @@ const ACTIVITY_JOINS: &str = "\
     LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id \
     LEFT JOIN messages focus_message ON focus_message.id=focus_thread.root_message_id";
 
-/// Failed delivery attempts an Inbox Item survives before it is retired as `dead`. The projection in
-/// `attention_policy` reports this same value, so the published policy matches the enforced one.
-const ATTENTION_MAX_RETRY_COUNT: u32 = 5;
-
+/// Projects the limits the domain enforces, so the published policy cannot drift from the applied one.
 fn attention_policy() -> AttentionConfig {
     AttentionConfig {
         dm_immediate: true,
         mention_immediate: true,
         ambient_enabled: true,
-        ambient_debounce_seconds: 30,
-        ambient_max_wait_seconds: 300,
-        max_retry_count: ATTENTION_MAX_RETRY_COUNT,
+        ambient_debounce_seconds: AttentionPolicy::AMBIENT_DEBOUNCE_SECONDS,
+        ambient_max_wait_seconds: AttentionPolicy::AMBIENT_MAX_WAIT_SECONDS,
+        max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
     }
 }
 

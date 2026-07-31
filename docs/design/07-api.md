@@ -137,7 +137,7 @@ Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`lab
 
 `attention_config`是 Server 的固定策略，没有对应存储也没有写入路径，因此只出现在读取投影中。`PATCH /api/v1/agents/{agent_id}`不接受该字段。
 
-`max_retry_count`是 lease 回收实际使用的上限。`ambient_debounce_seconds`和`ambient_max_wait_seconds`当前只是投影里的常量，因为 ambient 聚合尚未实现，见 [Inbox 与本地凭据](06-inbox-credentials.md)。UI 不得把这两个字段呈现为已生效的策略。
+三个数值字段都是 Server 实际执行的限制：`max_retry_count`是 lease 回收使用的上限，`ambient_debounce_seconds`和`ambient_max_wait_seconds`是 ambient 聚合的 debounce 与 force 上限，见 [Inbox 与凭据](06-inbox-credentials.md)。投影与执行读取同一组常量，因此不会出现「显示的策略」与「生效的策略」不一致。
 
 `memory_files`和`session_continuity`来自向在线 Computer 发起的 query，Server 不保存它们。Agent 未分配 Computer 或 Computer 不可达时，`memory_files`是空列表，`session_continuity.state`是`unavailable`，同一响应中的其他字段仍然可用。`session_continuity`只出现在单个 Task、`GET /api/v1/agents/{agent_id}/runs/current`和`sumi agent context current`中；Task 列表不发起 query。
 

@@ -65,9 +65,15 @@ daemon和Server不得读取正文决定attach或notice。
 
 ## 6. Ambient 聚合
 
-Server按Agent和Thread聚合ambient activity。聚合项保存首尾Message序号、数量、available time和force time。新Message不能无限推迟force time。
+Server 按 Agent 和 Thread 聚合 ambient activity。一个 Agent 在一个 Thread 上最多有一个 pending 聚合项，因此该 Thread 的连续普通 Message 只占一条 Item。聚合项保存首尾 Message 序号、数量、available time 和 force time，见 [数据库设计](08-database.md) 的`inbox_items`。
 
-hard Item优先于ambient Item。ambient Item在Agent有执行容量时才创建Run。
+聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message。
+
+available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可领取。该上限是防止新 Message 无限推迟处理的唯一机制。
+
+已领取的聚合项不再接受新 Message。该 Agent 已经收到这个区间，后续 Message 进入下一个聚合项。
+
+hard Item 优先于 ambient Item。ambient Item 在 Agent 有执行容量时才创建 Run：领取要求该 Agent 没有非终态 Run，且同一批候选中 hard Item 先被取走。
 
 ## 7. notice
 
@@ -97,11 +103,7 @@ Server领取Item或创建Run失败时，Item保持`pending`并记录稳定的`la
 
 后续领取成功时，Server必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源Message投影刷新。
 
-## 9. 尚未实现
-
-ambient 聚合尚未实现。第 6 节的聚合项、debounce 和 force time 不存在；每条普通 Channel Message 直接为每个订阅者或 Channel 成员生成一条独立 ambient Item。`attention_config`投影中的`ambient_debounce_seconds`和`ambient_max_wait_seconds`因此只是常量，不参与判断。
-
-## 10. 本地凭据
+## 9. 本地凭据
 
 Server不接收、不保存模型API key。以下Secret只存在于Computer受限文件和必要进程内存：
 
@@ -113,7 +115,7 @@ Server只保存Computer Token hash。Browser不提供模型Secret表单。Agent 
 
 本地文件权限和sandbox只能降低误读风险，不能防御root、同一OS用户下的恶意进程或已失陷Computer。产品文案必须说明该边界。
 
-## 11. 日志
+## 10. 日志
 
 日志和错误不得包含：
 

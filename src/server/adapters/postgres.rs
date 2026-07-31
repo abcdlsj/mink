@@ -31,7 +31,8 @@ use crate::{
             access::{HumanRegistration, SpaceAccess},
             attachment::{Attachment, AttachmentStatus},
             attention::{
-                AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
+                AmbientAggregate, AttentionStrength, InboxItem, InboxItemDisposition,
+                InboxItemKind, InboxItemStatus,
             },
             conversation::{
                 Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread,
@@ -1782,28 +1783,45 @@ impl ServerTransaction for PostgresTransaction {
             BTreeSet::new()
         };
         let mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
+        let message_seq =
+            u64::try_from(channel_sequence).map_err(|_| ApplicationError::Internal)?;
         let mut hard_item_ids = Vec::new();
         let mut notified_agent_ids = Vec::new();
         for recipient in recipients {
             let agent_id = MemberId::from_uuid(recipient);
-            let (kind, strength) = if task_id.is_some() {
-                ("task_activity", "hard")
+            // One Message yields one Item per Agent at its highest strength. Ambient activity merges
+            // into that Agent's open aggregate for the Thread instead of adding a row per Message.
+            let kind = if task_id.is_some() {
+                "task_activity"
             } else if channel_kind == "direct" {
-                ("direct", "hard")
+                "direct"
             } else if mentioned.contains(&agent_id) {
-                ("mention", "hard")
+                "mention"
             } else if reply_author == Some(recipient) {
-                ("reply", "hard")
-            } else if subscribers.contains(&recipient) {
-                ("thread_activity", "ambient")
+                "reply"
             } else {
-                ("channel_activity", "ambient")
+                let kind = if subscribers.contains(&recipient) {
+                    InboxItemKind::ThreadActivity
+                } else {
+                    InboxItemKind::ChannelActivity
+                };
+                self.route_ambient_activity(
+                    SpaceId::from_uuid(space_id),
+                    agent_id,
+                    thread_id,
+                    kind,
+                    message_seq,
+                    draft.now,
+                )
+                .await?;
+                notified_agent_ids.push(agent_id);
+                continue;
             };
             let item_id = InboxItemId::from_uuid(Uuid::now_v7());
             sqlx::query(
                 "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
                  strength,status,available_at,created_at) \
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$9)",
+                 VALUES($1,$2,$3,$4,$5,$6,$7,'hard','pending',$8,$8)",
             )
             .bind(item_id.into_uuid())
             .bind(space_id)
@@ -1812,14 +1830,11 @@ impl ServerTransaction for PostgresTransaction {
             .bind(thread_id.into_uuid())
             .bind(task_id)
             .bind(kind)
-            .bind(strength)
             .bind(draft.now)
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-            if strength == "hard" {
-                hard_item_ids.push(item_id);
-            }
+            hard_item_ids.push(item_id);
             notified_agent_ids.push(agent_id);
         }
         Ok(PublishedMessage {
@@ -1967,6 +1982,8 @@ impl ServerTransaction for PostgresTransaction {
         Ok(item_id)
     }
 
+    /// Writes the Item's lifecycle fields. The ambient Message range is not among them: it changes
+    /// only while activity accumulates, which `route_ambient_activity` owns.
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         let changed = sqlx::query(
             "UPDATE inbox_items SET task_id=$2,status=$3,available_at=$4,lease_run_id=$5, \
@@ -2421,6 +2438,88 @@ impl ServerTransaction for PostgresTransaction {
 }
 
 impl PostgresTransaction {
+    /// Folds one ambient Message into the Agent's open aggregate for this Thread, opening one when
+    /// none exists.
+    ///
+    /// The caller holds the Channel row lock taken to allocate `channel_seq`, and a Thread belongs to
+    /// one Channel, so publishers into the same Thread are already serialized and neither the read nor
+    /// the count update can interleave. `FOR UPDATE` keeps that guarantee local to this statement
+    /// rather than depending on the caller's lock, and `inbox_items_open_ambient_aggregate` rejects a
+    /// second open aggregate if any future write path lacks that lock.
+    async fn route_ambient_activity(
+        &mut self,
+        space_id: SpaceId,
+        agent_id: MemberId,
+        thread_id: ThreadId,
+        kind: InboxItemKind,
+        message_seq: u64,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let open = sqlx::query(
+            "SELECT id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,\
+                    available_at,lease_run_id,lease_expires_at,retry_count,handled_at,\
+                    first_message_seq,last_message_seq,aggregated_count,force_at \
+             FROM inbox_items \
+             WHERE agent_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \
+               AND retry_count=0 \
+             FOR UPDATE",
+        )
+        .bind(agent_id.into_uuid())
+        .bind(thread_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if let Some(row) = open {
+            let mut item = inbox_from_row(&row)?;
+            // A Message this aggregate already covers is a replay; the range and count stand.
+            if item.absorb_ambient_message(message_seq, now).is_err() {
+                return Ok(());
+            }
+            let ambient = item.ambient.ok_or(ApplicationError::Internal)?;
+            sqlx::query(
+                "UPDATE inbox_items \
+                 SET last_message_seq=$2,aggregated_count=$3,available_at=$4 WHERE id=$1",
+            )
+            .bind(item.id.into_uuid())
+            .bind(i64::try_from(ambient.last_message_seq).map_err(|_| ApplicationError::Internal)?)
+            .bind(i32::try_from(ambient.aggregated_count).map_err(|_| ApplicationError::Internal)?)
+            .bind(item.available_at)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(());
+        }
+        let item = InboxItem::open_ambient(
+            InboxItemId::from_uuid(Uuid::now_v7()),
+            space_id,
+            agent_id,
+            thread_id,
+            kind,
+            message_seq,
+            now,
+        );
+        let ambient = item.ambient.ok_or(ApplicationError::Internal)?;
+        sqlx::query(
+            "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+             strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
+             force_at,created_at) \
+             VALUES($1,$2,$3,NULL,$4,NULL,$5,'ambient','pending',$6,$7,$7,1,$8,$9)",
+        )
+        .bind(item.id.into_uuid())
+        .bind(space_id.into_uuid())
+        .bind(agent_id.into_uuid())
+        .bind(thread_id.into_uuid())
+        .bind(inbox_kind_str(kind))
+        .bind(item.available_at)
+        .bind(i64::try_from(message_seq).map_err(|_| ApplicationError::Internal)?)
+        .bind(ambient.force_at)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     async fn rollback(&mut self) {
         let _ = sqlx::query("ROLLBACK").execute(&mut *self.connection).await;
     }
@@ -3152,7 +3251,27 @@ fn inbox_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItem, ApplicationE
         retry_count: u32::try_from(row.get::<i32, _>("retry_count"))
             .map_err(|_| ApplicationError::Internal)?,
         handled_at: row.get("handled_at"),
+        ambient: ambient_from_row(row)?,
     })
+}
+
+/// The four aggregate columns are constrained to be present or absent together, so the first one
+/// decides whether this Item aggregates.
+fn ambient_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<Option<AmbientAggregate>, ApplicationError> {
+    let Some(first_message_seq) = row.get::<Option<i64>, _>("first_message_seq") else {
+        return Ok(None);
+    };
+    Ok(Some(AmbientAggregate {
+        first_message_seq: u64::try_from(first_message_seq)
+            .map_err(|_| ApplicationError::Internal)?,
+        last_message_seq: u64::try_from(row.get::<i64, _>("last_message_seq"))
+            .map_err(|_| ApplicationError::Internal)?,
+        aggregated_count: u32::try_from(row.get::<i32, _>("aggregated_count"))
+            .map_err(|_| ApplicationError::Internal)?,
+        force_at: row.get("force_at"),
+    }))
 }
 
 fn command_kind(command: &Command) -> &'static str {
@@ -3256,18 +3375,9 @@ text_enum!(disposition_str, disposition_from_str, InboxItemDisposition, {
 text_enum!(inbox_status_str, inbox_status_from_str, InboxItemStatus, {
     InboxItemStatus::Pending => "pending", InboxItemStatus::Leased => "leased", InboxItemStatus::Deferred => "deferred", InboxItemStatus::Handled => "handled", InboxItemStatus::Dead => "dead"
 });
-fn inbox_kind_from_str(value: &str) -> Result<InboxItemKind, ApplicationError> {
-    match value {
-        "direct" => Ok(InboxItemKind::Direct),
-        "mention" => Ok(InboxItemKind::Mention),
-        "reply" => Ok(InboxItemKind::Reply),
-        "task_activity" => Ok(InboxItemKind::TaskActivity),
-        "thread_activity" => Ok(InboxItemKind::ThreadActivity),
-        "channel_activity" => Ok(InboxItemKind::ChannelActivity),
-        "system" => Ok(InboxItemKind::System),
-        _ => Err(ApplicationError::Internal),
-    }
-}
+text_enum!(inbox_kind_str, inbox_kind_from_str, InboxItemKind, {
+    InboxItemKind::Direct => "direct", InboxItemKind::Mention => "mention", InboxItemKind::Reply => "reply", InboxItemKind::TaskActivity => "task_activity", InboxItemKind::ThreadActivity => "thread_activity", InboxItemKind::ChannelActivity => "channel_activity", InboxItemKind::System => "system"
+});
 fn strength_from_str(value: &str) -> Result<AttentionStrength, ApplicationError> {
     match value {
         "hard" => Ok(AttentionStrength::Hard),
@@ -3719,6 +3829,186 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(routed, ("thread_activity".into(), "channel_activity".into()));
+            pool.close().await;
+        }
+        .await;
+
+        sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        result
+    }
+
+    /// Concurrent ambient publishers must not lose count or force-time updates, and the schema must
+    /// refuse a second open aggregate for one Agent and Thread. Both are SQL-level guarantees, so this
+    /// runs against real PostgreSQL.
+    #[tokio::test]
+    async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
+        let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+        let database_name = format!("sumi_ambient_aggregate_{}", Uuid::now_v7().simple());
+        let mut admin =
+            PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+                .await
+                .unwrap();
+        sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let mut database_url = Url::parse(&admin_url).unwrap();
+        database_url.set_path(&format!("/{database_name}"));
+
+        let result = async {
+            let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+            PostgresAdapter::new(pool.clone())
+                .initialize_schema()
+                .await
+                .unwrap();
+            let space = Uuid::now_v7();
+            let owner = Uuid::now_v7();
+            let agent = Uuid::now_v7();
+            let computer_id = Uuid::now_v7();
+            let channel = Uuid::now_v7();
+            let root = Uuid::now_v7();
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{owner}',now());
+                 INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner','owner',now());
+                 INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','lin','member',now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
+                 INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
+                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+                 INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0);
+                 INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+                 INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
+                 COMMIT;"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            // Twelve replies published concurrently. Each one is ordinary Channel activity for the
+            // Agent, so all twelve belong in a single aggregate.
+            const REPLIES: i32 = 12;
+            let published = (0..REPLIES)
+                .map(|_| {
+                    let pool = pool.clone();
+                    tokio::spawn(async move {
+                        let mut adapter = PostgresAdapter::new(pool);
+                        adapter
+                            .transact(async |transaction| {
+                                transaction
+                                    .publish_message(MessageDraft {
+                                        message_id: MessageId::from_uuid(Uuid::now_v7()),
+                                        channel_id: ChannelId::from_uuid(channel),
+                                        author_member_id: MemberId::from_uuid(owner),
+                                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                                        body_markdown: "reply".into(),
+                                        thread_id: Some(ThreadId::from_uuid(root)),
+                                        reply_to_message_id: None,
+                                        mentions: Vec::new(),
+                                        attachment_ids: Vec::new(),
+                                        handled_item: None,
+                                        expected_snapshot: None,
+                                        now: OffsetDateTime::now_utc(),
+                                    })
+                                    .await
+                            })
+                            .await
+                    })
+                })
+                .collect::<Vec<_>>();
+            for task in published {
+                task.await
+                    .expect("the publisher task runs")
+                    .expect("every concurrent ambient publisher commits");
+            }
+
+            let (items, count, first_seq, last_seq, force_at, available_at): (
+                i64,
+                i32,
+                i64,
+                i64,
+                OffsetDateTime,
+                OffsetDateTime,
+            ) = sqlx::query_as(
+                "SELECT count(*) OVER (),aggregated_count,first_message_seq,last_message_seq,\
+                        force_at,available_at \
+                 FROM inbox_items WHERE agent_id=$1 LIMIT 1",
+            )
+            .bind(agent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(items, 1, "ambient activity collapses into one Item");
+            assert_eq!(
+                count, REPLIES,
+                "no concurrent update was lost from the count"
+            );
+            // The Root Message holds sequence 1, so the replies occupy 2 through REPLIES + 1.
+            assert_eq!((first_seq, last_seq), (2, i64::from(REPLIES) + 1));
+            assert!(
+                available_at <= force_at,
+                "a busy Thread cannot postpone the aggregate past its deadline"
+            );
+
+            // The single-aggregate rule is enforced by the schema, not only by the write path.
+            let duplicate = sqlx::query(
+                "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+                 strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
+                 force_at,created_at) \
+                 VALUES($1,$2,$3,NULL,$4,NULL,'channel_activity','ambient','pending',now(),99,99,1,\
+                 now(),now())",
+            )
+            .bind(Uuid::now_v7())
+            .bind(space)
+            .bind(agent)
+            .bind(root)
+            .execute(&pool)
+            .await;
+            assert!(
+                duplicate.is_err(),
+                "a second open ambient aggregate for one Agent and Thread must be rejected"
+            );
+
+            // The aggregate names no source Message, so claiming it must not depend on one. Claiming
+            // also closes it to further Messages, which is why this runs last.
+            let aggregate_id: Uuid =
+                sqlx::query_scalar("SELECT id FROM inbox_items WHERE agent_id=$1")
+                    .bind(agent)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            sqlx::query("UPDATE inbox_items SET available_at=now() WHERE id=$1")
+                .bind(aggregate_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let mut adapter = PostgresAdapter::new(pool.clone());
+            ClaimRun::execute(
+                &mut adapter,
+                ClaimRunInput {
+                    run_id: RunId::from_uuid(Uuid::now_v7()),
+                    agent_id: MemberId::from_uuid(agent),
+                    computer_id: ComputerId::from_uuid(computer_id),
+                    task_id: None,
+                    focus_thread_id: ThreadId::from_uuid(root),
+                    item_ids: vec![InboxItemId::from_uuid(aggregate_id)],
+                    fencing_token: RawFencingToken::new("token".into()),
+                    lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
+                },
+            )
+            .await
+            .expect("an ambient aggregate is claimable without a source Message");
+            let leased: (String, Option<Uuid>) =
+                sqlx::query_as("SELECT status,message_id FROM inbox_items WHERE id=$1")
+                    .bind(aggregate_id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(leased, ("leased".into(), None));
+
             pool.close().await;
         }
         .await;

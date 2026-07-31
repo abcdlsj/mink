@@ -2705,6 +2705,7 @@ fn inbox(
         lease_expires_at: (status == InboxItemStatus::Leased).then_some(OffsetDateTime::UNIX_EPOCH),
         retry_count: 0,
         handled_at: None,
+        ambient: None,
     }
 }
 

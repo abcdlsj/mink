@@ -360,14 +360,34 @@ CREATE TABLE inbox_items (
     handled_at TIMESTAMPTZ,
     last_error_code TEXT,
     created_at TIMESTAMPTZ NOT NULL,
+    first_message_seq BIGINT CHECK (first_message_seq > 0),
+    last_message_seq BIGINT CHECK (last_message_seq > 0),
+    aggregated_count INTEGER CHECK (aggregated_count > 0),
+    force_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
     FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (lease_run_id, space_id) REFERENCES agent_runs(id, space_id) ON DELETE RESTRICT,
     CHECK ((status = 'leased') = (lease_run_id IS NOT NULL AND lease_expires_at IS NOT NULL)),
-    CHECK (status <> 'handled' OR handled_at IS NOT NULL)
+    CHECK (status <> 'handled' OR handled_at IS NOT NULL),
+    -- The four aggregate columns describe one Message range, so they are present or absent together.
+    CHECK (num_nonnulls(first_message_seq, last_message_seq, aggregated_count, force_at) IN (0, 4)),
+    -- Only an ambient Item aggregates. It stands for a Message range, so it names no single Message.
+    CHECK (first_message_seq IS NULL OR (strength = 'ambient' AND message_id IS NULL)),
+    CHECK (last_message_seq IS NULL OR last_message_seq >= first_message_seq),
+    -- The count cannot exceed the sequences the range spans.
+    CHECK (aggregated_count IS NULL OR aggregated_count <= last_message_seq - first_message_seq + 1)
 );
+-- One open ambient aggregate per Agent and Thread. Concurrent publishers therefore serialize on this
+-- index instead of each inserting a competing aggregate row.
+--
+-- `retry_count = 0` restricts the index to aggregates that were never claimed. A retried aggregate
+-- covers a range the Agent already received, so it accepts no further Messages and must not block the
+-- next aggregate for that Thread.
+CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate
+    ON inbox_items(agent_id, thread_id)
+    WHERE strength = 'ambient' AND status = 'pending' AND retry_count = 0;
 
 CREATE TABLE run_items (
     run_id UUID NOT NULL,

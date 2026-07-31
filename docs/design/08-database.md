@@ -294,8 +294,18 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `handled_at`
 - `last_error_code`
 - `created_at`
+- `first_message_seq`
+- `last_message_seq`
+- `aggregated_count`
+- `force_at`
 
 Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路由事实。
+
+后四列描述一个 ambient 聚合覆盖的 Message 区间，见 [Inbox 与凭据](06-inbox-credentials.md) 的 Ambient 聚合。它们由 CHECK 约束为同时存在或同时为空，只允许出现在`strength='ambient'`的行上，且该行的`message_id`必须为空：聚合项代表区间，不代表单条 Message。`aggregated_count`不得超过`last_message_seq - first_message_seq + 1`。
+
+`inbox_items_open_ambient_aggregate`是`(agent_id, thread_id)`上的 partial unique index，条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Agent 在一个 Thread 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被领取的聚合项上，因此 lease 回收放回的聚合项不阻塞该 Thread 的下一个聚合项。
+
+聚合项的写入路径持有分配`channel_seq`时取得的 Channel 行锁，Thread 只属于一个 Channel，因此同一 Thread 的并发 publish 已经串行；合并语句额外使用`FOR UPDATE`，使该保证不依赖调用方。
 
 ### 7.3 `agent_runs`
 
