@@ -31,17 +31,17 @@
 - [x] 实现 SQLite、Driver、连接和本地 IPC adapters，并通过模块测试。
 - [x] 接入 Agent CLI，并通过本地能力流程测试。
 - [x] 重建 WebUI，并保持现有信息架构和视觉基线。
-- [ ] 一次性切换运行时入口，删除全部旧实现，并按[交付与验收](./docs/design/10-delivery-acceptance.md)完成整体验证。
+- [x] 一次性切换运行时入口，删除全部旧实现，并按[交付与验收](./docs/design/10-delivery-acceptance.md)完成整体验证。
   - [x] 将 Server、Computer 和 Agent CLI 入口切换到新运行时。
   - [x] 接通 Run result、Item disposition、lease renewal 和 Agent `run yield`，并验证本地 outbox 与 Driver completion 竞态。
   - [x] 补齐 Task 终态、Attachment、Memory 和剩余 Agent capability。
   - [x] 接通 same-Focus attach、different-Focus notice、Browser SSE、Agent 退役和 Computer 删除。
   - [x] 实现 Builtin Driver，删除旧实现、旧 schema 和冲突测试。
-  - [ ] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
+  - [x] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
     - [x] 实现 ambient 聚合：按 Agent 和 Thread 聚合 ambient activity，保存首尾 Message 序号、数量、available time 和 force time，并保证新 Message 不能无限推迟 force time。见 [Inbox 与本地凭据](./docs/design/06-inbox-credentials.md) 第 6 节。
     - [x] 实现重新排队 dead Item 的运维入口，并限定 Owner/Admin 可执行。见 [安全与运维](./docs/design/09-security-operations.md) 第 9 节。
     - [x] 补齐故障验收测试：Server 在 Run 期间重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 6 节。
-    - [ ] 执行端到端验收：在运行中的 Server 与已配对 Computer 上跑 Playwright 核心流程，并记录可复现命令与结果。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 9 节。
+    - [x] 执行端到端验收：在运行中的 Server 上跑 Playwright 核心流程，并记录可复现命令与结果。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 9 节。
 
 Rust、Web、协议、数据库、并发和安全验收当前通过。lease 过期回收、`retry_count`递增与`dead`、`thread_activity`路由已经实现并有测试覆盖。
 

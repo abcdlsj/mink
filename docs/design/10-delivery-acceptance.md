@@ -214,4 +214,17 @@ cargo clippy --all-targets --all-features -- -D warnings
 Web 类型检查、lint、流程测试和 Playwright 核心流程
 ```
 
+Playwright 需要一个提供已构建 WebUI 的运行中 Server。`playwright.config.ts`的 baseURL 默认`http://127.0.0.1:3000`，用`PLAYWRIGHT_BASE_URL`指向其他端口：
+
+```text
+pnpm --dir web build
+createdb sumi_e2e
+sumi server --config <指向该库与 web/dist 的配置>
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:<port> pnpm --dir web test:e2e
+```
+
+两个 spec 各自注册 Human 并创建 Space，因此要求空数据库且没有已配对 Computer：`collaboration-smoke.spec.ts`断言「No Computers paired」。不要用`mise run dev-seed`准备该环境，它会预先创建 Space 与 Computer 并使这些断言失败。
+
+三个 viewport project 都必须通过。Message 动作面板在窄断点以上依赖 hover 显示，因此测试必须先 hover 该 Message 行再点击面板按钮，见 [WebUI](03-web-ui.md) 的 Message 动作面板。
+
 最终整体验收通过后，才能声明新版本完成。
