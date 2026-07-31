@@ -40,7 +40,7 @@
   - [ ] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
     - [x] 实现 ambient 聚合：按 Agent 和 Thread 聚合 ambient activity，保存首尾 Message 序号、数量、available time 和 force time，并保证新 Message 不能无限推迟 force time。见 [Inbox 与本地凭据](./docs/design/06-inbox-credentials.md) 第 6 节。
     - [x] 实现重新排队 dead Item 的运维入口，并限定 Owner/Admin 可执行。见 [安全与运维](./docs/design/09-security-operations.md) 第 9 节。
-    - [ ] 补齐故障验收测试：Server 在 Run 期间重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 6 节。
+    - [x] 补齐故障验收测试：Server 在 Run 期间重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 6 节。
     - [ ] 执行端到端验收：在运行中的 Server 与已配对 Computer 上跑 Playwright 核心流程，并记录可复现命令与结果。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 9 节。
 
 Rust、Web、协议、数据库、并发和安全验收当前通过。lease 过期回收、`retry_count`递增与`dead`、`thread_activity`路由已经实现并有测试覆盖。

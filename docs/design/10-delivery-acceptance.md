@@ -152,6 +152,12 @@
 
 每个场景必须证明Message、Task、Inbox和Run事实一致。
 
+需要真实进程与数据库的场景在`tests/failure_recovery.rs`验证：Server 重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。daemon 重启、重复上报和 yield 是 Computer 内部的状态转换，在`src/computer/application/tests.rs`验证，见 [代码组织与依赖边界](11-code-organization.md) 的测试组织。
+
+workspace 场景需要运行中的 daemon 把 Agent 带到`active`，因此依赖本机`codex`可执行文件。缺少该文件时该场景跳过并说明原因，不得记为通过。
+
+workspace 丢失后 Computer 当前无法重新完成握手：重连会重放 provision command，而 Driver 校验要求 workspace 目录存在，因此该 Computer 保持 offline 并持续重试。此时 Server 端事实仍然一致，Item 留在队列中等待，损坏的 Provider Session 不被 resume。自动重建 workspace 尚未实现。
+
 ## 7. UI 验收
 
 - Root Message的一步创建不显示bind或Source Thread字段。
