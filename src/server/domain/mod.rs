@@ -12,6 +12,8 @@ pub(in crate::server) mod task;
 pub(in crate::server) enum DomainError {
     #[error("invalid state transition")]
     InvalidTransition,
+    #[error("persisted domain state is invalid")]
+    InvalidPersistedState,
     #[error("message is not a root message")]
     SourceIsNotRoot,
     #[error("source message and thread do not match")]

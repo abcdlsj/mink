@@ -5,24 +5,24 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::ids::{
-    AttachmentId, ChannelId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId, MessageId,
-    RunId, SpaceId, TaskId, ThreadId,
+    AttachmentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId,
+    MessageId, RunId, SpaceId, TaskId, ThreadId,
 };
 use crate::server::domain::{
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attachment::{Attachment, AttachmentStatus, DeclaredContent},
     attention::{
-        AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemStatus,
+        InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
-    execution::{Run, RunErrorCode, RunItem, RunOutcome, RunStatus},
+    execution::{Run, RunErrorCode, RunOutcome, RunSnapshot, RunStatus},
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
     },
     invitation::Invitation,
     pairing::{Pairing, PairingStatus},
-    task::{CloseReason, Task, TaskStatus},
+    task::{CloseReason, Task, TaskSnapshot, TaskStatus},
 };
 
 use super::{
@@ -40,15 +40,16 @@ use super::{
         ReadPairing, ReadPairingStatus,
     },
     conversation::{
-        CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput, CreateChannel,
-        CreateChannelAction, CreateChannelActionInput, CreateChannelInput, DeleteMessage,
-        EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput, PublishMessage,
+        AddChannelAgents, CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
+        CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
+        DeleteMessage, EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput,
+        PublishMessage,
     },
     execution::{
-        AcknowledgeDelivery, AcknowledgeDeliveryInput, ClaimRun, ClaimRunInput, CompleteRun,
-        CompleteRunInput, ItemDispositionInput, ReclaimExpiredLeases, ReclaimExpiredLeasesInput,
-        ReclaimedLeases, RecordRunItemDisposition, RecordRunItemDispositionInput, RenewRun,
-        RenewRunInput, StartRun, StartRunInput,
+        AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, ClaimNextRun, ClaimRun,
+        ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput, ReclaimExpiredLeases,
+        ReclaimExpiredLeasesInput, ReclaimedLeases, RecordRunItemDisposition,
+        RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
     },
     identity::{
         AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession, AuthorizeAgentGovernance,
@@ -59,12 +60,13 @@ use super::{
         AcceptInvitation, AcceptInvitationInput, InviteHuman, InviteHumanInput, ReadInvitation,
     },
     ports::{
-        ApplicationError, AttachmentObjectPort, AuthenticatedHuman, ComputerRecord,
-        DirectMessageView, Effect, HumanMemberRecord, InboxItemView, InboxScope,
-        InvitationTokenPort, MemberKind, MessageDraft, PairedComputer, PairingCodePort,
+        ApplicationError, AttachmentObjectPort, AttachmentTransaction, AuthenticatedHuman,
+        ClaimCandidate, CollaborationTransaction, ComputerRecord, DirectMessageView, Effect,
+        EffectSink, ExecutionTransaction, HumanMemberRecord, IdentityTransaction, InboxItemView,
+        InboxScope, InvitationTokenPort, MemberKind, MessageDraft, PairedComputer, PairingCodePort,
         PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
-        ServerTransaction, SessionTokenPort, SpaceHumanMember, SpaceMemberView, StoredObject,
-        TransactionPort,
+        RunCapabilityProof, SessionTokenPort, SpaceHumanMember, SpaceMemberView, StoredObject,
+        TaskTransaction, TransactionPort,
     },
     task::{
         CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,
@@ -155,6 +157,165 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
     );
 }
 
+#[tokio::test]
+async fn claim_failure_is_recorded_idempotently_in_a_separate_transaction() {
+    let mut port = MemoryPort::default();
+    let item_id = item(920);
+    let message_id = message(921);
+    let channel_id = channel(922);
+
+    assert_eq!(
+        ClaimNextRun::candidate(&mut port, computer(923))
+            .await
+            .expect("candidate query succeeds"),
+        None
+    );
+    assert_eq!(port.transaction_count, 1);
+
+    assert!(
+        ClaimNextRun::record_failure(
+            &mut port,
+            item_id,
+            Some(message_id),
+            channel_id,
+            "run_claim_conflict",
+        )
+        .await
+        .expect("first failure changes the projection")
+    );
+    assert_eq!(port.transaction_count, 2);
+    assert!(
+        !ClaimNextRun::record_failure(
+            &mut port,
+            item_id,
+            Some(message_id),
+            channel_id,
+            "run_claim_conflict",
+        )
+        .await
+        .expect("repeated failure is idempotent")
+    );
+    assert_eq!(port.transaction_count, 3);
+    assert_eq!(
+        port.state.claim_failures[&item_id],
+        (
+            Some(message_id),
+            channel_id,
+            "run_claim_conflict".to_owned()
+        )
+    );
+}
+
+#[tokio::test]
+async fn adding_channel_agents_replays_the_recorded_membership_result() {
+    let mut port = MemoryPort::default();
+    let actor = member(930);
+    let channel_id = channel(931);
+    let first = member(932);
+    let second = member(933);
+    let key = idempotency(934);
+
+    let added = AddChannelAgents::execute(
+        &mut port,
+        actor,
+        channel_id,
+        vec![first, second],
+        key,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .expect("members are added");
+    let replayed = AddChannelAgents::execute(
+        &mut port,
+        actor,
+        channel_id,
+        vec![second],
+        key,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .expect("same key replays the first result");
+
+    assert_eq!(added, vec![first, second]);
+    assert_eq!(replayed, added);
+    assert_eq!(
+        port.state.agent_channel_members,
+        HashSet::from([(channel_id, first), (channel_id, second)])
+    );
+}
+
+#[tokio::test]
+async fn command_result_updates_only_its_target_agent_through_the_domain() {
+    let mut port = MemoryPort::default();
+    let computer_id = computer(940);
+    let target_id = member(941);
+    let other_id = member(942);
+    let suspended_id = member(943);
+    let failed_id = member(947);
+    for (agent_id, lifecycle) in [
+        (target_id, AgentLifecycle::Provisioning),
+        (other_id, AgentLifecycle::Provisioning),
+        (suspended_id, AgentLifecycle::Suspended),
+        (failed_id, AgentLifecycle::Provisioning),
+    ] {
+        port.state.agents.insert(
+            agent_id,
+            Agent {
+                member_id: agent_id,
+                space_id: space(944),
+                computer_id: Some(computer_id),
+                role_text: "test".into(),
+                role_revision: 1,
+                lifecycle,
+                driver_kind: DriverKind::Codex,
+                retired_at: None,
+            },
+        );
+    }
+    let applied_command = CommandId::from_uuid(Uuid::from_u128(945));
+    let suspended_command = CommandId::from_uuid(Uuid::from_u128(946));
+    let failed_command = CommandId::from_uuid(Uuid::from_u128(948));
+    port.state
+        .agent_provision_commands
+        .insert((computer_id, applied_command, 1), Some(target_id));
+    port.state
+        .agent_provision_commands
+        .insert((computer_id, suspended_command, 2), Some(suspended_id));
+    port.state
+        .agent_provision_commands
+        .insert((computer_id, failed_command, 3), Some(failed_id));
+
+    ApplyCommandResult::execute(&mut port, computer_id, applied_command, 1, true)
+        .await
+        .expect("provision succeeds");
+    ApplyCommandResult::execute(&mut port, computer_id, applied_command, 1, true)
+        .await
+        .expect("duplicate result is idempotent");
+    ApplyCommandResult::execute(&mut port, computer_id, suspended_command, 2, false)
+        .await
+        .expect("an inapplicable lifecycle is a no-op");
+    ApplyCommandResult::execute(&mut port, computer_id, failed_command, 3, false)
+        .await
+        .expect("failed provision is recorded");
+
+    assert_eq!(
+        port.state.agents[&target_id].lifecycle,
+        AgentLifecycle::Active
+    );
+    assert_eq!(
+        port.state.agents[&other_id].lifecycle,
+        AgentLifecycle::Provisioning
+    );
+    assert_eq!(
+        port.state.agents[&suspended_id].lifecycle,
+        AgentLifecycle::Suspended
+    );
+    assert_eq!(
+        port.state.agents[&failed_id].lifecycle,
+        AgentLifecycle::Error
+    );
+}
+
 #[derive(Clone, Default)]
 struct MemoryState {
     threads: HashMap<ThreadId, Thread>,
@@ -200,11 +361,16 @@ struct MemoryState {
     attachments: HashMap<AttachmentId, Attachment>,
     visible_attachments: HashSet<(AttachmentId, MemberId)>,
     attachment_writes: Vec<(String, AttachmentId, String)>,
+    claim_failures: HashMap<InboxItemId, (Option<MessageId>, ChannelId, String)>,
+    channel_agent_additions: HashMap<(MemberId, ChannelId, IdempotencyKey), Vec<MemberId>>,
+    agent_channel_members: HashSet<(ChannelId, MemberId)>,
+    agent_provision_commands: HashMap<(ComputerId, CommandId, u64), Option<MemberId>>,
 }
 
 #[derive(Default)]
 struct MemoryPort {
     state: MemoryState,
+    transaction_count: u32,
 }
 
 struct MemoryTransaction {
@@ -218,6 +384,7 @@ impl TransactionPort for MemoryPort {
         &mut self,
         operation: impl for<'a> AsyncFnOnce(&'a mut Self::Transaction) -> Result<T, ApplicationError>,
     ) -> Result<T, ApplicationError> {
+        self.transaction_count += 1;
         let mut transaction = MemoryTransaction {
             state: self.state.clone(),
         };
@@ -228,7 +395,8 @@ impl TransactionPort for MemoryPort {
 }
 
 #[async_trait::async_trait]
-impl ServerTransaction for MemoryTransaction {
+#[async_trait::async_trait]
+impl IdentityTransaction for MemoryTransaction {
     async fn create_space(
         &mut self,
         _actor_user_id: uuid::Uuid,
@@ -244,7 +412,6 @@ impl ServerTransaction for MemoryTransaction {
     ) -> Result<super::ports::CreatedSpace, ApplicationError> {
         Err(ApplicationError::Internal)
     }
-
     async fn insert_human(
         &mut self,
         user_id: uuid::Uuid,
@@ -272,14 +439,12 @@ impl ServerTransaction for MemoryTransaction {
         );
         Ok(())
     }
-
     async fn human_credential(
         &mut self,
         email_normalized: &str,
     ) -> Result<Option<(AuthenticatedHuman, String)>, ApplicationError> {
         Ok(self.state.humans.get(email_normalized).cloned())
     }
-
     async fn insert_browser_session(
         &mut self,
         _session_id: uuid::Uuid,
@@ -293,7 +458,6 @@ impl ServerTransaction for MemoryTransaction {
             .insert(token_hash.to_owned(), (user_id, expires_at));
         Ok(())
     }
-
     async fn human_for_session(
         &mut self,
         token_hash: &str,
@@ -312,12 +476,10 @@ impl ServerTransaction for MemoryTransaction {
             .find(|(human, _)| human.user_id == user_id)
             .map(|(human, _)| human.clone()))
     }
-
     async fn delete_browser_session(&mut self, token_hash: &str) -> Result<(), ApplicationError> {
         self.state.sessions.remove(token_hash);
         Ok(())
     }
-
     async fn space_access(
         &mut self,
         user_id: uuid::Uuid,
@@ -338,7 +500,359 @@ impl ServerTransaction for MemoryTransaction {
             access_level,
         }))
     }
+    async fn space_of_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self.state.agent_spaces.get(&agent_id).copied())
+    }
+    async fn space_of_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self.state.computer_spaces.get(&computer_id).copied())
+    }
+    async fn insert_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &Pairing,
+        code_hash: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .pairings
+            .insert(pairing_id, (pairing.clone(), code_hash.to_owned()));
+        Ok(())
+    }
+    async fn save_pairing(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        pairing: &Pairing,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let code_hash = self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .map(|(_, code_hash)| code_hash.clone())
+            .ok_or(ApplicationError::NotFound)?;
+        self.state
+            .pairings
+            .insert(pairing_id, (pairing.clone(), code_hash));
+        Ok(())
+    }
+    async fn pairing_by_code(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        Ok(self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .filter(|(_, stored)| stored == code_hash)
+            .map(|(pairing, _)| pairing.clone()))
+    }
+    async fn pairing_by_code_for_update(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        code_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        self.pairing_by_code(pairing_id, code_hash).await
+    }
+    async fn pairing_by_token(
+        &mut self,
+        pairing_id: uuid::Uuid,
+        token_hash: &str,
+    ) -> Result<Option<Pairing>, ApplicationError> {
+        Ok(self
+            .state
+            .pairings
+            .get(&pairing_id)
+            .filter(|(pairing, _)| pairing.request.token_hash == token_hash)
+            .map(|(pairing, _)| pairing.clone()))
+    }
+    async fn insert_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &Invitation,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .invitations
+            .insert(invitation_id, invitation.clone());
+        Ok(())
+    }
+    async fn save_invitation(
+        &mut self,
+        invitation_id: uuid::Uuid,
+        invitation: &Invitation,
+    ) -> Result<(), ApplicationError> {
+        if !self.state.invitations.contains_key(&invitation_id) {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state
+            .invitations
+            .insert(invitation_id, invitation.clone());
+        Ok(())
+    }
+    async fn invitation_by_token(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
+        Ok(self
+            .state
+            .invitations
+            .iter()
+            .find(|(_, invitation)| invitation.draft.token_hash == token_hash)
+            .map(|(id, invitation)| (*id, invitation.clone())))
+    }
+    async fn invitation_by_token_for_update(
+        &mut self,
+        token_hash: &str,
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
+        self.invitation_by_token(token_hash).await
+    }
+    async fn space_identity(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Option<(String, String)>, ApplicationError> {
+        Ok(self.state.spaces.get(&space_id).cloned())
+    }
+    async fn insert_human_member(
+        &mut self,
+        record: &HumanMemberRecord,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .state
+            .human_members
+            .contains_key(&(record.user_id, record.space_id))
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state.human_members.insert(
+            (record.user_id, record.space_id),
+            SpaceHumanMember {
+                member_id: record.member_id,
+                space_id: record.space_id,
+                display_name: record.display_name.clone(),
+                handle: record.handle.clone(),
+            },
+        );
+        Ok(())
+    }
+    async fn space_human_member(
+        &mut self,
+        user_id: uuid::Uuid,
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
+        Ok(self.state.human_members.get(&(user_id, space_id)).cloned())
+    }
+    async fn space_of_member(
+        &mut self,
+        member_id: MemberId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self
+            .state
+            .members
+            .get(&member_id)
+            .map(|member| member.space_id))
+    }
+    async fn member(&mut self, member_id: MemberId) -> Result<Member, ApplicationError> {
+        self.state
+            .members
+            .get(&member_id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn save_member(&mut self, member: Member) -> Result<(), ApplicationError> {
+        if !self.state.members.contains_key(&member.id) {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state.members.insert(member.id, member);
+        Ok(())
+    }
+    async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError> {
+        if self.state.computer_tokens.contains_key(&record.token_hash) {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state
+            .computer_tokens
+            .insert(record.token_hash.clone(), record.id);
+        self.state.paired_computers.push(PairedComputer {
+            id: record.id,
+            space_id: record.space_id,
+            name: record.name.clone(),
+            hostname: record.hostname.clone(),
+            os: record.os,
+            daemon_version: Some(record.daemon_version.clone()),
+            connected: false,
+            deleted: false,
+            last_seen_at: None,
+            created_at: record.created_at,
+        });
+        Ok(())
+    }
+    async fn paired_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Option<PairedComputer>, ApplicationError> {
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .find(|computer| computer.id == computer_id)
+            .cloned())
+    }
+    async fn space_computers(
+        &mut self,
+        space_id: SpaceId,
+    ) -> Result<Vec<PairedComputer>, ApplicationError> {
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .filter(|computer| computer.space_id == space_id)
+            .cloned()
+            .collect())
+    }
+    async fn computer_for_token(
+        &mut self,
+        computer_id: ComputerId,
+        token_hash: &str,
+    ) -> Result<Option<bool>, ApplicationError> {
+        let Some(stored) = self.state.computer_tokens.get(token_hash).copied() else {
+            return Ok(None);
+        };
+        if stored != computer_id {
+            return Ok(None);
+        }
+        Ok(self
+            .state
+            .paired_computers
+            .iter()
+            .find(|computer| computer.id == computer_id)
+            .map(|computer| computer.deleted))
+    }
+    async fn agent(&mut self, id: MemberId) -> Result<Agent, ApplicationError> {
+        self.state
+            .agents
+            .get(&id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn computer(&mut self, id: ComputerId) -> Result<Computer, ApplicationError> {
+        self.state
+            .computers
+            .get(&id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn computer_has_assigned_agents(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
+            .agents
+            .values()
+            .any(|agent| agent.computer_id == Some(computer_id)))
+    }
+    async fn has_permission(
+        &mut self,
+        actor: MemberId,
+        action: PermissionAction,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.permissions.contains(&(actor, action)))
+    }
+    async fn can_manage_permissions(
+        &mut self,
+        actor: MemberId,
+        target: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        let Some(actor) = self.state.members.get(&actor) else {
+            return Ok(false);
+        };
+        let Some(target) = self.state.members.get(&target) else {
+            return Ok(false);
+        };
+        Ok(actor.space_id == target.space_id && actor.access_level.can_manage_space())
+    }
+    async fn can_operate_agent(
+        &mut self,
+        computer_id: ComputerId,
+        agent_id: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
+            .computer_assignments
+            .contains(&(computer_id, agent_id)))
+    }
+    async fn member_access_level(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<AccessLevel, ApplicationError> {
+        self.state
+            .members
+            .get(&member_id)
+            .filter(|member| member.space_id == space_id)
+            .map(|member| member.access_level)
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn computer_accepts_agent(
+        &mut self,
+        computer_id: ComputerId,
+        space_id: SpaceId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .state
+            .computers
+            .get(&computer_id)
+            .is_some_and(|computer| {
+                computer.space_id == space_id && computer.lifecycle == ComputerLifecycle::Online
+            }))
+    }
+    async fn grant_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+        _granted_by: MemberId,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state.permissions.insert((target, action));
+        Ok(())
+    }
+    async fn revoke_permission(
+        &mut self,
+        target: MemberId,
+        action: PermissionAction,
+    ) -> Result<(), ApplicationError> {
+        self.state.permissions.remove(&(target, action));
+        Ok(())
+    }
+    async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError> {
+        if self.state.members.contains_key(&member.id)
+            || self.state.agents.contains_key(&agent.member_id)
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state.members.insert(member.id, member);
+        self.state.agents.insert(agent.member_id, agent);
+        Ok(())
+    }
+    async fn save_agent(&mut self, agent: Agent) -> Result<(), ApplicationError> {
+        self.state.agents.insert(agent.member_id, agent);
+        Ok(())
+    }
+    async fn save_computer(&mut self, computer: Computer) -> Result<(), ApplicationError> {
+        self.state.computers.insert(computer.id, computer);
+        Ok(())
+    }
+}
 
+#[async_trait::async_trait]
+impl CollaborationTransaction for MemoryTransaction {
     async fn channel_access(
         &mut self,
         user_id: uuid::Uuid,
@@ -350,85 +864,6 @@ impl ServerTransaction for MemoryTransaction {
             .get(&(user_id, channel_id))
             .copied())
     }
-
-    async fn space_of_agent(
-        &mut self,
-        agent_id: MemberId,
-    ) -> Result<Option<SpaceId>, ApplicationError> {
-        Ok(self.state.agent_spaces.get(&agent_id).copied())
-    }
-
-    async fn space_of_computer(
-        &mut self,
-        computer_id: ComputerId,
-    ) -> Result<Option<SpaceId>, ApplicationError> {
-        Ok(self.state.computer_spaces.get(&computer_id).copied())
-    }
-
-    async fn member(&mut self, member_id: MemberId) -> Result<Member, ApplicationError> {
-        self.state
-            .members
-            .get(&member_id)
-            .cloned()
-            .ok_or(ApplicationError::NotFound)
-    }
-
-    async fn save_member(&mut self, member: Member) -> Result<(), ApplicationError> {
-        if !self.state.members.contains_key(&member.id) {
-            return Err(ApplicationError::NotFound);
-        }
-        self.state.members.insert(member.id, member);
-        Ok(())
-    }
-
-    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
-        if !self.state.channels.contains_key(&channel.id) {
-            return Err(ApplicationError::NotFound);
-        }
-        self.state.channels.insert(channel.id, channel);
-        Ok(())
-    }
-
-    async fn queue_agent_suspend(
-        &mut self,
-        agent_id: MemberId,
-        computer_id: Option<ComputerId>,
-        cancel_current_run: bool,
-    ) -> Result<(), ApplicationError> {
-        if computer_id.is_some() {
-            self.state
-                .suspend_commands
-                .push((agent_id, cancel_current_run));
-        }
-        Ok(())
-    }
-
-    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
-        if agent.computer_id.is_some() {
-            self.state.configured_agents.push(agent.member_id);
-        }
-        Ok(())
-    }
-
-    async fn set_thread_subscription(
-        &mut self,
-        thread_id: ThreadId,
-        member_id: MemberId,
-        following: bool,
-        _now: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        if following {
-            self.state
-                .thread_subscriptions
-                .insert((thread_id, member_id));
-        } else {
-            self.state
-                .thread_subscriptions
-                .remove(&(thread_id, member_id));
-        }
-        Ok(())
-    }
-
     async fn direct_messages_for_member(
         &mut self,
         member_id: MemberId,
@@ -449,7 +884,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .collect())
     }
-
     async fn direct_message_between(
         &mut self,
         space_id: SpaceId,
@@ -472,7 +906,6 @@ impl ServerTransaction for MemoryTransaction {
             })
             .cloned())
     }
-
     async fn space_member(
         &mut self,
         member_id: MemberId,
@@ -503,7 +936,6 @@ impl ServerTransaction for MemoryTransaction {
                     .collect(),
             }))
     }
-
     async fn inbox_for_member(
         &mut self,
         member_id: MemberId,
@@ -514,6 +946,7 @@ impl ServerTransaction for MemoryTransaction {
             .items
             .values()
             .filter(|item| {
+                let item = item.view();
                 item.agent_id == member_id
                     && match scope {
                         InboxScope::Queue => matches!(
@@ -528,7 +961,6 @@ impl ServerTransaction for MemoryTransaction {
             .map(inbox_view)
             .collect())
     }
-
     async fn inbox_item_view(
         &mut self,
         item_id: InboxItemId,
@@ -539,308 +971,31 @@ impl ServerTransaction for MemoryTransaction {
             .map(inbox_view)
             .ok_or(ApplicationError::NotFound)
     }
-
-    async fn space_of_member(
-        &mut self,
-        member_id: MemberId,
-    ) -> Result<Option<SpaceId>, ApplicationError> {
-        Ok(self
-            .state
-            .members
-            .get(&member_id)
-            .map(|member| member.space_id))
-    }
-
-    async fn insert_invitation(
-        &mut self,
-        invitation_id: uuid::Uuid,
-        invitation: &Invitation,
-        _now: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        self.state
-            .invitations
-            .insert(invitation_id, invitation.clone());
-        Ok(())
-    }
-
-    async fn save_invitation(
-        &mut self,
-        invitation_id: uuid::Uuid,
-        invitation: &Invitation,
-    ) -> Result<(), ApplicationError> {
-        if !self.state.invitations.contains_key(&invitation_id) {
+    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
+        if !self.state.channels.contains_key(&channel.id) {
             return Err(ApplicationError::NotFound);
         }
-        self.state
-            .invitations
-            .insert(invitation_id, invitation.clone());
+        self.state.channels.insert(channel.id, channel);
         Ok(())
     }
-
-    async fn invitation_by_token(
+    async fn set_thread_subscription(
         &mut self,
-        token_hash: &str,
-    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
-        Ok(self
-            .state
-            .invitations
-            .iter()
-            .find(|(_, invitation)| invitation.draft.token_hash == token_hash)
-            .map(|(id, invitation)| (*id, invitation.clone())))
-    }
-
-    async fn invitation_by_token_for_update(
-        &mut self,
-        token_hash: &str,
-    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
-        self.invitation_by_token(token_hash).await
-    }
-
-    async fn space_identity(
-        &mut self,
-        space_id: SpaceId,
-    ) -> Result<Option<(String, String)>, ApplicationError> {
-        Ok(self.state.spaces.get(&space_id).cloned())
-    }
-
-    async fn insert_human_member(
-        &mut self,
-        record: &HumanMemberRecord,
-    ) -> Result<(), ApplicationError> {
-        if self
-            .state
-            .human_members
-            .contains_key(&(record.user_id, record.space_id))
-        {
-            return Err(ApplicationError::Conflict);
-        }
-        self.state.human_members.insert(
-            (record.user_id, record.space_id),
-            SpaceHumanMember {
-                member_id: record.member_id,
-                space_id: record.space_id,
-                display_name: record.display_name.clone(),
-                handle: record.handle.clone(),
-            },
-        );
-        Ok(())
-    }
-
-    async fn space_human_member(
-        &mut self,
-        user_id: uuid::Uuid,
-        space_id: SpaceId,
-    ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
-        Ok(self.state.human_members.get(&(user_id, space_id)).cloned())
-    }
-
-    async fn insert_pairing(
-        &mut self,
-        pairing_id: uuid::Uuid,
-        pairing: &Pairing,
-        code_hash: &str,
+        thread_id: ThreadId,
+        member_id: MemberId,
+        following: bool,
         _now: OffsetDateTime,
     ) -> Result<(), ApplicationError> {
-        self.state
-            .pairings
-            .insert(pairing_id, (pairing.clone(), code_hash.to_owned()));
-        Ok(())
-    }
-
-    async fn save_pairing(
-        &mut self,
-        pairing_id: uuid::Uuid,
-        pairing: &Pairing,
-        _now: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        let code_hash = self
-            .state
-            .pairings
-            .get(&pairing_id)
-            .map(|(_, code_hash)| code_hash.clone())
-            .ok_or(ApplicationError::NotFound)?;
-        self.state
-            .pairings
-            .insert(pairing_id, (pairing.clone(), code_hash));
-        Ok(())
-    }
-
-    async fn pairing_by_code(
-        &mut self,
-        pairing_id: uuid::Uuid,
-        code_hash: &str,
-    ) -> Result<Option<Pairing>, ApplicationError> {
-        Ok(self
-            .state
-            .pairings
-            .get(&pairing_id)
-            .filter(|(_, stored)| stored == code_hash)
-            .map(|(pairing, _)| pairing.clone()))
-    }
-
-    async fn pairing_by_code_for_update(
-        &mut self,
-        pairing_id: uuid::Uuid,
-        code_hash: &str,
-    ) -> Result<Option<Pairing>, ApplicationError> {
-        self.pairing_by_code(pairing_id, code_hash).await
-    }
-
-    async fn pairing_by_token(
-        &mut self,
-        pairing_id: uuid::Uuid,
-        token_hash: &str,
-    ) -> Result<Option<Pairing>, ApplicationError> {
-        Ok(self
-            .state
-            .pairings
-            .get(&pairing_id)
-            .filter(|(pairing, _)| pairing.request.token_hash == token_hash)
-            .map(|(pairing, _)| pairing.clone()))
-    }
-
-    async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError> {
-        if self.state.computer_tokens.contains_key(&record.token_hash) {
-            return Err(ApplicationError::Conflict);
+        if following {
+            self.state
+                .thread_subscriptions
+                .insert((thread_id, member_id));
+        } else {
+            self.state
+                .thread_subscriptions
+                .remove(&(thread_id, member_id));
         }
-        self.state
-            .computer_tokens
-            .insert(record.token_hash.clone(), record.id);
-        self.state.paired_computers.push(PairedComputer {
-            id: record.id,
-            space_id: record.space_id,
-            name: record.name.clone(),
-            hostname: record.hostname.clone(),
-            os: record.os,
-            daemon_version: Some(record.daemon_version.clone()),
-            connected: false,
-            deleted: false,
-            last_seen_at: None,
-            created_at: record.created_at,
-        });
         Ok(())
     }
-
-    async fn paired_computer(
-        &mut self,
-        computer_id: ComputerId,
-    ) -> Result<Option<PairedComputer>, ApplicationError> {
-        Ok(self
-            .state
-            .paired_computers
-            .iter()
-            .find(|computer| computer.id == computer_id)
-            .cloned())
-    }
-
-    async fn space_computers(
-        &mut self,
-        space_id: SpaceId,
-    ) -> Result<Vec<PairedComputer>, ApplicationError> {
-        Ok(self
-            .state
-            .paired_computers
-            .iter()
-            .filter(|computer| computer.space_id == space_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn computer_for_token(
-        &mut self,
-        computer_id: ComputerId,
-        token_hash: &str,
-    ) -> Result<Option<bool>, ApplicationError> {
-        let Some(stored) = self.state.computer_tokens.get(token_hash).copied() else {
-            return Ok(None);
-        };
-        if stored != computer_id {
-            return Ok(None);
-        }
-        Ok(self
-            .state
-            .paired_computers
-            .iter()
-            .find(|computer| computer.id == computer_id)
-            .map(|computer| computer.deleted))
-    }
-
-    async fn lock_idempotency(
-        &mut self,
-        actor: MemberId,
-        action: &str,
-        key: IdempotencyKey,
-    ) -> Result<(), ApplicationError> {
-        self.state
-            .idempotency_locks
-            .push((actor, action.to_owned(), key));
-        Ok(())
-    }
-
-    async fn space_of_attachment(
-        &mut self,
-        attachment_id: AttachmentId,
-    ) -> Result<Option<SpaceId>, ApplicationError> {
-        Ok(self
-            .state
-            .attachments
-            .get(&attachment_id)
-            .map(|attachment| attachment.space_id))
-    }
-
-    async fn attachment(
-        &mut self,
-        id: AttachmentId,
-    ) -> Result<Option<Attachment>, ApplicationError> {
-        Ok(self.state.attachments.get(&id).cloned())
-    }
-
-    async fn insert_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
-        if self.state.attachments.contains_key(&attachment.id) {
-            return Err(ApplicationError::Conflict);
-        }
-        self.state
-            .attachments
-            .insert(attachment.id, attachment.clone());
-        Ok(())
-    }
-
-    async fn save_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
-        self.state
-            .attachments
-            .insert(attachment.id, attachment.clone());
-        Ok(())
-    }
-
-    async fn attachment_is_visible(
-        &mut self,
-        id: AttachmentId,
-        viewer: MemberId,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self.state.visible_attachments.contains(&(id, viewer)))
-    }
-
-    async fn record_attachment_write(
-        &mut self,
-        _space_id: SpaceId,
-        actor: MemberId,
-        action: &str,
-        key: IdempotencyKey,
-        attachment_id: AttachmentId,
-        event_kind: &str,
-        _now: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        self.state
-            .resource_idempotency
-            .insert((actor, action.to_owned(), key), attachment_id.into_uuid());
-        self.state.attachment_writes.push((
-            action.to_owned(),
-            attachment_id,
-            event_kind.to_owned(),
-        ));
-        Ok(())
-    }
-
     async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         self.state
             .threads
@@ -848,7 +1003,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
-
     async fn root_message(&mut self, thread_id: ThreadId) -> Result<Message, ApplicationError> {
         self.state
             .roots
@@ -856,7 +1010,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
-
     async fn message(&mut self, id: MessageId) -> Result<Message, ApplicationError> {
         self.state
             .messages
@@ -865,7 +1018,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
-
     async fn channel(&mut self, id: ChannelId) -> Result<Channel, ApplicationError> {
         self.state
             .channels
@@ -873,23 +1025,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
-
-    async fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError> {
-        self.state
-            .tasks
-            .get(&id)
-            .cloned()
-            .ok_or(ApplicationError::NotFound)
-    }
-
-    async fn run(&mut self, id: RunId) -> Result<Run, ApplicationError> {
-        self.state
-            .runs
-            .get(&id)
-            .cloned()
-            .ok_or(ApplicationError::NotFound)
-    }
-
     async fn inbox_item(&mut self, id: InboxItemId) -> Result<InboxItem, ApplicationError> {
         self.state
             .items
@@ -897,103 +1032,6 @@ impl ServerTransaction for MemoryTransaction {
             .cloned()
             .ok_or(ApplicationError::NotFound)
     }
-
-    async fn agent(&mut self, id: MemberId) -> Result<Agent, ApplicationError> {
-        self.state
-            .agents
-            .get(&id)
-            .cloned()
-            .ok_or(ApplicationError::NotFound)
-    }
-
-    async fn computer(&mut self, id: ComputerId) -> Result<Computer, ApplicationError> {
-        self.state
-            .computers
-            .get(&id)
-            .cloned()
-            .ok_or(ApplicationError::NotFound)
-    }
-
-    async fn task_for_source(
-        &mut self,
-        thread_id: ThreadId,
-    ) -> Result<Option<TaskId>, ApplicationError> {
-        Ok(self
-            .state
-            .tasks
-            .values()
-            .find(|task| task.source_thread_id == thread_id)
-            .map(|task| task.id))
-    }
-
-    async fn unfinished_task_for_thread(
-        &mut self,
-        thread_id: ThreadId,
-    ) -> Result<Option<TaskId>, ApplicationError> {
-        Ok(self
-            .state
-            .tasks
-            .values()
-            .find(|task| !task.status.is_finished() && task.linked_to(thread_id))
-            .map(|task| task.id))
-    }
-
-    async fn task_for_idempotency(
-        &mut self,
-        actor: MemberId,
-        action: &str,
-        key: IdempotencyKey,
-    ) -> Result<Option<TaskId>, ApplicationError> {
-        Ok(self
-            .state
-            .idempotency
-            .get(&(actor, action.to_owned(), key))
-            .copied())
-    }
-
-    async fn resource_for_idempotency(
-        &mut self,
-        actor: MemberId,
-        action: &str,
-        key: IdempotencyKey,
-    ) -> Result<Option<uuid::Uuid>, ApplicationError> {
-        Ok(self
-            .state
-            .resource_idempotency
-            .get(&(actor, action.to_owned(), key))
-            .copied())
-    }
-
-    async fn active_run_for_agent(
-        &mut self,
-        agent_id: MemberId,
-    ) -> Result<Option<RunId>, ApplicationError> {
-        Ok(self
-            .state
-            .runs
-            .values()
-            .find(|run| run.agent_id == agent_id && run.status.is_active())
-            .map(|run| run.id))
-    }
-
-    async fn computer_has_assigned_agents(
-        &mut self,
-        computer_id: ComputerId,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self
-            .state
-            .agents
-            .values()
-            .any(|agent| agent.computer_id == Some(computer_id)))
-    }
-
-    async fn completed_run_for_event(
-        &mut self,
-        event_id: EventId,
-    ) -> Result<Option<RunId>, ApplicationError> {
-        Ok(self.state.completed_run_events.get(&event_id).copied())
-    }
-
     async fn can_read_thread(
         &mut self,
         actor: MemberId,
@@ -1005,100 +1043,12 @@ impl ServerTransaction for MemoryTransaction {
             .get(&thread_id)
             .is_some_and(|thread| thread.audience.contains(&actor)))
     }
-
-    async fn can_link_thread(
-        &mut self,
-        actor: MemberId,
-        task: &Task,
-        target: &Thread,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self.can_read_thread(actor, task.source_thread_id).await?
-            && target.audience.contains(&actor))
-    }
-
-    async fn can_assign_agent(
-        &mut self,
-        agent: MemberId,
-        source: &Thread,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self.state.assignable_agents.contains(&agent) && source.audience.contains(&agent))
-    }
-
-    async fn can_govern_task(
-        &mut self,
-        _actor: MemberId,
-        _task: &Task,
-    ) -> Result<bool, ApplicationError> {
-        Ok(false)
-    }
-
-    async fn has_permission(
-        &mut self,
-        actor: MemberId,
-        action: PermissionAction,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self.state.permissions.contains(&(actor, action)))
-    }
-
-    async fn can_manage_permissions(
-        &mut self,
-        actor: MemberId,
-        target: MemberId,
-    ) -> Result<bool, ApplicationError> {
-        let Some(actor) = self.state.members.get(&actor) else {
-            return Ok(false);
-        };
-        let Some(target) = self.state.members.get(&target) else {
-            return Ok(false);
-        };
-        Ok(actor.space_id == target.space_id && actor.access_level.can_manage_space())
-    }
-
-    async fn can_operate_agent(
-        &mut self,
-        computer_id: ComputerId,
-        agent_id: MemberId,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self
-            .state
-            .computer_assignments
-            .contains(&(computer_id, agent_id)))
-    }
-
-    async fn member_access_level(
-        &mut self,
-        member_id: MemberId,
-        space_id: SpaceId,
-    ) -> Result<AccessLevel, ApplicationError> {
-        self.state
-            .members
-            .get(&member_id)
-            .filter(|member| member.space_id == space_id)
-            .map(|member| member.access_level)
-            .ok_or(ApplicationError::NotFound)
-    }
-
-    async fn computer_accepts_agent(
-        &mut self,
-        computer_id: ComputerId,
-        space_id: SpaceId,
-    ) -> Result<bool, ApplicationError> {
-        Ok(self
-            .state
-            .computers
-            .get(&computer_id)
-            .is_some_and(|computer| {
-                computer.space_id == space_id && computer.lifecycle == ComputerLifecycle::Online
-            }))
-    }
-
     async fn thread_message_sequence(
         &mut self,
         _thread_id: ThreadId,
     ) -> Result<u64, ApplicationError> {
         Ok(0)
     }
-
     async fn publish_message(
         &mut self,
         draft: MessageDraft,
@@ -1127,65 +1077,6 @@ impl ServerTransaction for MemoryTransaction {
             notified_agent_ids: self.state.notified_agents.clone(),
         })
     }
-
-    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
-        if self.state.tasks.insert(task.id, task).is_some() {
-            return Err(ApplicationError::Conflict);
-        }
-        Ok(())
-    }
-
-    async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {
-        self.state.tasks.insert(task.id, task);
-        Ok(())
-    }
-
-    async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
-        self.state.runs.insert(run.id, run);
-        Ok(())
-    }
-
-    async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
-        self.state.items.insert(item.id, item);
-        Ok(())
-    }
-
-    async fn runs_with_expired_lease(
-        &mut self,
-        now: OffsetDateTime,
-        limit: u32,
-    ) -> Result<Vec<RunId>, ApplicationError> {
-        let mut expired = self
-            .state
-            .runs
-            .values()
-            .filter(|run| !run.is_terminal() && run.lease_expires_at <= now)
-            .map(|run| (run.lease_expires_at, run.id))
-            .collect::<Vec<_>>();
-        expired.sort();
-        Ok(expired
-            .into_iter()
-            .take(limit as usize)
-            .map(|(_, id)| id)
-            .collect())
-    }
-
-    async fn insert_dead_item_notice(
-        &mut self,
-        agent_id: MemberId,
-        thread_id: ThreadId,
-        error_code: &'static str,
-        now: OffsetDateTime,
-    ) -> Result<InboxItemId, ApplicationError> {
-        let item_id = InboxItemId::from_uuid(uuid::Uuid::now_v7());
-        let mut notice = inbox(item_id, agent_id, thread_id, None, InboxItemStatus::Pending);
-        notice.kind = InboxItemKind::System;
-        notice.available_at = now;
-        self.state.items.insert(item_id, notice);
-        self.state.dead_item_notices.push((agent_id, error_code));
-        Ok(item_id)
-    }
-
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError> {
         if self.state.reject_message_insert {
             return Err(ApplicationError::Conflict);
@@ -1193,7 +1084,6 @@ impl ServerTransaction for MemoryTransaction {
         self.state.messages.insert(message.id, message);
         Ok(())
     }
-
     async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError> {
         if let std::collections::hash_map::Entry::Occupied(mut entry) =
             self.state.messages.entry(message.id)
@@ -1212,55 +1102,441 @@ impl ServerTransaction for MemoryTransaction {
         }
         Err(ApplicationError::NotFound)
     }
-
-    async fn grant_permission(
-        &mut self,
-        target: MemberId,
-        action: PermissionAction,
-        _granted_by: MemberId,
-        _now: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        self.state.permissions.insert((target, action));
-        Ok(())
-    }
-
-    async fn revoke_permission(
-        &mut self,
-        target: MemberId,
-        action: PermissionAction,
-    ) -> Result<(), ApplicationError> {
-        self.state.permissions.remove(&(target, action));
-        Ok(())
-    }
-
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         if self.state.channels.insert(channel.id, channel).is_some() {
             return Err(ApplicationError::Conflict);
         }
         Ok(())
     }
+    async fn channel_action_audience(
+        &mut self,
+        focus_thread_id: ThreadId,
+        space_id: SpaceId,
+        private: bool,
+    ) -> Result<BTreeSet<MemberId>, ApplicationError> {
+        if private {
+            return Ok(self
+                .state
+                .channel_members
+                .iter()
+                .filter_map(|((_, channel), member)| {
+                    (self
+                        .state
+                        .threads
+                        .get(&focus_thread_id)
+                        .map(|t| t.channel_id)
+                        == Some(*channel))
+                    .then_some(*member)
+                })
+                .collect());
+        }
+        Ok(self
+            .state
+            .members
+            .values()
+            .filter(|m| m.space_id == space_id)
+            .map(|m| m.id)
+            .collect())
+    }
+    async fn channel_for_thread(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<Option<ChannelId>, ApplicationError> {
+        Ok(self.state.threads.get(&thread_id).map(|t| t.channel_id))
+    }
+    async fn add_channel_agents(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        agent_ids: Vec<MemberId>,
+        key: IdempotencyKey,
+        _now: OffsetDateTime,
+    ) -> Result<Vec<MemberId>, ApplicationError> {
+        let idempotency = (actor, channel_id, key);
+        if let Some(existing) = self.state.channel_agent_additions.get(&idempotency) {
+            return Ok(existing.clone());
+        }
+        let mut added = Vec::new();
+        for agent_id in agent_ids {
+            if self
+                .state
+                .agent_channel_members
+                .insert((channel_id, agent_id))
+            {
+                added.push(agent_id);
+            }
+        }
+        self.state
+            .channel_agent_additions
+            .insert(idempotency, added.clone());
+        Ok(added)
+    }
+    async fn channel_member_visible(
+        &mut self,
+        channel_id: ChannelId,
+        member_id: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.channel_members.values().any(|m| {
+            *m == member_id
+                && self
+                    .state
+                    .channel_members
+                    .keys()
+                    .any(|(_, c)| *c == channel_id)
+        }))
+    }
+    async fn message_sequence_in_channel(
+        &mut self,
+        _message_id: MessageId,
+        _channel_id: ChannelId,
+    ) -> Result<Option<u64>, ApplicationError> {
+        Ok(None)
+    }
+    async fn channel_snapshot(&mut self, _channel_id: ChannelId) -> Result<u64, ApplicationError> {
+        Ok(0)
+    }
+    async fn pending_item_for_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.items.values().any(|i| {
+            let v = i.view();
+            v.agent_id == agent_id
+                && v.status == crate::server::domain::attention::InboxItemStatus::Pending
+        }))
+    }
+}
 
-    async fn insert_agent(&mut self, member: Member, agent: Agent) -> Result<(), ApplicationError> {
-        if self.state.members.contains_key(&member.id)
-            || self.state.agents.contains_key(&agent.member_id)
-        {
+#[async_trait::async_trait]
+impl TaskTransaction for MemoryTransaction {
+    async fn task(&mut self, id: TaskId) -> Result<Task, ApplicationError> {
+        self.state
+            .tasks
+            .get(&id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn task_for_source(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self
+            .state
+            .tasks
+            .values()
+            .find(|task| task.view().source_thread_id == thread_id)
+            .map(|task| task.view().id))
+    }
+    async fn unfinished_task_for_thread(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self
+            .state
+            .tasks
+            .values()
+            .find(|task| !task.view().status.is_finished() && task.linked_to(thread_id))
+            .map(|task| task.view().id))
+    }
+    async fn task_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<Option<TaskId>, ApplicationError> {
+        Ok(self
+            .state
+            .idempotency
+            .get(&(actor, action.to_owned(), key))
+            .copied())
+    }
+    async fn can_link_thread(
+        &mut self,
+        actor: MemberId,
+        task: &Task,
+        target: &Thread,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self
+            .can_read_thread(actor, task.view().source_thread_id)
+            .await?
+            && target.audience.contains(&actor))
+    }
+    async fn can_assign_agent(
+        &mut self,
+        agent: MemberId,
+        source: &Thread,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.assignable_agents.contains(&agent) && source.audience.contains(&agent))
+    }
+    async fn can_govern_task(
+        &mut self,
+        _actor: MemberId,
+        _task: &Task,
+    ) -> Result<bool, ApplicationError> {
+        Ok(false)
+    }
+    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+        if self.state.tasks.insert(task.view().id, task).is_some() {
             return Err(ApplicationError::Conflict);
         }
-        self.state.members.insert(member.id, member);
-        self.state.agents.insert(agent.member_id, agent);
         Ok(())
     }
-
-    async fn save_agent(&mut self, agent: Agent) -> Result<(), ApplicationError> {
-        self.state.agents.insert(agent.member_id, agent);
+    async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+        self.state.tasks.insert(task.view().id, task);
         Ok(())
     }
+}
 
-    async fn save_computer(&mut self, computer: Computer) -> Result<(), ApplicationError> {
-        self.state.computers.insert(computer.id, computer);
+#[async_trait::async_trait]
+impl ExecutionTransaction for MemoryTransaction {
+    async fn run(&mut self, id: RunId) -> Result<Run, ApplicationError> {
+        self.state
+            .runs
+            .get(&id)
+            .cloned()
+            .ok_or(ApplicationError::NotFound)
+    }
+    async fn active_run_for_agent(
+        &mut self,
+        agent_id: MemberId,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        Ok(self
+            .state
+            .runs
+            .values()
+            .find(|run| run.view().agent_id == agent_id && run.view().status.is_active())
+            .map(|run| run.view().id))
+    }
+    async fn completed_run_for_event(
+        &mut self,
+        event_id: EventId,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        Ok(self.state.completed_run_events.get(&event_id).copied())
+    }
+    async fn runs_with_expired_lease(
+        &mut self,
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<RunId>, ApplicationError> {
+        let mut expired = self
+            .state
+            .runs
+            .values()
+            .filter(|run| !run.is_terminal() && run.view().lease_expires_at <= now)
+            .map(|run| (run.view().lease_expires_at, run.view().id))
+            .collect::<Vec<_>>();
+        expired.sort();
+        Ok(expired
+            .into_iter()
+            .take(limit as usize)
+            .map(|(_, id)| id)
+            .collect())
+    }
+    async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
+        self.state.runs.insert(run.view().id, run);
         Ok(())
     }
+    async fn next_claim_candidate(
+        &mut self,
+        _computer_id: ComputerId,
+    ) -> Result<Option<ClaimCandidate>, ApplicationError> {
+        Ok(None)
+    }
+    async fn record_claim_failure(
+        &mut self,
+        item_id: InboxItemId,
+        message_id: Option<MessageId>,
+        channel_id: ChannelId,
+        error_code: &str,
+    ) -> Result<bool, ApplicationError> {
+        let failure = (message_id, channel_id, error_code.to_owned());
+        if self.state.claim_failures.get(&item_id) == Some(&failure) {
+            return Ok(false);
+        }
+        self.state.claim_failures.insert(item_id, failure);
+        Ok(true)
+    }
+    async fn authorize_run_capability(
+        &mut self,
+        proof: &RunCapabilityProof,
+    ) -> Result<bool, ApplicationError> {
+        let Some(run) = self.state.runs.get(&proof.run_id) else {
+            return Ok(false);
+        };
+        let view = run.view();
+        Ok(view.agent_id == proof.agent_id
+            && view.space_id == proof.space_id
+            && view.task_id == proof.task_id
+            && view.focus_thread_id == proof.focus_thread_id
+            && view.status == crate::server::domain::execution::RunStatus::Running
+            && view.fencing_token_hash == proof.fencing_token_hash
+            && self
+                .state
+                .computer_assignments
+                .contains(&(proof.computer_id, proof.agent_id)))
+    }
+    async fn active_run_for_visible_agent(
+        &mut self,
+        agent_id: MemberId,
+        _viewer_id: MemberId,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        Ok(self
+            .state
+            .runs
+            .values()
+            .find(|r| {
+                let v = r.view();
+                v.agent_id == agent_id
+                    && v.status == crate::server::domain::execution::RunStatus::Running
+            })
+            .map(|r| r.view().id))
+    }
+    async fn agent_provision_command_target(
+        &mut self,
+        computer_id: ComputerId,
+        command_id: CommandId,
+        sequence: u64,
+    ) -> Result<Option<MemberId>, ApplicationError> {
+        self.state
+            .agent_provision_commands
+            .get(&(computer_id, command_id, sequence))
+            .copied()
+            .ok_or(ApplicationError::NotFound)
+    }
+}
 
+#[async_trait::async_trait]
+impl AttachmentTransaction for MemoryTransaction {
+    async fn space_of_attachment(
+        &mut self,
+        attachment_id: AttachmentId,
+    ) -> Result<Option<SpaceId>, ApplicationError> {
+        Ok(self
+            .state
+            .attachments
+            .get(&attachment_id)
+            .map(|attachment| attachment.view().space_id))
+    }
+    async fn attachment(
+        &mut self,
+        id: AttachmentId,
+    ) -> Result<Option<Attachment>, ApplicationError> {
+        Ok(self.state.attachments.get(&id).cloned())
+    }
+    async fn insert_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        if self.state.attachments.contains_key(&attachment.view().id) {
+            return Err(ApplicationError::Conflict);
+        }
+        self.state
+            .attachments
+            .insert(attachment.view().id, attachment.clone());
+        Ok(())
+    }
+    async fn save_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
+        self.state
+            .attachments
+            .insert(attachment.view().id, attachment.clone());
+        Ok(())
+    }
+    async fn attachment_is_visible(
+        &mut self,
+        id: AttachmentId,
+        viewer: MemberId,
+    ) -> Result<bool, ApplicationError> {
+        Ok(self.state.visible_attachments.contains(&(id, viewer)))
+    }
+    async fn record_attachment_write(
+        &mut self,
+        _space_id: SpaceId,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+        attachment_id: AttachmentId,
+        event_kind: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .resource_idempotency
+            .insert((actor, action.to_owned(), key), attachment_id.into_uuid());
+        self.state.attachment_writes.push((
+            action.to_owned(),
+            attachment_id,
+            event_kind.to_owned(),
+        ));
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl EffectSink for MemoryTransaction {
+    async fn queue_agent_suspend(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+        cancel_current_run: bool,
+    ) -> Result<(), ApplicationError> {
+        if computer_id.is_some() {
+            self.state
+                .suspend_commands
+                .push((agent_id, cancel_current_run));
+        }
+        Ok(())
+    }
+    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
+        if agent.computer_id.is_some() {
+            self.state.configured_agents.push(agent.member_id);
+        }
+        Ok(())
+    }
+    async fn lock_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .idempotency_locks
+            .push((actor, action.to_owned(), key));
+        Ok(())
+    }
+    async fn resource_for_idempotency(
+        &mut self,
+        actor: MemberId,
+        action: &str,
+        key: IdempotencyKey,
+    ) -> Result<Option<uuid::Uuid>, ApplicationError> {
+        Ok(self
+            .state
+            .resource_idempotency
+            .get(&(actor, action.to_owned(), key))
+            .copied())
+    }
+    async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
+        self.state.items.insert(item.view().id, item);
+        Ok(())
+    }
+    async fn insert_dead_item_notice(
+        &mut self,
+        agent_id: MemberId,
+        thread_id: ThreadId,
+        error_code: &'static str,
+        now: OffsetDateTime,
+    ) -> Result<InboxItemId, ApplicationError> {
+        let item_id = InboxItemId::from_uuid(uuid::Uuid::now_v7());
+        let notice = InboxItem::open_hard(
+            item_id,
+            space(1),
+            agent_id,
+            None,
+            thread_id,
+            None,
+            InboxItemKind::System,
+            now,
+        )?;
+        self.state.items.insert(item_id, notice);
+        self.state.dead_item_notices.push((agent_id, error_code));
+        Ok(item_id)
+    }
     async fn record_completed_run_event(
         &mut self,
         event_id: EventId,
@@ -1269,7 +1545,6 @@ impl ServerTransaction for MemoryTransaction {
         self.state.completed_run_events.insert(event_id, run_id);
         Ok(())
     }
-
     async fn record_task_idempotency(
         &mut self,
         actor: MemberId,
@@ -1282,7 +1557,6 @@ impl ServerTransaction for MemoryTransaction {
             .insert((actor, action.to_owned(), key), task_id);
         Ok(())
     }
-
     async fn record_resource_idempotency(
         &mut self,
         actor: MemberId,
@@ -1295,7 +1569,6 @@ impl ServerTransaction for MemoryTransaction {
             .insert((actor, action.to_owned(), key), resource_id);
         Ok(())
     }
-
     async fn record_task_audit(
         &mut self,
         actor: MemberId,
@@ -1308,7 +1581,6 @@ impl ServerTransaction for MemoryTransaction {
             .push((actor, action.to_owned(), task_id));
         Ok(())
     }
-
     async fn record_inbox_item_audit(
         &mut self,
         actor: MemberId,
@@ -1321,7 +1593,6 @@ impl ServerTransaction for MemoryTransaction {
             .push((actor, action.to_owned(), item_id));
         Ok(())
     }
-
     fn emit(&mut self, effect: Effect) {
         self.state.effects.push(effect);
     }
@@ -1363,9 +1634,9 @@ async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently
     .await
     .unwrap();
 
-    assert_eq!(created.status, TaskStatus::InProgress);
-    assert_eq!(port.state.runs[&run_id].task_id, Some(task_id));
-    assert_eq!(port.state.items[&item_id].task_id, Some(task_id));
+    assert_eq!(created.view().status, TaskStatus::InProgress);
+    assert_eq!(port.state.runs[&run_id].view().task_id, Some(task_id));
+    assert_eq!(port.state.items[&item_id].view().task_id, Some(task_id));
 
     let retried = CreateTaskFromRootMessage::execute(
         &mut port,
@@ -1381,7 +1652,7 @@ async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently
     )
     .await
     .unwrap();
-    assert_eq!(retried.id, task_id);
+    assert_eq!(retried.view().id, task_id);
     assert_eq!(port.state.tasks.len(), 1);
 }
 
@@ -1428,10 +1699,9 @@ async fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
     insert_thread(&mut port, incompatible, &[actor, other]);
     insert_thread(&mut port, occupied, &[actor]);
     let first = make_task(task(25), source, actor, TaskStatus::Todo);
-    let mut occupying = make_task(task(26), occupied, actor, TaskStatus::Todo);
-    occupying.source_thread_id = occupied;
-    port.state.tasks.insert(first.id, first);
-    port.state.tasks.insert(occupying.id, occupying);
+    let occupying = make_task(task(26), occupied, actor, TaskStatus::Todo);
+    port.state.tasks.insert(first.view().id, first);
+    port.state.tasks.insert(occupying.view().id, occupying);
 
     let incompatible_error = LinkThreadToTask::execute(
         &mut port,
@@ -1550,18 +1820,28 @@ async fn ambient_item_can_be_leased_by_a_new_run() {
         },
     );
     insert_thread(&mut port, focus, &[agent]);
-    let mut ambient = inbox(item_id, agent, focus, None, InboxItemStatus::Pending);
-    ambient.kind = InboxItemKind::ChannelActivity;
-    ambient.strength = AttentionStrength::Ambient;
+    let ambient = InboxItem::open_ambient(
+        item_id,
+        space(1),
+        agent,
+        focus,
+        InboxItemKind::ChannelActivity,
+        1,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .expect("channel activity is ambient");
     port.state.items.insert(item_id, ambient);
     let mut input = claim_input(run_id, agent, None, focus);
     input.item_ids.push(item_id);
 
     let claimed = ClaimRun::execute(&mut port, input).await.unwrap();
 
-    assert_eq!(claimed.items[0].inbox_item_id, item_id);
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
-    assert_eq!(port.state.items[&item_id].lease_run_id, Some(run_id));
+    assert_eq!(claimed.items().next().unwrap().inbox_item_id, item_id);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Leased
+    );
+    assert_eq!(port.state.items[&item_id].view().lease_run_id, Some(run_id));
 }
 
 #[tokio::test]
@@ -1571,9 +1851,11 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
     let run_id = run(39);
     let token_hash = hex::encode(Sha256::digest(b"token"));
     let mut queued = running_run(run_id, agent, focus, None, Vec::new());
-    queued.status = RunStatus::Queued;
-    queued.started_at = None;
-    queued.fencing_token_hash = token_hash.clone();
+    update_test_run(&mut queued, |snapshot| {
+        snapshot.status = RunStatus::Queued;
+        snapshot.started_at = None;
+        snapshot.fencing_token_hash = token_hash.clone();
+    });
     let mut port = MemoryPort::default();
     port.state.runs.insert(run_id, queued);
     port.state
@@ -1587,8 +1869,8 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
         now: OffsetDateTime::UNIX_EPOCH,
     };
     let started = StartRun::execute(&mut port, input()).await.unwrap();
-    assert_eq!(started.status, RunStatus::Running);
-    assert_eq!(started.started_at, Some(OffsetDateTime::UNIX_EPOCH));
+    assert_eq!(started.view().status, RunStatus::Running);
+    assert_eq!(started.view().started_at, Some(OffsetDateTime::UNIX_EPOCH));
     assert!(matches!(port.state.effects.last(), Some(Effect::RunStarted(id)) if *id == run_id));
     assert_eq!(
         StartRun::execute(&mut port, input()).await.unwrap(),
@@ -1629,9 +1911,11 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     let token_hash = hex::encode(Sha256::digest(b"token"));
     let queued = |run_id, agent| {
         let mut queued = running_run(run_id, agent, focus, Some(task_id), Vec::new());
-        queued.status = RunStatus::Queued;
-        queued.started_at = None;
-        queued.fencing_token_hash = token_hash.clone();
+        update_test_run(&mut queued, |snapshot| {
+            snapshot.status = RunStatus::Queued;
+            snapshot.started_at = None;
+            snapshot.fencing_token_hash = token_hash.clone();
+        });
         queued
     };
     let start = |run_id| StartRunInput {
@@ -1645,7 +1929,9 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     let foreign_run = run(244);
     let mut port = MemoryPort::default();
     let mut todo = make_task(task_id, focus, assignee, TaskStatus::Todo);
-    todo.assignee_agent_member_id = Some(assignee);
+    update_test_task(&mut todo, |snapshot| {
+        snapshot.assignee_agent_member_id = Some(assignee);
+    });
     port.state.tasks.insert(task_id, todo.clone());
     port.state
         .runs
@@ -1656,7 +1942,7 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     StartRun::execute(&mut port, start(foreign_run))
         .await
         .unwrap();
-    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::Todo);
+    assert_eq!(port.state.tasks[&task_id].view().status, TaskStatus::Todo);
 
     // The assignee's Run advances it, and a replay does not transition twice.
     let owned_run = run(245);
@@ -1671,7 +1957,10 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     StartRun::execute(&mut port, start(owned_run))
         .await
         .unwrap();
-    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert_eq!(
+        port.state.tasks[&task_id].view().status,
+        TaskStatus::InProgress
+    );
     assert!(
         port.state
             .effects
@@ -1682,7 +1971,10 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     StartRun::execute(&mut port, start(owned_run))
         .await
         .unwrap();
-    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert_eq!(
+        port.state.tasks[&task_id].view().status,
+        TaskStatus::InProgress
+    );
     assert!(port.state.effects.is_empty());
 }
 
@@ -1747,17 +2039,23 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
     insert_thread(&mut port, focus, &[agent]);
 
     let mut abandoned = running_run(expired_run, agent, focus, None, vec![retryable, exhausted]);
-    abandoned.lease_expires_at = now - time::Duration::minutes(1);
+    update_test_run(&mut abandoned, |snapshot| {
+        snapshot.lease_expires_at = now - time::Duration::minutes(1);
+    });
     port.state.runs.insert(expired_run, abandoned);
     // A Run whose lease still holds must survive the sweep untouched.
     let mut healthy = running_run(live_run, member(266), focus, None, Vec::new());
-    healthy.lease_expires_at = now + time::Duration::minutes(1);
+    update_test_run(&mut healthy, |snapshot| {
+        snapshot.lease_expires_at = now + time::Duration::minutes(1);
+    });
     port.state.runs.insert(live_run, healthy);
     for (item_id, retry_count) in [(retryable, 0), (exhausted, 2)] {
         let mut leased = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
-        leased.lease_run_id = Some(expired_run);
-        leased.lease_expires_at = Some(now - time::Duration::minutes(1));
-        leased.retry_count = retry_count;
+        update_test_item(&mut leased, |snapshot| {
+            snapshot.lease_run_id = Some(expired_run);
+            snapshot.lease_expires_at = Some(now - time::Duration::minutes(1));
+            snapshot.retry_count = retry_count;
+        });
         port.state.items.insert(item_id, leased);
     }
 
@@ -1780,21 +2078,27 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
             items_dead: 1,
         }
     );
-    assert_eq!(port.state.runs[&expired_run].status, RunStatus::Failed);
     assert_eq!(
-        port.state.runs[&expired_run].error_code,
+        port.state.runs[&expired_run].view().status,
+        RunStatus::Failed
+    );
+    assert_eq!(
+        port.state.runs[&expired_run].view().error_code,
         Some(RunErrorCode::ProcessLost)
     );
     assert_eq!(
-        port.state.runs[&live_run].status,
+        port.state.runs[&live_run].view().status,
         RunStatus::Running,
         "a Run holding a valid lease is untouched"
     );
     assert_eq!(
-        port.state.items[&retryable].status,
+        port.state.items[&retryable].view().status,
         InboxItemStatus::Pending
     );
-    assert_eq!(port.state.items[&exhausted].status, InboxItemStatus::Dead);
+    assert_eq!(
+        port.state.items[&exhausted].view().status,
+        InboxItemStatus::Dead
+    );
     assert_eq!(
         port.state.dead_item_notices,
         vec![(agent, "inbox_item_dead")],
@@ -1813,7 +2117,7 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
     .await
     .unwrap();
     assert_eq!(repeated, ReclaimedLeases::default());
-    assert_eq!(port.state.items[&retryable].retry_count, 1);
+    assert_eq!(port.state.items[&retryable].view().retry_count, 1);
 }
 
 #[tokio::test]
@@ -1827,7 +2131,9 @@ async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
         .computer_assignments
         .insert((computer(999), agent));
     let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
-    leased_item.lease_run_id = Some(run_id);
+    update_test_item(&mut leased_item, |snapshot| {
+        snapshot.lease_run_id = Some(run_id)
+    });
     port.state.items.insert(item_id, leased_item);
     port.state.runs.insert(
         run_id,
@@ -1847,9 +2153,9 @@ async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
     .await
     .unwrap();
 
-    assert_eq!(renewed.lease_expires_at, renewed_until);
+    assert_eq!(renewed.view().lease_expires_at, renewed_until);
     assert_eq!(
-        port.state.items[&item_id].lease_expires_at,
+        port.state.items[&item_id].view().lease_expires_at,
         Some(renewed_until)
     );
     assert!(matches!(
@@ -1880,7 +2186,9 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
         .computer_assignments
         .insert((computer(999), agent));
     let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
-    leased_item.lease_run_id = Some(run_id);
+    update_test_item(&mut leased_item, |snapshot| {
+        snapshot.lease_run_id = Some(run_id)
+    });
     port.state.items.insert(item_id, leased_item);
     port.state.runs.insert(
         run_id,
@@ -1904,11 +2212,14 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
     .unwrap();
 
     assert_eq!(
-        updated.items[0].disposition,
+        updated.items().next().unwrap().disposition,
         Some(InboxItemDisposition::Deferred)
     );
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
-    assert_eq!(port.state.items[&item_id].available_at, defer_until);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Leased
+    );
+    assert_eq!(port.state.items[&item_id].view().available_at, defer_until);
 }
 
 #[tokio::test]
@@ -1920,7 +2231,9 @@ async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
     let mut current = running_run(run_id, agent, focus, None, Vec::new());
-    current.status = RunStatus::Finalizing;
+    update_test_run(&mut current, |snapshot| {
+        snapshot.status = RunStatus::Finalizing
+    });
     port.state.runs.insert(run_id, current);
     port.state.items.insert(
         item_id,
@@ -1932,7 +2245,10 @@ async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
         .unwrap();
 
     assert_eq!(route, HardItemRoute::Pending);
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Pending
+    );
     assert!(port.state.effects.is_empty());
 }
 
@@ -1945,7 +2261,7 @@ async fn hard_item_routes_to_same_focus_once_and_uses_run_lease() {
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
     let current = running_run(run_id, agent, focus, None, Vec::new());
-    let lease_expires_at = current.lease_expires_at;
+    let lease_expires_at = current.view().lease_expires_at;
     port.state.runs.insert(run_id, current);
     port.state.items.insert(
         item_id,
@@ -1956,9 +2272,12 @@ async fn hard_item_routes_to_same_focus_once_and_uses_run_lease() {
         .await
         .unwrap();
     assert_eq!(route, HardItemRoute::Attached { sequence: 1 });
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Leased);
     assert_eq!(
-        port.state.items[&item_id].lease_expires_at,
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Leased
+    );
+    assert_eq!(
+        port.state.items[&item_id].view().lease_expires_at,
         Some(lease_expires_at)
     );
     assert!(matches!(
@@ -2000,7 +2319,10 @@ async fn different_focus_hard_item_stays_pending_and_emits_notice() {
         .unwrap();
 
     assert_eq!(route, HardItemRoute::Notice);
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Pending
+    );
     assert!(matches!(
         port.state.effects.as_slice(),
         [Effect::RunNotice {
@@ -2053,13 +2375,19 @@ async fn run_completion_checks_fencing_and_does_not_complete_task() {
     let completed = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
         .await
         .unwrap();
-    assert_eq!(completed.status, RunStatus::Completed);
+    assert_eq!(completed.view().status, RunStatus::Completed);
     let retried = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
         .await
         .unwrap();
-    assert_eq!(retried.status, RunStatus::Completed);
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Handled);
-    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert_eq!(retried.view().status, RunStatus::Completed);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Handled
+    );
+    assert_eq!(
+        port.state.tasks[&task_id].view().status,
+        TaskStatus::InProgress
+    );
 }
 
 #[tokio::test]
@@ -2095,7 +2423,10 @@ async fn result_message_failure_rolls_back_task_completion() {
     .await
     .unwrap_err();
     assert_eq!(error, ApplicationError::Conflict);
-    assert_eq!(port.state.tasks[&task_id].status, TaskStatus::InProgress);
+    assert_eq!(
+        port.state.tasks[&task_id].view().status,
+        TaskStatus::InProgress
+    );
     assert!(!port.state.messages.contains_key(&result_id));
     assert!(port.state.effects.is_empty());
 }
@@ -2127,7 +2458,9 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
             Some(task_id),
             InboxItemStatus::Leased,
         );
-        inbox_item.lease_run_id = Some(run_id);
+        update_test_item(&mut inbox_item, |snapshot| {
+            snapshot.lease_run_id = Some(run_id)
+        });
         port.state.items.insert(item_id, inbox_item);
     }
     let mut current_run = running_run(
@@ -2137,7 +2470,9 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
         Some(task_id),
         vec![handled_item, deferred_item],
     );
-    current_run.items[1].disposition = Some(InboxItemDisposition::Deferred);
+    update_test_run(&mut current_run, |snapshot| {
+        snapshot.items[1].disposition = Some(InboxItemDisposition::Deferred)
+    });
     port.state.runs.insert(run_id, current_run);
 
     let input = || RecordTaskOutcomeInput {
@@ -2162,14 +2497,14 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
         .await
         .unwrap();
 
-    assert_eq!(completed.status, TaskStatus::Done);
-    assert_eq!(port.state.runs[&run_id].status, RunStatus::Completed);
+    assert_eq!(completed.view().status, TaskStatus::Done);
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Completed);
     assert_eq!(
-        port.state.items[&handled_item].status,
+        port.state.items[&handled_item].view().status,
         InboxItemStatus::Handled
     );
     assert_eq!(
-        port.state.items[&deferred_item].status,
+        port.state.items[&deferred_item].view().status,
         InboxItemStatus::Deferred
     );
     assert!(port.state.messages.contains_key(&result_id));
@@ -2219,7 +2554,9 @@ async fn computer_delete_requires_explicit_agent_retirement() {
         },
     );
     let mut leased_item = inbox(item_id, agent_id, focus, None, InboxItemStatus::Leased);
-    leased_item.lease_run_id = Some(run_id);
+    update_test_item(&mut leased_item, |snapshot| {
+        snapshot.lease_run_id = Some(run_id)
+    });
     port.state.items.insert(item_id, leased_item);
     port.state.runs.insert(
         run_id,
@@ -2253,8 +2590,11 @@ async fn computer_delete_requires_explicit_agent_retirement() {
     )
     .await
     .unwrap();
-    assert_eq!(port.state.runs[&run_id].status, RunStatus::Canceled);
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Canceled);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Pending
+    );
     let deleted = DeleteComputer::execute(
         &mut port,
         agent_id,
@@ -2322,7 +2662,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
     )
     .await
     .unwrap();
-    assert_eq!(returned.status, TaskStatus::InProgress);
+    assert_eq!(returned.view().status, TaskStatus::InProgress);
 
     let closed = RecordTaskOutcome::execute(
         &mut port,
@@ -2339,8 +2679,8 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
     )
     .await
     .unwrap();
-    assert_eq!(closed.status, TaskStatus::Closed);
-    assert!(closed.finished_at.is_some());
+    assert_eq!(closed.view().status, TaskStatus::Closed);
+    assert!(closed.view().finished_at.is_some());
 }
 
 #[tokio::test]
@@ -2594,9 +2934,12 @@ async fn rejected_delivery_releases_the_item_once() {
     AcknowledgeDelivery::execute(&mut port, input())
         .await
         .unwrap();
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Pending);
     assert_eq!(
-        port.state.runs[&run_id].items[0].disposition,
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(
+        port.state.runs[&run_id].items().next().unwrap().disposition,
         Some(InboxItemDisposition::Released)
     );
     CompleteRun::execute(
@@ -2618,7 +2961,7 @@ async fn rejected_delivery_releases_the_item_once() {
     )
     .await
     .unwrap();
-    assert_eq!(port.state.runs[&run_id].status, RunStatus::Completed);
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Completed);
 }
 
 fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
@@ -2650,7 +2993,7 @@ fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
 }
 
 fn make_task(id: TaskId, source: ThreadId, assignee: MemberId, status: TaskStatus) -> Task {
-    Task {
+    Task::rehydrate(TaskSnapshot {
         id,
         space_id: space(1),
         title: "任务".into(),
@@ -2665,7 +3008,8 @@ fn make_task(id: TaskId, source: ThreadId, assignee: MemberId, status: TaskStatu
         created_at: OffsetDateTime::UNIX_EPOCH,
         updated_at: OffsetDateTime::UNIX_EPOCH,
         finished_at: None,
-    }
+    })
+    .expect("test Task state is valid")
 }
 
 fn running_run(
@@ -2675,7 +3019,7 @@ fn running_run(
     task_id: Option<TaskId>,
     items: Vec<InboxItemId>,
 ) -> Run {
-    Run {
+    Run::rehydrate(RunSnapshot {
         id,
         space_id: space(1),
         agent_id: agent,
@@ -2687,21 +3031,25 @@ fn running_run(
         items: items
             .into_iter()
             .enumerate()
-            .map(|(index, item_id)| RunItem {
-                inbox_item_id: item_id,
-                delivery_sequence: index as u64 + 1,
-                disposition: None,
-            })
+            .map(
+                |(index, item_id)| crate::server::domain::execution::RunItemSnapshot {
+                    inbox_item_id: item_id,
+                    delivery_sequence: index as u64 + 1,
+                    disposition: None,
+                },
+            )
             .collect(),
         outcome: None,
         error_code: None,
         continuation_note: None,
         started_at: Some(OffsetDateTime::UNIX_EPOCH),
         finished_at: None,
-    }
+    })
+    .expect("test Run state is valid")
 }
 
 fn inbox_view(item: &InboxItem) -> InboxItemView {
+    let item = item.view();
     InboxItemView {
         id: item.id,
         member_id: item.agent_id,
@@ -2728,25 +3076,49 @@ fn inbox(
     task_id: Option<TaskId>,
     status: InboxItemStatus,
 ) -> InboxItem {
-    InboxItem {
+    let mut item = InboxItem::open_hard(
         id,
-        space_id: space(1),
-        agent_id: agent,
-        message_id: None,
-        thread_id: focus,
+        space(1),
+        agent,
+        None,
+        focus,
         task_id,
-        kind: InboxItemKind::Mention,
-        strength: AttentionStrength::Hard,
-        status,
-        available_at: OffsetDateTime::UNIX_EPOCH,
-        lease_run_id: (status == InboxItemStatus::Leased)
-            .then_some(run(if id.into_uuid().as_u128() == 3 { 4 } else { 53 })),
-        lease_expires_at: (status == InboxItemStatus::Leased).then_some(OffsetDateTime::UNIX_EPOCH),
-        retry_count: 0,
-        requeue_count: 0,
-        handled_at: None,
-        ambient: None,
+        InboxItemKind::Mention,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .expect("mention is hard");
+    if status == InboxItemStatus::Leased {
+        item.lease_for_run(
+            run(if id.into_uuid().as_u128() == 3 { 4 } else { 53 }),
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("test Item can be leased");
+    } else if status != InboxItemStatus::Pending {
+        let mut snapshot = item.snapshot();
+        snapshot.status = status;
+        snapshot.handled_at =
+            (status == InboxItemStatus::Handled).then_some(OffsetDateTime::UNIX_EPOCH);
+        item = InboxItem::rehydrate(snapshot).expect("test Item state is valid");
     }
+    item
+}
+
+fn update_test_run(run: &mut Run, update: impl FnOnce(&mut RunSnapshot)) {
+    let mut snapshot = run.snapshot();
+    update(&mut snapshot);
+    *run = Run::rehydrate(snapshot).expect("updated test Run state is valid");
+}
+
+fn update_test_item(item: &mut InboxItem, update: impl FnOnce(&mut InboxItemSnapshot)) {
+    let mut snapshot = item.snapshot();
+    update(&mut snapshot);
+    *item = InboxItem::rehydrate(snapshot).expect("updated test Item state is valid");
+}
+
+fn update_test_task(task: &mut Task, update: impl FnOnce(&mut TaskSnapshot)) {
+    let mut snapshot = task.snapshot();
+    update(&mut snapshot);
+    *task = Task::rehydrate(snapshot).expect("updated test Task state is valid");
 }
 
 fn claim_input(
@@ -3221,8 +3593,8 @@ async fn an_upload_completes_once_and_replays_without_a_second_ready_event() {
     )
     .await
     .expect("upload completes");
-    assert_eq!(completed.status, AttachmentStatus::Ready);
-    assert_eq!(completed.length, Some(content.len() as u64));
+    assert_eq!(completed.view().status, AttachmentStatus::Ready);
+    assert_eq!(completed.view().length, Some(content.len() as u64));
 
     let replayed = CompleteAttachmentUpload::execute(
         &mut port,
@@ -3330,7 +3702,7 @@ async fn a_mismatched_declaration_keeps_the_upload_open_and_writes_no_content_tw
         ))
     );
     assert_eq!(
-        port.state.attachments[&attachment_id].status,
+        port.state.attachments[&attachment_id].view().status,
         AttachmentStatus::Uploading
     );
 
@@ -3922,7 +4294,7 @@ async fn only_a_governor_requeues_a_dead_item_and_the_queue_hides_it_until_then(
 
     let item_id = item(7404);
     let mut dead = inbox(item_id, agent_id, thread(7405), None, InboxItemStatus::Dead);
-    dead.retry_count = 5;
+    update_test_item(&mut dead, |snapshot| snapshot.retry_count = 5);
     port.state.items.insert(item_id, dead);
 
     // A retired Item is history, so the queue omits it while a governance read finds it.
@@ -3954,7 +4326,10 @@ async fn only_a_governor_requeues_a_dead_item_and_the_queue_hides_it_until_then(
         .err(),
         Some(ApplicationError::PermissionDenied)
     );
-    assert_eq!(port.state.items[&item_id].status, InboxItemStatus::Dead);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Dead
+    );
     assert!(port.state.inbox_item_audits.is_empty());
 
     let view = RequeueDeadItem::execute(
@@ -3988,7 +4363,7 @@ async fn only_a_governor_requeues_a_dead_item_and_the_queue_hides_it_until_then(
         .await,
         Err(ApplicationError::Domain(_))
     ));
-    assert_eq!(port.state.items[&item_id].requeue_count, 1);
+    assert_eq!(port.state.items[&item_id].view().requeue_count, 1);
 }
 
 #[tokio::test]

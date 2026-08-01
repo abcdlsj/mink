@@ -3,12 +3,16 @@ use time::OffsetDateTime;
 use crate::ids::{ComputerId, IdempotencyKey, MemberId, MessageId, RunId, TaskId, ThreadId};
 
 use crate::server::domain::{
+    attention::InboxItemDisposition,
     conversation::{Message, MessageContent, MessagePlacement},
-    execution::RunStatus,
+    execution::{Run, RunOutcome, RunStatus},
     task::{CloseReason, Task},
 };
 
-use super::ports::{ApplicationError, Effect, ServerTransaction, TransactionPort};
+use super::ports::{
+    ApplicationError, CollaborationTransaction, Effect, EffectSink, ExecutionTransaction,
+    IdentityTransaction, ServerTransaction, TaskTransaction, TransactionPort,
+};
 
 pub(in crate::server) enum TaskSource {
     HumanRoot(ThreadId),
@@ -43,10 +47,13 @@ impl CreateTaskFromRootMessage {
                 TaskSource::HumanRoot(thread_id) => (thread_id, None),
                 TaskSource::AgentRun(run_id) => {
                     let run = transaction.run(run_id).await?;
-                    if run.agent_id != input.actor_member_id || run.status != RunStatus::Running {
+                    let run_view = run.view();
+                    if run_view.agent_id != input.actor_member_id
+                        || run_view.status != RunStatus::Running
+                    {
                         return Err(ApplicationError::ContextChanged);
                     }
-                    (run.focus_thread_id, Some(run))
+                    (run_view.focus_thread_id, Some(run))
                 }
             };
             let source = transaction.thread(source_thread_id).await?;
@@ -63,7 +70,11 @@ impl CreateTaskFromRootMessage {
 
             let assignee = running_agent
                 .as_ref()
-                .map(|run| input.assignee_agent_member_id.unwrap_or(run.agent_id))
+                .map(|run| {
+                    input
+                        .assignee_agent_member_id
+                        .unwrap_or(run.view().agent_id)
+                })
                 .or(input.assignee_agent_member_id);
             if let Some(agent) = assignee
                 && !transaction.can_assign_agent(agent, &source).await?
@@ -85,15 +96,16 @@ impl CreateTaskFromRootMessage {
 
             if let Some(mut run) = running_agent {
                 run.bind_task(&task)?;
-                for run_item in &run.items {
+                let task_id = task.view().id;
+                for run_item in run.items() {
                     let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
-                    item.bind_task(task.id)?;
+                    item.bind_task(task_id)?;
                     transaction.save_inbox_item(item).await?;
                 }
                 transaction.save_run(run.clone()).await?;
                 transaction.emit(Effect::RunTaskBound {
-                    run_id: run.id,
-                    task_id: task.id,
+                    run_id: run.view().id,
+                    task_id,
                 });
             }
             transaction
@@ -101,13 +113,18 @@ impl CreateTaskFromRootMessage {
                     input.actor_member_id,
                     "task.create",
                     input.idempotency_key,
-                    task.id,
+                    task.view().id,
                 )
                 .await?;
             transaction
-                .record_task_audit(input.actor_member_id, "task.create", task.id, input.now)
+                .record_task_audit(
+                    input.actor_member_id,
+                    "task.create",
+                    task.view().id,
+                    input.now,
+                )
                 .await?;
-            transaction.emit(Effect::TaskCreated(task.id));
+            transaction.emit(Effect::TaskCreated(task.view().id));
             Ok(task)
         })
         .await
@@ -196,16 +213,16 @@ impl RecordTaskOutcome {
                 TaskOutcomeScope::Browser { .. } => None,
                 TaskOutcomeScope::AgentRun(context) => {
                     let run = transaction.run(context.run_id).await?;
-                    if run.agent_id != input.actor_member_id
+                    if run.view().agent_id != input.actor_member_id
                         || !transaction
-                            .can_operate_agent(context.computer_id, run.agent_id)
+                            .can_operate_agent(context.computer_id, run.view().agent_id)
                             .await?
                     {
                         return Err(ApplicationError::PermissionDenied);
                     }
                     run.validate_fencing(&context.fencing_token_hash)?;
                     if transaction
-                        .thread_message_sequence(run.focus_thread_id)
+                        .thread_message_sequence(run.view().focus_thread_id)
                         .await?
                         != context.message_snapshot_sequence
                     {
@@ -217,7 +234,7 @@ impl RecordTaskOutcome {
             let task_id = match (&input.scope, &run) {
                 (TaskOutcomeScope::Browser { task_id }, _) => *task_id,
                 (TaskOutcomeScope::AgentRun(_), Some(run)) => {
-                    run.task_id.ok_or(ApplicationError::ContextChanged)?
+                    run.view().task_id.ok_or(ApplicationError::ContextChanged)?
                 }
                 (TaskOutcomeScope::AgentRun(_), None) => {
                     unreachable!("an Agent scope resolves its Run above")
@@ -254,8 +271,9 @@ impl RecordTaskOutcome {
                     message
                 }
                 TaskOutcome::Close { reason, note } => {
-                    let allowed = task.creator_member_id == input.actor_member_id
-                        || task.assignee_agent_member_id == Some(input.actor_member_id)
+                    let task_view = task.view();
+                    let allowed = task_view.creator_member_id == input.actor_member_id
+                        || task_view.assignee_agent_member_id == Some(input.actor_member_id)
                         || transaction
                             .can_govern_task(input.actor_member_id, &task)
                             .await?;
@@ -275,19 +293,21 @@ impl RecordTaskOutcome {
                     }
                 };
                 run.begin_finalizing(&fencing_token_hash)?;
-                for index in 0..run.items.len() {
-                    let item_id = run.items[index].inbox_item_id;
-                    let disposition = run.items[index]
+                let run_id = run.view().id;
+                let run_items = run.items().collect::<Vec<_>>();
+                for run_item in run_items {
+                    let item_id = run_item.inbox_item_id;
+                    let disposition = run_item
                         .disposition
-                        .unwrap_or(crate::server::domain::attention::InboxItemDisposition::Handled);
+                        .unwrap_or(InboxItemDisposition::Handled);
                     run.set_item_disposition(item_id, disposition)?;
                     let mut item = transaction.inbox_item(item_id).await?;
-                    item.apply_disposition(run.id, disposition, input.now)?;
+                    item.apply_disposition(run_id, disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;
                 }
                 run.finish(
                     &fencing_token_hash,
-                    crate::server::domain::execution::RunOutcome::Completed,
+                    RunOutcome::Completed,
                     None,
                     None,
                     input.now,
@@ -302,33 +322,41 @@ impl RecordTaskOutcome {
             transaction.save_task(task.clone()).await?;
             if let Some(run) = run {
                 transaction.save_run(run.clone()).await?;
-                transaction.emit(Effect::RunCompleted(run.id));
+                transaction.emit(Effect::RunCompleted(run.view().id));
             }
             transaction
                 .record_task_idempotency(
                     input.actor_member_id,
                     action_name,
                     input.idempotency_key,
-                    task.id,
+                    task.view().id,
                 )
                 .await?;
             transaction
-                .record_task_audit(input.actor_member_id, action_name, task.id, input.now)
+                .record_task_audit(
+                    input.actor_member_id,
+                    action_name,
+                    task.view().id,
+                    input.now,
+                )
                 .await?;
             match action_name {
                 "task.submit_review" => {
-                    transaction.emit(Effect::TaskUpdated(task.id));
+                    transaction.emit(Effect::TaskUpdated(task.view().id));
                 }
                 "task.done" => {
                     transaction.emit(Effect::TaskCompleted {
-                        task_id: task.id,
-                        result_message_id: task.result_message_id.expect("done Task has Result"),
+                        task_id: task.view().id,
+                        result_message_id: task
+                            .view()
+                            .result_message_id
+                            .expect("done Task has Result"),
                     });
-                    transaction.emit(Effect::SessionClose(task.id));
+                    transaction.emit(Effect::SessionClose(task.view().id));
                 }
                 "task.close" => {
-                    transaction.emit(Effect::TaskFinished(task.id));
-                    transaction.emit(Effect::SessionClose(task.id));
+                    transaction.emit(Effect::TaskFinished(task.view().id));
+                    transaction.emit(Effect::SessionClose(task.view().id));
                 }
                 _ => unreachable!("a Task outcome has a stable action name"),
             }
@@ -344,7 +372,7 @@ async fn resolve_outcome_message(
     transaction: &mut impl ServerTransaction,
     actor: MemberId,
     task: &Task,
-    run: Option<&crate::server::domain::execution::Run>,
+    run: Option<&Run>,
     message: Option<OutcomeMessage>,
     now: OffsetDateTime,
 ) -> Result<Option<Message>, ApplicationError> {
@@ -353,10 +381,10 @@ async fn resolve_outcome_message(
     };
     let thread_id = match message.post_to {
         TaskPostTarget::Focus => match run {
-            Some(run) => run.focus_thread_id,
-            None => task.source_thread_id,
+            Some(run) => run.view().focus_thread_id,
+            None => task.view().source_thread_id,
         },
-        TaskPostTarget::Source => task.source_thread_id,
+        TaskPostTarget::Source => task.view().source_thread_id,
         TaskPostTarget::Thread(thread_id) => thread_id,
     };
     if !task.linked_to(thread_id) || !transaction.can_read_thread(actor, thread_id).await? {
@@ -426,7 +454,7 @@ impl UpdateTask {
                 return transaction.task(task_id).await;
             }
             let mut task = transaction.task(input.task_id).await?;
-            let source = transaction.thread(task.source_thread_id).await?;
+            let source = transaction.thread(task.view().source_thread_id).await?;
             if !transaction
                 .can_read_thread(input.actor_member_id, source.id)
                 .await?
@@ -450,27 +478,27 @@ impl UpdateTask {
                     true
                 }
                 TaskAction::ResetSession => {
-                    if task.status.is_finished()
+                    if task.view().status.is_finished()
                         || !transaction
                             .can_govern_task(input.actor_member_id, &task)
                             .await?
                     {
                         return Err(ApplicationError::PermissionDenied);
                     }
-                    transaction.emit(Effect::SessionReset(task.id));
+                    transaction.emit(Effect::SessionReset(task.view().id));
                     false
                 }
             };
             if task_changed {
                 transaction.save_task(task.clone()).await?;
-                transaction.emit(Effect::TaskUpdated(task.id));
+                transaction.emit(Effect::TaskUpdated(task.view().id));
             }
             transaction
                 .record_task_idempotency(
                     input.actor_member_id,
                     action_name,
                     input.idempotency_key,
-                    task.id,
+                    task.view().id,
                 )
                 .await?;
             Ok(task)
@@ -498,7 +526,7 @@ impl LinkThreadToTask {
                 return transaction.task(task_id).await;
             }
             let mut task = transaction.task(input.task_id).await?;
-            let source = transaction.thread(task.source_thread_id).await?;
+            let source = transaction.thread(task.view().source_thread_id).await?;
             let target = transaction.thread(input.target_thread_id).await?;
             if !transaction
                 .can_link_thread(input.actor_member_id, &task, &target)
@@ -506,7 +534,7 @@ impl LinkThreadToTask {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            for link in &task.related_threads {
+            for link in task.related_threads() {
                 if !transaction
                     .can_read_thread(input.actor_member_id, link.thread_id)
                     .await?
@@ -517,7 +545,7 @@ impl LinkThreadToTask {
             if transaction
                 .unfinished_task_for_thread(target.id)
                 .await?
-                .is_some_and(|task_id| task_id != task.id)
+                .is_some_and(|task_id| task_id != task.view().id)
             {
                 return Err(ApplicationError::Conflict);
             }
@@ -525,7 +553,7 @@ impl LinkThreadToTask {
                 task.add_related_thread(&source, &target, input.actor_member_id, input.now)?;
                 transaction.save_task(task.clone()).await?;
                 transaction.emit(Effect::ThreadLinked {
-                    task_id: task.id,
+                    task_id: task.view().id,
                     thread_id: target.id,
                 });
             }
@@ -534,7 +562,7 @@ impl LinkThreadToTask {
                     input.actor_member_id,
                     "task.link_thread",
                     input.idempotency_key,
-                    task.id,
+                    task.view().id,
                 )
                 .await?;
             Ok(task)
@@ -573,7 +601,7 @@ impl UnlinkThreadFromTask {
                 task.remove_related_thread(target.id, input.now)?;
                 transaction.save_task(task.clone()).await?;
                 transaction.emit(Effect::ThreadUnlinked {
-                    task_id: task.id,
+                    task_id: task.view().id,
                     thread_id: target.id,
                 });
             }
@@ -582,7 +610,7 @@ impl UnlinkThreadFromTask {
                     input.actor_member_id,
                     "task.unlink_thread",
                     input.idempotency_key,
-                    task.id,
+                    task.view().id,
                 )
                 .await?;
             Ok(task)

@@ -6,8 +6,8 @@ use crate::server::domain::{
 };
 
 use super::ports::{
-    ApplicationError, Effect, InboxItemView, InboxScope, MemberKind, ServerTransaction,
-    TransactionPort,
+    ApplicationError, CollaborationTransaction, Effect, EffectSink, ExecutionTransaction,
+    IdentityTransaction, InboxItemView, InboxScope, MemberKind, TransactionPort,
 };
 
 pub(in crate::server) struct ReadMemberInbox;
@@ -57,15 +57,16 @@ impl RequeueDeadItem {
     ) -> Result<InboxItemView, ApplicationError> {
         port.transact(async |transaction| {
             let mut item = transaction.inbox_item(input.item_id).await?;
+            let item_view = item.view();
             let access = transaction
-                .member_access_level(input.actor_id, item.space_id)
+                .member_access_level(input.actor_id, item_view.space_id)
                 .await?;
             if !access.can_manage_space() {
                 return Err(ApplicationError::PermissionDenied);
             }
             item.requeue_from_dead(input.now)?;
-            let agent_id = item.agent_id;
-            let source_message_id = item.message_id;
+            let agent_id = item_view.agent_id;
+            let source_message_id = item_view.message_id;
             transaction.save_inbox_item(item).await?;
             transaction
                 .record_inbox_item_audit(
@@ -107,34 +108,42 @@ impl RouteHardItem {
     ) -> Result<HardItemRoute, ApplicationError> {
         port.transact(async |transaction| {
             let mut item = transaction.inbox_item(input.item_id).await?;
-            if item.strength != AttentionStrength::Hard || item.status != InboxItemStatus::Pending {
+            let item_view = item.view();
+            if item_view.strength != AttentionStrength::Hard
+                || item_view.status != InboxItemStatus::Pending
+            {
                 return Ok(HardItemRoute::Pending);
             }
-            let Some(run_id) = transaction.active_run_for_agent(item.agent_id).await? else {
+            let Some(run_id) = transaction.active_run_for_agent(item_view.agent_id).await? else {
                 return Ok(HardItemRoute::Pending);
             };
             let mut run = transaction.run(run_id).await?;
-            if run.status != RunStatus::Running {
+            let run_view = run.view();
+            let run_id = run_view.id;
+            let lease_expires_at = run_view.lease_expires_at;
+            if run_view.status != RunStatus::Running {
                 return Ok(HardItemRoute::Pending);
             }
-            if run.task_id == item.task_id && run.focus_thread_id == item.thread_id {
+            if run_view.task_id == item_view.task_id
+                && run_view.focus_thread_id == item_view.thread_id
+            {
                 let sequence = run.attach(&item)?;
-                item.attach_to_active_run(run.id, run.lease_expires_at)?;
+                item.attach_to_active_run(run_id, lease_expires_at)?;
                 transaction.save_run(run.clone()).await?;
                 transaction.save_inbox_item(item).await?;
                 transaction.emit(Effect::ItemAttached {
-                    run_id: run.id,
+                    run_id,
                     item_id: input.item_id,
                     sequence,
                 });
                 return Ok(HardItemRoute::Attached { sequence });
             }
             let location_visible = transaction
-                .can_read_thread(run.agent_id, item.thread_id)
+                .can_read_thread(run_view.agent_id, item_view.thread_id)
                 .await?;
             transaction.emit(Effect::RunNotice {
-                run_id: run.id,
-                item_id: item.id,
+                run_id,
+                item_id: item_view.id,
                 location_visible,
             });
             Ok(HardItemRoute::Notice)

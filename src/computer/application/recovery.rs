@@ -1,7 +1,9 @@
 use crate::ids::EventId;
 use time::OffsetDateTime;
 
-use crate::computer::core::supervisor::{ItemDisposition, LocalRunState, TerminalStatus};
+use crate::computer::core::supervisor::{
+    DeliveryState, ItemDisposition, LocalRunState, TerminalStatus,
+};
 
 use super::{
     ApplicationError,
@@ -50,25 +52,26 @@ impl RecoveryService {
             .transact(async |transaction| transaction.nonterminal_runs())
             .await?;
         for run in runs {
-            match run.state {
+            match run.view().state {
                 LocalRunState::Running | LocalRunState::Starting => {
-                    if run.ownership_lease_expires_at <= OffsetDateTime::now_utc() {
+                    if run.view().ownership_lease_expires_at <= OffsetDateTime::now_utc() {
                         let _ = driver.interrupt(&run).await;
                         let outcomes = run
+                            .view()
                             .deliveries
                             .values()
                             .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
                             .collect();
-                        if run.state == LocalRunState::Starting {
+                        if run.view().state == LocalRunState::Starting {
                             let mut expired = run.clone();
-                            expired.state = LocalRunState::Running;
+                            expired.recover_starting()?;
                             store
                                 .transact(async |transaction| transaction.save_run(expired))
                                 .await?;
                         }
                         RunService::finish(
                             store,
-                            run.id,
+                            run.view().id,
                             TerminalStatus::Failed,
                             outcomes,
                             None,
@@ -79,20 +82,21 @@ impl RecoveryService {
                     }
                     if driver.process_evidence(&run).await? == ProcessEvidence::Lost {
                         let outcomes = run
+                            .view()
                             .deliveries
                             .values()
                             .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
                             .collect();
-                        if run.state == LocalRunState::Starting {
+                        if run.view().state == LocalRunState::Starting {
                             let mut failed = run.clone();
-                            failed.state = LocalRunState::Running;
+                            failed.recover_starting()?;
                             store
                                 .transact(async |transaction| transaction.save_run(failed))
                                 .await?;
                         }
                         RunService::finish(
                             store,
-                            run.id,
+                            run.view().id,
                             TerminalStatus::Failed,
                             outcomes,
                             None,
@@ -101,15 +105,17 @@ impl RecoveryService {
                         .await?;
                         continue;
                     }
-                    if run.state == LocalRunState::Running {
-                        for delivery in run.deliveries.values().filter(|delivery| {
-                            delivery.state
-                                == crate::computer::core::supervisor::DeliveryState::Pending
-                        }) {
+                    if run.view().state == LocalRunState::Running {
+                        for delivery in run
+                            .view()
+                            .deliveries
+                            .values()
+                            .filter(|delivery| delivery.state == DeliveryState::Pending)
+                        {
                             RunService::attach(
                                 store,
                                 driver,
-                                run.id,
+                                run.view().id,
                                 delivery.sequence,
                                 delivery.item.clone(),
                             )
@@ -121,19 +127,20 @@ impl RecoveryService {
                     let already_queued = store
                         .transact(async |transaction| {
                             Ok(transaction.pending_events()?.into_iter().any(|event| {
-                                matches!(event, LocalEvent::RunResult { run_id, .. } if run_id == run.id)
+                                matches!(event, LocalEvent::RunResult { run_id, .. } if run_id == run.view().id)
                             }))
                         })
                         .await?;
                     if !already_queued {
                         let outcomes = run
+                            .view()
                             .deliveries
                             .values()
                             .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
                             .collect();
                         RunService::finish(
                             store,
-                            run.id,
+                            run.view().id,
                             TerminalStatus::Failed,
                             outcomes,
                             None,
@@ -145,13 +152,14 @@ impl RecoveryService {
                 LocalRunState::Stopping => {
                     let _ = driver.interrupt(&run).await;
                     let outcomes = run
+                        .view()
                         .deliveries
                         .values()
                         .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
                         .collect();
                     RunService::finish(
                         store,
-                        run.id,
+                        run.view().id,
                         TerminalStatus::Canceled,
                         outcomes,
                         None,

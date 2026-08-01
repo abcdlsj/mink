@@ -5,8 +5,8 @@ use crate::ids::{ComputerId, IdempotencyKey, MemberId, SpaceId};
 use crate::server::domain::pairing::{Pairing, PairingRequest, PairingStatus};
 
 use super::ports::{
-    ApplicationError, ComputerRecord, PairedComputer, PairingCodePort, PairingView,
-    ServerTransaction, TransactionPort,
+    ApplicationError, ComputerRecord, EffectSink, IdentityTransaction, PairedComputer,
+    PairingCodePort, PairingView, ServerTransaction, TransactionPort,
 };
 
 pub(in crate::server) struct BeginPairing;

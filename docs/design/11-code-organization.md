@@ -111,12 +111,37 @@ src/
       execution.rs
       computer.rs
       invitation.rs
-      ports.rs
+      ports/
+        mod.rs
+        transaction.rs
+        identity.rs
+        collaboration.rs
+        task.rs
+        execution.rs
+        attachment.rs
+        effects.rs
     adapters/
       mod.rs
-      http.rs
+      http/
+        mod.rs
+        identity.rs
+        conversation.rs
+        task.rs
+        execution.rs
+        computer.rs
+        attachment.rs
+        dto.rs
+        error.rs
       websocket.rs
-      postgres.rs
+      postgres/
+        mod.rs
+        identity.rs
+        conversation.rs
+        task.rs
+        attention.rs
+        execution.rs
+        attachment.rs
+        rows.rs
       object_storage.rs
       realtime.rs
       credential.rs
@@ -163,7 +188,7 @@ src/
     commands.rs
 ```
 
-每个模块用一个文件表达，规则数量超出单文件可读范围时才拆为目录；`builtin_runtime/`是当前唯一需要拆分的模块。文件与目录的选择不改变依赖方向。
+每个模块默认用一个文件表达。HTTP、PostgreSQL、Server application ports 和 builtin runtime 的规则已超出单文件可读范围，因此按职责拆为目录。文件与目录的选择不改变依赖方向。
 
 `main.rs`、`cli.rs`和`config.rs`是运行时入口与配置装配，只负责解析参数、读取配置并调用两个 facade。
 
@@ -295,7 +320,9 @@ src/server/domain/*.rs              状态转换和领域不变量
 src/server/application/tests.rs     用例流程和事务编排
 src/computer/core/*.rs              调度、Run 和 Session 流程
 src/computer/application/tests.rs   command、恢复和幂等流程
-src/server/adapters/*.rs            SQL 约束、DTO 边界和事件过滤
+src/server/adapters/*.rs            事件过滤和单文件 adapter 的边界测试
+src/server/adapters/http/           HTTP DTO、认证和状态码边界
+src/server/adapters/postgres/       SQL 约束和行到领域对象的转换
 src/computer/drivers/*.rs           Driver 契约与进程协议
 tests/architecture_boundaries.rs    模块依赖与可见性
 tests/registration_space.rs         注册、Space 与治理路由

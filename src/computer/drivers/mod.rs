@@ -111,19 +111,24 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
     }
 
     async fn start_turn(&mut self, run: &LocalRun, locator: &str) -> Result<(), ApplicationError> {
-        if self.turns.contains_key(&run.id) {
+        if self.turns.contains_key(&run.view().id) {
             return Err(ApplicationError::Conflict);
         }
         let kind = run
+            .view()
             .session_fingerprint
-            .as_ref()
             .ok_or(ApplicationError::Conflict)?
             .driver;
         self.backend_mut(kind)
-            .start_turn(run.id, locator, &run.input, run.fencing_token.expose())
+            .start_turn(
+                run.view().id,
+                locator,
+                run.view().input,
+                run.view().fencing_token.expose(),
+            )
             .await?;
         self.turns.insert(
-            run.id,
+            run.view().id,
             ActiveTurn {
                 driver: kind,
                 locator: locator.to_owned(),
@@ -137,10 +142,14 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
         run: &LocalRun,
         sequence: u64,
     ) -> Result<SteerOutcome, ApplicationError> {
-        let turn = self.turns.get(&run.id).ok_or(ApplicationError::NotFound)?;
+        let turn = self
+            .turns
+            .get(&run.view().id)
+            .ok_or(ApplicationError::NotFound)?;
         let driver = turn.driver;
         let locator = turn.locator.clone();
         let item = &run
+            .view()
             .deliveries
             .get(&sequence)
             .ok_or(ApplicationError::NotFound)?
@@ -149,22 +158,25 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
     }
 
     async fn notice(&mut self, run: &LocalRun) -> Result<(), ApplicationError> {
-        let turn = self.turns.get(&run.id).ok_or(ApplicationError::NotFound)?;
+        let turn = self
+            .turns
+            .get(&run.view().id)
+            .ok_or(ApplicationError::NotFound)?;
         let driver = turn.driver;
         let locator = turn.locator.clone();
         self.backend_mut(driver).notice(&locator).await
     }
 
     async fn interrupt(&mut self, run: &LocalRun) -> Result<(), ApplicationError> {
-        let Some(turn) = self.turns.remove(&run.id) else {
+        let Some(turn) = self.turns.remove(&run.view().id) else {
             return Ok(());
         };
         self.backend_mut(turn.driver).interrupt(&turn.locator).await
     }
 
     async fn close_session(&mut self, session: &ProviderSession) -> Result<(), ApplicationError> {
-        self.backend_mut(session.fingerprint.driver)
-            .close(&session.locator)
+        self.backend_mut(session.view().fingerprint.driver)
+            .close(session.view().locator)
             .await
     }
 
@@ -172,16 +184,18 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
         &mut self,
         run: &LocalRun,
     ) -> Result<ProcessEvidence, ApplicationError> {
-        let driver = self.turns.get(&run.id).map_or_else(
+        let driver = self.turns.get(&run.view().id).map_or_else(
             || {
-                run.session_fingerprint
-                    .as_ref()
+                run.view()
+                    .session_fingerprint
                     .map(|fingerprint| fingerprint.driver)
                     .ok_or(ApplicationError::Conflict)
             },
             |turn| Ok(turn.driver),
         )?;
-        self.backend_mut(driver).process_evidence(run.id).await
+        self.backend_mut(driver)
+            .process_evidence(run.view().id)
+            .await
     }
 
     async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {

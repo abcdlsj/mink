@@ -14,12 +14,12 @@ pub(in crate::computer) use crate::computer::core::{
     },
     scheduler::{RunPriority, WorkStrength},
     session::{
-        Continuity, ContinuityState, DriverKind, ProviderSession, SessionFingerprint, SessionScope,
-        SessionState,
+        Continuity, ContinuityState, DriverKind, ProviderSession, ProviderSessionSnapshot,
+        SessionFingerprint, SessionScope, SessionState,
     },
     supervisor::{
-        Delivery, DeliveryState, FencingToken, ItemDisposition, LocalRun, LocalRunState, NewRun,
-        NoticeDelivery, TerminalStatus,
+        Delivery, DeliveryState, FencingToken, ItemDisposition, LocalRun, LocalRunSnapshot,
+        LocalRunState, NewRun, NoticeDelivery, TerminalStatus,
     },
 };
 

@@ -22,6 +22,8 @@ pub(in crate::computer) enum CoreError {
     ConflictingNotice,
     #[error("provider session cannot be promoted")]
     InvalidSessionPromotion,
+    #[error("provider session snapshot violates its state invariants")]
+    InvalidSessionState,
     #[error("provider session is not available")]
     SessionUnavailable,
     #[error("run result does not account for every delivery")]

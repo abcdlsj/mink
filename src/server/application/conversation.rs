@@ -10,8 +10,8 @@ use crate::server::domain::{
 };
 
 use super::ports::{
-    ApplicationError, DirectMessageView, Effect, MessageDraft, PublishedMessage, ServerTransaction,
-    TransactionPort,
+    ApplicationError, CollaborationTransaction, DirectMessageView, Effect, EffectSink,
+    ExecutionTransaction, IdentityTransaction, MessageDraft, PublishedMessage, TransactionPort,
 };
 
 pub(in crate::server) struct ArchiveChannel;
@@ -505,21 +505,22 @@ impl CreateAgentAction {
                 return transaction.agent(MemberId::from_uuid(agent_id)).await;
             }
             let run = transaction.run(input.current_run_id).await?;
-            if run.agent_id != input.actor_member_id || run.status != RunStatus::Running {
+            let run_view = run.view();
+            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Running {
                 return Err(ApplicationError::ContextChanged);
             }
             if !transaction
                 .has_permission(input.actor_member_id, PermissionAction::AgentCreate)
                 .await?
                 || !transaction
-                    .can_read_thread(input.actor_member_id, run.focus_thread_id)
+                    .can_read_thread(input.actor_member_id, run_view.focus_thread_id)
                     .await?
             {
                 return Err(ApplicationError::PermissionDenied);
             }
             let member = Member {
                 id: input.agent_member_id,
-                space_id: run.space_id,
+                space_id: run_view.space_id,
                 display_name: input.display_name,
                 handle: input.handle,
                 access_level: AccessLevel::Member,
@@ -537,7 +538,7 @@ impl CreateAgentAction {
             };
             let action = Message::action_reply(
                 input.action_message_id,
-                run.focus_thread_id,
+                run_view.focus_thread_id,
                 input.actor_member_id,
                 MessageContent::AgentCreated(agent.member_id),
                 input.now,
@@ -564,6 +565,26 @@ impl CreateAgentAction {
 
 pub(in crate::server) struct CreateChannelAction;
 
+pub(in crate::server) struct AddChannelAgents;
+
+impl AddChannelAgents {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor: MemberId,
+        channel_id: crate::ids::ChannelId,
+        agent_ids: Vec<MemberId>,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<Vec<MemberId>, ApplicationError> {
+        port.transact(async |transaction| {
+            transaction
+                .add_channel_agents(actor, channel_id, agent_ids, idempotency_key, now)
+                .await
+        })
+        .await
+    }
+}
+
 impl CreateChannelAction {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
@@ -581,22 +602,34 @@ impl CreateChannelAction {
                 return transaction.channel(ChannelId::from_uuid(channel_id)).await;
             }
             let run = transaction.run(input.current_run_id).await?;
-            if run.agent_id != input.actor_member_id || run.status != RunStatus::Running {
+            let run_view = run.view();
+            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Running {
                 return Err(ApplicationError::ContextChanged);
             }
             if !transaction
                 .has_permission(input.actor_member_id, PermissionAction::ChannelCreate)
                 .await?
                 || !transaction
-                    .can_read_thread(input.actor_member_id, run.focus_thread_id)
+                    .can_read_thread(input.actor_member_id, run_view.focus_thread_id)
                     .await?
             {
                 return Err(ApplicationError::PermissionDenied);
             }
+            let audience = if input.audience.is_empty() {
+                transaction
+                    .channel_action_audience(
+                        run_view.focus_thread_id,
+                        run_view.space_id,
+                        input.kind == ChannelKind::Private,
+                    )
+                    .await?
+            } else {
+                input.audience
+            };
             let channel = Channel::create(
                 input.channel_id,
-                run.space_id,
-                input.audience,
+                run_view.space_id,
+                audience,
                 input.kind,
                 input.slug,
                 input.topic,
@@ -604,7 +637,7 @@ impl CreateChannelAction {
             )?;
             let action = Message::action_reply(
                 input.action_message_id,
-                run.focus_thread_id,
+                run_view.focus_thread_id,
                 input.actor_member_id,
                 MessageContent::ChannelCreated(channel.id),
                 input.now,

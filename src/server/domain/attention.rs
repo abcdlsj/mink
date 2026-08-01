@@ -32,11 +32,27 @@ impl AttentionPolicy {
 /// the range and the deadline.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct AmbientAggregate {
+    first_message_seq: u64,
+    last_message_seq: u64,
+    aggregated_count: u32,
+    /// Deadline fixed when the aggregate opens. No later Message moves it, which is what stops a
+    /// continuously busy Thread from postponing the Agent's read forever.
+    force_at: OffsetDateTime,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct AmbientAggregateView {
     pub(in crate::server) first_message_seq: u64,
     pub(in crate::server) last_message_seq: u64,
     pub(in crate::server) aggregated_count: u32,
-    /// Deadline fixed when the aggregate opens. No later Message moves it, which is what stops a
-    /// continuously busy Thread from postponing the Agent's read forever.
+    pub(in crate::server) force_at: OffsetDateTime,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct AmbientAggregateSnapshot {
+    pub(in crate::server) first_message_seq: u64,
+    pub(in crate::server) last_message_seq: u64,
+    pub(in crate::server) aggregated_count: u32,
     pub(in crate::server) force_at: OffsetDateTime,
 }
 
@@ -92,6 +108,29 @@ pub(in crate::server) enum InboxItemDisposition {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct InboxItem {
+    id: InboxItemId,
+    space_id: SpaceId,
+    agent_id: MemberId,
+    message_id: Option<MessageId>,
+    thread_id: ThreadId,
+    task_id: Option<TaskId>,
+    kind: InboxItemKind,
+    strength: AttentionStrength,
+    status: InboxItemStatus,
+    available_at: OffsetDateTime,
+    lease_run_id: Option<RunId>,
+    lease_expires_at: Option<OffsetDateTime>,
+    retry_count: u32,
+    /// Times a governor returned this Item from `dead` to the queue. Retained across those returns so
+    /// a repeatedly failing source stays distinguishable from a fresh Item.
+    requeue_count: u32,
+    handled_at: Option<OffsetDateTime>,
+    /// Present only on ambient Items, which stand for a range of Messages instead of one.
+    ambient: Option<AmbientAggregate>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) agent_id: MemberId,
@@ -105,15 +144,73 @@ pub(in crate::server) struct InboxItem {
     pub(in crate::server) lease_run_id: Option<RunId>,
     pub(in crate::server) lease_expires_at: Option<OffsetDateTime>,
     pub(in crate::server) retry_count: u32,
-    /// Times a governor returned this Item from `dead` to the queue. Retained across those returns so
-    /// a repeatedly failing source stays distinguishable from a fresh Item.
     pub(in crate::server) requeue_count: u32,
     pub(in crate::server) handled_at: Option<OffsetDateTime>,
-    /// Present only on ambient Items, which stand for a range of Messages instead of one.
-    pub(in crate::server) ambient: Option<AmbientAggregate>,
+    pub(in crate::server) ambient: Option<AmbientAggregateView>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct InboxItemSnapshot {
+    pub(in crate::server) id: InboxItemId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) agent_id: MemberId,
+    pub(in crate::server) message_id: Option<MessageId>,
+    pub(in crate::server) thread_id: ThreadId,
+    pub(in crate::server) task_id: Option<TaskId>,
+    pub(in crate::server) kind: InboxItemKind,
+    pub(in crate::server) strength: AttentionStrength,
+    pub(in crate::server) status: InboxItemStatus,
+    pub(in crate::server) available_at: OffsetDateTime,
+    pub(in crate::server) lease_run_id: Option<RunId>,
+    pub(in crate::server) lease_expires_at: Option<OffsetDateTime>,
+    pub(in crate::server) retry_count: u32,
+    pub(in crate::server) requeue_count: u32,
+    pub(in crate::server) handled_at: Option<OffsetDateTime>,
+    pub(in crate::server) ambient: Option<AmbientAggregateSnapshot>,
 }
 
 impl InboxItem {
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::server) fn open_hard(
+        id: InboxItemId,
+        space_id: SpaceId,
+        agent_id: MemberId,
+        message_id: Option<MessageId>,
+        thread_id: ThreadId,
+        task_id: Option<TaskId>,
+        kind: InboxItemKind,
+        now: OffsetDateTime,
+    ) -> Result<Self, DomainError> {
+        if !matches!(
+            kind,
+            InboxItemKind::Direct
+                | InboxItemKind::Mention
+                | InboxItemKind::Reply
+                | InboxItemKind::TaskActivity
+                | InboxItemKind::System
+        ) {
+            return Err(DomainError::InvalidPersistedState);
+        }
+        Ok(Self {
+            id,
+            space_id,
+            agent_id,
+            message_id,
+            thread_id,
+            task_id,
+            kind,
+            strength: AttentionStrength::Hard,
+            status: InboxItemStatus::Pending,
+            available_at: now,
+            lease_run_id: None,
+            lease_expires_at: None,
+            retry_count: 0,
+            requeue_count: 0,
+            handled_at: None,
+            ambient: None,
+        })
+    }
+
     /// Opens an ambient aggregate for one Agent and Thread. The Item stays unavailable until the
     /// debounce elapses, so a Thread that keeps receiving Messages is read once, not once per
     /// Message.
@@ -125,9 +222,16 @@ impl InboxItem {
         kind: InboxItemKind,
         message_seq: u64,
         now: OffsetDateTime,
-    ) -> Self {
+    ) -> Result<Self, DomainError> {
+        if !matches!(
+            kind,
+            InboxItemKind::ThreadActivity | InboxItemKind::ChannelActivity
+        ) || message_seq == 0
+        {
+            return Err(DomainError::InvalidPersistedState);
+        }
         let ambient = AmbientAggregate::opened_at(message_seq, now);
-        Self {
+        Ok(Self {
             id,
             space_id,
             agent_id,
@@ -144,7 +248,128 @@ impl InboxItem {
             requeue_count: 0,
             handled_at: None,
             ambient: Some(ambient),
+        })
+    }
+
+    pub(in crate::server) fn view(&self) -> InboxItemView {
+        InboxItemView {
+            id: self.id,
+            space_id: self.space_id,
+            agent_id: self.agent_id,
+            message_id: self.message_id,
+            thread_id: self.thread_id,
+            task_id: self.task_id,
+            kind: self.kind,
+            strength: self.strength,
+            status: self.status,
+            available_at: self.available_at,
+            lease_run_id: self.lease_run_id,
+            lease_expires_at: self.lease_expires_at,
+            retry_count: self.retry_count,
+            requeue_count: self.requeue_count,
+            handled_at: self.handled_at,
+            ambient: self.ambient.map(|ambient| AmbientAggregateView {
+                first_message_seq: ambient.first_message_seq,
+                last_message_seq: ambient.last_message_seq,
+                aggregated_count: ambient.aggregated_count,
+                force_at: ambient.force_at,
+            }),
         }
+    }
+
+    pub(in crate::server) fn snapshot(&self) -> InboxItemSnapshot {
+        let view = self.view();
+        InboxItemSnapshot {
+            id: view.id,
+            space_id: view.space_id,
+            agent_id: view.agent_id,
+            message_id: view.message_id,
+            thread_id: view.thread_id,
+            task_id: view.task_id,
+            kind: view.kind,
+            strength: view.strength,
+            status: view.status,
+            available_at: view.available_at,
+            lease_run_id: view.lease_run_id,
+            lease_expires_at: view.lease_expires_at,
+            retry_count: view.retry_count,
+            requeue_count: view.requeue_count,
+            handled_at: view.handled_at,
+            ambient: view.ambient.map(|ambient| AmbientAggregateSnapshot {
+                first_message_seq: ambient.first_message_seq,
+                last_message_seq: ambient.last_message_seq,
+                aggregated_count: ambient.aggregated_count,
+                force_at: ambient.force_at,
+            }),
+        }
+    }
+
+    pub(in crate::server) fn rehydrate(snapshot: InboxItemSnapshot) -> Result<Self, DomainError> {
+        let has_lease_id = snapshot.lease_run_id.is_some();
+        let has_lease_expiry = snapshot.lease_expires_at.is_some();
+        if has_lease_id != has_lease_expiry
+            || (snapshot.status == InboxItemStatus::Leased) != has_lease_id
+            || (snapshot.status == InboxItemStatus::Handled) != snapshot.handled_at.is_some()
+        {
+            return Err(DomainError::InvalidPersistedState);
+        }
+        let ambient = snapshot
+            .ambient
+            .map(|ambient| {
+                if ambient.first_message_seq == 0
+                    || ambient.last_message_seq < ambient.first_message_seq
+                    || ambient.aggregated_count == 0
+                    || u64::from(ambient.aggregated_count)
+                        > ambient.last_message_seq - ambient.first_message_seq + 1
+                {
+                    return Err(DomainError::InvalidPersistedState);
+                }
+                Ok(AmbientAggregate {
+                    first_message_seq: ambient.first_message_seq,
+                    last_message_seq: ambient.last_message_seq,
+                    aggregated_count: ambient.aggregated_count,
+                    force_at: ambient.force_at,
+                })
+            })
+            .transpose()?;
+        let kind_matches_strength = matches!(
+            (snapshot.kind, snapshot.strength),
+            (
+                InboxItemKind::Direct
+                    | InboxItemKind::Mention
+                    | InboxItemKind::Reply
+                    | InboxItemKind::TaskActivity
+                    | InboxItemKind::System,
+                AttentionStrength::Hard
+            ) | (
+                InboxItemKind::ThreadActivity | InboxItemKind::ChannelActivity,
+                AttentionStrength::Ambient
+            )
+        );
+        if !kind_matches_strength
+            || matches!(snapshot.strength, AttentionStrength::Ambient)
+                != (ambient.is_some() && snapshot.message_id.is_none())
+        {
+            return Err(DomainError::InvalidPersistedState);
+        }
+        Ok(Self {
+            id: snapshot.id,
+            space_id: snapshot.space_id,
+            agent_id: snapshot.agent_id,
+            message_id: snapshot.message_id,
+            thread_id: snapshot.thread_id,
+            task_id: snapshot.task_id,
+            kind: snapshot.kind,
+            strength: snapshot.strength,
+            status: snapshot.status,
+            available_at: snapshot.available_at,
+            lease_run_id: snapshot.lease_run_id,
+            lease_expires_at: snapshot.lease_expires_at,
+            retry_count: snapshot.retry_count,
+            requeue_count: snapshot.requeue_count,
+            handled_at: snapshot.handled_at,
+            ambient,
+        })
     }
 
     /// Folds one more ambient Message into this open aggregate. Returns the Item's new
@@ -310,6 +535,81 @@ impl InboxItem {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rehydrate_accepts_a_complete_snapshot_and_rejects_a_partial_lease() {
+        let item = InboxItem::open_hard(
+            InboxItemId::from_uuid(uuid::Uuid::from_u128(21)),
+            SpaceId::from_uuid(uuid::Uuid::from_u128(22)),
+            MemberId::from_uuid(uuid::Uuid::from_u128(23)),
+            None,
+            ThreadId::from_uuid(uuid::Uuid::from_u128(24)),
+            None,
+            InboxItemKind::System,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("system Item is hard");
+        let snapshot = item.snapshot();
+        let restored = InboxItem::rehydrate(snapshot.clone()).expect("snapshot is valid");
+        assert_eq!(restored.snapshot(), snapshot);
+
+        let mut invalid = snapshot;
+        invalid.lease_run_id = Some(RunId::from_uuid(uuid::Uuid::from_u128(25)));
+        assert_eq!(
+            InboxItem::rehydrate(invalid),
+            Err(DomainError::InvalidPersistedState)
+        );
+    }
+
+    #[test]
+    fn rehydrate_rejects_a_kind_with_the_wrong_strength() {
+        let item = InboxItem::open_hard(
+            InboxItemId::from_uuid(uuid::Uuid::from_u128(21)),
+            SpaceId::from_uuid(uuid::Uuid::from_u128(22)),
+            MemberId::from_uuid(uuid::Uuid::from_u128(23)),
+            None,
+            ThreadId::from_uuid(uuid::Uuid::from_u128(24)),
+            None,
+            InboxItemKind::System,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("system Item is hard");
+        let mut invalid = item.snapshot();
+        invalid.kind = InboxItemKind::ChannelActivity;
+        assert_eq!(
+            InboxItem::rehydrate(invalid),
+            Err(DomainError::InvalidPersistedState)
+        );
+    }
+
+    #[test]
+    fn constructors_reject_kinds_with_the_wrong_strength() {
+        assert_eq!(
+            InboxItem::open_hard(
+                InboxItemId::from_uuid(uuid::Uuid::from_u128(31)),
+                SpaceId::from_uuid(uuid::Uuid::from_u128(32)),
+                MemberId::from_uuid(uuid::Uuid::from_u128(33)),
+                None,
+                ThreadId::from_uuid(uuid::Uuid::from_u128(34)),
+                None,
+                InboxItemKind::ChannelActivity,
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            Err(DomainError::InvalidPersistedState)
+        );
+        assert_eq!(
+            InboxItem::open_ambient(
+                InboxItemId::from_uuid(uuid::Uuid::from_u128(35)),
+                SpaceId::from_uuid(uuid::Uuid::from_u128(36)),
+                MemberId::from_uuid(uuid::Uuid::from_u128(37)),
+                ThreadId::from_uuid(uuid::Uuid::from_u128(38)),
+                InboxItemKind::Mention,
+                1,
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            Err(DomainError::InvalidPersistedState)
+        );
+    }
+
     fn leased_item(run_id: RunId, retry_count: u32) -> InboxItem {
         InboxItem {
             id: InboxItemId::from_uuid(uuid::Uuid::from_u128(1)),
@@ -341,6 +641,7 @@ mod tests {
             10,
             now,
         )
+        .expect("channel activity is ambient")
     }
 
     #[test]

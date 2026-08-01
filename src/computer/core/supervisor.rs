@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{collections::BTreeMap, fmt};
 
 use crate::ids::{AgentId, InboxItemId, NoticeId, RunId, TaskId, ThreadId};
@@ -88,8 +88,26 @@ pub(in crate::computer) enum ItemDisposition {
     Released,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct LocalRun {
+    id: RunId,
+    agent_id: AgentId,
+    task_id: Option<TaskId>,
+    focus_thread_id: ThreadId,
+    fencing_token: FencingToken,
+    priority: RunPriority,
+    ownership_lease_expires_at: time::OffsetDateTime,
+    input: RunInput,
+    state: LocalRunState,
+    session: Option<(SessionScope, u64)>,
+    session_fingerprint: Option<SessionFingerprint>,
+    deliveries: BTreeMap<u64, Delivery>,
+    notices: BTreeMap<NoticeId, NoticeDelivery>,
+    terminal_status: Option<TerminalStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub(in crate::computer) struct LocalRunSnapshot {
     pub(in crate::computer) id: RunId,
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) task_id: Option<TaskId>,
@@ -103,6 +121,33 @@ pub(in crate::computer) struct LocalRun {
     pub(in crate::computer) session_fingerprint: Option<SessionFingerprint>,
     pub(in crate::computer) deliveries: BTreeMap<u64, Delivery>,
     pub(in crate::computer) notices: BTreeMap<NoticeId, NoticeDelivery>,
+    pub(in crate::computer) terminal_status: Option<TerminalStatus>,
+}
+
+impl<'de> Deserialize<'de> for LocalRun {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let snapshot = LocalRunSnapshot::deserialize(deserializer)?;
+        Self::rehydrate(snapshot).map_err(serde::de::Error::custom)
+    }
+}
+
+pub(in crate::computer) struct LocalRunView<'a> {
+    pub(in crate::computer) id: RunId,
+    pub(in crate::computer) agent_id: AgentId,
+    pub(in crate::computer) task_id: Option<TaskId>,
+    pub(in crate::computer) focus_thread_id: ThreadId,
+    pub(in crate::computer) fencing_token: &'a FencingToken,
+    pub(in crate::computer) priority: &'a RunPriority,
+    pub(in crate::computer) ownership_lease_expires_at: time::OffsetDateTime,
+    pub(in crate::computer) input: &'a RunInput,
+    pub(in crate::computer) state: LocalRunState,
+    pub(in crate::computer) session: Option<(SessionScope, u64)>,
+    pub(in crate::computer) session_fingerprint: Option<&'a SessionFingerprint>,
+    pub(in crate::computer) deliveries: &'a BTreeMap<u64, Delivery>,
+    pub(in crate::computer) notices: &'a BTreeMap<NoticeId, NoticeDelivery>,
     pub(in crate::computer) terminal_status: Option<TerminalStatus>,
 }
 
@@ -152,6 +197,162 @@ impl LocalRun {
             run.attach(index as u64 + 1, item)?;
         }
         Ok(run)
+    }
+
+    pub(in crate::computer) fn rehydrate(snapshot: LocalRunSnapshot) -> Result<Self, CoreError> {
+        if snapshot.fencing_token.expose().is_empty()
+            || snapshot.input.agent.agent_id != snapshot.agent_id
+            || snapshot.input.context.focus_thread_id != snapshot.focus_thread_id
+            || (snapshot
+                .input
+                .work
+                .task
+                .as_ref()
+                .is_some_and(|task| Some(task.task_id) != snapshot.task_id))
+            || snapshot.task_id.is_some()
+                && !snapshot
+                    .input
+                    .work
+                    .linked_thread_ids
+                    .contains(&snapshot.focus_thread_id)
+        {
+            return Err(CoreError::InputScopeMismatch);
+        }
+        let terminal_status_matches = matches!(
+            (snapshot.state, snapshot.terminal_status),
+            (LocalRunState::Completed, Some(TerminalStatus::Completed))
+                | (LocalRunState::Yielded, Some(TerminalStatus::Yielded))
+                | (LocalRunState::Failed, Some(TerminalStatus::Failed))
+                | (LocalRunState::Canceled, Some(TerminalStatus::Canceled))
+                | (LocalRunState::Queued, None)
+                | (LocalRunState::Starting, None)
+                | (LocalRunState::Running, None)
+                | (LocalRunState::Finalizing, None)
+                | (LocalRunState::Stopping, None)
+        );
+        if !terminal_status_matches {
+            return Err(CoreError::InvalidTransition);
+        }
+        if let Some((scope, generation)) = snapshot.session {
+            let expected = snapshot.task_id.map_or(
+                SessionScope::Thread(snapshot.focus_thread_id),
+                SessionScope::Task,
+            );
+            if scope != expected || generation == 0 {
+                return Err(CoreError::InvalidTransition);
+            }
+        }
+        let mut expected_sequence = 1;
+        for (index, item) in snapshot.input.context.claimed_items.iter().enumerate() {
+            let Some(delivery) = snapshot.deliveries.get(&(index as u64 + 1)) else {
+                return Err(CoreError::InvalidDeliverySequence);
+            };
+            if delivery.item.item_id != item.item_id
+                || delivery.item.thread_id != item.thread_id
+                || delivery.item.content != item.content
+                || (item.task_id != delivery.item.task_id
+                    && !(item.task_id.is_none() && snapshot.task_id.is_some()))
+            {
+                return Err(CoreError::InvalidDeliverySequence);
+            }
+        }
+        for (sequence, delivery) in &snapshot.deliveries {
+            if *sequence != expected_sequence
+                || delivery.sequence != *sequence
+                || delivery.item.task_id != snapshot.task_id
+                || delivery.item.thread_id != snapshot.focus_thread_id
+            {
+                return Err(CoreError::InvalidDeliverySequence);
+            }
+            if snapshot
+                .deliveries
+                .values()
+                .filter(|candidate| candidate.item.item_id == delivery.item.item_id)
+                .count()
+                != 1
+            {
+                return Err(CoreError::InvalidDeliverySequence);
+            }
+            expected_sequence += 1;
+        }
+        Ok(Self {
+            id: snapshot.id,
+            agent_id: snapshot.agent_id,
+            task_id: snapshot.task_id,
+            focus_thread_id: snapshot.focus_thread_id,
+            fencing_token: snapshot.fencing_token,
+            priority: snapshot.priority,
+            ownership_lease_expires_at: snapshot.ownership_lease_expires_at,
+            input: snapshot.input,
+            state: snapshot.state,
+            session: snapshot.session,
+            session_fingerprint: snapshot.session_fingerprint,
+            deliveries: snapshot.deliveries,
+            notices: snapshot.notices,
+            terminal_status: snapshot.terminal_status,
+        })
+    }
+
+    pub(in crate::computer) fn view(&self) -> LocalRunView<'_> {
+        LocalRunView {
+            id: self.id,
+            agent_id: self.agent_id,
+            task_id: self.task_id,
+            focus_thread_id: self.focus_thread_id,
+            fencing_token: &self.fencing_token,
+            priority: &self.priority,
+            ownership_lease_expires_at: self.ownership_lease_expires_at,
+            input: &self.input,
+            state: self.state,
+            session: self.session,
+            session_fingerprint: self.session_fingerprint.as_ref(),
+            deliveries: &self.deliveries,
+            notices: &self.notices,
+            terminal_status: self.terminal_status,
+        }
+    }
+
+    pub(in crate::computer) fn set_session_fingerprint(&mut self, fingerprint: SessionFingerprint) {
+        self.session_fingerprint = Some(fingerprint);
+    }
+
+    pub(in crate::computer) fn set_session(&mut self, session: Option<(SessionScope, u64)>) {
+        self.session = session;
+    }
+
+    pub(in crate::computer) fn recover_starting(&mut self) -> Result<(), CoreError> {
+        if self.state != LocalRunState::Starting {
+            return Err(CoreError::InvalidTransition);
+        }
+        self.state = LocalRunState::Running;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(in crate::computer) fn set_lease_for_test(&mut self, expires_at: time::OffsetDateTime) {
+        self.ownership_lease_expires_at = expires_at;
+    }
+
+    pub(in crate::computer) fn restore_delivery(
+        &mut self,
+        delivery: Delivery,
+    ) -> Result<(), CoreError> {
+        let expected = self
+            .deliveries
+            .last_key_value()
+            .map_or(1, |(sequence, _)| sequence + 1);
+        if delivery.sequence != expected
+            || delivery.item.task_id != self.task_id
+            || delivery.item.thread_id != self.focus_thread_id
+            || self
+                .deliveries
+                .values()
+                .any(|existing| existing.item.item_id == delivery.item.item_id)
+        {
+            return Err(CoreError::InvalidDeliverySequence);
+        }
+        self.deliveries.insert(delivery.sequence, delivery);
+        Ok(())
     }
 
     pub(in crate::computer) fn begin_start(&mut self) -> Result<(), CoreError> {

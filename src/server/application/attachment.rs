@@ -4,7 +4,9 @@ use crate::ids::{AttachmentId, IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::attachment::{Attachment, ContentDigest, DeclaredContent};
 
-use super::ports::{ApplicationError, AttachmentObjectPort, ServerTransaction, TransactionPort};
+use super::ports::{
+    ApplicationError, AttachmentObjectPort, AttachmentTransaction, EffectSink, TransactionPort,
+};
 
 const CREATE_ACTION: &str = "attachment.upload.create";
 const COMPLETE_ACTION: &str = "attachment.upload.complete";
@@ -115,8 +117,11 @@ impl WriteUploadContent {
             })
             .await?;
         // Object content is external to PostgreSQL and this write is idempotent.
-        objects.put(&attachment.object_key, input.content).await?;
-        Ok(attachment.space_id)
+        let attachment_view = attachment.view();
+        objects
+            .put(attachment_view.object_key, input.content)
+            .await?;
+        Ok(attachment_view.space_id)
     }
 }
 
@@ -146,7 +151,7 @@ impl CompleteUpload {
                 Ok(attachment)
             })
             .await?;
-        let stored = objects.get(&attachment.object_key).await?;
+        let stored = objects.get(attachment.view().object_key).await?;
         let actual = ContentDigest {
             length: stored.len() as u64,
             sha256: <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(&stored)),
@@ -182,7 +187,7 @@ impl CompleteUpload {
             transaction.save_attachment(&attachment).await?;
             transaction
                 .record_attachment_write(
-                    attachment.space_id,
+                    attachment.view().space_id,
                     input.uploader_member_id,
                     COMPLETE_ACTION,
                     input.idempotency_key,
@@ -237,7 +242,7 @@ impl ReadAttachment {
                     .await?
                     .ok_or(ApplicationError::NotFound)?;
                 attachment.require_ready()?;
-                if allow_uploader && attachment.uploader_member_id == viewer {
+                if allow_uploader && attachment.view().uploader_member_id == viewer {
                     return Ok(attachment);
                 }
                 if transaction
@@ -250,7 +255,7 @@ impl ReadAttachment {
                 }
             })
             .await?;
-        let content = objects.get(&attachment.object_key).await?;
+        let content = objects.get(attachment.view().object_key).await?;
         Ok(AttachmentContent {
             attachment,
             content,
