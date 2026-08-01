@@ -70,7 +70,8 @@ describe("Agent detail", () => {
     expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
     expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
-    const channelPermission = screen.getByRole("button", { name: "channel.create: Granted" });
+    const channelPermission = screen.getByRole("checkbox", { name: "channel.create permission" });
+    expect(channelPermission).toBeChecked();
     fireEvent.click(channelPermission);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/permissions/channel.create`), expect.objectContaining({ method: "DELETE" })));
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));

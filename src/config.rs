@@ -11,43 +11,43 @@ use url::Url;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
-pub struct SumiConfig {
-    pub server: ServerConfig,
-    pub computer: ComputerConfig,
+pub(crate) struct SumiConfig {
+    pub(crate) server: ServerConfig,
+    pub(crate) computer: ComputerConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ServerConfig {
-    pub bind: SocketAddr,
-    pub database_url: String,
-    pub web_dist: PathBuf,
-    pub attachment_dir: PathBuf,
-    pub attachment_s3: Option<AttachmentS3Config>,
-    pub attachment_max_bytes: u64,
-    pub secure_cookies: bool,
-    pub session_ttl_hours: i64,
-    pub auth_ip_attempts_per_minute: u32,
-    pub auth_email_attempts_per_minute: u32,
+pub(crate) struct ServerConfig {
+    pub(crate) bind: SocketAddr,
+    pub(crate) database_url: String,
+    pub(crate) web_dist: PathBuf,
+    pub(crate) attachment_dir: PathBuf,
+    pub(crate) attachment_s3: Option<AttachmentS3Config>,
+    pub(crate) attachment_max_bytes: u64,
+    pub(crate) secure_cookies: bool,
+    pub(crate) session_ttl_hours: i64,
+    pub(crate) auth_ip_attempts_per_minute: u32,
+    pub(crate) auth_email_attempts_per_minute: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct AttachmentS3Config {
-    pub bucket: String,
-    pub region: String,
-    pub endpoint: Option<String>,
-    pub allow_http: bool,
+pub(crate) struct AttachmentS3Config {
+    pub(crate) bucket: String,
+    pub(crate) region: String,
+    pub(crate) endpoint: Option<String>,
+    pub(crate) allow_http: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct BuiltinOpenAiConfig {
-    pub api_base: Url,
-    pub token: ConfigSecret,
-    pub model: String,
+pub(crate) struct BuiltinOpenAiConfig {
+    pub(crate) api_base: Url,
+    pub(crate) token: ConfigSecret,
+    pub(crate) model: String,
 }
 
 #[derive(Clone)]
-pub struct ConfigSecret(SecretString);
+pub(crate) struct ConfigSecret(SecretString);
 
 impl ConfigSecret {
     pub(crate) fn expose(&self) -> &str {
@@ -127,16 +127,16 @@ impl Default for ServerConfig {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ComputerConfig {
-    pub server_url: Url,
-    pub state_dir: PathBuf,
-    pub open_pairing_browser: bool,
-    pub codex_config_source: Option<PathBuf>,
-    pub codex_auth_source: Option<PathBuf>,
-    pub builtin: Option<BuiltinOpenAiConfig>,
-    pub max_concurrent_runs: usize,
-    pub per_agent_timeout_seconds: u64,
-    pub shutdown_grace_period_seconds: u64,
+pub(crate) struct ComputerConfig {
+    pub(crate) server_url: Url,
+    pub(crate) state_dir: PathBuf,
+    pub(crate) open_pairing_browser: bool,
+    pub(crate) codex_config_source: Option<PathBuf>,
+    pub(crate) codex_auth_source: Option<PathBuf>,
+    pub(crate) builtin: Option<BuiltinOpenAiConfig>,
+    pub(crate) max_concurrent_runs: usize,
+    pub(crate) per_agent_timeout_seconds: u64,
+    pub(crate) shutdown_grace_period_seconds: u64,
 }
 
 impl Default for ComputerConfig {
@@ -157,7 +157,7 @@ impl Default for ComputerConfig {
     }
 }
 
-pub fn load(path: Option<&PathBuf>) -> Result<SumiConfig> {
+pub(crate) fn load(path: Option<&PathBuf>) -> Result<SumiConfig> {
     let path = path.cloned().or_else(|| {
         let default = default_config_path();
         default.is_file().then_some(default)

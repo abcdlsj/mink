@@ -84,7 +84,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
           <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>
           <p>@{value.handle} · {value.role_text}</p>
         </div>
-        <span className={`agent-state agent-state--${value.activity_status}`} role="status"><i />{activityLabel(value.activity_status)}</span>
+        <span className={`agent-state agent-state--${value.activity_status}`} role="status" aria-label={`Activity: ${activityLabel(value.activity_status)}`} title={`Activity: ${activityLabel(value.activity_status)}`}><i aria-hidden="true" />{activityLabel(value.activity_status)}</span>
         <Link className="agent-message-action icon-button" to="/s/$spaceSlug/dm/$memberId" params={{ spaceSlug, memberId: value.member_id }} aria-label={`Message ${value.name}`} title={`Message ${value.name}`}><MessageCircle /></Link>
       </header>
       <nav className="detail-tabs" aria-label="Agent detail">
@@ -101,7 +101,27 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
             <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} tabular /></dl></DetailSection>
             <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
             <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={activityLabel(value.activity_status)} /><Field label="Activity" value={value.activity?.label ?? "No active operation"} /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl>{runtime.isPending ? <p>Loading current Run…</p> : null}{runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}{runtime.data ? <div className="agent-runtime-facts">{runtime.data.current_task ? <p><strong>Task</strong><Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link></p> : <p><strong>Task</strong>None</p>}{runtime.data.focus ? <p><strong>Focus</strong><Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link></p> : <p><strong>Focus</strong>None</p>}<p><strong>Run</strong>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p><p><strong>Session continuity</strong>{runtime.data.session_continuity.state.replace("_", " ")}</p>{runtime.data.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}</div> : null}</DetailSection>
-            <DetailSection title="Action permissions"><p>Permissions grant one Server action. They do not change the Agent Role or Channel visibility.</p><div className="permission-actions">{["channel.create", "agent.create"].map((action) => { const enabled = agentMember?.permissions.includes(action) ?? false; return <button key={action} className="command-button" type="button" disabled={!canManage || permission.isPending || !agentMember} aria-pressed={enabled} onClick={() => permission.mutate({ action, enabled: !enabled })}>{action}: {enabled ? "Granted" : "Not granted"}</button>; })}</div>{permission.error ? <p className="form-error" role="alert">Permission update failed.</p> : null}</DetailSection>
+            <DetailSection title="Action permissions">
+              <div className="permission-list" aria-label="Agent action permissions">
+                {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
+                  const enabled = agentMember?.permissions.includes(action) ?? false;
+                  return (
+                    <label key={action} className="permission-row">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        disabled={!canManage || permission.isPending || !agentMember}
+                        aria-label={`${action} permission`}
+                        onChange={(event) => permission.mutate({ action, enabled: event.target.checked })}
+                      />
+                      <span className="permission-row-copy"><strong>{action}</strong><small>{description}</small></span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!canManage ? <p className="permission-hint">Only Owner or Admin can change permissions.</p> : null}
+              {permission.error ? <p className="form-error" role="alert">Permission update failed.</p> : null}
+            </DetailSection>
             <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} tabular /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} tabular /></dl></DetailSection>
           </div>
         ) : null}

@@ -12,6 +12,8 @@ pub(in crate::server) mod task;
 pub(in crate::server) enum DomainError {
     #[error("invalid state transition")]
     InvalidTransition,
+    #[error("persisted domain state is invalid")]
+    InvalidPersistedState,
     #[error("message is not a root message")]
     SourceIsNotRoot,
     #[error("source message and thread do not match")]
@@ -30,6 +32,8 @@ pub(in crate::server) enum DomainError {
     ItemScopeMismatch,
     #[error("ambient inbox item cannot attach to an active run")]
     AmbientItemCannotAttach,
+    #[error("inbox item does not aggregate ambient activity")]
+    ItemIsNotAmbientAggregate,
     #[error("run no longer accepts inbox items")]
     RunNotAcceptingItems,
     #[error("run item disposition is incomplete")]

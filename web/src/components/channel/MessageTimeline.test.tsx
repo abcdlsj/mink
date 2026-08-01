@@ -26,3 +26,32 @@ describe("ExpandableMessageText", () => {
     expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+describe("highlightMentions", () => {
+  it("highlights only recognized handles at mention boundaries", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-mentions"
+        body="@Lin please check email@lin, @lincoln, and (@Lin)."
+        mentionedHandles={new Set(["lin"])}
+      />,
+    );
+
+    expect(container.querySelectorAll("mark.message-mention")).toHaveLength(1);
+    expect(container.querySelector("mark.message-mention")).toHaveTextContent("@Lin");
+    expect(container).toHaveTextContent("@Lin please check email@lin, @lincoln, and (@Lin).");
+  });
+
+  it("does not infer a mention from text when no structured handle is present", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-unrecognized-mention"
+        body="Please check @lin."
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelector("mark.message-mention")).not.toBeInTheDocument();
+    expect(container).toHaveTextContent("Please check @lin.");
+  });
+});

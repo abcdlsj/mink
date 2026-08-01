@@ -274,7 +274,7 @@ mod tests {
             application::{
                 AgentInput, ClaimedItemInput, DriverKind, FencingToken, LocalAgent,
                 LocalAgentState, LocalRun, LocalRunState, NewRun, RunContextInput, RunInput,
-                RunPriority, TaskInput, WorkInput, WorkStrength,
+                RunPriority, SessionScope, TaskInput, WorkInput, WorkStrength,
                 ports::{AgentHomePort, ComputerTransaction, LocalEvent, TransactionPort},
             },
         },
@@ -364,7 +364,8 @@ mod tests {
             },
         })
         .unwrap();
-        run.state = LocalRunState::Running;
+        run.begin_start().unwrap();
+        run.started(SessionScope::Task(task_id), 1).unwrap();
         store
             .transact(async |transaction| transaction.save_run(run))
             .await
@@ -544,7 +545,7 @@ mod tests {
         store
             .transact(async |transaction| {
                 assert_eq!(
-                    transaction.run(run_id)?.unwrap().state,
+                    transaction.run(run_id)?.unwrap().view().state,
                     LocalRunState::Yielded
                 );
                 assert!(transaction.pending_events()?.iter().any(|event| matches!(

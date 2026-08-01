@@ -423,13 +423,15 @@ pub async fn pairing_url_from_daemon(daemon: &mut SumiProcess) -> Result<Url> {
     let line = daemon
         .wait_for_stderr("/computers/pair/", std::time::Duration::from_secs(15))
         .await?;
+    // The daemon writes styled logs to a pipe, so the field name and separator carry ANSI escapes.
+    // Match the URL itself rather than the `url=` label.
     let raw = line
-        .split_once("url=")
-        .context("pairing log did not include a URL")?
-        .1
         .split_whitespace()
-        .next()
-        .context("pairing URL is empty")?;
+        .find_map(|token| {
+            let start = token.find("http")?;
+            Some(&token[start..])
+        })
+        .context("pairing log did not include a URL")?;
     Ok(Url::parse(raw.trim_matches('"'))?)
 }
 

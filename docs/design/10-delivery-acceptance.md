@@ -94,6 +94,13 @@
 - In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
 - Review 不检查 Permission，也不保存 reviewer 字段。
 - Run终态不自动完成Task。
+- assignee 的首个 Task Run 进入`running`时把`todo`推进为`in_progress`；其他 Agent 的 Run 和重复上报都不改变状态。
+- lease 过期回收释放 Items 并增加 retry count，把 Run 置为`failed`，且该 Agent 随后可以创建新 Run。
+- 回收保留 Agent 已上报的 disposition，重复扫描不重复计数。
+- retry count 超过上限的 Item 进入`dead`，并产生不含正文的 system Item。
+- Agent 显式 release 的 Item 不增加 retry count。
+- 订阅该 Thread 的 Agent 收到`thread_activity`，未订阅的收到`channel_activity`。
+- `submit_review`、`done`和`close`只有一个事务入口，Browser 与 Agent CLI 共用它。
 
 ## 4. 集成验收
 
@@ -106,6 +113,8 @@
 - Session close失败不回滚已完成Task。
 - Task表不重复保存Root Message、Result正文或Source link。
 - different-Focus notice和Session continuity不在Server建立事实表。
+- 发送 Message 的事务同时产生`inbox.changed`；reply 另外产生`thread.updated`。
+- SSE 不向读不到该 Channel 的调用方投递事件，也不把一个 Member 的`inbox.changed`投递给他人。
 - 空 PostgreSQL 可以直接建立完整基线。
 - 空 Computer 目录可以直接建立完整 SQLite schema。
 - 数据库约束拒绝非法 Task 终态和并行 active Run。
@@ -142,6 +151,12 @@
 - active Run收到Human明确转向并yield。
 
 每个场景必须证明Message、Task、Inbox和Run事实一致。
+
+需要真实进程与数据库的场景在`tests/failure_recovery.rs`验证：Server 重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。daemon 重启、重复上报和 yield 是 Computer 内部的状态转换，在`src/computer/application/tests.rs`验证，见 [代码组织与依赖边界](11-code-organization.md) 的测试组织。
+
+workspace 场景需要运行中的 daemon 把 Agent 带到`active`，因此依赖本机`codex`可执行文件。缺少该文件时该场景跳过并说明原因，不得记为通过。
+
+workspace 丢失后 Computer 当前无法重新完成握手：重连会重放 provision command，而 Driver 校验要求 workspace 目录存在，因此该 Computer 保持 offline 并持续重试。此时 Server 端事实仍然一致，Item 留在队列中等待，损坏的 Provider Session 不被 resume。自动重建 workspace 尚未实现。
 
 ## 7. UI 验收
 
@@ -198,5 +213,18 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 Web 类型检查、lint、流程测试和 Playwright 核心流程
 ```
+
+Playwright 需要一个提供已构建 WebUI 的运行中 Server。`playwright.config.ts`的 baseURL 默认`http://127.0.0.1:3000`，用`PLAYWRIGHT_BASE_URL`指向其他端口：
+
+```text
+pnpm --dir web build
+createdb sumi_e2e
+sumi server --config <指向该库与 web/dist 的配置>
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:<port> pnpm --dir web test:e2e
+```
+
+两个 spec 各自注册 Human 并创建 Space，因此要求空数据库且没有已配对 Computer：`collaboration-smoke.spec.ts`断言「No Computers paired」。不要用`mise run dev-seed`准备该环境，它会预先创建 Space 与 Computer 并使这些断言失败。
+
+三个 viewport project 都必须通过。Message 动作面板在窄断点以上依赖 hover 显示，因此测试必须先 hover 该 Message 行再点击面板按钮，见 [WebUI](03-web-ui.md) 的 Message 动作面板。
 
 最终整体验收通过后，才能声明新版本完成。

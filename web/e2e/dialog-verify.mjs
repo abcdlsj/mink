@@ -114,19 +114,6 @@ for (const [width, height, label] of viewports) {
   if (triggerElement && !(await triggerElement.evaluate((element) => !element.isConnected || document.activeElement === element))) throw new Error(`Add Agents did not restore focus at ${label}`);
 }
 
-await page.goto(`${base}/s/sumi-dev/computers`);
-await page.locator(".computers-workspace").waitFor();
-for (const [width, height, label] of viewports) {
-  await page.setViewportSize({ width, height });
-  await openNavigationWhenCompact();
-  const trigger = page.getByRole("link", { name: "Pair Computer" });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "Pair Computer" });
-  await assertDialog(dialog, "Pair Computer", label, dialog.getByRole("button", { name: "Close Pair Computer" }));
-  await page.keyboard.press("Escape");
-  await dialog.waitFor({ state: "detached" });
-}
-
 for (const [width, height, label] of viewports) {
   await page.setViewportSize({ width, height });
   await page.goto(`${base}/s/sumi-dev/computers#create-agent`);

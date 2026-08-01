@@ -234,7 +234,7 @@ impl ServerConnectionAdapter {
             }
             wire::Command::RunTaskBound(bound) => {
                 let run = load_run(store, bound.run_id).await?;
-                let agent = homes.agent(run.agent_id).await?;
+                let agent = homes.agent(run.view().agent_id).await?;
                 Ok(ApplicationCommand::BindTask {
                     run_id: bound.run_id,
                     task_id: bound.task.task_id,
@@ -264,7 +264,7 @@ impl ServerConnectionAdapter {
                     .await?;
                 let session = sessions
                     .drain(..)
-                    .max_by_key(|session| session.generation)
+                    .max_by_key(|session| session.view().generation)
                     .ok_or(ApplicationError::NotFound)?;
                 Ok(ApplicationCommand::ResetSession { session })
             }
@@ -652,10 +652,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(run.input.agent.role_revision, 3);
-        assert_eq!(run.input.context.focus_thread_id, thread_id);
+        assert_eq!(run.view().input.agent.role_revision, 3);
+        assert_eq!(run.view().input.context.focus_thread_id, thread_id);
         assert!(!format!("{run:?}").contains("private body"));
         assert!(!format!("{run:?}").contains("raw-token"));
-        assert_eq!(run.priority.strength, WorkStrength::Ambient);
+        assert_eq!(run.view().priority.strength, WorkStrength::Ambient);
     }
 }

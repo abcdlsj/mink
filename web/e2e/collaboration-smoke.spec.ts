@@ -62,8 +62,12 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await page.waitForTimeout(100);
   if (pageErrors.length) throw new Error(`${messagePayload}\n${pageErrors.join("\n")}`);
   await expect(composer).toHaveValue("");
-  await expect(page.locator("article.message-row").getByText(longMessage)).toBeVisible();
-  await page.getByRole("button", { name: "Reply in Thread" }).click();
+  const rootMessage = page.locator("article.message-row").filter({ hasText: longMessage });
+  await expect(rootMessage).toBeVisible();
+  // Above the narrow breakpoint the action panel is revealed on hover or focus, so it has no pointer
+  // events until the Message row is hovered.
+  await rootMessage.hover();
+  await rootMessage.getByRole("button", { name: "Reply in Thread" }).click();
   await expect(page.getByRole("complementary", { name: /Thread #general:1/ })).toBeVisible();
   await page.getByRole("textbox", { name: "Thread reply", exact: true }).fill("Thread reply keeps the root visible and uses the same Message layout.");
   await page.getByRole("button", { name: "Send Thread reply", exact: true }).click();

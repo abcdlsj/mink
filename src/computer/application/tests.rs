@@ -107,7 +107,7 @@ impl ComputerTransaction for MemoryTransaction {
     }
 
     fn save_run(&mut self, run: LocalRun) -> Result<(), ApplicationError> {
-        self.state.runs.insert(run.id, run);
+        self.state.runs.insert(run.view().id, run);
         Ok(())
     }
 
@@ -116,7 +116,7 @@ impl ComputerTransaction for MemoryTransaction {
             .state
             .runs
             .values()
-            .filter(|run| !run.state.is_terminal())
+            .filter(|run| !run.view().state.is_terminal())
             .cloned()
             .collect())
     }
@@ -130,7 +130,7 @@ impl ComputerTransaction for MemoryTransaction {
             .state
             .sessions
             .iter()
-            .filter(|session| session.agent_id == agent_id && session.scope == scope)
+            .filter(|session| session.view().agent_id == agent_id && session.view().scope == scope)
             .cloned()
             .collect())
     }
@@ -143,16 +143,16 @@ impl ComputerTransaction for MemoryTransaction {
             .state
             .sessions
             .iter()
-            .filter(|session| session.agent_id == agent_id)
+            .filter(|session| session.view().agent_id == agent_id)
             .cloned()
             .collect())
     }
 
     fn save_session(&mut self, session: ProviderSession) -> Result<(), ApplicationError> {
         self.state.sessions.retain(|stored| {
-            stored.agent_id != session.agent_id
-                || stored.scope != session.scope
-                || stored.generation != session.generation
+            stored.view().agent_id != session.view().agent_id
+                || stored.view().scope != session.view().scope
+                || stored.view().generation != session.view().generation
         });
         self.state.sessions.push(session);
         Ok(())
@@ -165,9 +165,9 @@ impl ComputerTransaction for MemoryTransaction {
         generation: u64,
     ) -> Result<(), ApplicationError> {
         self.state.sessions.retain(|session| {
-            session.agent_id != agent_id
-                || session.scope != scope
-                || session.generation != generation
+            session.view().agent_id != agent_id
+                || session.view().scope != scope
+                || session.view().generation != generation
         });
         Ok(())
     }
@@ -360,7 +360,7 @@ impl DriverPort for FakeDriver {
             self.fail_next_steer = false;
             return Err(ApplicationError::DriverUnavailable);
         }
-        self.steered_content = run.deliveries[&sequence].item.content.clone();
+        self.steered_content = run.view().deliveries[&sequence].item.content.clone();
         Ok(self.steer_outcome)
     }
 
@@ -421,17 +421,15 @@ fn session_resolution_reuses_only_compatible_scope_and_generation() {
     let agent_id = agent_id();
     let scope = SessionScope::Task(task_id());
     let compatible = fingerprint(1, "workspace-a");
-    let session = ProviderSession {
+    let session = ProviderSession::create(
         agent_id,
         scope,
-        generation: 3,
-        locator: "provider-session".to_owned(),
-        fingerprint: compatible.clone(),
-        state: SessionState::Ready,
-        created_at: OffsetDateTime::now_utc(),
-        last_resumed_at: None,
-        closed_at: None,
-    };
+        3,
+        "provider-session".to_owned(),
+        compatible.clone(),
+        OffsetDateTime::now_utc(),
+    )
+    .unwrap();
 
     assert!(matches!(
         session::resolve(std::slice::from_ref(&session), agent_id, scope, &compatible),
@@ -474,17 +472,15 @@ fn supervisor_freezes_deliveries_at_finalizing_and_deduplicates_sequence() {
 fn debug_output_excludes_fencing_locator_and_message_content() {
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let session = ProviderSession {
-        agent_id: run.agent_id,
-        scope: SessionScope::Thread(thread_id),
-        generation: 1,
-        locator: "provider-secret-locator".to_owned(),
-        fingerprint: fingerprint(1, "workspace-a"),
-        state: SessionState::Ready,
-        created_at: OffsetDateTime::now_utc(),
-        last_resumed_at: None,
-        closed_at: None,
-    };
+    let session = ProviderSession::create(
+        run.view().agent_id,
+        SessionScope::Thread(thread_id),
+        1,
+        "provider-secret-locator".to_owned(),
+        fingerprint(1, "workspace-a"),
+        OffsetDateTime::now_utc(),
+    )
+    .unwrap();
 
     let output = format!("{run:?} {session:?}");
 
@@ -543,7 +539,7 @@ async fn rejected_command_replays_the_stored_error() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();
     let first = local_run(None, thread_id(), []);
-    let run_id = first.id;
+    let run_id = first.view().id;
     CommandService::execute(
         &mut store,
         &mut driver,
@@ -557,8 +553,7 @@ async fn rejected_command_replays_the_stored_error() {
     )
     .await
     .unwrap();
-    let mut conflicting = local_run(None, thread_id(), []);
-    conflicting.id = run_id;
+    let conflicting = local_run_with_id(run_id, None, thread_id(), []);
     let command = Command::Start {
         run: Box::new(conflicting),
         fingerprint: fingerprint(1, "workspace-a"),
@@ -599,17 +594,12 @@ async fn incompatible_agent_configuration_closes_every_warm_session() {
     let agent = local_agent(DriverKind::Codex, 1);
     let agent_id = agent.agent_id;
     homes.provision(agent.clone()).await.unwrap();
-    store.state.sessions.push(ProviderSession {
+    store.state.sessions.push(provider_session(
         agent_id,
-        scope: SessionScope::Thread(thread_id()),
-        generation: 1,
-        locator: "provider-secret-locator".to_owned(),
-        fingerprint: fingerprint(1, "workspace"),
-        state: SessionState::Ready,
-        created_at: OffsetDateTime::now_utc(),
-        last_resumed_at: None,
-        closed_at: None,
-    });
+        SessionScope::Thread(thread_id()),
+        1,
+        fingerprint(1, "workspace"),
+    ));
     let mut configured = agent;
     configured.driver = DriverKind::Builtin;
     configured.role_revision = 2;
@@ -626,8 +616,8 @@ async fn incompatible_agent_configuration_closes_every_warm_session() {
     .unwrap();
 
     assert_eq!(driver.close_count, 1);
-    assert_eq!(store.state.sessions[0].state, SessionState::Closed);
-    assert!(store.state.sessions[0].locator.is_empty());
+    assert_eq!(store.state.sessions[0].view().state, SessionState::Closed);
+    assert!(store.state.sessions[0].view().locator.is_empty());
     assert_eq!(
         homes.agent(agent_id).await.unwrap().driver,
         DriverKind::Builtin
@@ -645,17 +635,12 @@ async fn failed_driver_validation_preserves_existing_profile_and_session() {
     let agent = local_agent(DriverKind::Codex, 1);
     let agent_id = agent.agent_id;
     homes.provision(agent.clone()).await.unwrap();
-    store.state.sessions.push(ProviderSession {
+    store.state.sessions.push(provider_session(
         agent_id,
-        scope: SessionScope::Thread(thread_id()),
-        generation: 1,
-        locator: "provider-secret-locator".to_owned(),
-        fingerprint: fingerprint(1, "workspace"),
-        state: SessionState::Ready,
-        created_at: OffsetDateTime::now_utc(),
-        last_resumed_at: None,
-        closed_at: None,
-    });
+        SessionScope::Thread(thread_id()),
+        1,
+        fingerprint(1, "workspace"),
+    ));
     let mut configured = agent;
     configured.driver = DriverKind::Builtin;
     let command_id = command_id();
@@ -677,7 +662,7 @@ async fn failed_driver_validation_preserves_existing_profile_and_session() {
         store.state.commands[&command_id].status,
         CommandStatus::Pending
     );
-    assert_eq!(store.state.sessions[0].state, SessionState::Ready);
+    assert_eq!(store.state.sessions[0].view().state, SessionState::Ready);
     assert_eq!(
         homes.agent(agent_id).await.unwrap().driver,
         DriverKind::Codex
@@ -692,17 +677,12 @@ async fn retire_closes_idle_sessions_before_removing_agent_home() {
     let agent = local_agent(DriverKind::Codex, 1);
     let agent_id = agent.agent_id;
     homes.provision(agent).await.unwrap();
-    store.state.sessions.push(ProviderSession {
+    store.state.sessions.push(provider_session(
         agent_id,
-        scope: SessionScope::Thread(thread_id()),
-        generation: 1,
-        locator: "provider-secret-locator".to_owned(),
-        fingerprint: fingerprint(1, "workspace"),
-        state: SessionState::Ready,
-        created_at: OffsetDateTime::now_utc(),
-        last_resumed_at: None,
-        closed_at: None,
-    });
+        SessionScope::Thread(thread_id()),
+        1,
+        fingerprint(1, "workspace"),
+    ));
 
     CommandService::execute(
         &mut store,
@@ -716,7 +696,7 @@ async fn retire_closes_idle_sessions_before_removing_agent_home() {
     .unwrap();
 
     assert_eq!(driver.close_count, 1);
-    assert_eq!(store.state.sessions[0].state, SessionState::Closed);
+    assert_eq!(store.state.sessions[0].view().state, SessionState::Closed);
     assert_eq!(homes.agent(agent_id).await, Err(ApplicationError::NotFound));
 }
 
@@ -726,8 +706,8 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
     let mut driver = FakeDriver::default();
     let first = local_run(None, thread_id(), []);
     let second = local_run(None, thread_id(), []);
-    let first_id = first.id;
-    let second_id = second.id;
+    let first_id = first.view().id;
+    let second_id = second.view().id;
     for (sequence, run) in [(1, first), (2, second)] {
         CommandService::execute(
             &mut store,
@@ -748,8 +728,8 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
         .await
         .unwrap();
     let states = [
-        store.state.runs[&first_id].state,
-        store.state.runs[&second_id].state,
+        store.state.runs[&first_id].view().state,
+        store.state.runs[&second_id].view().state,
     ];
     assert_eq!(
         states
@@ -765,7 +745,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
             .count(),
         1
     );
-    let running_id = if store.state.runs[&first_id].state == LocalRunState::Running {
+    let running_id = if store.state.runs[&first_id].view().state == LocalRunState::Running {
         first_id
     } else {
         second_id
@@ -790,7 +770,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
             .state
             .runs
             .values()
-            .filter(|run| run.state == LocalRunState::Running)
+            .filter(|run| run.view().state == LocalRunState::Running)
             .count(),
         1
     );
@@ -814,7 +794,7 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
     .unwrap();
-    let first_id = first.id;
+    let first_id = first.view().id;
     store.state.runs.insert(first_id, first);
     RunService::start(
         &mut store,
@@ -846,7 +826,7 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
     .unwrap();
-    let second_id = second.id;
+    let second_id = second.view().id;
     store.state.runs.insert(second_id, second);
     driver.fail_next_resume = true;
     RunService::start(
@@ -860,14 +840,14 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
 
     assert_eq!(driver.resume_count, 1);
     assert!(store.state.sessions.iter().any(|session| {
-        session.scope == SessionScope::Task(task_id)
-            && session.generation == 1
-            && session.state == SessionState::Lost
+        session.view().scope == SessionScope::Task(task_id)
+            && session.view().generation == 1
+            && session.view().state == SessionState::Lost
     }));
     assert!(store.state.sessions.iter().any(|session| {
-        session.scope == SessionScope::Task(task_id)
-            && session.generation == 2
-            && session.state == SessionState::InUse
+        session.view().scope == SessionScope::Task(task_id)
+            && session.view().generation == 2
+            && session.view().state == SessionState::InUse
     }));
 }
 
@@ -877,7 +857,7 @@ async fn task_binding_promotes_the_active_thread_session_without_changing_genera
     let mut driver = FakeDriver::default();
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     let session_fingerprint = fingerprint(1, "workspace-a");
     RunService::start(&mut store, &mut driver, run_id, session_fingerprint.clone())
@@ -892,10 +872,13 @@ async fn task_binding_promotes_the_active_thread_session_without_changing_genera
         .await
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].task_id, Some(task_id));
+    assert_eq!(store.state.runs[&run_id].view().task_id, Some(task_id));
     assert_eq!(store.state.sessions.len(), 1);
-    assert_eq!(store.state.sessions[0].scope, SessionScope::Task(task_id));
-    assert_eq!(store.state.sessions[0].generation, 1);
+    assert_eq!(
+        store.state.sessions[0].view().scope,
+        SessionScope::Task(task_id)
+    );
+    assert_eq!(store.state.sessions[0].view().generation, 1);
 }
 
 #[tokio::test]
@@ -903,7 +886,7 @@ async fn pending_command_is_replayed_after_restart() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();
     let run = local_run(None, thread_id(), []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     let command_id = command_id();
     let command = Command::Start {
         run: Box::new(run),
@@ -929,7 +912,10 @@ async fn pending_command_is_replayed_after_restart() {
         store.state.commands[&command_id].status,
         CommandStatus::Applied
     );
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Running);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Running
+    );
     assert_eq!(driver.start_count, 1);
 }
 
@@ -939,7 +925,7 @@ async fn duplicate_notice_is_delivered_once() {
     let mut driver = FakeDriver::default();
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -971,7 +957,7 @@ async fn repeated_delivery_steers_once_and_preserves_too_late_result() {
     };
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1042,7 +1028,7 @@ async fn retryable_driver_error_keeps_command_pending_until_replay_succeeds() {
     };
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1097,7 +1083,7 @@ async fn yield_writes_terminal_state_and_result_outbox_atomically() {
     let thread_id = thread_id();
     let claimed = item_id();
     let run = local_run(None, thread_id, [(claimed, None, thread_id)]);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1119,7 +1105,10 @@ async fn yield_writes_terminal_state_and_result_outbox_atomically() {
     .await
     .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Yielded);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Yielded
+    );
     assert!(matches!(
         store.state.events[&event_id],
         LocalEvent::RunResult {
@@ -1127,7 +1116,7 @@ async fn yield_writes_terminal_state_and_result_outbox_atomically() {
             ..
         }
     ));
-    assert_eq!(store.state.sessions[0].state, SessionState::Ready);
+    assert_eq!(store.state.sessions[0].view().state, SessionState::Ready);
     RecoveryService::acknowledge(&mut store, event_id)
         .await
         .unwrap();
@@ -1140,7 +1129,7 @@ async fn completed_driver_turn_without_items_completes_run_once() {
     let mut driver = FakeDriver::default();
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1156,7 +1145,10 @@ async fn completed_driver_turn_without_items_completes_run_once() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Completed);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Completed
+    );
     assert!(matches!(
         store.state.events[&event_id],
         LocalEvent::RunResult {
@@ -1190,7 +1182,7 @@ async fn completed_driver_turn_releases_unhandled_items_and_fails_run() {
     let thread_id = thread_id();
     let claimed = item_id();
     let run = local_run(None, thread_id, [(claimed, None, thread_id)]);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1206,7 +1198,10 @@ async fn completed_driver_turn_releases_unhandled_items_and_fails_run() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Failed
+    );
     assert!(matches!(
         store.state.events[&event_id],
         LocalEvent::RunResult {
@@ -1224,7 +1219,7 @@ async fn completed_driver_turn_preserves_explicit_item_disposition() {
     let thread_id = thread_id();
     let claimed = item_id();
     let run = local_run(None, thread_id, [(claimed, None, thread_id)]);
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1243,7 +1238,10 @@ async fn completed_driver_turn_preserves_explicit_item_disposition() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Completed);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Completed
+    );
     assert!(matches!(
         store.state.events[&event_id],
         LocalEvent::RunResult {
@@ -1266,7 +1264,7 @@ async fn yield_atomically_preserves_dispositions_releases_remaining_and_wins_com
         thread_id,
         [(handled, None, thread_id), (remaining, None, thread_id)],
     );
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     RunService::start(
         &mut store,
@@ -1288,7 +1286,10 @@ async fn yield_atomically_preserves_dispositions_releases_remaining_and_wins_com
     .await
     .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Yielded);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Yielded
+    );
     assert!(matches!(
         store.state.events[&event_id],
         LocalEvent::RunResult {
@@ -1330,14 +1331,17 @@ async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() 
     let mut run = local_run(None, thread_id, [(claimed, None, thread_id)]);
     run.begin_start().unwrap();
     run.started(SessionScope::Thread(thread_id), 1).unwrap();
-    let run_id = run.id;
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
 
     RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
         .await
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Failed
+    );
     assert_eq!(driver.steer_count, 0);
     assert!(
         RecoveryService::pending_results(&mut store)
@@ -1364,8 +1368,8 @@ async fn restart_stops_a_run_whose_ownership_lease_expired() {
     let mut run = local_run(None, thread_id, [(claimed, None, thread_id)]);
     run.begin_start().unwrap();
     run.started(SessionScope::Thread(thread_id), 1).unwrap();
-    run.ownership_lease_expires_at = OffsetDateTime::now_utc() - Duration::seconds(1);
-    let run_id = run.id;
+    run.set_lease_for_test(OffsetDateTime::now_utc() - Duration::seconds(1));
+    let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
 
     RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
@@ -1373,14 +1377,17 @@ async fn restart_stops_a_run_whose_ownership_lease_expired() {
         .unwrap();
 
     assert_eq!(driver.interrupt_count, 1);
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Failed);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Failed
+    );
 }
 
 #[tokio::test]
 async fn stop_cancels_a_queued_run_without_starting_or_interrupting_driver() {
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
-    let run_id = run.id;
+    let run_id = run.view().id;
     let mut store = MemoryPort::default();
     store.state.runs.insert(run_id, run);
     let mut driver = FakeDriver::default();
@@ -1389,7 +1396,10 @@ async fn stop_cancels_a_queued_run_without_starting_or_interrupting_driver() {
         .await
         .unwrap();
 
-    assert_eq!(store.state.runs[&run_id].state, LocalRunState::Canceled);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Canceled
+    );
     assert_eq!(driver.start_count, 0);
     assert_eq!(driver.interrupt_count, 0);
     assert!(
@@ -1420,9 +1430,18 @@ fn local_run<const N: usize>(
     thread_id: ThreadId,
     items: [(InboxItemId, Option<TaskId>, ThreadId); N],
 ) -> LocalRun {
+    local_run_with_id(run_id(), task_id, thread_id, items)
+}
+
+fn local_run_with_id<const N: usize>(
+    id: RunId,
+    task_id: Option<TaskId>,
+    thread_id: ThreadId,
+    items: [(InboxItemId, Option<TaskId>, ThreadId); N],
+) -> LocalRun {
     let agent_id = agent_id();
     LocalRun::new(NewRun {
-        id: run_id(),
+        id,
         agent_id,
         task_id,
         focus_thread_id: thread_id,
@@ -1513,6 +1532,23 @@ fn fingerprint(role_revision: u64, workspace: &str) -> SessionFingerprint {
         role_revision,
         audience: "audience".to_owned(),
     }
+}
+
+fn provider_session(
+    agent_id: AgentId,
+    scope: SessionScope,
+    generation: u64,
+    fingerprint: SessionFingerprint,
+) -> ProviderSession {
+    ProviderSession::create(
+        agent_id,
+        scope,
+        generation,
+        "provider-secret-locator".to_owned(),
+        fingerprint,
+        OffsetDateTime::now_utc(),
+    )
+    .unwrap()
 }
 
 fn local_agent(driver: DriverKind, role_revision: u64) -> LocalAgent {

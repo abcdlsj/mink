@@ -345,7 +345,6 @@ export function MessageWorkspace({
         attachButtonLabel="Attach file"
         sendButtonLabel="Send message"
         attachmentsAriaLabel="Attachments ready to send"
-        showLabel
         send={sendMessage}
         onSent={addMessage}
       />

@@ -22,20 +22,20 @@ impl SchedulerService {
             .await?;
         let mut scheduler = Scheduler::new(capacity);
         for run in runs {
-            if run.state == LocalRunState::Queued {
+            if run.view().state == LocalRunState::Queued {
                 scheduler.enqueue(PendingRun {
-                    run_id: run.id,
-                    agent_id: run.agent_id,
-                    explicit_human_redirect: run.priority.explicit_human_redirect,
-                    strength: run.priority.strength,
-                    available_at: run.priority.available_at,
-                    has_task_continuity: run.priority.has_task_continuity,
+                    run_id: run.view().id,
+                    agent_id: run.view().agent_id,
+                    explicit_human_redirect: run.view().priority.explicit_human_redirect,
+                    strength: run.view().priority.strength,
+                    available_at: run.view().priority.available_at,
+                    has_task_continuity: run.view().priority.has_task_continuity,
                 });
             } else if matches!(
-                run.state,
+                run.view().state,
                 LocalRunState::Starting | LocalRunState::Running | LocalRunState::Stopping
             ) {
-                scheduler.occupy(run.agent_id, run.id);
+                scheduler.occupy(run.view().agent_id, run.view().id);
             }
         }
         while let Some(pending) = scheduler.next() {
@@ -44,8 +44,9 @@ impl SchedulerService {
                     let run = transaction
                         .run(pending.run_id)?
                         .ok_or(ApplicationError::NotFound)?;
-                    run.session_fingerprint
-                        .clone()
+                    run.view()
+                        .session_fingerprint
+                        .cloned()
                         .ok_or(ApplicationError::Conflict)
                 })
                 .await?;

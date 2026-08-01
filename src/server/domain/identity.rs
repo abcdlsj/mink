@@ -95,6 +95,27 @@ pub(in crate::server) struct Agent {
 }
 
 impl Agent {
+    pub(in crate::server) fn apply_provision_result(
+        &mut self,
+        computer_id: ComputerId,
+        applied: bool,
+    ) -> bool {
+        if self.computer_id != Some(computer_id)
+            || !matches!(
+                self.lifecycle,
+                AgentLifecycle::Provisioning | AgentLifecycle::Active | AgentLifecycle::Error
+            )
+        {
+            return false;
+        }
+        self.lifecycle = if applied {
+            AgentLifecycle::Active
+        } else {
+            AgentLifecycle::Error
+        };
+        true
+    }
+
     pub(in crate::server) fn retire(&mut self, now: OffsetDateTime) -> Result<(), DomainError> {
         if self.lifecycle == AgentLifecycle::Retired {
             return Err(DomainError::AgentRetired);
@@ -252,6 +273,25 @@ mod tests {
             failed.retry_provisioning(),
             Err(DomainError::InvalidTransition)
         );
+    }
+
+    #[test]
+    fn provision_result_only_updates_the_assigned_non_terminal_agent() {
+        let assigned = ComputerId::from_uuid(uuid::Uuid::from_u128(20));
+        let other = ComputerId::from_uuid(uuid::Uuid::from_u128(21));
+        let mut provisioning = agent(AgentLifecycle::Provisioning);
+        provisioning.computer_id = Some(assigned);
+        assert!(provisioning.apply_provision_result(assigned, true));
+        assert_eq!(provisioning.lifecycle, AgentLifecycle::Active);
+        assert!(provisioning.apply_provision_result(assigned, false));
+        assert_eq!(provisioning.lifecycle, AgentLifecycle::Error);
+        assert!(!provisioning.apply_provision_result(other, true));
+        assert_eq!(provisioning.lifecycle, AgentLifecycle::Error);
+
+        let mut suspended = agent(AgentLifecycle::Suspended);
+        suspended.computer_id = Some(assigned);
+        assert!(!suspended.apply_provision_result(assigned, true));
+        assert_eq!(suspended.lifecycle, AgentLifecycle::Suspended);
     }
 
     #[test]

@@ -245,6 +245,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   if (message.content.type === "text") {
     const mentionedMemberIds = new Set(message.mentions);
     const mentionedHandles = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.handle.toLowerCase()));
+    if (message.mention_all) mentionedHandles.add("all");
     return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedHandles={mentionedHandles} />;
   }
   if (message.content.type === "channel_created") {
@@ -311,11 +312,25 @@ function AttentionFailureNotice({ message }: { message: Message }) {
 }
 
 function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
-  return body.split(/(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi).map((part, index) =>
-    part.startsWith("@") && mentionedHandles.has(part.slice(1).toLowerCase())
-      ? <mark className="message-mention" key={`${part}-${index}`}>{part}</mark>
-      : part,
-  );
+  const nodes: ReactNode[] = [];
+  const mentionPattern = /(^|\s)(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi;
+  let cursor = 0;
+
+  for (const match of body.matchAll(mentionPattern)) {
+    const matchStart = match.index ?? 0;
+    const token = match[2];
+    const tokenStart = matchStart + match[1].length;
+    nodes.push(body.slice(cursor, tokenStart));
+    nodes.push(
+      mentionedHandles.has(token.slice(1).toLowerCase())
+        ? <mark className="message-mention" key={`mention-${tokenStart}`}>{token}</mark>
+        : token,
+    );
+    cursor = tokenStart + token.length;
+  }
+
+  nodes.push(body.slice(cursor));
+  return nodes;
 }
 
 function textBody(message: Message): string {

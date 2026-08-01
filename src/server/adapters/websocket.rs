@@ -1,7 +1,7 @@
 use crate::protocol::{
     computer::{
-        CommandAck, CommandEnvelope, CommandSequence, ComputerHello, HandshakeErrorCode,
-        ServerHandshake,
+        CommandAck, CommandEnvelope, CommandSequence, ComputerFrame, ComputerHello,
+        HandshakeErrorCode, ServerFrame, ServerHandshake,
     },
     version::SUPPORTED,
 };
@@ -52,6 +52,247 @@ pub(super) fn negotiate(
         supported_versions: SUPPORTED,
         heartbeat_interval_seconds: 15,
     }
+}
+
+use super::http::{ApiError, ComputerPrincipal, token_hash};
+use super::query::QueryRegistry;
+use crate::server::application::execution::{
+    AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, StartRun, StartRunInput,
+};
+use axum::extract::ws::{Message as WebSocketMessage, WebSocket};
+use futures_util::StreamExt;
+use sqlx::PgPool;
+use time::OffsetDateTime;
+use uuid::Uuid;
+pub(super) async fn computer_socket(
+    mut socket: WebSocket,
+    storage: PostgresAdapter,
+    pool: PgPool,
+    queries: QueryRegistry,
+    computer_id: Uuid,
+    deleted: bool,
+) {
+    let Some(Ok(WebSocketMessage::Text(encoded))) = socket.next().await else {
+        return;
+    };
+    let Ok(hello) = serde_json::from_str::<ComputerHello>(&encoded) else {
+        return;
+    };
+    let handshake = super::websocket::negotiate(&hello, deleted, true);
+    if send_json(&mut socket, &handshake).await.is_err() {
+        return;
+    }
+    if !matches!(
+        handshake,
+        crate::protocol::computer::ServerHandshake::Welcome { .. }
+    ) {
+        return;
+    }
+    let _=sqlx::query("UPDATE computers SET connection_status='online',daemon_version=$2,last_seen_at=$3 WHERE id=$1")
+        .bind(computer_id).bind(&hello.daemon_version).bind(OffsetDateTime::now_utc()).execute(&pool).await;
+    if let Ok(commands) = super::websocket::replay_commands(
+        &storage,
+        crate::ids::ComputerId::from_uuid(computer_id),
+        hello.command_watermark,
+    )
+    .await
+    {
+        for envelope in commands {
+            if send_json(
+                &mut socket,
+                &ServerFrame::Command {
+                    envelope: Box::new(envelope),
+                },
+            )
+            .await
+            .is_err()
+            {
+                break;
+            }
+        }
+    }
+    let (connection, mut outbound) = queries.connect(computer_id);
+    loop {
+        let frame = tokio::select! {
+            outgoing = outbound.recv() => {
+                let Some(outgoing) = outgoing else { break };
+                if send_json(&mut socket, &outgoing).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            frame = socket.next() => match frame {
+                Some(frame) => frame,
+                None => break,
+            },
+        };
+        let Ok(WebSocketMessage::Text(encoded)) = frame else {
+            continue;
+        };
+        let Ok(frame) = serde_json::from_str::<ComputerFrame>(&encoded) else {
+            continue;
+        };
+        match frame {
+            ComputerFrame::QueryResult { result } => queries.resolve(result),
+            ComputerFrame::Heartbeat { heartbeat } => {
+                let _ = sqlx::query("UPDATE computers SET last_seen_at=$2 WHERE id=$1")
+                    .bind(computer_id)
+                    .bind(heartbeat.observed_at)
+                    .execute(&pool)
+                    .await;
+                if let Ok(commands) = super::websocket::replay_commands(
+                    &storage,
+                    ComputerId::from_uuid(computer_id),
+                    crate::protocol::computer::CommandSequence(0),
+                )
+                .await
+                {
+                    for envelope in commands {
+                        if send_json(
+                            &mut socket,
+                            &ServerFrame::Command {
+                                envelope: Box::new(envelope),
+                            },
+                        )
+                        .await
+                        .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            ComputerFrame::CommandAck { .. } => {}
+            ComputerFrame::RunResult { result } => {
+                let event_id = result.event_id;
+                let response = super::http::submit_run_result(
+                    &storage,
+                    ComputerPrincipal {
+                        computer_id: crate::ids::ComputerId::from_uuid(computer_id),
+                    },
+                    result,
+                )
+                .await;
+                if response.is_ok() {
+                    let _ = send_json(
+                        &mut socket,
+                        &ServerFrame::Receipt {
+                            receipt: crate::protocol::computer::Receipt {
+                                event_id,
+                                kind: crate::protocol::computer::ReceiptKind::RunResult,
+                            },
+                        },
+                    )
+                    .await;
+                }
+            }
+            ComputerFrame::RunStarted { started } => {
+                let mut application = storage.clone();
+                let applied = StartRun::execute(
+                    &mut application,
+                    StartRunInput {
+                        run_id: started.run_id,
+                        computer_id: ComputerId::from_uuid(computer_id),
+                        fencing_token_hash: token_hash(started.fencing_token.expose()),
+                        now: started.observed_at,
+                    },
+                )
+                .await;
+                if applied.is_ok() {
+                    let _ = send_json(
+                        &mut socket,
+                        &ServerFrame::Receipt {
+                            receipt: crate::protocol::computer::Receipt {
+                                event_id: started.event_id,
+                                kind: crate::protocol::computer::ReceiptKind::RunStarted,
+                            },
+                        },
+                    )
+                    .await;
+                }
+            }
+            ComputerFrame::DeliveryReceipt { receipt } => {
+                let mut application = storage.clone();
+                let applied = AcknowledgeDelivery::execute(
+                    &mut application,
+                    AcknowledgeDeliveryInput {
+                        run_id: receipt.run_id,
+                        computer_id: ComputerId::from_uuid(computer_id),
+                        fencing_token_hash: token_hash(receipt.fencing_token.expose()),
+                        delivery_sequence: receipt.delivery_sequence.0,
+                        accepted: matches!(
+                            receipt.outcome,
+                            crate::protocol::computer::DeliveryOutcome::Accepted
+                        ),
+                        now: OffsetDateTime::now_utc(),
+                    },
+                )
+                .await;
+                if applied.is_ok() {
+                    let _ = send_json(
+                        &mut socket,
+                        &ServerFrame::Receipt {
+                            receipt: crate::protocol::computer::Receipt {
+                                event_id: receipt.event_id,
+                                kind: crate::protocol::computer::ReceiptKind::Delivery,
+                            },
+                        },
+                    )
+                    .await;
+                }
+            }
+            ComputerFrame::CommandResult { result } => {
+                if apply_command_result(&storage, computer_id, &result)
+                    .await
+                    .is_ok()
+                {
+                    let ack = crate::protocol::computer::CommandAck {
+                        command_id: result.command_id,
+                        sequence: result.sequence,
+                    };
+                    let _ = super::websocket::acknowledge_command(
+                        &storage,
+                        ComputerId::from_uuid(computer_id),
+                        &ack,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    queries.disconnect(connection);
+    let _ = sqlx::query("UPDATE computers SET connection_status='offline' WHERE id=$1")
+        .bind(computer_id)
+        .execute(&pool)
+        .await;
+}
+
+async fn apply_command_result(
+    storage: &PostgresAdapter,
+    computer_id: Uuid,
+    result: &crate::protocol::computer::CommandResult,
+) -> Result<(), ApiError> {
+    let mut storage = storage.clone();
+    ApplyCommandResult::execute(
+        &mut storage,
+        ComputerId::from_uuid(computer_id),
+        result.command_id,
+        result.sequence.0,
+        matches!(
+            result.outcome,
+            crate::protocol::computer::CommandOutcome::Applied
+        ),
+    )
+    .await
+    .map_err(|_| ApiError::internal())
+}
+
+async fn send_json(
+    socket: &mut WebSocket,
+    value: &impl serde::Serialize,
+) -> Result<(), axum::Error> {
+    let encoded = serde_json::to_string(value).map_err(axum::Error::new)?;
+    socket.send(WebSocketMessage::Text(encoded.into())).await
 }
 
 #[cfg(test)]

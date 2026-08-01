@@ -38,6 +38,16 @@
   - [x] 接通 same-Focus attach、different-Focus notice、Browser SSE、Agent 退役和 Computer 删除。
   - [x] 实现 Builtin Driver，删除旧实现、旧 schema 和冲突测试。
   - [x] 完成 Rust、Web、协议、数据库、并发、安全、故障和端到端验收。
+    - [x] 实现 ambient 聚合：按 Agent 和 Thread 聚合 ambient activity，保存首尾 Message 序号、数量、available time 和 force time，并保证新 Message 不能无限推迟 force time。见 [Inbox 与本地凭据](./docs/design/06-inbox-credentials.md) 第 6 节。
+    - [x] 实现重新排队 dead Item 的运维入口，并限定 Owner/Admin 可执行。见 [安全与运维](./docs/design/09-security-operations.md) 第 9 节。
+    - [x] 补齐故障验收测试：Server 在 Run 期间重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 6 节。
+    - [x] 执行端到端验收：在运行中的 Server 上跑 Playwright 核心流程，并记录可复现命令与结果。见 [交付与验收](./docs/design/10-delivery-acceptance.md) 第 9 节。
+
+Rust、Web、协议、数据库、并发和安全验收当前通过。lease 过期回收、`retry_count`递增与`dead`、`thread_activity`路由已经实现并有测试覆盖。
+
+上列四个子任务是最后一个子任务的全部剩余工作。四者之间没有依赖，可以按任意顺序执行，但每项都必须独立提交并通过自己的验收。
+
+ambient 聚合需要新的聚合行与 debounce 状态，因此它是唯一需要改动 schema 的一项：新增表或列必须同时更新[数据库设计](./docs/design/08-database.md)，并在基线阶段直接改`schema/postgres.sql`，不新增 migration。
 
 任务按列表顺序执行。任务通过对应验收后，把`[ ]`改为`[x]`，并与该任务的实现一起提交。
 

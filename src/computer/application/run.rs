@@ -28,8 +28,8 @@ impl RunService {
                 Ok(transaction
                     .nonterminal_runs()?
                     .into_iter()
-                    .filter(|run| run.state == LocalRunState::Running)
-                    .map(|run| (run.id, run.fencing_token.expose().to_owned()))
+                    .filter(|run| run.view().state == LocalRunState::Running)
+                    .map(|run| (run.view().id, run.view().fencing_token.expose().to_owned()))
                     .collect())
             })
             .await
@@ -45,10 +45,11 @@ impl RunService {
                 transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
             })
             .await?;
-        if run.state.is_terminal() {
+        if run.view().state.is_terminal() {
             return Ok(None);
         }
         let item_outcomes = run
+            .view()
             .deliveries
             .values()
             .map(|delivery| {
@@ -59,6 +60,7 @@ impl RunService {
             })
             .collect::<Vec<_>>();
         let has_unhandled_items = run
+            .view()
             .deliveries
             .values()
             .any(|delivery| delivery.disposition.is_none());
@@ -87,7 +89,7 @@ impl RunService {
         store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
-                if run.state != LocalRunState::Running {
+                if run.view().state != LocalRunState::Running {
                     return Err(ApplicationError::Conflict);
                 }
                 run.record_item_disposition(item_id, disposition)?;
@@ -106,10 +108,11 @@ impl RunService {
                 transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
             })
             .await?;
-        if run.state != LocalRunState::Running {
+        if run.view().state != LocalRunState::Running {
             return Err(ApplicationError::Conflict);
         }
         let item_outcomes = run
+            .view()
             .deliveries
             .values()
             .map(|delivery| {
@@ -140,7 +143,7 @@ impl RunService {
                 transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
             })
             .await?;
-        if !run.state.is_terminal() {
+        if !run.view().state.is_terminal() {
             return Err(ApplicationError::Conflict);
         }
         match driver.interrupt(&run).await {
@@ -158,23 +161,26 @@ impl RunService {
         let (mut run, decision, scope) = store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
-                if run.state == LocalRunState::Running {
+                if run.view().state == LocalRunState::Running {
                     return Err(ApplicationError::AlreadyApplied);
                 }
                 run.begin_start()?;
-                let scope = run.task_id.map_or(
-                    SessionScope::Thread(run.focus_thread_id),
+                let scope = run.view().task_id.map_or(
+                    SessionScope::Thread(run.view().focus_thread_id),
                     SessionScope::Task,
                 );
-                let sessions = transaction.sessions(run.agent_id, scope)?;
-                let decision = session::resolve(&sessions, run.agent_id, scope, &fingerprint);
+                let sessions = transaction.sessions(run.view().agent_id, scope)?;
+                let decision =
+                    session::resolve(&sessions, run.view().agent_id, scope, &fingerprint);
                 transaction.save_run(run.clone())?;
                 Ok((run, decision, scope))
             })
             .await?;
 
         let (mut generation, resume_candidate) = match decision {
-            session::ResolveDecision::Resume(existing) => (existing.generation, Some(existing)),
+            session::ResolveDecision::Resume(existing) => {
+                (existing.view().generation, Some(existing))
+            }
             session::ResolveDecision::Create { generation, close } => {
                 if let Some(mut closing) = close {
                     closing.mark_closing();
@@ -188,19 +194,19 @@ impl RunService {
             }
         };
         let request = OpenSessionRequest {
-            agent_id: run.agent_id,
+            agent_id: run.view().agent_id,
             scope,
             generation,
             fingerprint: fingerprint.clone(),
             resume_locator: resume_candidate
                 .as_ref()
-                .map(|session| session.locator.clone()),
-            run_token: run.fencing_token.clone(),
+                .map(|session| session.view().locator.to_owned()),
+            run_token: run.view().fencing_token.clone(),
         };
         let attempted_resume = resume_candidate.is_some();
         let session_created_at = resume_candidate
             .as_ref()
-            .map_or_else(OffsetDateTime::now_utc, |session| session.created_at);
+            .map_or_else(OffsetDateTime::now_utc, |session| session.view().created_at);
         let opened = match driver.open_or_resume(request).await {
             Ok(opened) if !attempted_resume || opened.resumed => opened,
             Ok(_) | Err(ApplicationError::SessionLost) if attempted_resume => {
@@ -214,34 +220,34 @@ impl RunService {
                 generation += 1;
                 driver
                     .open_or_resume(OpenSessionRequest {
-                        agent_id: run.agent_id,
+                        agent_id: run.view().agent_id,
                         scope,
                         generation,
                         fingerprint: fingerprint.clone(),
                         resume_locator: None,
-                        run_token: run.fencing_token.clone(),
+                        run_token: run.view().fencing_token.clone(),
                     })
                     .await?
             }
             Err(error) => return Err(error),
             Ok(_) => return Err(ApplicationError::SessionLost),
         };
-        let mut provider_session = ProviderSession {
-            agent_id: run.agent_id,
+        let mut provider_session = ProviderSession::create(
+            run.view().agent_id,
             scope,
             generation,
-            locator: opened.locator,
+            opened.locator,
             fingerprint,
-            state: SessionState::Ready,
-            created_at: session_created_at,
-            last_resumed_at: None,
-            closed_at: None,
-        };
+            session_created_at,
+        )
+        .map_err(ApplicationError::from)?;
         provider_session.begin_use(OffsetDateTime::now_utc())?;
         store
             .transact(async |transaction| transaction.save_session(provider_session.clone()))
             .await?;
-        driver.start_turn(&run, &provider_session.locator).await?;
+        driver
+            .start_turn(&run, provider_session.view().locator)
+            .await?;
         run.started(scope, generation)?;
         store
             .transact(async |transaction| {
@@ -249,8 +255,8 @@ impl RunService {
                 transaction.save_run(run.clone())?;
                 transaction.append_event(LocalEvent::RunStarted {
                     event_id: next_event_id(),
-                    run_id: run.id,
-                    fencing_token: run.fencing_token.clone(),
+                    run_id: run.view().id,
+                    fencing_token: run.view().fencing_token.clone(),
                 })
             })
             .await
@@ -271,8 +277,8 @@ impl RunService {
                 Ok((run, inserted))
             })
             .await?;
-        if !inserted && run.deliveries[&sequence].state != DeliveryState::Pending {
-            return Ok(run.deliveries[&sequence].state);
+        if !inserted && run.view().deliveries[&sequence].state != DeliveryState::Pending {
+            return Ok(run.view().deliveries[&sequence].state);
         }
         let outcome = match driver.steer(&run, sequence).await? {
             SteerOutcome::Accepted => DeliveryState::Accepted,
@@ -288,7 +294,7 @@ impl RunService {
                     run_id,
                     sequence,
                     outcome,
-                    fencing_token: run.fencing_token.clone(),
+                    fencing_token: run.view().fencing_token.clone(),
                 })
             })
             .await?;
@@ -329,23 +335,31 @@ impl RunService {
         store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
-                if run.task_id == Some(task_id)
+                if run.view().task_id == Some(task_id)
                     && run
+                        .view()
                         .session
                         .is_some_and(|(scope, _)| scope == SessionScope::Task(task_id))
                 {
                     return Ok(());
                 }
-                let old_scope = SessionScope::Thread(run.focus_thread_id);
-                let mut sessions = transaction.sessions(run.agent_id, old_scope)?;
+                let old_scope = SessionScope::Thread(run.view().focus_thread_id);
+                let mut sessions = transaction.sessions(run.view().agent_id, old_scope)?;
                 let session = sessions
                     .iter_mut()
-                    .max_by_key(|session| session.generation)
+                    .max_by_key(|session| session.view().generation)
                     .ok_or(ApplicationError::NotFound)?;
-                session.promote(run.focus_thread_id, task_id, &fingerprint)?;
+                session.promote(run.view().focus_thread_id, task_id, &fingerprint)?;
                 run.bind_task(task_id)?;
-                run.session = Some((SessionScope::Task(task_id), session.generation));
-                transaction.delete_session(run.agent_id, old_scope, session.generation)?;
+                run.set_session(Some((
+                    SessionScope::Task(task_id),
+                    session.view().generation,
+                )));
+                transaction.delete_session(
+                    run.view().agent_id,
+                    old_scope,
+                    session.view().generation,
+                )?;
                 transaction.save_session(session.clone())?;
                 transaction.save_run(run)
             })
@@ -393,27 +407,27 @@ impl RunService {
                     return Ok(existing);
                 }
                 if status == TerminalStatus::Canceled {
-                    if run.state != LocalRunState::Stopping {
+                    if run.view().state != LocalRunState::Stopping {
                         run.request_stop()?;
                     }
-                } else if run.state == LocalRunState::Running {
+                } else if run.view().state == LocalRunState::Running {
                     run.begin_finalizing()?;
                 }
                 run.validate_item_outcomes(&item_outcomes)?;
                 run.finish(status)?;
-                if let Some((scope, generation)) = run.session {
-                    let mut sessions = transaction.sessions(run.agent_id, scope)?;
+                if let Some((scope, generation)) = run.view().session {
+                    let mut sessions = transaction.sessions(run.view().agent_id, scope)?;
                     if let Some(session) = sessions
                         .iter_mut()
-                        .find(|session| session.generation == generation)
-                        && session.state == SessionState::InUse
+                        .find(|session| session.view().generation == generation)
+                        && session.view().state == SessionState::InUse
                     {
                         session.release()?;
                         transaction.save_session(session.clone())?;
                     }
                 }
                 let event_id = next_event_id();
-                let fencing_token = run.fencing_token.clone();
+                let fencing_token = run.view().fencing_token.clone();
                 transaction.save_run(run)?;
                 transaction.append_event(LocalEvent::RunResult {
                     event_id,
@@ -439,10 +453,10 @@ impl RunService {
                 transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
             })
             .await?;
-        if run.state == LocalRunState::Queued {
+        if run.view().state == LocalRunState::Queued {
             run.cancel_queued()?;
             let event_id = next_event_id();
-            let fencing_token = run.fencing_token.clone();
+            let fencing_token = run.view().fencing_token.clone();
             store
                 .transact(async |transaction| {
                     transaction.save_run(run.clone())?;
@@ -451,6 +465,7 @@ impl RunService {
                         run_id,
                         status: TerminalStatus::Canceled,
                         item_outcomes: run
+                            .view()
                             .deliveries
                             .values()
                             .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))
@@ -463,7 +478,7 @@ impl RunService {
                 .await?;
             return Ok(event_id);
         }
-        if !run.state.is_terminal() && run.state != LocalRunState::Stopping {
+        if !run.view().state.is_terminal() && run.view().state != LocalRunState::Stopping {
             run.request_stop()?;
             store
                 .transact(async |transaction| transaction.save_run(run.clone()))
@@ -471,6 +486,7 @@ impl RunService {
             driver.interrupt(&run).await?;
         }
         let outcomes = run
+            .view()
             .deliveries
             .values()
             .map(|delivery| (delivery.item.item_id, ItemDisposition::Released))

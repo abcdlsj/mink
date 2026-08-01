@@ -8,7 +8,7 @@ use crate::ids::{AgentId, CommandId, EventId, InboxItemId, RunId};
 use crate::computer::core::{
     home::{LocalAgent, MemoryFile},
     session::{ProviderSession, SessionFingerprint, SessionScope},
-    supervisor::{DeliveryState, ItemDisposition, LocalRun, TerminalStatus},
+    supervisor::{DeliveryState, FencingToken, ItemDisposition, LocalRun, TerminalStatus},
 };
 
 use super::ApplicationError;
@@ -36,14 +36,14 @@ pub(in crate::computer) enum LocalEvent {
     RunStarted {
         event_id: EventId,
         run_id: RunId,
-        fencing_token: crate::computer::core::supervisor::FencingToken,
+        fencing_token: FencingToken,
     },
     Delivery {
         event_id: EventId,
         run_id: RunId,
         sequence: u64,
         outcome: DeliveryState,
-        fencing_token: crate::computer::core::supervisor::FencingToken,
+        fencing_token: FencingToken,
     },
     RunResult {
         event_id: EventId,
@@ -52,7 +52,7 @@ pub(in crate::computer) enum LocalEvent {
         item_outcomes: Vec<(InboxItemId, ItemDisposition)>,
         continuation_note: Option<String>,
         error_code: Option<LocalErrorCode>,
-        fencing_token: crate::computer::core::supervisor::FencingToken,
+        fencing_token: FencingToken,
     },
 }
 
@@ -145,7 +145,7 @@ pub(in crate::computer) struct OpenSessionRequest {
     pub(in crate::computer) generation: u64,
     pub(in crate::computer) fingerprint: SessionFingerprint,
     pub(in crate::computer) resume_locator: Option<String>,
-    pub(in crate::computer) run_token: crate::computer::core::supervisor::FencingToken,
+    pub(in crate::computer) run_token: FencingToken,
 }
 
 impl fmt::Debug for OpenSessionRequest {

@@ -178,7 +178,7 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
     let item = ClaimedItemInput {
         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
         task_id: None,
-        thread_id: run.focus_thread_id,
+        thread_id: run.view().focus_thread_id,
         content: Some("new input".to_owned()),
     };
     run.attach(1, item).unwrap();
@@ -249,6 +249,6 @@ fn test_run(driver: DriverKind) -> LocalRun {
         },
     })
     .unwrap();
-    run.session_fingerprint = Some(fingerprint(driver));
+    run.set_session_fingerprint(fingerprint(driver));
     run
 }

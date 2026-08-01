@@ -1,5 +1,5 @@
 #[cfg(test)]
-use std::{collections::VecDeque, time::Duration};
+use std::time::Duration;
 
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -68,6 +68,74 @@ impl<T: Serialize> BrowserEvent<T> {
             .event(event_type)
             .json_data(self)
     }
+}
+
+use super::http::{ApiError, RuntimeState, application_error, current_member};
+use crate::ids::MemberId;
+use axum::{
+    extract::{Path, State},
+    http::HeaderMap,
+    response::{
+        Sse,
+        sse::{Event as SseEvent, KeepAlive},
+    },
+};
+use axum_extra::extract::cookie::CookieJar;
+use futures_util::stream;
+use std::{collections::VecDeque, convert::Infallible};
+use uuid::Uuid;
+
+pub(super) async fn space_events(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(space_id): Path<Uuid>,
+) -> Result<Sse<impl futures_util::Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+    let viewer = current_member(&state, &jar, space_id).await?;
+    let space_id = SpaceId::from_uuid(space_id);
+    let last_event_id = headers
+        .get("last-event-id")
+        .map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .ok_or_else(|| ApiError::invalid("Last-Event-ID is invalid"))
+        })
+        .transpose()?;
+    let viewer = MemberId::from_uuid(viewer);
+    let initial = state
+        .storage
+        .browser_events(space_id, viewer, last_event_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::context_changed)?;
+    let events = stream::unfold(
+        (
+            state.storage,
+            space_id,
+            last_event_id,
+            VecDeque::from(initial),
+        ),
+        move |(storage, space_id, mut cursor, mut buffered)| async move {
+            loop {
+                if let Some(event) = buffered.pop_front() {
+                    cursor = Some(event.event_id);
+                    let event = match event.into_sse() {
+                        Ok(event) => event,
+                        Err(_) => return None,
+                    };
+                    return Some((Ok(event), (storage, space_id, cursor, buffered)));
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                buffered = match storage.browser_events(space_id, viewer, cursor).await {
+                    Ok(Some(events)) => VecDeque::from(events),
+                    Ok(None) | Err(_) => return None,
+                };
+            }
+        },
+    );
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
 #[cfg(test)]

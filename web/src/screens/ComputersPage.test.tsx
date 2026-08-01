@@ -74,7 +74,6 @@ describe("Computer flows", () => {
     expect(screen.getAllByText("online")[0]).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair Computer" })).toBeVisible();
     expect(screen.getAllByRole("heading", { name: "Computers" })).toHaveLength(1);
-    expect(screen.getAllByRole("img", { name: "Rin avatar" }).every((avatar) => avatar.hasAttribute("data-agent-identicon"))).toBe(true);
     expect(screen.getByLabelText("Agent name")).toHaveFocus();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
@@ -90,6 +89,8 @@ describe("Computer flows", () => {
       );
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Agent" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole("link", { name: /Studio/ }).find((link) => link.classList.contains("computer-context-row"))!);
+    expect(await screen.findByRole("heading", { name: "Studio" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByRole("dialog", { name: "Create Agent" })).toBeVisible();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -121,15 +122,9 @@ describe("Computer flows", () => {
     renderRoute("/s/sumi-lab/computers");
 
     fireEvent.click(await screen.findByRole("link", { name: "Pair Computer" }));
-    const dialog = await screen.findByRole("dialog", { name: "Pair Computer" });
-    expect(dialog).toBeVisible();
-    expect(within(dialog).getByText(`sumi computer --server ${window.location.origin}`)).toBeVisible();
-    expect(within(dialog).getByText("Verify the machine identity, then confirm this Space.")).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "Close Pair Computer" })).toHaveFocus();
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(within(dialog).getByRole("button", { name: "Done" })).toHaveFocus();
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pair Computer" })).not.toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: "Pair a Computer" })).toBeVisible();
+    expect(screen.getByText(`sumi computer --server ${window.location.origin}`)).toBeVisible();
+    expect(screen.getByText("Verify the identity, then confirm this Space.")).toBeVisible();
   });
 
   it("does not expose Computer governance to a regular Human Member", async () => {
@@ -149,8 +144,9 @@ describe("Computer flows", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute("/s/sumi-lab/computers#pair-computer");
 
-    expect(await screen.findByRole("heading", { name: "Studio" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Computers" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Pair Computer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add Computer" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Pair Computer" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });

@@ -19,6 +19,7 @@ Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决�
 | --- | --- | --- |
 | DM新Message | direct | hard |
 | mention Agent | mention | hard |
+| `@all` in a Channel | mention | hard |
 | reply指向Agent Message | reply | hard |
 | Linked Thread新Message | task_activity | hard |
 | Agent订阅的普通Thread更新 | thread_activity | ambient |
@@ -26,6 +27,8 @@ Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决�
 | 系统或执行错误 | system | hard |
 
 同一Message对同一Agent只生成一个最高强度Item。发送者不为自己生成Message Item。
+
+Message 的 mention targets 是结构化事实。显式 mention 保存为 Message 与 Member 的关系；`mention_all=true` 时，Server 在发送事务中把当前 Channel 中未退役的 Member（发送者除外）保存为 targets，并把其中的 Agent 路由为 hard `mention` Item。消费端不得从 Message 正文推断 targets。Task、DM、mention 和 reply 的既有选择顺序保持为 Task > DM > mention > reply；同一 Agent 只保留一个最高强度 Item。
 
 ## 3. Item 状态
 
@@ -65,9 +68,15 @@ daemon和Server不得读取正文决定attach或notice。
 
 ## 6. Ambient 聚合
 
-Server按Agent和Thread聚合ambient activity。聚合项保存首尾Message序号、数量、available time和force time。新Message不能无限推迟force time。
+Server 按 Agent 和 Thread 聚合 ambient activity。一个 Agent 在一个 Thread 上最多有一个 pending 聚合项，因此该 Thread 的连续普通 Message 只占一条 Item。聚合项保存首尾 Message 序号、数量、available time 和 force time，见 [数据库设计](08-database.md) 的`inbox_items`。
 
-hard Item优先于ambient Item。ambient Item在Agent有执行容量时才创建Run。
+聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message。
+
+available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可领取。该上限是防止新 Message 无限推迟处理的唯一机制。
+
+已领取的聚合项不再接受新 Message。该 Agent 已经收到这个区间，后续 Message 进入下一个聚合项。
+
+hard Item 优先于 ambient Item。ambient Item 在 Agent 有执行容量时才创建 Run：领取要求该 Agent 没有非终态 Run，且同一批候选中 hard Item 先被取走。
 
 ## 7. notice
 
@@ -85,9 +94,13 @@ Agent当前无权读取来源时，notice只显示“另一个受限位置有待
 
 ## 8. 重试和dead
 
-Run失败或lease过期时，未处理Items返回pending并增加retry count。达到上限后Item进入dead，并为有权治理该Agent的Human创建不含正文的system Item。
+lease过期时，Server把该Run未处理的Items返回pending并增加retry count，同时把Run置为`failed`并记录`process_lost`。retry count超过`max_retry_count`后Item进入dead，并在同一事务创建不含正文的system Item。
 
-网络错误、receipt丢失和重复command不得重复增加retry count。
+该system Item归属该Agent，因为`inbox_items.agent_id`引用`agents`，Human不能持有Item。Space治理者通过读取Agent Inbox看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
+
+只有lease过期计入retry count。Agent显式release一个Item是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt丢失和重复command同样不得重复增加retry count。
+
+Run终态由回收事务写入，因此该Agent的非终态Run被释放，后续Run不再被 partial unique index 阻止，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
 
 Server领取Item或创建Run失败时，Item保持`pending`并记录稳定的`last_error_code`。来源Message的可见投影必须向有权读取该Message的Human显示对应Agent、错误码和自动重试状态。该提示是运行状态，不创建Message，也不冒充Member发言。
 

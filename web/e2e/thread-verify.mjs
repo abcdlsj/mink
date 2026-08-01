@@ -23,8 +23,21 @@ async function composerGeometry(locator) {
     const inputBox = input.getBoundingClientRect();
     const attachBox = attach.getBoundingClientRect();
     const sendBox = send.getBoundingClientRect();
+    const parent = form.parentElement;
+    const parentBox = parent.getBoundingClientRect();
+    const parentRightBorder = parent.offsetWidth - parent.clientWidth - parent.clientLeft;
+    const threadPane = parent.matches(".channel-workspace")
+      ? parent.querySelector(":scope > .thread-pane")
+      : null;
+    const contentRight = threadPane
+      ? threadPane.getBoundingClientRect().left
+      : parentBox.right - parentRightBorder;
     return {
+      top: Math.round(formBox.top),
+      bottom: Math.round(formBox.bottom),
       height: Math.round(formBox.height),
+      leftGap: Math.round(formBox.left - parentBox.left - parent.clientLeft),
+      rightGap: Math.round(contentRight - formBox.right),
       inputHeight: Math.round(inputBox.height),
       attach: [Math.round(attachBox.width), Math.round(attachBox.height), Math.round(attachBox.y - inputBox.y)],
       send: [Math.round(sendBox.width), Math.round(sendBox.height), Math.round(sendBox.y - inputBox.y)],

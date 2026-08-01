@@ -78,13 +78,8 @@ Driver 不访问 PostgreSQL、Server repository 或 Browser API。Driver output 
 ```text
 src/
   main.rs
-  bootstrap/
-    mod.rs
-    cli.rs
-    config.rs
-    server.rs
-    computer.rs
-
+  cli.rs
+  config.rs
   ids.rs
 
   protocol/
@@ -97,62 +92,105 @@ src/
     mod.rs
     domain/
       mod.rs
-      identity/
-      conversation/
-      task/
-      attention/
-      execution/
-      computer/
+      access.rs
+      identity.rs
+      conversation.rs
+      attachment.rs
+      task.rs
+      attention.rs
+      execution.rs
+      invitation.rs
+      pairing.rs
     application/
       mod.rs
-      identity/
-      conversation/
-      task/
-      attention/
-      execution/
-      computer/
-      ports.rs
+      identity.rs
+      conversation.rs
+      attachment.rs
+      task.rs
+      attention.rs
+      execution.rs
+      computer.rs
+      invitation.rs
+      ports/
+        mod.rs
+        transaction.rs
+        identity.rs
+        collaboration.rs
+        task.rs
+        execution.rs
+        attachment.rs
+        effects.rs
     adapters/
       mod.rs
       http/
-      websocket/
+        mod.rs
+        identity.rs
+        conversation.rs
+        task.rs
+        execution.rs
+        computer.rs
+        attachment.rs
+        dto.rs
+        error.rs
+      websocket.rs
       postgres/
-      object_storage/
-      realtime/
+        mod.rs
+        identity.rs
+        conversation.rs
+        task.rs
+        attention.rs
+        execution.rs
+        attachment.rs
+        rows.rs
+      object_storage.rs
+      realtime.rs
+      credential.rs
+      openapi.rs
+      query.rs
+      runtime.rs
 
   computer/
     mod.rs
     core/
       mod.rs
-      scheduler/
-      supervisor/
-      session/
-      home/
-      capability/
+      scheduler.rs
+      supervisor.rs
+      session.rs
+      home.rs
+      input.rs
     application/
       mod.rs
       command.rs
+      query.rs
       run.rs
       recovery.rs
+      scheduler.rs
+      capability.rs
       ports.rs
     adapters/
       mod.rs
-      server_connection/
-      sqlite/
-      local_ipc/
-      filesystem/
-      sandbox/
+      server_connection.rs
+      sqlite.rs
+      local_ipc.rs
+      filesystem.rs
+      sandbox.rs
     drivers/
       mod.rs
       contract.rs
-      codex/
-      builtin/
+      runtime.rs
+      codex.rs
+      builtin.rs
+      builtin_runtime/
 
   agent_cli/
     mod.rs
     client.rs
     commands.rs
 ```
+
+每个模块默认用一个文件表达。HTTP、PostgreSQL、Server application ports 和 builtin runtime 的规则已超出单文件可读范围，因此按职责拆为目录。文件与目录的选择不改变依赖方向。
+
+`main.rs`、`cli.rs`和`config.rs`是运行时入口与配置装配，只负责解析参数、读取配置并调用两个 facade。
 
 `ids.rs`只定义跨边界使用的不透明标识。该文件不得加入状态、领域规则、DTO 或通用 helper。
 
@@ -199,8 +237,8 @@ Adapter 不复制领域判断。多个 adapter 触发同一行为时，必须调
 ```text
 调用方 -> 被依赖方
 
-bootstrap -> server public facade
-bootstrap -> computer public facade
+main/cli -> server public facade
+main/cli -> computer public facade
 protocol -> ids
 server/domain -> ids
 server/application -> server/domain
@@ -275,18 +313,30 @@ Computer 与 Server 的协议定义归属`protocol/`。协议版本适用于完�
 
 ## 9. 测试组织
 
+单元测试与被测模块同文件，使用`#[cfg(test)] mod tests`；模块的测试量超出单文件可读范围时，拆出同级`tests.rs`并由`mod.rs`挂载。
+
 ```text
-src/server/domain/**/tests.rs       状态转换和领域不变量
-src/server/application/**/tests.rs  用例流程和事务编排
-src/computer/core/**/tests.rs       调度、Run 和 Session 流程
-src/computer/application/**/tests.rs command、恢复和幂等流程
-tests/server/                       PostgreSQL 和 HTTP 集成
-tests/computer/                     SQLite、Driver 和重启集成
-tests/protocol/                     握手、必填字段和版本拒绝
-tests/end_to_end/                   Server 与 Computer 核心流程
+src/server/domain/*.rs              状态转换和领域不变量
+src/server/application/tests.rs     用例流程和事务编排
+src/computer/core/*.rs              调度、Run 和 Session 流程
+src/computer/application/tests.rs   command、恢复和幂等流程
+src/server/adapters/*.rs            事件过滤和单文件 adapter 的边界测试
+src/server/adapters/http/           HTTP DTO、认证和状态码边界
+src/server/adapters/postgres/       SQL 约束和行到领域对象的转换
+src/computer/drivers/*.rs           Driver 契约与进程协议
+tests/architecture_boundaries.rs    模块依赖与可见性
+tests/registration_space.rs         注册、Space 与治理路由
+tests/governance_routes.rs          治理动作的授权与状态规则
+tests/space_invitation.rs           Invitation 全流程
+tests/inbox_direct_message.rs       Inbox 投影与 DM
+tests/attachment_flow.rs            Attachment 上传与下载
+tests/failure_recovery.rs           进程重启、lease 过期与本地状态损坏后的恢复
+tests/cli.rs                        命令行入口
 ```
 
 内层单元测试使用内存端口。SQL 约束、进程生命周期和网络重连只在对应 adapter 或集成测试中验证。
+
+集成测试按流程命名，不按被测层命名。新增流程时增加文件，不把断言塞进既有文件。
 
 单元测试的取舍规则由[交付与验收](./10-delivery-acceptance.md)定义。测试目录不能按函数或数据类型机械生成。
 
@@ -301,7 +351,7 @@ tests/end_to_end/                   Server 与 Computer 核心流程
 3. 建立新的 Server adapters，并使用 adapter contract test 独立测试。
 4. 建立 Computer core、application 和本地 ports。
 5. 将 Driver、SQLite、连接和 Agent CLI 接入新端口，并测试 Computer 内部流程。
-6. 完成 WebUI 后，一次性切换`bootstrap`和 Browser API 到新入口。
+6. 完成 WebUI 后，一次性切换运行时入口和 Browser API 到新实现。
 7. 在同一切换任务中删除旧根目录模块、旧协议和旧 schema。
 8. 运行完整集成、故障和端到端验收。
 

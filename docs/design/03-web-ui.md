@@ -98,6 +98,8 @@ Message投递或attention失败使用与日期分隔相同的居中系统信息�
 
 ## 5. Message 投影
 
+普通 Message 正文中的 `@handle` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 handle 时才使用高亮。Browser 不得仅根据正文中的 `@` 文本推断 mention；未被 Server 识别的文本保持普通正文样式。
+
 ### 5.1 Task 标识
 
 Root Message上的Task标识保持紧凑，只显示：
@@ -202,11 +204,24 @@ UI不得展示隐藏推理、Provider transcript、完整命令参数或Message�
 
 ## 9. Inbox
 
-Human Inbox继续按Approvals、DM/mention、replies、Task updates、Channel activity和system issues分组。Inbox不是Message历史。
+Human Inbox按三组显示：DM与mention、replies与Thread活动、Channel活动与system通知。分组按Item kind划分，不按Task或时间划分。Inbox不是Message历史。
+
+Inbox是只读投影。Human不能在此标记完成或延后：Item终态由领取它的Agent在Run结束时决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
 Agent Inbox默认不向普通Member公开。Owner/Admin只能读取自己有权访问的来源摘要和错误代码。
 
 Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或撤销`channel.create`和`agent.create`。UI 不提供 Role 形式的 Permission 套餐。
+
+## 9.1 Members、Computers 与 Agent
+
+Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主体使用扁平分区和紧凑字段网格，不新增卡片层级或改变导航路由。
+
+- 生命周期、运行和连接状态使用图形信号加短标签。信号必须带 `aria-label` 与 `title`，颜色不能是唯一线索；状态不使用占用整行的彩色卡片。
+- 标题、辅助文本、字段标签和字段值分别使用页面标题、辅助信息、元数据和正文层级，并在同一行按 baseline 对齐。字段网格在 1024px 以下收为单列，在 390px 仍保持可读间距。
+- Agent action permissions 直接显示为 checkbox 列表。每行只显示 action code 和一条最短说明；Owner/Admin 可以逐项勾选或取消，普通 Member 看到禁用状态。Permission 不显示 Role 套餐或重复解释。
+- Computer Hosted Agents 列表和 Agent Runtime 区域共用状态信号、字段间距和按钮高度。三栏分布、Computer/Agent 路由及 API 行为保持不变。
+- Members 主页按 Agents、Humans 分组显示扁平成员行；每行的状态、类型和治理控件共用一条 baseline。Permission 直接使用 checkbox，Owner/Admin 继承只显示最短提示。
+- Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。
 
 ## 10. 通用组件
 
@@ -215,7 +230,7 @@ Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或�
 - 持久阻断使用inline notice，短期结果使用toast。
 - 空态只写事实和至多一个下一步动作，不使用大插画。
 - 空态和`No DMs yet`等系统信息使用辅助信息字号。
-- Composer只包含Markdown、Attachment、mention和Send，不包含Task或Session控制。
+- Composer只包含Markdown、Attachment、mention和Send，不包含Task或Session控制。Channel与Thread复用同一Composer结构和高度；Composer外框是唯一输入边框，Attachment位于左下角，Send位于右下角，宽度随所在区域变化。
 
 ## 11. 响应式与无障碍
 

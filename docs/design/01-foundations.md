@@ -117,13 +117,17 @@ Server、Computer、Agent CLI 和 Driver 的代码职责、目录与依赖方向
 
 以下行为必须各自只有一个入口：
 
-- `CreateTaskFromRootMessage`
-- `LinkThreadToTask`
-- `ClaimRun`
-- `AttachHardItemToRun`
-- `CompleteRun`
-- `RecordTaskResult`
-- `ResolveProviderSession`
+| 行为 | 唯一入口 |
+| --- | --- |
+| 从 Root Message 创建 Task | `server::application::task::CreateTaskFromRootMessage` |
+| 关联 Related Thread | `server::application::task::LinkThreadToTask` |
+| Task 终态与 Result | `server::application::task::RecordTaskOutcome` |
+| 领取并创建 Run | `server::application::execution::ClaimRun` |
+| 路由 hard Item 到 active Run | `server::application::attention::RouteHardItem` |
+| 完成 Run | `server::application::execution::CompleteRun` |
+| 解析 Provider Session | `computer::core::session::resolve` |
+
+`RecordTaskOutcome`同时服务 Browser 与 Agent CLI：Agent 调用时附带 Run 与 fencing token 并在同一事务完成 Run，Browser 调用时不持有 Run。`submit_review`、`done`和`close`不得再有第二个事务入口。
 
 ## 7. 技术基线
 

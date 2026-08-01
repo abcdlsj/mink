@@ -44,6 +44,38 @@ pub(in crate::server) struct DeclaredContent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct Attachment {
+    id: AttachmentId,
+    space_id: SpaceId,
+    uploader_member_id: MemberId,
+    name: String,
+    media_type: String,
+    object_key: String,
+    status: AttachmentStatus,
+    length: Option<u64>,
+    sha256: Option<[u8; 32]>,
+    created_at: OffsetDateTime,
+    ready_at: Option<OffsetDateTime>,
+    deleted_at: Option<OffsetDateTime>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct AttachmentView<'a> {
+    pub(in crate::server) id: AttachmentId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) uploader_member_id: MemberId,
+    pub(in crate::server) name: &'a str,
+    pub(in crate::server) media_type: &'a str,
+    pub(in crate::server) object_key: &'a str,
+    pub(in crate::server) status: AttachmentStatus,
+    pub(in crate::server) length: Option<u64>,
+    pub(in crate::server) sha256: Option<[u8; 32]>,
+    pub(in crate::server) created_at: OffsetDateTime,
+    pub(in crate::server) ready_at: Option<OffsetDateTime>,
+    pub(in crate::server) deleted_at: Option<OffsetDateTime>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::server) struct AttachmentSnapshot {
     pub(in crate::server) id: AttachmentId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) uploader_member_id: MemberId,
@@ -55,9 +87,86 @@ pub(in crate::server) struct Attachment {
     pub(in crate::server) sha256: Option<[u8; 32]>,
     pub(in crate::server) created_at: OffsetDateTime,
     pub(in crate::server) ready_at: Option<OffsetDateTime>,
+    pub(in crate::server) deleted_at: Option<OffsetDateTime>,
 }
 
 impl Attachment {
+    pub(in crate::server) fn view(&self) -> AttachmentView<'_> {
+        AttachmentView {
+            id: self.id,
+            space_id: self.space_id,
+            uploader_member_id: self.uploader_member_id,
+            name: &self.name,
+            media_type: &self.media_type,
+            object_key: &self.object_key,
+            status: self.status,
+            length: self.length,
+            sha256: self.sha256,
+            created_at: self.created_at,
+            ready_at: self.ready_at,
+            deleted_at: self.deleted_at,
+        }
+    }
+
+    pub(in crate::server) fn snapshot(&self) -> AttachmentSnapshot {
+        let view = self.view();
+        AttachmentSnapshot {
+            id: view.id,
+            space_id: view.space_id,
+            uploader_member_id: view.uploader_member_id,
+            name: view.name.to_owned(),
+            media_type: view.media_type.to_owned(),
+            object_key: view.object_key.to_owned(),
+            status: view.status,
+            length: view.length,
+            sha256: view.sha256,
+            created_at: view.created_at,
+            ready_at: view.ready_at,
+            deleted_at: view.deleted_at,
+        }
+    }
+
+    pub(in crate::server) fn rehydrate(snapshot: AttachmentSnapshot) -> Result<Self, DomainError> {
+        let content_is_present =
+            snapshot.length.is_some() && snapshot.sha256.is_some() && snapshot.ready_at.is_some();
+        let state_is_valid = match snapshot.status {
+            AttachmentStatus::Uploading => {
+                snapshot.length.is_none()
+                    && snapshot.sha256.is_none()
+                    && snapshot.ready_at.is_none()
+                    && snapshot.deleted_at.is_none()
+            }
+            AttachmentStatus::Ready => content_is_present && snapshot.deleted_at.is_none(),
+            AttachmentStatus::Deleted => content_is_present && snapshot.deleted_at.is_some(),
+        };
+        let expected_object_key = format!(
+            "spaces/{}/attachments/{}",
+            snapshot.space_id.into_uuid(),
+            snapshot.id.into_uuid()
+        );
+        if !state_is_valid
+            || snapshot.name.trim().is_empty()
+            || snapshot.media_type.trim().is_empty()
+            || snapshot.object_key != expected_object_key
+        {
+            return Err(DomainError::InvalidPersistedState);
+        }
+        Ok(Self {
+            id: snapshot.id,
+            space_id: snapshot.space_id,
+            uploader_member_id: snapshot.uploader_member_id,
+            name: snapshot.name,
+            media_type: snapshot.media_type,
+            object_key: snapshot.object_key,
+            status: snapshot.status,
+            length: snapshot.length,
+            sha256: snapshot.sha256,
+            created_at: snapshot.created_at,
+            ready_at: snapshot.ready_at,
+            deleted_at: snapshot.deleted_at,
+        })
+    }
+
     pub(in crate::server) fn open(
         id: AttachmentId,
         space_id: SpaceId,
@@ -87,6 +196,7 @@ impl Attachment {
             sha256: None,
             created_at: now,
             ready_at: None,
+            deleted_at: None,
         })
     }
 
@@ -142,6 +252,37 @@ impl Attachment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rehydrate_accepts_a_consistent_snapshot_and_rejects_ready_without_content() {
+        let snapshot = attachment().snapshot();
+        let restored = Attachment::rehydrate(snapshot.clone()).expect("snapshot is valid");
+        assert_eq!(restored.snapshot(), snapshot);
+
+        let mut invalid = snapshot;
+        invalid.status = AttachmentStatus::Ready;
+        assert_eq!(
+            Attachment::rehydrate(invalid),
+            Err(DomainError::InvalidPersistedState)
+        );
+    }
+
+    #[test]
+    fn rehydrate_requires_deleted_at_only_for_deleted_attachments() {
+        let mut deleted = attachment().snapshot();
+        deleted.status = AttachmentStatus::Deleted;
+        deleted.length = Some(1);
+        deleted.sha256 = Some([1; 32]);
+        deleted.ready_at = Some(OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(
+            Attachment::rehydrate(deleted.clone()),
+            Err(DomainError::InvalidPersistedState)
+        );
+
+        deleted.deleted_at = Some(OffsetDateTime::UNIX_EPOCH);
+        let restored = Attachment::rehydrate(deleted.clone()).expect("deleted state is complete");
+        assert_eq!(restored.snapshot(), deleted);
+    }
 
     fn attachment() -> Attachment {
         Attachment::open(

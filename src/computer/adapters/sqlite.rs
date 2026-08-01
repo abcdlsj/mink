@@ -5,9 +5,10 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        ApplicationError, Delivery, DeliveryState, DriverKind, FencingToken, ItemDisposition,
-        LocalRun, LocalRunState, NoticeDelivery, ProviderSession, RunInput, RunPriority,
-        SessionFingerprint, SessionScope, SessionState, TerminalStatus,
+        ApplicationError, ClaimedItemInput, Delivery, DeliveryState, DriverKind, FencingToken,
+        ItemDisposition, LocalRun, LocalRunSnapshot, LocalRunState, NoticeDelivery,
+        ProviderSession, ProviderSessionSnapshot, RunInput, RunPriority, SessionFingerprint,
+        SessionScope, SessionState, TerminalStatus,
         command::Command,
         ports::{
             CommandStatus, ComputerTransaction, LocalErrorCode, LocalEvent, StoredCommand,
@@ -128,6 +129,7 @@ impl SqliteAdapter {
             snapshot.commands.insert(command.id, command);
         }
 
+        let mut run_snapshots = BTreeMap::new();
         for row in sqlx::query(
             "SELECT run_id,agent_id,task_id,focus_thread_id,fencing_token, \
              ownership_lease_expires_at,state,run_json FROM local_runs ORDER BY run_id",
@@ -136,30 +138,37 @@ impl SqliteAdapter {
         .await
         .map_err(map_sqlx)?
         {
+            let run_id = parse_id(row.get("run_id"))?;
             let payload: RunPayload = decode(row.get("run_json"))?;
-            let run = LocalRun {
-                id: parse_id(row.get("run_id"))?,
-                agent_id: parse_id(row.get("agent_id"))?,
-                task_id: row
-                    .get::<Option<&str>, _>("task_id")
-                    .map(parse_id)
-                    .transpose()?,
-                focus_thread_id: parse_id(row.get("focus_thread_id"))?,
-                fencing_token: FencingToken::new(row.get("fencing_token")),
-                priority: payload.priority,
-                ownership_lease_expires_at: parse_time(row.get("ownership_lease_expires_at"))?,
-                input: payload.input,
-                state: run_state(row.get("state"))?,
-                session: payload.session,
-                session_fingerprint: payload.session_fingerprint,
-                deliveries: BTreeMap::new(),
-                notices: payload.notices,
-                terminal_status: payload.terminal_status,
-            };
-            snapshot.runs.insert(run.id, run);
+            let previous = run_snapshots.insert(
+                run_id,
+                LocalRunSnapshot {
+                    id: run_id,
+                    agent_id: parse_id(row.get("agent_id"))?,
+                    task_id: row
+                        .get::<Option<&str>, _>("task_id")
+                        .map(parse_id)
+                        .transpose()?,
+                    focus_thread_id: parse_id(row.get("focus_thread_id"))?,
+                    fencing_token: FencingToken::new(row.get("fencing_token")),
+                    priority: payload.priority,
+                    ownership_lease_expires_at: parse_time(row.get("ownership_lease_expires_at"))?,
+                    input: payload.input,
+                    state: run_state(row.get("state"))?,
+                    session: payload.session,
+                    session_fingerprint: payload.session_fingerprint,
+                    deliveries: BTreeMap::new(),
+                    notices: payload.notices,
+                    terminal_status: payload.terminal_status,
+                },
+            );
+            if previous.is_some() {
+                tracing::error!(%run_id, "duplicate local Run row");
+                return Err(ApplicationError::Internal);
+            }
         }
         for row in sqlx::query(
-            "SELECT run_id,delivery_seq,state,disposition,item_json FROM run_deliveries \
+            "SELECT run_id,delivery_seq,inbox_item_id,state,disposition,item_json FROM run_deliveries \
              ORDER BY run_id,delivery_seq",
         )
         .fetch_all(&mut self.connection)
@@ -169,22 +178,35 @@ impl SqliteAdapter {
             let run_id: RunId = parse_id(row.get("run_id"))?;
             let sequence = u64::try_from(row.get::<i64, _>("delivery_seq"))
                 .map_err(|_| ApplicationError::Internal)?;
-            let run = snapshot
-                .runs
+            let run = run_snapshots
                 .get_mut(&run_id)
                 .ok_or(ApplicationError::Internal)?;
-            run.deliveries.insert(
+            let item: ClaimedItemInput = decode(row.get("item_json"))?;
+            let stored_item_id: InboxItemId = parse_id(row.get("inbox_item_id"))?;
+            if stored_item_id != item.item_id {
+                return Err(ApplicationError::Internal);
+            }
+            let previous = run.deliveries.insert(sequence, Delivery {
                 sequence,
-                Delivery {
-                    sequence,
-                    item: decode(row.get("item_json"))?,
-                    state: delivery_state(row.get("state"))?,
-                    disposition: row
-                        .get::<Option<&str>, _>("disposition")
-                        .map(item_disposition)
-                        .transpose()?,
-                },
-            );
+                item,
+                state: delivery_state(row.get("state"))?,
+                disposition: row
+                    .get::<Option<&str>, _>("disposition")
+                    .map(item_disposition)
+                    .transpose()?,
+            });
+            if previous.is_some() {
+                tracing::error!(%run_id, sequence, "duplicate local Run delivery row");
+                return Err(ApplicationError::Internal);
+            }
+        }
+        for run_snapshot in run_snapshots.into_values() {
+            let run_id = run_snapshot.id;
+            let run = LocalRun::rehydrate(run_snapshot).map_err(|error| {
+                tracing::error!(%run_id, ?error, "failed to rehydrate local Run");
+                ApplicationError::Internal
+            })?;
+            snapshot.runs.insert(run_id, run);
         }
 
         for row in sqlx::query(
@@ -197,7 +219,7 @@ impl SqliteAdapter {
         .await
         .map_err(map_sqlx)?
         {
-            snapshot.sessions.push(ProviderSession {
+            let session = ProviderSession::rehydrate(ProviderSessionSnapshot {
                 agent_id: parse_id(row.get("agent_id"))?,
                 scope: session_scope(row.get("scope_kind"), row.get("scope_id"))?,
                 generation: u64::try_from(row.get::<i64, _>("generation"))
@@ -214,7 +236,9 @@ impl SqliteAdapter {
                 created_at: parse_time(row.get("created_at"))?,
                 last_resumed_at: parse_optional_time(row.get("last_resumed_at"))?,
                 closed_at: parse_optional_time(row.get("closed_at"))?,
-            });
+            })
+            .map_err(|_| ApplicationError::Internal)?;
+            snapshot.sessions.push(session);
         }
 
         for row in sqlx::query(
@@ -305,35 +329,35 @@ impl SqliteAdapter {
         }
         for run in snapshot.runs.values() {
             let payload = RunPayload {
-                priority: run.priority,
-                input: run.input.clone(),
-                session: run.session,
-                session_fingerprint: run.session_fingerprint.clone(),
-                notices: run.notices.clone(),
-                terminal_status: run.terminal_status,
+                priority: *run.view().priority,
+                input: run.view().input.clone(),
+                session: run.view().session,
+                session_fingerprint: run.view().session_fingerprint.cloned(),
+                notices: run.view().notices.clone(),
+                terminal_status: run.view().terminal_status,
             };
             sqlx::query(
                 "INSERT INTO local_runs \
                  (run_id,agent_id,task_id,focus_thread_id,fencing_token, \
                   ownership_lease_expires_at,state,run_json) VALUES (?,?,?,?,?,?,?,?)",
             )
-            .bind(run.id.to_string())
-            .bind(run.agent_id.to_string())
-            .bind(run.task_id.map(|id| id.to_string()))
-            .bind(run.focus_thread_id.to_string())
-            .bind(run.fencing_token.expose())
-            .bind(format_time(run.ownership_lease_expires_at)?)
-            .bind(run_state_name(run.state))
+            .bind(run.view().id.to_string())
+            .bind(run.view().agent_id.to_string())
+            .bind(run.view().task_id.map(|id| id.to_string()))
+            .bind(run.view().focus_thread_id.to_string())
+            .bind(run.view().fencing_token.expose())
+            .bind(format_time(run.view().ownership_lease_expires_at)?)
+            .bind(run_state_name(run.view().state))
             .bind(encode(&payload)?)
             .execute(&mut self.connection)
             .await
             .map_err(map_sqlx)?;
-            for delivery in run.deliveries.values() {
+            for delivery in run.view().deliveries.values() {
                 sqlx::query(
                     "INSERT INTO run_deliveries \
                      (run_id,delivery_seq,inbox_item_id,state,disposition,item_json) VALUES (?,?,?,?,?,?)",
                 )
-                .bind(run.id.to_string())
+                .bind(run.view().id.to_string())
                 .bind(i64::try_from(delivery.sequence).map_err(|_| ApplicationError::Internal)?)
                 .bind(delivery.item.item_id.to_string())
                 .bind(delivery_state_name(delivery.state))
@@ -345,29 +369,29 @@ impl SqliteAdapter {
             }
         }
         for session in &snapshot.sessions {
-            let (scope_kind, scope_id) = session_scope_parts(session.scope);
+            let (scope_kind, scope_id) = session_scope_parts(session.view().scope);
             sqlx::query(
                 "INSERT INTO provider_sessions \
                  (agent_id,scope_kind,scope_id,generation,driver_kind,provider_locator, \
                   workspace_fingerprint,role_revision,audience_fingerprint,state,created_at, \
                   last_resumed_at,closed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             )
-            .bind(session.agent_id.to_string())
+            .bind(session.view().agent_id.to_string())
             .bind(scope_kind)
             .bind(scope_id)
-            .bind(i64::try_from(session.generation).map_err(|_| ApplicationError::Internal)?)
-            .bind(driver_kind_name(session.fingerprint.driver))
-            .bind(&session.locator)
-            .bind(&session.fingerprint.workspace)
+            .bind(i64::try_from(session.view().generation).map_err(|_| ApplicationError::Internal)?)
+            .bind(driver_kind_name(session.view().fingerprint.driver))
+            .bind(session.view().locator)
+            .bind(&session.view().fingerprint.workspace)
             .bind(
-                i64::try_from(session.fingerprint.role_revision)
+                i64::try_from(session.view().fingerprint.role_revision)
                     .map_err(|_| ApplicationError::Internal)?,
             )
-            .bind(&session.fingerprint.audience)
-            .bind(session_state_name(session.state))
-            .bind(format_time(session.created_at)?)
-            .bind(format_optional_time(session.last_resumed_at)?)
-            .bind(format_optional_time(session.closed_at)?)
+            .bind(&session.view().fingerprint.audience)
+            .bind(session_state_name(session.view().state))
+            .bind(format_time(session.view().created_at)?)
+            .bind(format_optional_time(session.view().last_resumed_at)?)
+            .bind(format_optional_time(session.view().closed_at)?)
             .execute(&mut self.connection)
             .await
             .map_err(map_sqlx)?;
@@ -510,7 +534,7 @@ impl ComputerTransaction for SqliteTransaction {
     }
 
     fn save_run(&mut self, run: LocalRun) -> Result<(), ApplicationError> {
-        self.snapshot.runs.insert(run.id, run);
+        self.snapshot.runs.insert(run.view().id, run);
         Ok(())
     }
 
@@ -519,7 +543,7 @@ impl ComputerTransaction for SqliteTransaction {
             .snapshot
             .runs
             .values()
-            .filter(|run| !run.state.is_terminal())
+            .filter(|run| !run.view().state.is_terminal())
             .cloned()
             .collect())
     }
@@ -533,7 +557,7 @@ impl ComputerTransaction for SqliteTransaction {
             .snapshot
             .sessions
             .iter()
-            .filter(|session| session.agent_id == agent_id && session.scope == scope)
+            .filter(|session| session.view().agent_id == agent_id && session.view().scope == scope)
             .cloned()
             .collect())
     }
@@ -546,16 +570,16 @@ impl ComputerTransaction for SqliteTransaction {
             .snapshot
             .sessions
             .iter()
-            .filter(|session| session.agent_id == agent_id)
+            .filter(|session| session.view().agent_id == agent_id)
             .cloned()
             .collect())
     }
 
     fn save_session(&mut self, session: ProviderSession) -> Result<(), ApplicationError> {
         if let Some(existing) = self.snapshot.sessions.iter_mut().find(|existing| {
-            existing.agent_id == session.agent_id
-                && existing.scope == session.scope
-                && existing.generation == session.generation
+            existing.view().agent_id == session.view().agent_id
+                && existing.view().scope == session.view().scope
+                && existing.view().generation == session.view().generation
         }) {
             *existing = session;
         } else {
@@ -571,9 +595,9 @@ impl ComputerTransaction for SqliteTransaction {
         generation: u64,
     ) -> Result<(), ApplicationError> {
         self.snapshot.sessions.retain(|session| {
-            !(session.agent_id == agent_id
-                && session.scope == scope
-                && session.generation == generation)
+            !(session.view().agent_id == agent_id
+                && session.view().scope == scope
+                && session.view().generation == generation)
         });
         Ok(())
     }
@@ -784,7 +808,31 @@ fn session_state_name(value: SessionState) -> &'static str {
     }
 }
 
-fn map_sqlx(_: sqlx::Error) -> ApplicationError {
+fn map_sqlx(error: sqlx::Error) -> ApplicationError {
+    let error_kind = match &error {
+        sqlx::Error::Database(_) => "database",
+        sqlx::Error::Io(_) => "io",
+        sqlx::Error::Tls(_) => "tls",
+        sqlx::Error::Protocol(_) => "protocol",
+        sqlx::Error::RowNotFound => "row_not_found",
+        sqlx::Error::TypeNotFound { .. } => "type_not_found",
+        sqlx::Error::ColumnIndexOutOfBounds { .. } => "column_index",
+        sqlx::Error::ColumnNotFound(_) => "column_not_found",
+        sqlx::Error::ColumnDecode { .. } => "column_decode",
+        sqlx::Error::Decode(_) => "decode",
+        sqlx::Error::AnyDriverError(_) => "driver",
+        sqlx::Error::PoolTimedOut => "pool_timeout",
+        sqlx::Error::PoolClosed => "pool_closed",
+        sqlx::Error::WorkerCrashed => "worker_crashed",
+        sqlx::Error::Migrate(_) => "migration",
+        _ => "other",
+    };
+    let database_code = error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .map(|code| code.into_owned())
+        .unwrap_or_else(|| "none".to_owned());
+    tracing::error!(error_kind, database_code, "local SQLite operation failed");
     ApplicationError::Internal
 }
 
@@ -795,17 +843,20 @@ mod tests {
 
     use super::*;
     use crate::computer::application::{
-        AgentInput, FencingToken, LocalRun, NewRun, RunContextInput, RunInput, RunPriority,
-        WorkInput, WorkStrength, ports::LocalEvent,
+        AgentInput, ClaimedItemInput, DriverKind, FencingToken, LocalRun, NewRun, ProviderSession,
+        ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority, SessionFingerprint,
+        SessionScope, SessionState, WorkInput, WorkStrength,
+        command::Command,
+        ports::{CommandStatus, LocalEvent, StoredCommand},
     };
-    use crate::ids::EventId;
+    use crate::ids::{CommandId, EventId, InboxItemId};
 
     #[tokio::test]
     async fn empty_directory_creates_wal_schema_and_survives_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("computer/daemon.db");
         let run = test_run();
-        let run_id = run.id;
+        let run_id = run.view().id;
         let mut adapter = SqliteAdapter::open(&path).await.unwrap();
         let journal: String = sqlx::query_scalar("PRAGMA journal_mode")
             .fetch_one(&mut adapter.connection)
@@ -828,7 +879,7 @@ mod tests {
             .transact(async |transaction| transaction.run(run_id))
             .await
             .unwrap();
-        assert_eq!(stored.unwrap().id, run_id);
+        assert_eq!(stored.unwrap().view().id, run_id);
     }
 
     #[tokio::test]
@@ -837,7 +888,7 @@ mod tests {
         let path = directory.path().join("daemon.db");
         let mut adapter = SqliteAdapter::open(&path).await.unwrap();
         let run = test_run();
-        let run_id = run.id;
+        let run_id = run.view().id;
         let event_id = EventId::from_uuid(Uuid::now_v7());
 
         let result = adapter
@@ -868,7 +919,7 @@ mod tests {
         let path = directory.path().join("daemon.db");
         let mut adapter = SqliteAdapter::open(&path).await.unwrap();
         let run = test_run();
-        let run_id = run.id;
+        let run_id = run.view().id;
         adapter
             .transact(async |transaction| transaction.save_run(run))
             .await
@@ -881,13 +932,230 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(restored.fencing_token.expose(), "secret");
+        assert_eq!(restored.view().fencing_token.expose(), "secret");
         assert!(!format!("{restored:?}").contains("secret"));
     }
 
+    #[tokio::test]
+    async fn run_with_initial_claimed_item_survives_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let (run, item_id) = test_run_with_claimed_item();
+        let run_id = run.view().id;
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        adapter
+            .transact(async |transaction| transaction.save_run(run))
+            .await
+            .unwrap();
+        drop(adapter);
+
+        let mut reopened = SqliteAdapter::open(&path).await.unwrap();
+        let restored = reopened
+            .transact(async |transaction| transaction.run(run_id))
+            .await
+            .unwrap()
+            .unwrap();
+        let delivery = restored.view().deliveries.get(&1).unwrap();
+        assert_eq!(delivery.item.item_id, item_id);
+        assert_eq!(delivery.sequence, 1);
+    }
+
+    #[tokio::test]
+    async fn start_command_with_claimed_item_can_be_marked_applied_after_run_is_saved() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let (run, item_id) = test_run_with_claimed_item();
+        let run_id = run.view().id;
+        let command_id = CommandId::from_uuid(Uuid::now_v7());
+        let command = Command::Start {
+            run: Box::new(run.clone()),
+            fingerprint: test_fingerprint(),
+        };
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        adapter
+            .transact(async |transaction| {
+                transaction.insert_command(StoredCommand {
+                    id: command_id,
+                    sequence: 1,
+                    fingerprint: "fingerprint".to_owned(),
+                    command,
+                    status: CommandStatus::Pending,
+                    error: None,
+                })
+            })
+            .await
+            .unwrap();
+        adapter
+            .transact(async |transaction| transaction.save_run(run))
+            .await
+            .unwrap();
+        adapter
+            .transact(async |transaction| {
+                let mut stored = transaction.command(command_id)?.unwrap();
+                stored.status = CommandStatus::Applied;
+                transaction.save_command(stored)
+            })
+            .await
+            .unwrap();
+        drop(adapter);
+
+        let mut reopened = SqliteAdapter::open(&path).await.unwrap();
+        let (stored, restored) = reopened
+            .transact(async |transaction| {
+                Ok((transaction.command(command_id)?, transaction.run(run_id)?))
+            })
+            .await
+            .unwrap();
+        assert_eq!(stored.unwrap().status, CommandStatus::Applied);
+        assert_eq!(
+            restored.unwrap().view().deliveries[&1].item.item_id,
+            item_id
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_run_when_an_initial_claimed_item_delivery_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let (run, _) = test_run_with_claimed_item();
+        let run_id = run.view().id;
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        adapter
+            .transact(async |transaction| transaction.save_run(run))
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM run_deliveries WHERE run_id=?")
+            .bind(run_id.to_string())
+            .execute(&mut adapter.connection)
+            .await
+            .unwrap();
+
+        let result = adapter
+            .transact(async |transaction| transaction.run(run_id))
+            .await;
+        assert_eq!(result, Err(ApplicationError::Internal));
+    }
+
+    #[tokio::test]
+    async fn rejects_run_delivery_when_column_id_differs_from_json() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        let run = test_run();
+        let run_id = run.view().id;
+        let thread_id = run.view().focus_thread_id;
+        let json_item_id = InboxItemId::from_uuid(Uuid::now_v7());
+        let column_item_id = InboxItemId::from_uuid(Uuid::now_v7());
+        let item = ClaimedItemInput {
+            item_id: json_item_id,
+            task_id: None,
+            thread_id,
+            content: Some("item".to_owned()),
+        };
+        adapter
+            .transact(async |transaction| transaction.save_run(run))
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO run_deliveries \
+             (run_id,delivery_seq,inbox_item_id,state,disposition,item_json) VALUES (?,?,?,?,?,?)",
+        )
+        .bind(run_id.to_string())
+        .bind(1_i64)
+        .bind(column_item_id.to_string())
+        .bind("pending")
+        .bind(None::<&str>)
+        .bind(serde_json::to_string(&item).unwrap())
+        .execute(&mut adapter.connection)
+        .await
+        .unwrap();
+
+        let result = adapter
+            .transact(async |transaction| transaction.run(run_id))
+            .await;
+        assert_eq!(result, Err(ApplicationError::Internal));
+    }
+
+    #[test]
+    fn command_deserialization_rejects_invalid_embedded_run() {
+        let command = Command::Start {
+            run: Box::new(test_run()),
+            fingerprint: SessionFingerprint {
+                driver: DriverKind::Builtin,
+                workspace: "workspace".to_owned(),
+                role_revision: 1,
+                audience: "audience".to_owned(),
+            },
+        };
+        let mut value = serde_json::to_value(command).unwrap();
+        value["run"]["state"] = serde_json::json!("Completed");
+        value["run"]["terminal_status"] = serde_json::Value::Null;
+        let result = serde_json::from_value::<Command>(value);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn local_run_deserialization_rejects_empty_token_and_missing_initial_delivery() {
+        let run = test_run();
+        let focus_thread_id = run.view().focus_thread_id;
+        let mut empty_token = serde_json::to_value(&run).unwrap();
+        empty_token["fencing_token"] = serde_json::json!("");
+        assert!(serde_json::from_value::<LocalRun>(empty_token).is_err());
+
+        let mut missing_delivery = serde_json::to_value(run).unwrap();
+        missing_delivery["input"]["context"]["claimed_items"] = serde_json::json!([{
+            "item_id": InboxItemId::from_uuid(Uuid::now_v7()).to_string(),
+            "task_id": null,
+            "thread_id": focus_thread_id.to_string(),
+            "content": "item"
+        }]);
+        assert!(serde_json::from_value::<LocalRun>(missing_delivery).is_err());
+    }
+
+    #[test]
+    fn provider_session_snapshot_debug_redacts_locator_and_rehydrate_checks_time_order() {
+        let created_at = OffsetDateTime::now_utc();
+        let snapshot = ProviderSessionSnapshot {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            scope: SessionScope::Thread(ThreadId::from_uuid(Uuid::now_v7())),
+            generation: 1,
+            locator: "provider-secret-locator".to_owned(),
+            fingerprint: SessionFingerprint {
+                driver: DriverKind::Builtin,
+                workspace: "workspace".to_owned(),
+                role_revision: 1,
+                audience: "audience".to_owned(),
+            },
+            state: SessionState::Closed,
+            created_at,
+            last_resumed_at: Some(created_at),
+            closed_at: Some(created_at - time::Duration::seconds(1)),
+        };
+        assert!(!format!("{snapshot:?}").contains("provider-secret-locator"));
+        assert!(ProviderSession::rehydrate(snapshot).is_err());
+    }
+
     fn test_run() -> LocalRun {
+        test_run_with_optional_item(None)
+    }
+
+    fn test_run_with_claimed_item() -> (LocalRun, InboxItemId) {
+        let item_id = InboxItemId::from_uuid(Uuid::now_v7());
+        (test_run_with_optional_item(Some(item_id)), item_id)
+    }
+
+    fn test_run_with_optional_item(item_id: Option<InboxItemId>) -> LocalRun {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
+        let claimed_items = item_id
+            .map(|item_id| ClaimedItemInput {
+                item_id,
+                task_id: None,
+                thread_id,
+                content: Some("item".to_owned()),
+            })
+            .into_iter()
+            .collect();
         LocalRun::new(NewRun {
             id: RunId::from_uuid(Uuid::now_v7()),
             agent_id,
@@ -920,10 +1188,19 @@ mod tests {
                     focus_thread_id: thread_id,
                     message_snapshot_sequence: 1,
                     focus_messages: vec!["body".to_owned()],
-                    claimed_items: Vec::new(),
+                    claimed_items,
                 },
             },
         })
         .unwrap()
+    }
+
+    fn test_fingerprint() -> SessionFingerprint {
+        SessionFingerprint {
+            driver: DriverKind::Builtin,
+            workspace: "workspace".to_owned(),
+            role_revision: 1,
+            audience: "audience".to_owned(),
+        }
     }
 }

@@ -468,6 +468,7 @@ pub(super) struct MessageResponse {
     pub(super) author: MessageAuthor,
     pub(super) content: MessageContentResponse,
     pub(super) mentions: Vec<Uuid>,
+    pub(super) mention_all: bool,
     pub(super) attachments: Vec<AttachmentResponse>,
     pub(super) reply_count: u64,
     pub(super) task: Option<MessageTaskSummary>,
@@ -494,12 +495,15 @@ pub(super) struct MessagePageResponse {
 pub(super) struct CreateMessageRequest {
     body_markdown: String,
     mentions: Vec<Uuid>,
+    mention_all: bool,
     attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct UpdateMessageRequest {
     body_markdown: String,
+    mentions: Vec<Uuid>,
+    mention_all: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -551,6 +555,10 @@ pub(super) struct InboxItemResponse {
     pub(super) status: InboxStatus,
     pub(super) available_at: String,
     pub(super) created_at: String,
+    /// Failed delivery attempts so far. Reaching `max_retry_count` retires the Item as `dead`.
+    pub(super) retry_count: u32,
+    /// Times a governor returned this Item from `dead` to the queue.
+    pub(super) requeue_count: u32,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -721,6 +729,7 @@ pub(super) struct AgentRuntimeResponse {
 pub(super) struct CreateThreadMessageRequest {
     body_markdown: String,
     mentions: Vec<Uuid>,
+    mention_all: bool,
     attachment_ids: Vec<Uuid>,
     reply_to_message_id: Option<Uuid>,
 }

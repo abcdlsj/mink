@@ -13,6 +13,30 @@
 
 ## 2. Browser API
 
+### 2.0 认证、Space 与配对
+
+```text
+GET    /api/v1/health
+POST   /api/v1/auth/register
+POST   /api/v1/auth/login
+POST   /api/v1/auth/logout
+GET    /api/v1/auth/me
+GET    /api/v1/spaces
+POST   /api/v1/spaces
+GET    /api/v1/spaces/by-slug/{slug}
+GET    /api/v1/spaces/{space_id}/members
+PATCH  /api/v1/spaces/{space_id}/members/{member_id}
+GET    /api/v1/spaces/{space_id}/computers
+POST   /api/v1/computer-pairings
+GET    /api/v1/computer-pairings/{pairing_id}
+POST   /api/v1/computer-pairings/{pairing_id}/confirm
+GET    /api/v1/computer-pairings/{pairing_id}/status
+```
+
+Session 使用 cookie。注册在同一响应中建立 Session，并用`next`指示下一步是创建 Space。
+
+配对由 Computer 发起：daemon 本机生成 Token 并提交其散列，Human 在 Browser 用配对码确认。`confirm`把 Computer 接入 Space，`status`供 daemon 轮询确认结果。明文 Token 不经过 Server，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
+
 ### 2.1 对话
 
 ```text
@@ -40,7 +64,7 @@ Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_cr
 
 Message响应使用`attention_failures`返回尚未恢复的Agent attention错误。每项只包含Agent member ID、handle、稳定错误码和`retrying`状态，不包含Message正文或内部数据库错误。
 
-Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
+Message 请求接受`mentions`（显式 Member ID 列表）和`mention_all`（布尔值）。`mention_all=true`时 Server 按当前 Channel 中未退役成员展开 targets，排除发送者；请求方不提交展开后的 Member ID。Message 响应返回持久化`mentions`与`mention_all`，供客户端按结构化事实投影高亮和路由状态。编辑请求同样接受这两个字段，并在同一事务中替换旧 targets。编辑和删除 Action Message 必须返回冲突。
 
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
 
@@ -94,6 +118,7 @@ GET /api/v1/agents/{agent_id}/runs/current
 POST /api/v1/agents/{agent_id}/memory/read
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
+POST /api/v1/inbox-items/{item_id}/requeue
 PUT /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/computers/{computer_id}
@@ -113,6 +138,8 @@ Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`lab
 
 `attention_config`是 Server 的固定策略，没有对应存储也没有写入路径，因此只出现在读取投影中。`PATCH /api/v1/agents/{agent_id}`不接受该字段。
 
+三个数值字段都是 Server 实际执行的限制：`max_retry_count`是 lease 回收使用的上限，`ambient_debounce_seconds`和`ambient_max_wait_seconds`是 ambient 聚合的 debounce 与 force 上限，见 [Inbox 与凭据](06-inbox-credentials.md)。投影与执行读取同一组常量，因此不会出现「显示的策略」与「生效的策略」不一致。
+
 `memory_files`和`session_continuity`来自向在线 Computer 发起的 query，Server 不保存它们。Agent 未分配 Computer 或 Computer 不可达时，`memory_files`是空列表，`session_continuity.state`是`unavailable`，同一响应中的其他字段仍然可用。`session_continuity`只出现在单个 Task、`GET /api/v1/agents/{agent_id}/runs/current`和`sumi agent context current`中；Task 列表不发起 query。
 
 `POST /api/v1/agents/{agent_id}/memory/read`接受`path`并返回该文件的投影与正文。调用方需要 Agent 治理权限。Computer 报告路径不存在时返回`not_found`，Computer 不可达时返回`computer_unreachable`。响应设置`Cache-Control: no-store`。
@@ -131,11 +158,34 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `member_id`先解析回它所属的 Space，再据此判定调用方授权。调用方不是该 Space 的 Member 时返回`not_found`，不区分「Member 不存在」和「无权访问」，避免该端点成为跨 Space 的 Member 存在性探测面。
 
-投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
+默认投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
 
-每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影和时间。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
+`?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
-### 2.4 Invitation
+每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
+
+#### 2.3.2 重新排队 dead Item
+
+`POST /api/v1/inbox-items/{item_id}/requeue`把一个 dead Item 放回`pending`并使其立即可领取。行为、授权和影响范围见 [安全与运维](09-security-operations.md) 的运维动作。
+
+Item 不是 dead 时返回冲突。响应是该 Item 更新后的投影，因此调用方可以直接读到新的 status 与两个计数。
+
+### 2.4 Attachment
+
+```text
+POST /api/v1/attachments/uploads
+PUT  /api/v1/attachments/{attachment_id}/content
+POST /api/v1/attachments/{attachment_id}/complete
+GET  /api/v1/attachments/{attachment_id}/download
+```
+
+上传分三步：`uploads`声明名称与媒体类型并创建`uploading`记录，`content`写入字节，`complete`校验长度与 SHA-256 后转为`ready`。只有`ready`的 Attachment 可以关联 Message，因此 Message 不会引用未写完的对象。
+
+三步各自幂等：重复`content`覆盖同一对象，重复`complete`返回既有投影。未完成的上传不进入任何 Message。
+
+`download`按调用方对关联 Message 的可见性授权，读不到该 Message 即读不到 Attachment。Browser 下载不因为调用方是上传者而放宽；Agent 通过 Run 范围的下载端点可以取回自己刚上传、尚未关联 Message 的 Attachment。
+
+### 2.5 Invitation
 
 Invitation 是 Human 加入既有 Space 的唯一途径。Space 创建者通过注册流程成为 Owner，其余 Human 只能通过 Invitation 取得 Human Member 身份。
 
@@ -145,7 +195,7 @@ GET  /api/v1/invites/{invite_token}
 POST /api/v1/invites/{invite_token}/accept
 ```
 
-#### 2.4.1 创建 Invitation
+#### 2.5.1 创建 Invitation
 
 请求只接受`email`。Server 不接受调用方提供的 token，因为客户端的熵源不可验证。
 
@@ -159,7 +209,7 @@ Server 生成 token，按 `browser_sessions.token_hash` 与 `computers.token_has
 
 同一 Space 内同一 email 只能存在一个未接受且未过期的 Invitation。重复创建返回`invitation_already_pending`冲突，防止一个 email 持有多个可用链接。
 
-#### 2.4.2 读取 Invitation
+#### 2.5.2 读取 Invitation
 
 `GET /api/v1/invites/{invite_token}` 不要求认证。受邀 Human 点击链接时可能尚无账号，前端 `InvitationPage` 在渲染 Space 名称之前就需要该投影，因此认证要求会使流程无法完成。
 
@@ -171,7 +221,7 @@ Server 对路径中的明文 token 计算散列后按散列查找，不做前缀
 
 未注册 Human 的完整流程：点击链接后前端并行读取 Invitation 投影和当前 Session。Session 返回 401 时，页面渲染 Register 与 Sign in 入口，并把`redirect=/invite/{invite_token}`带入注册和登录流程。Human 完成注册或登录后被送回同一链接，此时 Session 已建立，页面渲染 Accept 动作。因此 Invitation 不创建 User，只在接受时把既有 User 接入 Space。
 
-#### 2.4.3 接受 Invitation
+#### 2.5.3 接受 Invitation
 
 `POST /api/v1/invites/{invite_token}/accept` 要求 Browser Session。响应返回新建的 Human Member 投影。
 
@@ -198,9 +248,15 @@ POST /api/v1/computers/{computer_id}/runs/{run_id}/renew
 POST /api/v1/computers/{computer_id}/runs/{run_id}/delivery-receipts
 POST /api/v1/computers/{computer_id}/runs/{run_id}/result
 POST /api/v1/computers/{computer_id}/agent-actions
+POST /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/uploads
+PUT  /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/content
+POST /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/complete
+GET  /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/download
 ```
 
 Server 必须验证 Agent assignment 和 fencing token。Computer 不能操作其他 Computer 的 Agent。
+
+Attachment 端点与 [Browser Attachment](#24-attachment) 的三步上传语义相同，但路径带 Agent 与 Run，因此 Server 从 Run 推导上传者，Agent 不提交自己的 Member ID。Agent 可以下载自己在本 Run 上传、尚未关联 Message 的 Attachment。
 
 `started`、`delivery-receipts`和`result`使用请求中的稳定`event_id`执行幂等重放。
 
@@ -261,12 +317,18 @@ GET /api/v1/spaces/{space_id}/events
 
 - `message.created|updated|deleted`
 - `thread.updated`
-- `task.created|updated|linked|finished`
+- `task.created|updated|linked|unlinked|finished`
 - `inbox.changed`
-- `run.changed|activity_changed`
-- `agent.changed`
+- `run.changed|task_bound|item_attached|notice`
+- `session.close|reset`
+- `channel.created|updated`
+- `agent.created|updated|changed`
 - `computer.changed`
 - `member.changed`
+
+事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得。
+
+Server 按调用方过滤事件流。payload 指向的 Channel 调用方读不到时，该事件不进入流；`inbox.changed`只发给 Item 所属 Member 和有权读取 Agent Inbox 的 Space 治理者。因此 SSE 不成为 private Channel 的存在性探测面。
 
 Browser 使用 `Last-Event-ID` 重连。事件超过保留窗口时，Browser 重新读取当前页面投影。
 

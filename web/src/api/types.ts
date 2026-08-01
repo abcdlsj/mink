@@ -191,6 +191,7 @@ export interface components {
         CreateMessageRequest: {
             attachment_ids: string[];
             body_markdown: string;
+            mention_all: boolean;
             mentions: string[];
         };
         CreateSpaceRequest: {
@@ -206,6 +207,7 @@ export interface components {
         CreateThreadMessageRequest: {
             attachment_ids: string[];
             body_markdown: string;
+            mention_all: boolean;
             mentions: string[];
             /** Format: uuid */
             reply_to_message_id?: string | null;
@@ -262,6 +264,16 @@ export interface components {
             /** Format: uuid */
             message_id?: string | null;
             priority: components["schemas"]["InboxPriority"];
+            /**
+             * Format: int32
+             * @description Times a governor returned this Item from `dead` to the queue.
+             */
+            requeue_count: number;
+            /**
+             * Format: int32
+             * @description Failed delivery attempts so far. Reaching `max_retry_count` retires the Item as `dead`.
+             */
+            retry_count: number;
             sender_display_name?: string | null;
             /** Format: uuid */
             sender_member_id?: string | null;
@@ -383,6 +395,7 @@ export interface components {
             edited_at?: string | null;
             /** Format: uuid */
             id: string;
+            mention_all: boolean;
             mentions: string[];
             placement: components["schemas"]["MessagePlacement"];
             /** Format: int64 */
@@ -544,6 +557,8 @@ export interface components {
         };
         UpdateMessageRequest: {
             body_markdown: string;
+            mention_all: boolean;
+            mentions: string[];
         };
         UpdateTaskRequest: {
             /** Format: uuid */

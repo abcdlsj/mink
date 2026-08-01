@@ -11,8 +11,9 @@ use crate::server::domain::{
 };
 
 use super::ports::{
-    ApplicationError, AuthenticatedHuman, CreatedSpace, Effect, OpenedSession, PasswordPort,
-    RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
+    ApplicationError, AttachmentTransaction, AuthenticatedHuman, CollaborationTransaction,
+    CreatedSpace, Effect, EffectSink, ExecutionTransaction, IdentityTransaction, OpenedSession,
+    PasswordPort, RawSessionToken, ServerTransaction, SessionTokenPort, TransactionPort,
 };
 
 pub(in crate::server) struct RegisterHuman;
@@ -557,13 +558,14 @@ impl RetireAgent {
                 let assigned_computer = computer_id.ok_or(ApplicationError::Conflict)?;
                 if let Some(run_id) = transaction.active_run_for_agent(agent_id).await? {
                     let mut run = transaction.run(run_id).await?;
-                    for run_item in run.items.clone() {
+                    let run_id = run.view().id;
+                    for run_item in run.items() {
                         let disposition = run_item
                             .disposition
                             .unwrap_or(InboxItemDisposition::Released);
                         let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
-                        if item.status == InboxItemStatus::Leased {
-                            item.apply_disposition(run.id, disposition, now)?;
+                        if item.view().status == InboxItemStatus::Leased {
+                            item.apply_disposition(run_id, disposition, now)?;
                             transaction.save_inbox_item(item).await?;
                         } else if disposition != InboxItemDisposition::Released {
                             return Err(ApplicationError::Conflict);
@@ -571,7 +573,7 @@ impl RetireAgent {
                     }
                     run.cancel_for_agent_retirement(now);
                     transaction.save_run(run.clone()).await?;
-                    transaction.emit(Effect::RunCompleted(run.id));
+                    transaction.emit(Effect::RunCompleted(run_id));
                 }
                 agent.retire(now)?;
                 transaction.save_agent(agent.clone()).await?;

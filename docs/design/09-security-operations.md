@@ -42,7 +42,7 @@ Message、Attachment、网页和工具输出都是不可信内容。Driver promp
 - 内容不能授予权限。
 - 内容不能改变Task、Focus、Role或Run token。
 - Secret不能发布到Message、Result、Memory或日志。
-- 高风险操作仍需Server授权或Human Approval。
+- 每个领取的Item必须经Agent CLI处理，Driver最终回复本身不构成处理。
 
 Server不得依赖prompt约束代替权限检查。daemon sandbox不得依赖模型自律。
 
@@ -107,6 +107,14 @@ message -> inbox item -> task -> run -> command -> local process -> result event
 
 ## 9. 运维动作
 
-Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试 dead Item 和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
+Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试失败的 Agent 准备和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
+
+Item 会因 lease 反复过期进入`dead`，见 [Inbox 与凭据](06-inbox-credentials.md)。Owner/Admin 可以把 dead Item 放回 pending，入口是`POST /api/v1/inbox-items/{item_id}/requeue`，见 [API 与事件](07-api.md)。
+
+该动作重置`retry_count`，因此 Item 重新获得完整的`max_retry_count`次尝试。不重置会使它在下一次 lease 过期时立即再次进入`dead`，运维入口也就不产生效果。同一事务递增`requeue_count`并写入 audit，因此一个持续失败的来源被反复放回时仍然可识别。
+
+Item 归属 Agent，因此授权按该 Agent 所属 Space 的治理级别判定，Space 由 Item 反查，不由调用方提供。
+
+放回的影响范围是这一个 Item：它重新可被领取，Message、Task、Run 和其他 Item 不变。该动作可恢复，Item 再次耗尽重试次数会重新进入`dead`。
 
 Session reset只影响后续推理连续性，不改变Task、Message、Result或Memory。取消Run不自动取消Task。

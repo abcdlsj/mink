@@ -89,7 +89,8 @@ impl CapabilityService {
                     .into_iter()
                     .filter(|run| {
                         bool::from(
-                            run.fencing_token
+                            run.view()
+                                .fencing_token
                                 .expose()
                                 .as_bytes()
                                 .ct_eq(run_token.as_bytes()),
@@ -102,22 +103,22 @@ impl CapabilityService {
                 }
             })
             .await?;
-        if run.state != LocalRunState::Running
-            || run.ownership_lease_expires_at <= time::OffsetDateTime::now_utc()
+        if run.view().state != LocalRunState::Running
+            || run.view().ownership_lease_expires_at <= time::OffsetDateTime::now_utc()
         {
             return Err(ApplicationError::Unauthenticated);
         }
-        if requirement == ScopeRequirement::BoundTask && run.task_id.is_none() {
+        if requirement == ScopeRequirement::BoundTask && run.view().task_id.is_none() {
             return Err(ApplicationError::Conflict);
         }
         Ok(AuthorizedCapability {
-            agent_id: run.agent_id,
-            space_id: run.input.agent.space_id,
-            task_id: run.task_id,
-            focus_thread_id: run.focus_thread_id,
-            run_id: run.id,
-            fencing_token: run.fencing_token.expose().to_owned(),
-            message_snapshot_sequence: run.input.context.message_snapshot_sequence,
+            agent_id: run.view().agent_id,
+            space_id: run.view().input.agent.space_id,
+            task_id: run.view().task_id,
+            focus_thread_id: run.view().focus_thread_id,
+            run_id: run.view().id,
+            fencing_token: run.view().fencing_token.expose().to_owned(),
+            message_snapshot_sequence: run.view().input.context.message_snapshot_sequence,
         })
     }
 }

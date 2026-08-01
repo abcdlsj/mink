@@ -6,8 +6,8 @@ use time::OffsetDateTime;
 use crate::computer::core::{
     home::LocalAgent,
     input::{AttentionNoticeInput, ClaimedItemInput},
-    session::{ProviderSession, SessionFingerprint},
-    supervisor::LocalRun,
+    session::{ProviderSession, SessionFingerprint, SessionState},
+    supervisor::{LocalRun, LocalRunState},
 };
 
 use super::{
@@ -72,16 +72,16 @@ impl Command {
             Self::Retire { agent_id } => format!("retire:{agent_id}"),
             Self::Start { run, fingerprint } => format!(
                 "start:{}:{}:{:?}:{}:{}:{}:{}:{}:{:?}:{}",
-                run.id,
-                run.agent_id,
-                run.task_id,
-                run.focus_thread_id,
-                run.fencing_token.expose(),
+                run.view().id,
+                run.view().agent_id,
+                run.view().task_id,
+                run.view().focus_thread_id,
+                run.view().fencing_token.expose(),
                 fingerprint.workspace,
                 fingerprint.role_revision,
                 fingerprint.audience,
                 fingerprint.driver,
-                run.input.content_hash(),
+                run.view().input.content_hash(),
             ),
             Self::Attach {
                 run_id,
@@ -103,7 +103,9 @@ impl Command {
             Self::Stop { run_id } => format!("stop:{run_id}"),
             Self::ResetSession { session } => format!(
                 "reset:{}:{:?}:{}",
-                session.agent_id, session.scope, session.generation,
+                session.view().agent_id,
+                session.view().scope,
+                session.view().generation,
             ),
         };
         hex::encode(Sha256::digest(semantic.as_bytes()))
@@ -220,9 +222,8 @@ impl CommandService {
                         .await?;
                     for mut session in sessions {
                         if matches!(
-                            session.state,
-                            crate::computer::core::session::SessionState::Closed
-                                | crate::computer::core::session::SessionState::Lost
+                            session.view().state,
+                            SessionState::Closed | SessionState::Lost
                         ) {
                             continue;
                         }
@@ -245,15 +246,13 @@ impl CommandService {
                         Ok(transaction
                             .nonterminal_runs()?
                             .into_iter()
-                            .filter(|run| run.agent_id == agent_id)
+                            .filter(|run| run.view().agent_id == agent_id)
                             .collect::<Vec<_>>())
                     })
                     .await?;
                 for run in runs {
-                    if run.state == crate::computer::core::supervisor::LocalRunState::Queued
-                        || cancel_current
-                    {
-                        RunService::stop(store, driver, run.id).await?;
+                    if run.view().state == LocalRunState::Queued || cancel_current {
+                        RunService::stop(store, driver, run.view().id).await?;
                     }
                 }
                 homes.suspend(agent_id).await
@@ -264,20 +263,19 @@ impl CommandService {
                         let runs = transaction
                             .nonterminal_runs()?
                             .into_iter()
-                            .filter(|run| run.agent_id == agent_id)
+                            .filter(|run| run.view().agent_id == agent_id)
                             .collect::<Vec<_>>();
                         let sessions = transaction.agent_sessions(agent_id)?;
                         Ok((runs, sessions))
                     })
                     .await?;
                 for run in runs {
-                    RunService::stop(store, driver, run.id).await?;
+                    RunService::stop(store, driver, run.view().id).await?;
                 }
                 for mut session in sessions {
                     if matches!(
-                        session.state,
-                        crate::computer::core::session::SessionState::Closed
-                            | crate::computer::core::session::SessionState::Lost
+                        session.view().state,
+                        SessionState::Closed | SessionState::Lost
                     ) {
                         continue;
                     }
@@ -292,8 +290,8 @@ impl CommandService {
             }
             Command::Start { run, fingerprint } => {
                 let mut run = *run;
-                let run_id = run.id;
-                run.session_fingerprint = Some(fingerprint);
+                let run_id = run.view().id;
+                run.set_session_fingerprint(fingerprint);
                 store
                     .transact(async |transaction| {
                         if let Some(existing) = transaction.run(run_id)? {
@@ -329,9 +327,8 @@ impl CommandService {
             }
             Command::ResetSession { mut session } => {
                 if matches!(
-                    session.state,
-                    crate::computer::core::session::SessionState::Closed
-                        | crate::computer::core::session::SessionState::Lost
+                    session.view().state,
+                    SessionState::Closed | SessionState::Lost
                 ) {
                     return Ok(());
                 }

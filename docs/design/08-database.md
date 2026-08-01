@@ -101,7 +101,7 @@
 - `created_at`
 - `retired_at`
 
-`(space_id, lower(handle))`必须唯一。
+`(space_id, lower(handle))`必须唯一。`all`是`@all`的保留 handle，Member 不能使用。
 
 ### 4.5 `human_members`
 
@@ -184,6 +184,7 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 - `reply_to_message_id`
 - `author_member_id`
 - `body_markdown`
+- `mention_all`
 - `action_channel_id`
 - `action_agent_member_id`
 - `created_at`
@@ -262,7 +263,7 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 - `computer_id`
 - `role_text`
 - `role_revision`
-- `lifecycle=active|suspended|retired`
+- `lifecycle=provisioning|active|suspended|retired|error`
 - `driver_kind`
 - `driver_config_json`
 - `created_at`
@@ -270,7 +271,9 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 
 `member_id`是主键，并引用`kind=agent`的 Member。
 
-`computer_id`对 active 和 suspended Agent 必填。Agent 退役事务将 lifecycle 改为`retired`、填写`retired_at`并清空`computer_id`。
+`computer_id`对 provisioning、active、suspended 和 error Agent 必填。Agent 退役事务将 lifecycle 改为`retired`、填写`retired_at`并清空`computer_id`。
+
+`provisioning`表示 Server 已创建 Agent，Computer 尚未确认本地 Home 就绪。`error`表示本地准备失败，只有`PATCH /api/v1/agents/{agent_id}`的`retry`可以离开该状态，见 [API 与事件](07-api.md)。
 
 Agent assignment 事务必须拒绝`deleted`Computer。
 
@@ -286,14 +289,29 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `strength=hard|ambient`
 - `status=pending|leased|deferred|handled|dead`
 - `available_at`
-- `lease_id`
+- `lease_run_id`
 - `lease_expires_at`
 - `retry_count`
+- `requeue_count`
 - `handled_at`
 - `last_error_code`
 - `created_at`
+- `first_message_seq`
+- `last_message_seq`
+- `aggregated_count`
+- `force_at`
 
 Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路由事实。
+
+`message_mentions`保存显式 mention 与`@all`展开的 Member targets（`message_id`、`space_id`、`member_id`、`created_at`）。`messages.mention_all`记录该 Message 是否由`@all`发出；该布尔事实与展开关系同时写入，读取投影不得重新解析正文。
+
+`retry_count`记录失败的投递尝试，达到上限后 Item 进入`dead`。`requeue_count`记录治理者把该 Item 从`dead`放回队列的次数；放回会重置`retry_count`，因此只有`requeue_count`能说明该 Item 曾被人工恢复，见 [安全与运维](09-security-operations.md) 的运维动作。
+
+后四列描述一个 ambient 聚合覆盖的 Message 区间，见 [Inbox 与凭据](06-inbox-credentials.md) 的 Ambient 聚合。它们由 CHECK 约束为同时存在或同时为空，只允许出现在`strength='ambient'`的行上，且该行的`message_id`必须为空：聚合项代表区间，不代表单条 Message。`aggregated_count`不得超过`last_message_seq - first_message_seq + 1`。
+
+`inbox_items_open_ambient_aggregate`是`(agent_id, thread_id)`上的 partial unique index，条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Agent 在一个 Thread 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被领取的聚合项上，因此 lease 回收放回的聚合项不阻塞该 Thread 的下一个聚合项。
+
+聚合项的写入路径持有分配`channel_seq`时取得的 Channel 行锁，Thread 只属于一个 Channel，因此同一 Thread 的并发 publish 已经串行；合并语句额外使用`FOR UPDATE`，使该保证不依赖调用方。
 
 ### 7.3 `agent_runs`
 
@@ -353,7 +371,29 @@ Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路
 
 Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assigned Agents；仍存在 assignment 时返回冲突，否则填写`deleted_at`并撤销 token hash。
 
-### 8.2 `computer_commands`
+### 8.2 `computer_pairings`
+
+- `id`
+- `code_hash`、`token_hash`
+- `hostname`、`os`、`daemon_version`
+- `status=pending|confirmed|expired`
+- `expires_at`
+- `computer_id`、`space_id`
+- `created_at`、`confirmed_at`
+
+配对是 Computer 取得 Token 的唯一途径。表只保存配对码与 Token 的散列；两者的明文都只存在于本机和一次性响应中。
+
+`computer_id`唯一，因此一次配对最多产生一个 Computer。CHECK 保证`pending`没有 Computer、Space 和`confirmed_at`，`confirmed`三者都有。过期在读取时判定，不依赖后台任务。
+
+### 8.3 `run_result_events`
+
+- `event_id`
+- `run_id`
+- `created_at`
+
+Run 结果上报的幂等记录。`event_id`是主键，`run_id`唯一，因此重复上报既不会重复处理 Item，也不会让一个 Run 产生第二个终态，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
+
+### 8.4 `computer_commands`
 
 - `id`
 - `computer_id`
@@ -366,7 +406,7 @@ Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assign
 
 `(computer_id, computer_seq)`和`result_event_id`必须唯一。payload 只保存交付所需数据，并按保留策略清理正文。
 
-### 8.3 `outbox_events`
+### 8.5 `outbox_events`
 
 - `id`
 - `space_id`
@@ -377,11 +417,11 @@ Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assign
 
 业务写入和 outbox 写入属于同一事务。
 
-### 8.4 `idempotency_records`
+### 8.6 `idempotency_records`
 
 按认证主体、action 和 idempotency key 唯一。记录只保存响应代码、资源 ID 和结果 hash，不保存正文。
 
-### 8.5 `audit_events`
+### 8.7 `audit_events`
 
 保存 actor、action、subject、时间和安全 metadata。Audit 不承担当前状态查询，也不保存正文。
 

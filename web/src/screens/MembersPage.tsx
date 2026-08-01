@@ -29,8 +29,8 @@ import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
 const explicitPermissions = ["channel.create", "agent.create"] as const;
 const permissionLabels: Record<(typeof explicitPermissions)[number], { title: string; description: string }> = {
-  "channel.create": { title: "Create Channels", description: "Add a Channel to this Space" },
-  "agent.create": { title: "Create Agents", description: "Provision an Agent in this Space" },
+  "channel.create": { title: "Create Channels", description: "Create channels" },
+  "agent.create": { title: "Create Agents", description: "Create agents" },
 };
 
 export function MembersPage() {
@@ -96,6 +96,9 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   });
   const visibleMembers =
     members.data?.filter((member) => kindFilter === "all" || member.kind === kindFilter) ?? [];
+  const memberGroups = (['agent', 'human'] as const)
+    .map((kind) => ({ kind, members: visibleMembers.filter((member) => member.kind === kind) }))
+    .filter((group) => group.members.length > 0);
 
   function submitInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,7 +234,12 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
         {members.error ? (
           <div className="members-status members-status--error">{members.error.message}</div>
         ) : null}
-        {visibleMembers.map((member) => {
+        {memberGroups.map((group) => <section className="member-group" key={group.kind} aria-labelledby={`member-group-${group.kind}`}>
+          <header className="member-group-heading">
+            <h2 id={`member-group-${group.kind}`}>{group.kind === "agent" ? "Agents" : "Humans"}</h2>
+            <span>{group.members.length}</span>
+          </header>
+          {group.members.map((member) => {
           const currentAccess = currentMember?.access_level;
           const ownerCanSetAccess = currentAccess === "owner" && member.access_level !== "owner";
           const canSetPermissions =
@@ -246,7 +254,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                   <strong title={member.display_name}>{member.display_name}</strong>
                   <span>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityByMemberId.get(member.id))}` : ""}</span>
                 </div>
-                <span className={`kind-label kind-label--${member.kind}`}>{member.kind}</span>
+                <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (
                   <button
                     className="agent-detail-link"
@@ -285,15 +293,16 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
               </div>
               <div className={`permission-controls${member.access_level !== "member" ? " permission-controls--inherited" : ""}`}>
                 {member.access_level !== "member" ? (
-                  <p className="permission-inherited"><ShieldCheck aria-hidden="true" /><span><strong>Included with {capitalize(member.access_level)} access</strong><small>Individual action permissions do not apply.</small></span></p>
+                  <p className="permission-inherited"><ShieldCheck aria-hidden="true" /><span><strong>Inherited from {capitalize(member.access_level)}</strong></span></p>
                 ) : null}
                 {explicitPermissions.map((permission) => {
                   const label = permissionLabels[permission];
                   return (
                     <label className="permission-toggle" key={permission}>
-                      <span className="permission-copy"><strong>{label.title}</strong><small>{label.description}</small></span>
+                      <span className="permission-copy"><strong>{permission}</strong><small>{label.description}</small></span>
                       <input
                         type="checkbox"
+                        aria-label={`${label.title} permission`}
                         checked={member.permissions.includes(permission)}
                         disabled={!canSetPermissions || memberUpdate.isPending}
                         onChange={(event) => {
@@ -324,7 +333,8 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
               </div>
             </article>
           );
-        })}
+          })}
+        </section>)}
       </div>
       {memberUpdate.error ? (
         <p className="member-update-error form-error" role="alert">

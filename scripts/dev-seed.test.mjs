@@ -10,6 +10,7 @@ import {
   DEV_CHANNEL_SLUG,
   DEV_SPACE,
   buildSeedComputerConfig,
+  cleanDevelopmentSeedState,
   computerStateDirectory,
   createBrowserSessionHandoff,
   extractComputerPairingUrl,
@@ -49,14 +50,18 @@ test("development seed extracts the Computer pairing URL without depending on lo
   assert.equal(extractComputerPairingUrl("INFO Confirm this Computer in Sumi url=not-a-url"), undefined);
 });
 
-test("dev-seed provisions its PostgreSQL database before starting the server", () => {
+test("dev-seed provisions its PostgreSQL database and exposes an explicit clean command", () => {
   const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
   const miseConfig = readFileSync(join(repositoryRoot, "mise.toml"), "utf8");
+  const taskScript = readFileSync(join(repositoryRoot, "scripts", "dev-seed-task.sh"), "utf8");
   const task = miseConfig.match(/\[tasks\.dev-seed\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
 
   assert.ok(task, "mise.toml must define tasks.dev-seed");
-  assert.match(task, /^depends = \["db-start"\]$/m);
+  assert.match(task, /run = "sh scripts\/dev-seed-task\.sh"/);
   assert.match(task, /RUST_LOG = "sumi=warn,tower_http=warn"/);
+  assert.match(taskScript, /mise run db-start/);
+  assert.match(taskScript, /dropdb" --if-exists --force sumi_dev/);
+  assert.match(taskScript, /node scripts\/dev-seed\.mjs clean/);
 
   const developmentTask = miseConfig.match(/\[tasks\.dev\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
   assert.ok(developmentTask, "mise.toml must define tasks.dev");
@@ -66,6 +71,36 @@ test("dev-seed provisions its PostgreSQL database before starting the server", (
   assert.ok(databaseTask, "mise.toml must define tasks.db-start");
   assert.match(databaseTask, /dropdb" --force sumi_dev/);
   assert.match(databaseTask, /installed_version.*!= "1"/);
+});
+
+test("development seed cleanup removes only its resolved state root", (context) => {
+  const parent = mkdtempSync(join(tmpdir(), "sumi-dev-seed-clean-test-"));
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  const stateRoot = join(parent, ".sumi-dev-seed");
+  const unrelated = join(parent, "keep.txt");
+  mkdirSync(join(stateRoot, "computer", "space", "computer"), { recursive: true });
+  writeFileSync(join(stateRoot, "computer", "computer.toml"), "[computer]\n");
+  writeFileSync(join(stateRoot, "computer", "space", "computer", "daemon.db"), "stale");
+  writeFileSync(unrelated, "keep");
+
+  const removed = cleanDevelopmentSeedState(stateRoot);
+
+  assert.equal(removed, stateRoot);
+  assert.equal(existsSync(stateRoot), false);
+  assert.equal(readFileSync(unrelated, "utf8"), "keep");
+});
+
+test("development seed cleanup rejects broad filesystem targets", () => {
+  assert.throws(() => cleanDevelopmentSeedState("/"), /unsafe dev-seed state root/);
+});
+
+test("development seed cleanup rejects an unrelated custom directory", (context) => {
+  const target = mkdtempSync(join(tmpdir(), "unrelated-clean-test-"));
+  context.after(() => rmSync(target, { recursive: true, force: true }));
+  writeFileSync(join(target, "keep.txt"), "keep");
+
+  assert.throws(() => cleanDevelopmentSeedState(target), /unrecognized dev-seed state root/);
+  assert.equal(readFileSync(join(target, "keep.txt"), "utf8"), "keep");
 });
 
 test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
