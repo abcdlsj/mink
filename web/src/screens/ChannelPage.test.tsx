@@ -324,9 +324,9 @@ describe("ChannelPage", () => {
         }, 201);
       }
       if (path.endsWith(`/channels/${channelId}/messages`) && init?.method === "POST") {
-        const input = JSON.parse(String(init.body)) as { body_markdown: string };
-        const seq = input.body_markdown === "Channel moved" ? 4 : 2;
-        return json({ ...message(channelId, seq, input.body_markdown), mentions: input.body_markdown.includes("@lin") ? [linId] : [] }, 201);
+        const input = JSON.parse(String(init.body)) as { body_markdown: string; mention_all?: boolean };
+        const seq = input.body_markdown === "Channel moved" ? 6 : input.body_markdown === "@all, review" ? 5 : 2;
+        return json({ ...message(channelId, seq, input.body_markdown), mentions: input.body_markdown.includes("@lin") ? [linId] : [], mention_all: input.mention_all ?? false }, 201);
       }
       if (path === "/api/v1/attachments/uploads" && init?.method === "POST") {
         return json({
@@ -381,6 +381,11 @@ describe("ChannelPage", () => {
     });
     expect(await screen.findByText("notes.txt")).toBeVisible();
     const input = screen.getByLabelText("Message");
+    fireEvent.change(input, { target: { value: "@a", selectionStart: 2 } });
+    const allSuggestions = await screen.findByRole("listbox", { name: "Mention suggestions" });
+    expect(within(allSuggestions).getByText("Everyone")).toBeVisible();
+    fireEvent.click(within(allSuggestions).getByRole("option", { name: /Everyone.*@all/ }));
+    expect(input).toHaveValue("@all ");
     fireEvent.change(input, { target: { value: "@li", selectionStart: 3 } });
     const suggestions = await screen.findByRole("listbox", { name: "Mention suggestions" });
     expect(within(suggestions).getByText("Lin")).toBeVisible();
@@ -398,10 +403,26 @@ describe("ChannelPage", () => {
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({
         body_markdown: "@lin Please review",
         mentions: [linId],
+        mention_all: false,
         attachment_ids: ["019c0000-0000-7000-8000-000000000040"],
       });
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create Task" }));
+    fireEvent.change(input, { target: { value: "@all, review", selectionStart: 12 } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(input).toHaveValue(""));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([path, init]) => String(path).endsWith("/messages") && init?.method === "POST" && String(init.body).includes("@all, review"),
+      );
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        body_markdown: "@all, review",
+        mentions: [],
+        mention_all: true,
+        attachment_ids: [],
+      });
+    });
+    expect(await screen.findByText("@all", { selector: "mark" })).toHaveClass("message-mention");
+    fireEvent.click(screen.getAllByRole("button", { name: "Create Task" })[0]);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/root-messages/019c0000-0000-7000-8000-000000000102/task"),
       expect.objectContaining({ method: "POST" }),
@@ -472,6 +493,8 @@ describe("ChannelPage", () => {
     expect(threadInput).toHaveAttribute("placeholder", "Reply to Thread #1");
     expect(threadInput).toHaveAttribute("rows", "1");
     expect(threadInput.closest("form")).toHaveClass("composer", "thread-composer");
+    expect(threadInput).toHaveStyle({ height: "42px" });
+    expect(screen.getByLabelText("Message")).toHaveStyle({ height: "42px" });
     fireEvent.change(threadInput, { target: { value: "New Thread reply" } });
     fireEvent.submit(threadInput.closest("form")!);
     expect(await screen.findByText("New Thread reply")).toBeVisible();
@@ -558,6 +581,7 @@ function message(channelId: string, seq: number, body: string) {
     placement: "root",
     content: { type: "text", body_markdown: body },
     mentions: [],
+    mention_all: false,
     attachments: [],
     attention_failures: [],
     created_at: "2026-07-25T00:00:00Z",

@@ -305,8 +305,8 @@ impl PostgresTransaction {
         .map_err(map_sqlx)?;
         sqlx::query(
             "INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,\
-             content_kind,reply_to_message_id,author_member_id,body_markdown,created_at) \
-             VALUES($1,$2,$3,$4,$5,$6,'text',$7,$8,$9,$10)",
+             content_kind,reply_to_message_id,author_member_id,body_markdown,mention_all,created_at) \
+             VALUES($1,$2,$3,$4,$5,$6,'text',$7,$8,$9,$10,$11)",
         )
         .bind(draft.message_id.into_uuid())
         .bind(space_id)
@@ -321,10 +321,48 @@ impl PostgresTransaction {
         .bind(draft.reply_to_message_id.map(MessageId::into_uuid))
         .bind(draft.author_member_id.into_uuid())
         .bind(&draft.body_markdown)
+        .bind(draft.mention_all)
         .bind(draft.now)
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        // Mention targets are persisted as structured relations so projections and consumers do not
+        // need to infer recipients from Message Markdown. Ignore IDs that are not Channel members;
+        // routing below still validates the Agent subset through the Channel membership query.
+        if !draft.mentions.is_empty() {
+            let mention_ids: Vec<Uuid> = draft.mentions.iter().map(|id| id.into_uuid()).collect();
+            sqlx::query(
+                "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+                 SELECT $1,$2,cm.member_id,$3 FROM channel_members cm \
+                 JOIN members m ON m.id=cm.member_id AND m.retired_at IS NULL \
+                 WHERE cm.channel_id=$4 AND cm.member_id=ANY($5::uuid[]) \
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(draft.message_id.into_uuid())
+            .bind(space_id)
+            .bind(draft.now)
+            .bind(draft.channel_id.into_uuid())
+            .bind(&mention_ids)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        if draft.mention_all {
+            sqlx::query(
+                "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+                 SELECT $1,$2,cm.member_id,$3 FROM channel_members cm \
+                 JOIN members m ON m.id=cm.member_id AND m.retired_at IS NULL \
+                 WHERE cm.channel_id=$4 AND cm.member_id<>$5 ON CONFLICT DO NOTHING",
+            )
+            .bind(draft.message_id.into_uuid())
+            .bind(space_id)
+            .bind(draft.now)
+            .bind(draft.channel_id.into_uuid())
+            .bind(draft.author_member_id.into_uuid())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
         if draft.thread_id.is_none() {
             sqlx::query(
                 "INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) \
@@ -389,7 +427,7 @@ impl PostgresTransaction {
         let recipients = sqlx::query_scalar::<_, Uuid>(
             "SELECT members.id FROM channel_members JOIN members \
              ON members.id=channel_members.member_id WHERE channel_members.channel_id=$1 \
-             AND members.kind='agent' AND members.id<>$2",
+             AND members.kind='agent' AND members.retired_at IS NULL AND members.id<>$2",
         )
         .bind(draft.channel_id.into_uuid())
         .bind(draft.author_member_id.into_uuid())
@@ -411,7 +449,10 @@ impl PostgresTransaction {
         } else {
             BTreeSet::new()
         };
-        let mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
+        let mut mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
+        if draft.mention_all {
+            mentioned.extend(recipients.iter().copied().map(MemberId::from_uuid));
+        }
         let message_seq =
             u64::try_from(channel_sequence).map_err(|_| ApplicationError::Internal)?;
         let mut hard_item_ids = Vec::new();
@@ -681,6 +722,70 @@ impl PostgresTransaction {
         }
     }
 
+    pub(super) async fn save_message_mentions(
+        &mut self,
+        message_id: MessageId,
+        mentions: Vec<MemberId>,
+        mention_all: bool,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let location =
+            sqlx::query("SELECT channel_id,space_id,author_member_id FROM messages WHERE id=$1")
+                .bind(message_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?
+                .ok_or(ApplicationError::NotFound)?;
+        let channel_id: Uuid = location.get("channel_id");
+        let space_id: Uuid = location.get("space_id");
+        let author_id: Uuid = location.get("author_member_id");
+        sqlx::query("DELETE FROM message_mentions WHERE message_id=$1")
+            .bind(message_id.into_uuid())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        if !mentions.is_empty() {
+            let ids: Vec<Uuid> = mentions.iter().map(|id| id.into_uuid()).collect();
+            sqlx::query(
+                "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+                 SELECT $1,$2,cm.member_id,$5 FROM channel_members cm \
+                 JOIN members m ON m.id=cm.member_id AND m.retired_at IS NULL \
+                 WHERE cm.channel_id=$3 AND cm.member_id=ANY($4::uuid[]) ON CONFLICT DO NOTHING",
+            )
+            .bind(message_id.into_uuid())
+            .bind(space_id)
+            .bind(channel_id)
+            .bind(&ids)
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        if mention_all {
+            sqlx::query(
+                "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+                 SELECT $1,$2,cm.member_id,$5 FROM channel_members cm \
+                 JOIN members m ON m.id=cm.member_id AND m.retired_at IS NULL \
+                 WHERE cm.channel_id=$3 AND cm.member_id<>$4 ON CONFLICT DO NOTHING",
+            )
+            .bind(message_id.into_uuid())
+            .bind(space_id)
+            .bind(channel_id)
+            .bind(author_id)
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        sqlx::query("UPDATE messages SET mention_all=$2 WHERE id=$1")
+            .bind(message_id.into_uuid())
+            .bind(mention_all)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     pub(super) async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         let changed = sqlx::query("UPDATE channels SET topic=$2,archived_at=$3 WHERE id=$1")
             .bind(channel.id.into_uuid())
@@ -821,6 +926,16 @@ impl CollaborationTransaction for PostgresTransaction {
     }
     async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError> {
         self.save_message(message).await
+    }
+    async fn save_message_mentions(
+        &mut self,
+        message_id: MessageId,
+        mentions: Vec<MemberId>,
+        mention_all: bool,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.save_message_mentions(message_id, mentions, mention_all, now)
+            .await
     }
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         self.insert_channel(channel).await

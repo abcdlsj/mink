@@ -300,6 +300,7 @@ pub(super) async fn create_agent(
         |value| value.trim().to_owned(),
     );
     if handle.is_empty()
+        || handle == "all"
         || !handle.chars().all(|character| {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
         })

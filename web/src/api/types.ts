@@ -191,6 +191,7 @@ export interface components {
         CreateMessageRequest: {
             attachment_ids: string[];
             body_markdown: string;
+            mention_all: boolean;
             mentions: string[];
         };
         CreateSpaceRequest: {
@@ -206,6 +207,7 @@ export interface components {
         CreateThreadMessageRequest: {
             attachment_ids: string[];
             body_markdown: string;
+            mention_all: boolean;
             mentions: string[];
             /** Format: uuid */
             reply_to_message_id?: string | null;
@@ -393,6 +395,7 @@ export interface components {
             edited_at?: string | null;
             /** Format: uuid */
             id: string;
+            mention_all: boolean;
             mentions: string[];
             placement: components["schemas"]["MessagePlacement"];
             /** Format: int64 */
@@ -554,6 +557,8 @@ export interface components {
         };
         UpdateMessageRequest: {
             body_markdown: string;
+            mention_all: boolean;
+            mentions: string[];
         };
         UpdateTaskRequest: {
             /** Format: uuid */

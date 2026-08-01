@@ -63,6 +63,13 @@ pub(in crate::server) trait CollaborationTransaction {
     ) -> Result<PublishedMessage, ApplicationError>;
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError>;
     async fn save_message(&mut self, message: Message) -> Result<(), ApplicationError>;
+    async fn save_message_mentions(
+        &mut self,
+        message_id: MessageId,
+        mentions: Vec<MemberId>,
+        mention_all: bool,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError>;
     async fn channel_action_audience(
         &mut self,

@@ -8,6 +8,7 @@ import { PixelIdentity } from "../SpaceShell";
 export interface ComposerInput {
   body_markdown: string;
   mentions: string[];
+  mention_all: boolean;
   attachment_ids: string[];
 }
 
@@ -21,7 +22,6 @@ export function MessageComposer({
   sendButtonLabel,
   attachmentsAriaLabel,
   className,
-  showLabel = false,
   send,
   onSent,
 }: {
@@ -34,7 +34,6 @@ export function MessageComposer({
   sendButtonLabel: string;
   attachmentsAriaLabel: string;
   className?: string;
-  showLabel?: boolean;
   send: (input: ComposerInput) => Promise<Message>;
   onSent: (message: Message) => void;
 }) {
@@ -61,6 +60,7 @@ export function MessageComposer({
     submission.mutate({
       body_markdown: trimmed,
       mentions: mentionIds(trimmed, members),
+      mention_all: /(?:^|\s)@all(?![a-z0-9-])/i.test(trimmed),
       attachment_ids: attachments.map((attachment) => attachment.id),
     });
   }
@@ -73,7 +73,6 @@ export function MessageComposer({
 
   return (
     <form className={`composer${className ? ` ${className}` : ""}`} onSubmit={submit}>
-      {showLabel ? <span className="composer-label">MESSAGE</span> : null}
       <input
         ref={fileInput}
         className="visually-hidden"
@@ -82,7 +81,7 @@ export function MessageComposer({
         onChange={selectFile}
       />
       <button
-        className="icon-button"
+        className="icon-button composer-attach-button"
         type="button"
         aria-label={attachButtonLabel}
         title={attachButtonLabel}
@@ -93,7 +92,6 @@ export function MessageComposer({
       </button>
       <MentionInput
         ariaLabel={ariaLabel}
-        className={showLabel ? "composer-input" : undefined}
         placeholder={placeholder}
         rows={1}
         value={body}
@@ -138,7 +136,7 @@ export function MessageComposer({
   );
 }
 
-function MentionInput({ ariaLabel, className, placeholder, rows, value, members, onChange }: { ariaLabel: string; className?: string; placeholder: string; rows: number; value: string; members: Member[]; onChange: (value: string) => void }) {
+function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }: { ariaLabel: string; placeholder: string; rows: number; value: string; members: Member[]; onChange: (value: string) => void }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -147,18 +145,33 @@ function MentionInput({ ariaLabel, className, placeholder, rows, value, members,
     const query = match.query.toLowerCase();
     return member.handle.toLowerCase().includes(query) || member.display_name.toLowerCase().includes(query);
   }).slice(0, 6) : [];
+  const allSuggestion = Boolean(match && "all".startsWith(match.query.toLowerCase()));
 
   useEffect(() => {
     const input = textarea.current;
     if (!input) return;
     const minimumHeight = rows > 1 ? 54 : 42;
     input.style.height = "auto";
-    input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 240)}px`;
+    const contentHeight = value ? input.scrollHeight : minimumHeight;
+    input.style.height = `${Math.min(Math.max(contentHeight, minimumHeight), 240)}px`;
   }, [rows, value]);
 
   function choose(member: Member) {
     if (!match) return;
     const inserted = `@${member.handle} `;
+    const next = `${value.slice(0, match.start)}${inserted}${value.slice(cursor)}`;
+    const nextCursor = match.start + inserted.length;
+    onChange(next);
+    setCursor(nextCursor);
+    window.requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  function chooseAll() {
+    if (!match) return;
+    const inserted = "@all ";
     const next = `${value.slice(0, match.start)}${inserted}${value.slice(cursor)}`;
     const nextCursor = match.start + inserted.length;
     onChange(next);
@@ -175,25 +188,35 @@ function MentionInput({ ariaLabel, className, placeholder, rows, value, members,
       event.currentTarget.form?.requestSubmit();
       return;
     }
-    if (!suggestions.length) return;
+    if (!suggestions.length && !allSuggestion) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
-      setActiveIndex((index) => (index + direction + suggestions.length) % suggestions.length);
+      const count = suggestions.length + (allSuggestion ? 1 : 0);
+      setActiveIndex((index) => (index + direction + count) % count);
     } else if (event.key === "Enter" || event.key === "Tab") {
       event.preventDefault();
-      choose(suggestions[Math.min(activeIndex, suggestions.length - 1)]);
+      if (allSuggestion && activeIndex === 0) {
+        chooseAll();
+      } else {
+        choose(suggestions[Math.min(Math.max(activeIndex - (allSuggestion ? 1 : 0), 0), suggestions.length - 1)]);
+      }
     } else if (event.key === "Escape") {
       setCursor(-1);
     }
   }
 
   return (
-    <div className={`mention-input${className ? ` ${className}` : ""}`}>
-      {suggestions.length ? (
+    <div className="mention-input">
+      {suggestions.length || allSuggestion ? (
         <div className="mention-suggestions" role="listbox" aria-label="Mention suggestions">
+          {allSuggestion ? (
+            <button className="mention-suggestion-all" type="button" role="option" aria-selected={activeIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={chooseAll}>
+              <span><strong>Everyone</strong><small>@all</small></span>
+            </button>
+          ) : null}
           {suggestions.map((member, index) => (
-            <button key={member.id} type="button" role="option" aria-selected={index === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
+            <button key={member.id} type="button" role="option" aria-selected={index + (allSuggestion ? 1 : 0) === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
               <PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} />
               <span><strong>{member.display_name}</strong><small>@{member.handle}</small></span>
               {member.kind === "agent" ? <span className="agent-label">AGENT</span> : null}

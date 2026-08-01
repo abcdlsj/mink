@@ -228,6 +228,8 @@ pub(in crate::server) struct EditMessageInput {
     pub(in crate::server) message_id: MessageId,
     pub(in crate::server) actor_member_id: MemberId,
     pub(in crate::server) body_markdown: String,
+    pub(in crate::server) mentions: Vec<MemberId>,
+    pub(in crate::server) mention_all: bool,
     pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) now: OffsetDateTime,
 }
@@ -260,6 +262,9 @@ impl EditMessage {
             }
             message.edit_text(input.body_markdown, input.now)?;
             transaction.save_message(message.clone()).await?;
+            transaction
+                .save_message_mentions(message.id, input.mentions, input.mention_all, input.now)
+                .await?;
             transaction
                 .record_resource_idempotency(
                     input.actor_member_id,

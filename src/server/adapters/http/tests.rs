@@ -238,6 +238,41 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
 }
 
 #[tokio::test]
+async fn message_projection_returns_persisted_mentions_and_mention_all() {
+    let fixture = CapabilityFixture::create().await;
+    let message_id = fixture.context.focus_thread_id.into_uuid();
+    sqlx::query("UPDATE messages SET mention_all=true WHERE id=$1")
+        .bind(message_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+         VALUES($1,$2,$3,now())",
+    )
+    .bind(message_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.context.agent_id.into_uuid())
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+    let projected = message_row(&fixture.state.pool, &row, fixture.owner_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        projected.mentions,
+        vec![fixture.context.agent_id.into_uuid()]
+    );
+    assert!(projected.mention_all);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn run_claim_failure_is_projected_once_on_its_source_message() {
     let fixture = CapabilityFixture::create().await;
     let item_id = Uuid::now_v7();
@@ -253,6 +288,21 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
         .execute(&fixture.state.pool)
         .await
         .unwrap();
+    sqlx::query("UPDATE messages SET mention_all=true WHERE id=$1")
+        .bind(message_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO message_mentions(message_id,space_id,member_id,created_at) \
+         VALUES($1,$2,$3,now())",
+    )
+    .bind(message_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.context.agent_id.into_uuid())
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
 
     let mut storage = fixture.state.storage.clone();
     assert!(
@@ -296,6 +346,11 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
     assert_eq!(failures[0].agent_handle, "agent");
     assert_eq!(failures[0].error_code, "run_claim_unavailable");
     assert!(failures[0].retrying);
+    assert_eq!(
+        projected.mentions,
+        vec![fixture.context.agent_id.into_uuid()]
+    );
+    assert!(projected.mention_all);
     let event_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events WHERE kind='message.updated' \
              AND payload_json->>'resource_id'=$1",
@@ -325,6 +380,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         CreateMessageBody {
             body_markdown: "same Focus".into(),
             mentions: vec![fixture.context.agent_id.into_uuid()],
+            mention_all: false,
             attachment_ids: Vec::new(),
             reply_to_message_id: None,
         },
@@ -373,6 +429,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         CreateMessageBody {
             body_markdown: "different Focus".into(),
             mentions: vec![fixture.context.agent_id.into_uuid()],
+            mention_all: false,
             attachment_ids: Vec::new(),
             reply_to_message_id: None,
         },
@@ -410,6 +467,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         CreateMessageBody {
             body_markdown: "finalizing race".into(),
             mentions: vec![fixture.context.agent_id.into_uuid()],
+            mention_all: false,
             attachment_ids: Vec::new(),
             reply_to_message_id: None,
         },

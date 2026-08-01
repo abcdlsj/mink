@@ -119,6 +119,105 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
 }
 
 #[tokio::test]
+async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_mention_all_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let mut adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
+        let space = Uuid::now_v7();
+        let owner = Uuid::now_v7();
+        let agent = Uuid::now_v7();
+        let second_agent = Uuid::now_v7();
+        let computer = Uuid::now_v7();
+        let channel = Uuid::now_v7();
+        let root = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES ('{space}','mention-all','Mention All','{owner}',now());
+             INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES
+               ('{owner}','{space}','human','Owner','owner','owner',now()),
+               ('{agent}','{space}','agent','Agent','agent','member',now()),
+               ('{second_agent}','{space}','agent','Second','second','member',now());
+             INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer}','{space}','Computer','localhost','linux','mention-all-hash','offline',1,now());
+             INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES
+               ('{agent}','{space}','{computer}','Act',1,'active','codex',now()),
+               ('{second_agent}','{space}','{computer}','Act',1,'active','codex',now());
+             INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+             INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES
+               ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0),('{channel}','{space}','{second_agent}',now(),0);
+             INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+             INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let message = MessageId::from_uuid(Uuid::now_v7());
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .publish_message(MessageDraft {
+                        message_id: message,
+                        channel_id: ChannelId::from_uuid(channel),
+                        author_member_id: MemberId::from_uuid(owner),
+                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        thread_id: Some(ThreadId::from_uuid(root)),
+                        reply_to_message_id: None,
+                        body_markdown: "@all @agent".into(),
+                        mentions: vec![MemberId::from_uuid(agent), MemberId::from_uuid(agent)],
+                        mention_all: true,
+                        attachment_ids: Vec::new(),
+                        handled_item: None,
+                        expected_snapshot: None,
+                        now: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let facts: (i64, i64, bool) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM message_mentions WHERE message_id=$1),
+                    (SELECT count(*) FROM inbox_items WHERE message_id=$1 AND kind='mention'),
+                    (SELECT mention_all FROM messages WHERE id=$1)",
+        )
+        .bind(message.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(facts, (2, 2, true));
+        let targets: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT member_id FROM message_mentions WHERE message_id=$1",
+        )
+        .bind(message.into_uuid())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(!targets.contains(&owner));
+        assert!(targets.contains(&agent));
+        assert!(targets.contains(&second_agent));
+        pool.close().await;
+    }
+    .await;
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
 async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread_activity() {
     let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
@@ -223,6 +322,7 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                             thread_id: Some(ThreadId::from_uuid(root)),
                             reply_to_message_id: None,
                             mentions: Vec::new(),
+                            mention_all: false,
                             attachment_ids: Vec::new(),
                             handled_item: None,
                             expected_snapshot: None,
@@ -397,6 +497,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                                         thread_id: Some(ThreadId::from_uuid(root)),
                                         reply_to_message_id: None,
                                         mentions: Vec::new(),
+                                        mention_all: false,
                                         attachment_ids: Vec::new(),
                                         handled_item: None,
                                         expected_snapshot: None,

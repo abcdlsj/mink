@@ -1102,6 +1102,15 @@ impl CollaborationTransaction for MemoryTransaction {
         }
         Err(ApplicationError::NotFound)
     }
+    async fn save_message_mentions(
+        &mut self,
+        _message_id: MessageId,
+        _mentions: Vec<MemberId>,
+        _mention_all: bool,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
     async fn insert_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         if self.state.channels.insert(channel.id, channel).is_some() {
             return Err(ApplicationError::Conflict);
@@ -1999,6 +2008,7 @@ async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
             thread_id: Some(root),
             reply_to_message_id: None,
             mentions: Vec::new(),
+            mention_all: false,
             attachment_ids: Vec::new(),
             handled_item: None,
             expected_snapshot: None,
@@ -2820,6 +2830,8 @@ async fn message_edit_and_delete_are_authorized_idempotent_text_mutations() {
         message_id,
         actor_member_id: author,
         body_markdown: "edited".into(),
+        mentions: Vec::new(),
+        mention_all: false,
         idempotency_key: idempotency(1602),
         now: OffsetDateTime::UNIX_EPOCH,
     };

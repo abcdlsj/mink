@@ -64,7 +64,7 @@ Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_cr
 
 Message响应使用`attention_failures`返回尚未恢复的Agent attention错误。每项只包含Agent member ID、handle、稳定错误码和`retrying`状态，不包含Message正文或内部数据库错误。
 
-Message 编辑请求只接受`body_markdown`。编辑和删除 Action Message 必须返回冲突。
+Message 请求接受`mentions`（显式 Member ID 列表）和`mention_all`（布尔值）。`mention_all=true`时 Server 按当前 Channel 中未退役成员展开 targets，排除发送者；请求方不提交展开后的 Member ID。Message 响应返回持久化`mentions`与`mention_all`，供客户端按结构化事实投影高亮和路由状态。编辑请求同样接受这两个字段，并在同一事务中替换旧 targets。编辑和删除 Action Message 必须返回冲突。
 
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
 

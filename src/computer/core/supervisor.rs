@@ -333,28 +333,6 @@ impl LocalRun {
         self.ownership_lease_expires_at = expires_at;
     }
 
-    pub(in crate::computer) fn restore_delivery(
-        &mut self,
-        delivery: Delivery,
-    ) -> Result<(), CoreError> {
-        let expected = self
-            .deliveries
-            .last_key_value()
-            .map_or(1, |(sequence, _)| sequence + 1);
-        if delivery.sequence != expected
-            || delivery.item.task_id != self.task_id
-            || delivery.item.thread_id != self.focus_thread_id
-            || self
-                .deliveries
-                .values()
-                .any(|existing| existing.item.item_id == delivery.item.item_id)
-        {
-            return Err(CoreError::InvalidDeliverySequence);
-        }
-        self.deliveries.insert(delivery.sequence, delivery);
-        Ok(())
-    }
-
     pub(in crate::computer) fn begin_start(&mut self) -> Result<(), CoreError> {
         if self.state != LocalRunState::Queued {
             return Err(CoreError::InvalidTransition);

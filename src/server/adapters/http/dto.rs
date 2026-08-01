@@ -58,6 +58,8 @@ pub(super) struct CreateMessageBody {
     #[serde(default)]
     pub(super) mentions: Vec<Uuid>,
     #[serde(default)]
+    pub(super) mention_all: bool,
+    #[serde(default)]
     pub(super) attachment_ids: Vec<Uuid>,
     pub(super) reply_to_message_id: Option<Uuid>,
 }
@@ -66,6 +68,10 @@ pub(super) struct CreateMessageBody {
 #[serde(deny_unknown_fields)]
 pub(super) struct UpdateMessageBody {
     pub(super) body_markdown: String,
+    #[serde(default)]
+    pub(super) mentions: Vec<Uuid>,
+    #[serde(default)]
+    pub(super) mention_all: bool,
 }
 
 #[derive(Deserialize)]
@@ -253,6 +259,13 @@ pub(super) async fn message_row(
         retrying: true,
     })
     .collect::<Vec<_>>();
+    let mentions = sqlx::query_scalar::<_, Uuid>(
+        "SELECT member_id FROM message_mentions WHERE message_id=$1 ORDER BY member_id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx)?;
     let content = match row.get::<&str, _>("content_kind") {
         "text" => MessageContentResponse::Text {
             body_markdown: row
@@ -323,7 +336,8 @@ pub(super) async fn message_row(
             handle: author.get("handle"),
         },
         content,
-        mentions: Vec::new(),
+        mentions,
+        mention_all: row.get("mention_all"),
         attachments: attachment_views,
         reply_count: u64::try_from(replies).map_err(|_| ApiError::internal())?,
         task: None,

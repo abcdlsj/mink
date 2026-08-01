@@ -339,6 +339,8 @@ pub(in crate::server) struct MessageDraft {
     pub(in crate::server) reply_to_message_id: Option<MessageId>,
     pub(in crate::server) body_markdown: String,
     pub(in crate::server) mentions: Vec<MemberId>,
+    /// Whether this Message explicitly addresses every Agent in its Channel.
+    pub(in crate::server) mention_all: bool,
     pub(in crate::server) attachment_ids: Vec<AttachmentId>,
     pub(in crate::server) handled_item: Option<(RunId, InboxItemId)>,
     pub(in crate::server) expected_snapshot: Option<u64>,

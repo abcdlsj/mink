@@ -101,7 +101,7 @@
 - `created_at`
 - `retired_at`
 
-`(space_id, lower(handle))`必须唯一。
+`(space_id, lower(handle))`必须唯一。`all`是`@all`的保留 handle，Member 不能使用。
 
 ### 4.5 `human_members`
 
@@ -184,6 +184,7 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 - `reply_to_message_id`
 - `author_member_id`
 - `body_markdown`
+- `mention_all`
 - `action_channel_id`
 - `action_agent_member_id`
 - `created_at`
@@ -301,6 +302,8 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `force_at`
 
 Item 不复制 Message 正文。`task_id`是创建或绑定 Task 后确定的路由事实。
+
+`message_mentions`保存显式 mention 与`@all`展开的 Member targets（`message_id`、`space_id`、`member_id`、`created_at`）。`messages.mention_all`记录该 Message 是否由`@all`发出；该布尔事实与展开关系同时写入，读取投影不得重新解析正文。
 
 `retry_count`记录失败的投递尝试，达到上限后 Item 进入`dead`。`requeue_count`记录治理者把该 Item 从`dead`放回队列的次数；放回会重置`retry_count`，因此只有`requeue_count`能说明该 Item 曾被人工恢复，见 [安全与运维](09-security-operations.md) 的运维动作。
 

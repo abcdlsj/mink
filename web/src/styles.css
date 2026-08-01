@@ -1318,31 +1318,6 @@ h1 {
   white-space: pre-wrap;
 }
 
-.thread-composer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 12px;
-  border-top: 2px solid var(--ink);
-  background: var(--panel);
-}
-
-.thread-composer .composer-attachments {
-  grid-column: 2 / -1;
-}
-
-.thread-composer textarea {
-  display: block;
-  width: 100%;
-  min-height: 54px;
-  resize: vertical;
-  border: 2px solid var(--ink);
-  border-radius: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-}
-
 .channel-header {
   display: flex;
   min-width: 0;
@@ -4201,8 +4176,7 @@ h1 {
   display: none;
 }
 
-.composer .send-button,
-.thread-composer .send-button {
+.composer .send-button {
   display: inline-flex;
   width: auto;
   min-width: 78px;
@@ -4380,8 +4354,7 @@ h1 {
     background: var(--paper);
   }
 
-  .composer .send-button,
-  .thread-composer .send-button {
+  .composer .send-button {
     display: inline-flex;
     width: auto;
     min-width: 72px;
@@ -4457,18 +4430,6 @@ h1 {
     border-bottom-color: color-mix(in srgb, var(--ink) 22%, transparent);
   }
 
-  .thread-composer {
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    border-top: 1px solid color-mix(in srgb, var(--ink) 38%, transparent);
-    background: color-mix(in srgb, var(--paper) 94%, var(--panel));
-  }
-
-  .thread-composer textarea {
-    min-height: 44px;
-    padding: 9px 10px;
-    border-width: 1px;
-    resize: none;
-  }
 }
 
 @media (max-width: 699px) {
@@ -4546,8 +4507,7 @@ h1 {
     padding-left: 10px;
   }
 
-  .composer .send-button,
-  .thread-composer .send-button {
+  .composer .send-button {
     min-width: 44px;
     width: 44px;
     padding: 0;
@@ -6683,4 +6643,42 @@ summary.system-event-heading {
   .agent-runtime-facts {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Channel 与 Thread 共用同一外框，附件和发送按钮固定在外框底部。 */
+.composer {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 88px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 10px 12px 44px;
+}
+.composer .mention-input { width: 100%; min-width: 0; }
+.composer .mention-input textarea {
+  width: 100%; min-height: 42px; padding: 8px 4px;
+  border: 0; border-radius: 0; box-shadow: none; background: transparent; resize: none;
+}
+.composer .mention-input textarea:focus { box-shadow: none; }
+.composer > .composer-attach-button {
+  position: absolute; bottom: 8px; left: 10px; display: inline-grid;
+  width: 28px; height: 28px; place-items: center; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 48%, transparent); box-shadow: none;
+}
+.composer > .composer-attach-button svg,
+.composer > .send-button svg { width: 15px; height: 15px; }
+.composer > .send-button {
+  position: absolute; right: 10px; bottom: 8px; display: inline-flex;
+  width: auto; min-width: 30px; height: 30px; align-items: center; justify-content: center;
+  gap: 6px; padding: 0 9px; border: 1px solid var(--ink); box-shadow: none;
+}
+.composer > .composer-shortcut { position: absolute; right: 90px; bottom: 17px; margin: 0; }
+.composer > .composer-attachments,
+.composer > .composer-error { width: 100%; box-sizing: border-box; margin-bottom: 2px; }
+.mention-suggestions .mention-suggestion-all { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1099px) {
+  .composer { min-height: 0; }
 }

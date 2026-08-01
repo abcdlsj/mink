@@ -98,6 +98,8 @@ Message投递或attention失败使用与日期分隔相同的居中系统信息�
 
 ## 5. Message 投影
 
+普通 Message 正文中的 `@handle` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 handle 时才使用高亮。Browser 不得仅根据正文中的 `@` 文本推断 mention；未被 Server 识别的文本保持普通正文样式。
+
 ### 5.1 Task 标识
 
 Root Message上的Task标识保持紧凑，只显示：
@@ -217,7 +219,7 @@ Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或�
 - 持久阻断使用inline notice，短期结果使用toast。
 - 空态只写事实和至多一个下一步动作，不使用大插画。
 - 空态和`No DMs yet`等系统信息使用辅助信息字号。
-- Composer只包含Markdown、Attachment、mention和Send，不包含Task或Session控制。
+- Composer只包含Markdown、Attachment、mention和Send，不包含Task或Session控制。Channel与Thread复用同一Composer结构和高度；Composer外框是唯一输入边框，Attachment位于左下角，Send位于右下角，宽度随所在区域变化。
 
 ## 11. 响应式与无障碍
 

@@ -300,6 +300,8 @@ pub(super) async fn update_message(
             message_id: MessageId::from_uuid(message_id),
             actor_member_id: MemberId::from_uuid(actor),
             body_markdown: body.body_markdown,
+            mentions: body.mentions.into_iter().map(MemberId::from_uuid).collect(),
+            mention_all: body.mention_all,
             idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now: OffsetDateTime::now_utc(),
         },
@@ -368,6 +370,7 @@ pub(super) async fn insert_message(
             reply_to_message_id: body.reply_to_message_id.map(MessageId::from_uuid),
             body_markdown: body.body_markdown,
             mentions: body.mentions.into_iter().map(MemberId::from_uuid).collect(),
+            mention_all: body.mention_all,
             attachment_ids: body
                 .attachment_ids
                 .into_iter()

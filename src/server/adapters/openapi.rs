@@ -468,6 +468,7 @@ pub(super) struct MessageResponse {
     pub(super) author: MessageAuthor,
     pub(super) content: MessageContentResponse,
     pub(super) mentions: Vec<Uuid>,
+    pub(super) mention_all: bool,
     pub(super) attachments: Vec<AttachmentResponse>,
     pub(super) reply_count: u64,
     pub(super) task: Option<MessageTaskSummary>,
@@ -494,12 +495,15 @@ pub(super) struct MessagePageResponse {
 pub(super) struct CreateMessageRequest {
     body_markdown: String,
     mentions: Vec<Uuid>,
+    mention_all: bool,
     attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct UpdateMessageRequest {
     body_markdown: String,
+    mentions: Vec<Uuid>,
+    mention_all: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -725,6 +729,7 @@ pub(super) struct AgentRuntimeResponse {
 pub(super) struct CreateThreadMessageRequest {
     body_markdown: String,
     mentions: Vec<Uuid>,
+    mention_all: bool,
     attachment_ids: Vec<Uuid>,
     reply_to_message_id: Option<Uuid>,
 }

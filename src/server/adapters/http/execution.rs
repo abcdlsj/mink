@@ -433,6 +433,7 @@ pub(super) async fn execute_agent_action(
                 CreateMessageBody {
                     body_markdown: send.body,
                     mentions: Vec::new(),
+                    mention_all: false,
                     attachment_ids: Vec::new(),
                     reply_to_message_id: None,
                 },

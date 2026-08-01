@@ -42,7 +42,8 @@ CREATE TABLE members (
     access_level TEXT NOT NULL CHECK (access_level IN ('owner', 'admin', 'member')),
     created_at TIMESTAMPTZ NOT NULL,
     retired_at TIMESTAMPTZ,
-    UNIQUE (id, space_id)
+    UNIQUE (id, space_id),
+    CHECK (lower(handle) <> 'all')
 );
 CREATE UNIQUE INDEX members_space_handle_unique ON members (space_id, lower(handle));
 CREATE UNIQUE INDEX members_one_owner_per_space ON members (space_id) WHERE access_level = 'owner';
@@ -188,6 +189,7 @@ CREATE TABLE messages (
     reply_to_message_id UUID,
     author_member_id UUID NOT NULL,
     body_markdown TEXT,
+    mention_all BOOLEAN NOT NULL DEFAULT FALSE,
     action_channel_id UUID,
     action_agent_member_id UUID,
     created_at TIMESTAMPTZ NOT NULL,
@@ -206,6 +208,18 @@ CREATE TABLE messages (
         OR (content_kind = 'agent_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NULL AND action_agent_member_id IS NOT NULL)
     ),
     CHECK ((placement = 'root' AND id = thread_id AND reply_to_message_id IS NULL) OR placement = 'reply')
+);
+
+-- Structured mention targets are authoritative for Message projections. The Message body is never
+-- parsed by consumers to determine who was addressed.
+CREATE TABLE message_mentions (
+    message_id UUID NOT NULL,
+    space_id UUID NOT NULL,
+    member_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (message_id, member_id),
+    FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
 
 CREATE TABLE threads (

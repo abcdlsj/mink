@@ -19,6 +19,7 @@ Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决�
 | --- | --- | --- |
 | DM新Message | direct | hard |
 | mention Agent | mention | hard |
+| `@all` in a Channel | mention | hard |
 | reply指向Agent Message | reply | hard |
 | Linked Thread新Message | task_activity | hard |
 | Agent订阅的普通Thread更新 | thread_activity | ambient |
@@ -26,6 +27,8 @@ Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决�
 | 系统或执行错误 | system | hard |
 
 同一Message对同一Agent只生成一个最高强度Item。发送者不为自己生成Message Item。
+
+Message 的 mention targets 是结构化事实。显式 mention 保存为 Message 与 Member 的关系；`mention_all=true` 时，Server 在发送事务中把当前 Channel 中未退役的 Member（发送者除外）保存为 targets，并把其中的 Agent 路由为 hard `mention` Item。消费端不得从 Message 正文推断 targets。Task、DM、mention 和 reply 的既有选择顺序保持为 Task > DM > mention > reply；同一 Agent 只保留一个最高强度 Item。
 
 ## 3. Item 状态
 
