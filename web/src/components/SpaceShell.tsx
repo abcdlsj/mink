@@ -554,7 +554,21 @@ function MemberNavigationGroup({ label, members, activityByMemberId, spaceSlug, 
 
 function ComputersNavigation({ computers, spaceSlug, activeHash, canManage }: { computers: Computer[]; spaceSlug: string; activeHash: string; canManage: boolean }) {
   const normalizedHash = activeHash.replace(/^#/, "");
-  return <><div className="nav-section-heading computer-nav-heading"><p className="nav-label">COMPUTERS · {computers.length}</p>{canManage ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer" aria-label="Pair Computer" title="Pair Computer"><Plus /></Link> : null}</div>{computers.length ? computers.map((computer, index) => { const hash = `computer-${computer.id}`; const selected = normalizedHash === hash || (!normalizedHash && index === 0); return <Link key={computer.id} className={`context-entity-row computer-context-row${selected ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={hash}><Monitor aria-hidden="true" /><span><strong title={computer.name}>{computer.name}</strong><small><i className={`computer-presence computer-presence--${computer.status}`} />{computer.status} · v{computer.daemon_version}</small></span></Link>; }) : <p className="nav-empty">No paired Computers</p>}</>;
+  return <>
+    <div className="nav-section-heading computer-nav-heading">
+      <p className="nav-label">COMPUTERS <span>{computers.length}</span></p>
+      {canManage ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer" aria-label="Pair Computer" title="Pair Computer"><Plus /></Link> : null}
+    </div>
+    {canManage ? <Link className={`computer-add-nav${!normalizedHash || normalizedHash === "pair-computer" ? " computer-add-nav--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} aria-current={!normalizedHash || normalizedHash === "pair-computer" ? "page" : undefined}>Add Computer</Link> : null}
+    {computers.length ? computers.map((computer) => {
+      const hash = `computer-${computer.id}`;
+      const selected = normalizedHash === hash;
+      return <Link key={computer.id} className={`context-entity-row computer-context-row${selected ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={hash}>
+        <Monitor aria-hidden="true" />
+        <span><strong title={computer.name}>{computer.name}</strong><small title={`${computer.status} · daemon v${computer.daemon_version}`}><i className={`computer-presence computer-presence--${computer.status}`} aria-hidden="true" />{computer.status} <em>v{computer.daemon_version}</em></small></span>
+      </Link>;
+    }) : <div className="computer-nav-empty"><Monitor aria-hidden="true" /><p>No paired Computers</p>{canManage ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer">Pair Computer</Link> : null}</div>}
+  </>;
 }
 
 function InboxNavigation() {

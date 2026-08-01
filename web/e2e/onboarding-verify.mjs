@@ -105,12 +105,10 @@ for (const [width, height, label] of viewports) {
 
 await pair.click();
 await page.waitForURL(new RegExp(`/s/${slug}/computers#pair-computer$`));
-const pairDialog = page.getByRole("dialog", { name: "Pair Computer" });
-await pairDialog.waitFor();
-await assertViewport("mobile", ".pair-computer-dialog");
+const computerOnboarding = page.getByRole("region", { name: "Pair a Computer" });
+await computerOnboarding.waitFor();
+await assertViewport("mobile", ".computer-onboarding");
 await page.screenshot({ path: `${output}/setup-pair-mobile.png`, fullPage: false });
-await page.keyboard.press("Escape");
-await pairDialog.waitFor({ state: "detached" });
 
 if (errors.length) throw new Error(errors.join("\n"));
 console.log(JSON.stringify({ slug, results, errorState: true, errors: errors.length, output }));

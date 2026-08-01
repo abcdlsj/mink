@@ -89,9 +89,8 @@ function ComputersWorkspace({
   const selectedFromHash = activeHash.startsWith("computer-")
     ? activeHash.slice("computer-".length)
     : undefined;
-  const effectiveSelectedId = selectedFromHash ?? computers.data?.[0]?.id;
-  const selected = computers.data?.find((computer) => computer.id === effectiveSelectedId);
-  const selectedAgents = agents.data?.filter((agent) => agent.computer_id === effectiveSelectedId) ?? [];
+  const selected = selectedFromHash ? computers.data?.find((computer) => computer.id === selectedFromHash) : undefined;
+  const selectedAgents = selected ? agents.data?.filter((agent) => agent.computer_id === selected.id) ?? [] : [];
 
   function openAgentDialog(computerId?: string) {
     setAgentReturnHash(activeHash === "create-agent" ? "" : activeHash);
@@ -128,7 +127,7 @@ function ComputersWorkspace({
   }
 
   return (
-    <section className="computers-workspace" aria-label="Computer detail">
+    <section className="computers-workspace" aria-label="Computers">
       {computers.isPending || agents.isPending ? <div className="detail-skeleton" aria-label="Loading Computers" /> : null}
       {computers.error || agents.error ? (
         <div className="computer-page-state">
@@ -137,15 +136,10 @@ function ComputersWorkspace({
         </div>
       ) : null}
       {computers.data?.length === 0 ? (
-        <div className="computer-empty">
-          <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-          <span className="computer-empty-icon"><Monitor aria-hidden="true" /></span>
-          <p className="section-kicker">COMPUTE LAYER</p>
-          <h2>No Computers paired</h2>
-          <p>{canManage ? "Pair a macOS or Linux machine to host Agents in this Space." : "A Human Owner or Admin must pair a machine before this Space can host Agents."}</p>
-          {canManage ? <Link className="command-button command-button--accent" to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer"><Plus />Pair Computer</Link> : null}
-        </div>
+        canManage ? <ComputerOnboarding openNavigation={openNavigation} /> : <div className="computer-empty"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p className="section-kicker">COMPUTE LAYER</p><h2>No Computers paired</h2><p>A Human Owner or Admin must pair a machine before this Space can host Agents.</p></div>
       ) : null}
+      {canManage && (!selectedFromHash || pairFormOpen) && computers.data?.length ? <ComputerOnboarding openNavigation={openNavigation} /> : null}
+      {!canManage && !selectedFromHash && computers.data?.length ? <div className="computer-page-state"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p>Select a Computer from the navigation.</p></div> : null}
       {selected ? (
         <div className="computer-split">
           <ComputerDetail
@@ -159,11 +153,6 @@ function ComputersWorkspace({
             onDelete={() => setDeleteTarget(selected)}
           />
         </div>
-      ) : null}
-      {pairFormOpen ? (
-        <PairComputerDialog
-          close={() => void navigate({ to: "/s/$spaceSlug/computers", params: { spaceSlug }, replace: true })}
-        />
       ) : null}
       {agentFormOpen ? (
         <AgentDialog
@@ -186,6 +175,36 @@ function ComputersWorkspace({
           confirm={() => deletion.mutate(deleteTarget.id)}
         />
       ) : null}
+    </section>
+  );
+}
+
+function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) {
+  const command = `sumi computer --server ${window.location.origin}`;
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setCopyError(false);
+    } catch {
+      setCopyError(true);
+    }
+  }
+  return (
+    <section className="computer-onboarding" aria-labelledby="computer-onboarding-heading">
+      <header className="computer-onboarding-header">
+        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
+        <div><p className="section-kicker">NEW COMPUTER</p><h1 id="computer-onboarding-heading">Pair a Computer</h1></div>
+      </header>
+      <div className="computer-onboarding-body">
+        <p>Run this command on the machine that will host Agents.</p>
+        <div className="pair-command"><code>{command}</code><button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}</button></div>
+        {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
+        <ol><li>Run the command on the target machine.</li><li>Open the pairing URL it prints.</li><li>Verify the identity, then confirm this Space.</li></ol>
+        <p className="computer-onboarding-note">A deleted Computer cannot reuse its old identity.</p>
+      </div>
     </section>
   );
 }
@@ -247,50 +266,12 @@ function ComputerDetail({
           <Link key={agent.member_id} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
             <span><strong>{agent.name}</strong><small>{agent.driver_kind} Driver</small></span>
-            <span className={`agent-state agent-state--${agent.activity_status}`}><i />{agent.activity_status}</span>
+            <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${agent.activity_status}`} title={`Activity: ${agent.activity_status}`}><i aria-hidden="true" />{agent.activity_status}</span>
           </Link>
         ))}</div> : <p className="section-empty">No Agents are hosted on this Computer.</p>}
       </section>
       {canManage ? <section className="detail-section danger-zone"><div><h3>Delete Computer</h3><p>Disconnect this Computer after every hosted Agent has been retired.</p></div><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></section> : null}
     </article>
-  );
-}
-
-function PairComputerDialog({ close }: { close: () => void }) {
-  const command = `sumi computer --server ${window.location.origin}`;
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
-
-  async function copyCommand() {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      setCopyError(false);
-    } catch {
-      setCopyError(true);
-    }
-  }
-
-  return (
-    <DialogFrame close={close} labelId="pair-computer-title" className="pair-computer-dialog">
-        <header>
-          <div><p className="section-kicker">ADD CAPACITY</p><h2 id="pair-computer-title">Pair Computer</h2></div>
-          <button className="icon-button" type="button" aria-label="Close Pair Computer" onClick={close}><X /></button>
-        </header>
-        <div className="pair-computer-body">
-          <p>Run this command on the machine that will host Agents.</p>
-          <div className="pair-command">
-            <code>{command}</code>
-            <button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>
-              {copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
-          <ol className="pair-steps"><li>Run the command on the target machine.</li><li>Open the short-lived pairing URL it prints.</li><li>Verify the machine identity, then confirm this Space.</li></ol>
-          <p className="pair-computer-note">A deleted Computer cannot reuse its old identity. The daemon clears that identity and exits; run it again to start a fresh pairing.</p>
-        </div>
-        <footer><button className="command-button command-button--accent" type="button" onClick={close}>Done</button></footer>
-    </DialogFrame>
   );
 }
 
@@ -326,6 +307,6 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
   );
 }
 
-function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`}><i />{value}</span>; }
+function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`} title={`Status: ${value}`}><i aria-hidden="true" />{value}</span>; }
 function Field({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><dt>{label}</dt><dd className={tabular ? "tabular" : undefined}>{value}</dd></div>; }
 function OverviewMetric({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><span>{label}</span><strong className={tabular ? "tabular" : undefined}>{value}</strong></div>; }

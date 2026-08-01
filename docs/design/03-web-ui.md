@@ -212,6 +212,17 @@ Agent Inbox默认不向普通Member公开。Owner/Admin只能读取自己有权�
 
 Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或撤销`channel.create`和`agent.create`。UI 不提供 Role 形式的 Permission 套餐。
 
+## 9.1 Members、Computers 与 Agent
+
+Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主体使用扁平分区和紧凑字段网格，不新增卡片层级或改变导航路由。
+
+- 生命周期、运行和连接状态使用图形信号加短标签。信号必须带 `aria-label` 与 `title`，颜色不能是唯一线索；状态不使用占用整行的彩色卡片。
+- 标题、辅助文本、字段标签和字段值分别使用页面标题、辅助信息、元数据和正文层级，并在同一行按 baseline 对齐。字段网格在 1024px 以下收为单列，在 390px 仍保持可读间距。
+- Agent action permissions 直接显示为 checkbox 列表。每行只显示 action code 和一条最短说明；Owner/Admin 可以逐项勾选或取消，普通 Member 看到禁用状态。Permission 不显示 Role 套餐或重复解释。
+- Computer Hosted Agents 列表和 Agent Runtime 区域共用状态信号、字段间距和按钮高度。三栏分布、Computer/Agent 路由及 API 行为保持不变。
+- Members 主页按 Agents、Humans 分组显示扁平成员行；每行的状态、类型和治理控件共用一条 baseline。Permission 直接使用 checkbox，Owner/Admin 继承只显示最短提示。
+- Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。
+
 ## 10. 通用组件
 
 - Button保留Primary、Secondary、Quiet和Destructive四类。
