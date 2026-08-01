@@ -10,10 +10,10 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import readline from "node:readline";
 
@@ -28,6 +28,9 @@ const SEED_MARKER = "[dev-seed]";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
 export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi-dev-seed", "computer");
+export const DEV_SEED_STATE_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT
+  ? DEV_COMPUTER_ROOT
+  : dirname(DEV_COMPUTER_ROOT);
 const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([
@@ -69,6 +72,23 @@ export function prepareComputerStateDirectory(stateDir) {
 
 const log = (...args) => console.log(SEED_MARKER, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export function cleanDevelopmentSeedState(stateRoot) {
+  const target = resolve(stateRoot);
+  const home = resolve(homedir());
+  const filesystemRoot = parse(target).root;
+  if (target === filesystemRoot || target === home || dirname(target) === filesystemRoot || home.startsWith(`${target}/`)) {
+    throw new Error(`refusing to remove unsafe dev-seed state root: ${target}`);
+  }
+  const defaultStateRoot = resolve(join(home, ".sumi-dev-seed"));
+  const hasSeedConfig = existsSync(join(target, "computer.toml"))
+    || existsSync(join(target, "computer", "computer.toml"));
+  if (existsSync(target) && target !== defaultStateRoot && !hasSeedConfig) {
+    throw new Error(`refusing to remove unrecognized dev-seed state root: ${target}`);
+  }
+  rmSync(target, { recursive: true, force: true });
+  return target;
+}
 
 async function api(method, path, { cookie, body } = {}) {
   const headers = { "idempotency-key": uuidv7() };
@@ -469,7 +489,16 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  const command = process.argv[2];
+  const action = command === "clean"
+    ? Promise.resolve().then(() => {
+      const removed = cleanDevelopmentSeedState(DEV_SEED_STATE_ROOT);
+      log(`removed local development seed state at ${removed}`);
+    })
+    : command === undefined
+      ? main()
+      : Promise.reject(new Error(`unknown command: ${command}`));
+  action.catch((error) => {
     console.error(SEED_MARKER, "failed:", error.message);
     process.exit(1);
   });

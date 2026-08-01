@@ -112,7 +112,6 @@ wait
 '''
 
 [tasks.dev-seed]
-description = "Run dev server with stable sumi-dev Space, Dev Computer, and PM/Coder/Reviewer group"
-depends = ["db-start"]
+description = "Run or clean the stable sumi-dev Space, Dev Computer, and PM/Coder/Reviewer group"
 env = { SUMI_DEV_SEED = "1", RUST_LOG = "sumi=warn,tower_http=warn" }
-run = "mise run dev"
+run = "sh scripts/dev-seed-task.sh"
