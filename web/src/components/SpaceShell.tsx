@@ -121,6 +121,9 @@ export function SpaceShell({
     enabled: active === "computers" && Boolean(space.data),
   });
   useSpaceEvents(space.data?.id, ({ channelId }) => {
+    if (channelId === viewingChannelId(location.pathname, channels.data?.channels, directMessages.data)) {
+      return;
+    }
     setUnreadChannelIds((current) =>
       current.has(channelId) ? current : new Set(current).add(channelId),
     );
@@ -223,19 +226,7 @@ export function SpaceShell({
 
   // Visiting a conversation clears its unread dot; everything else keeps it.
   useEffect(() => {
-    if (!channels.data) return;
-    const channelMatch = location.pathname.match(/\/channels\/([^/]+)$/);
-    const dmMatch = location.pathname.match(/\/dm\/([^/]+)$/);
-    let channelId: string | undefined;
-    if (channelMatch) {
-      channelId = channels.data.channels.find(
-        (candidate) => candidate.slug === channelMatch[1],
-      )?.id;
-    } else if (dmMatch) {
-      channelId = (directMessages.data ?? []).find(
-        (candidate) => candidate.other_member.id === dmMatch[1],
-      )?.channel_id;
-    }
+    const channelId = viewingChannelId(location.pathname, channels.data?.channels, directMessages.data);
     if (!channelId || !unreadChannelIds.has(channelId)) return;
     window.requestAnimationFrame(() => {
       setUnreadChannelIds((current) => {
@@ -628,6 +619,24 @@ function TasksNavigation() {
 }
 
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
+
+function viewingChannelId(
+  pathname: string,
+  channels: Channel[] | undefined,
+  directMessages: DirectMessage[] | undefined,
+): string | undefined {
+  const channelMatch = pathname.match(/\/channels\/([^/]+)$/);
+  if (channelMatch && channels) {
+    return channels.find((candidate) => candidate.slug === channelMatch[1])?.id;
+  }
+  const dmMatch = pathname.match(/\/dm\/([^/]+)$/);
+  if (dmMatch && directMessages) {
+    return directMessages.find(
+      (candidate) => candidate.other_member.id === dmMatch[1],
+    )?.channel_id;
+  }
+  return undefined;
+}
 
 function RailItem({
   icon: Icon,

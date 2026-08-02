@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 
 interface SumiEvent {
   type: string;
+  occurred_at?: string;
   data: { channel_id?: string };
 }
 
@@ -18,11 +19,18 @@ export function useSpaceEvents(
 
   useEffect(() => {
     if (!spaceId || typeof EventSource === "undefined") return;
+    // A fresh connection replays the storage retention window (historical
+    // message.created etc.). Only events arriving after the connection opened
+    // are live; replay must not be treated as new unread activity.
+    const connectedAt = Date.now();
     const source = new EventSource(`/api/v1/spaces/${encodeURIComponent(spaceId)}/events`);
     const invalidate = (event: MessageEvent<string>) => {
       const payload = JSON.parse(event.data) as SumiEvent;
+      const isReplay =
+        payload.occurred_at !== undefined &&
+        new Date(payload.occurred_at).getTime() < connectedAt;
       if (payload.type.startsWith("message.") && payload.data.channel_id) {
-        if (payload.type === "message.created" && payload.data.channel_id) {
+        if (payload.type === "message.created" && payload.data.channel_id && !isReplay) {
           onMessageRef.current?.({ type: payload.type, channelId: payload.data.channel_id });
         }
         void queryClient.invalidateQueries({ queryKey: ["messages", payload.data.channel_id] });
