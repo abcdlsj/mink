@@ -235,6 +235,10 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题 13px 大写、字段值 16px/600、字段标签 10px 大写，页面标题保持 18px。
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。
+- Agent 详情 Overview 左侧默认显示 Activity 面板，无需用户操作。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
+- Activity 每条记录只显示 action kind、发生时间和目标资源链接。面板不显示 Message 正文、Task Result、Memory、workspace 文件、Provider transcript、隐藏推理或命令参数，见[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
+- Activity 是临时视图，不提供历史查询。Browser 通过 SSE 接收 `agent.activity` 事件并把当前 feed 保存在页面内，见[API 与事件](07-api.md)。重连或刷新只恢复保留窗口内的记录；页面内超过上限时丢弃最旧记录。
+- Activity 空态只写事实：该 Agent 尚无可见交互。窄屏下 Activity 与其他 Overview 分区一样收为单列。
 - Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。
 - Computers 左侧导航只提供已配对列表和 `+` 配对入口，不显示重复的 Add Computer 项。
 

@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { clearAgentActivity, recordAgentActivity } from "../agentActivity";
 import { createAppRouter } from "../router";
 
 const space = {
@@ -16,7 +17,11 @@ const space = {
 };
 const agentId = "019c0000-0000-7000-8000-000000000090";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  clearAgentActivity();
+});
 
 describe("Agent detail", () => {
   it("edits Role and controls lifecycle while warning about local-only Memory", async () => {
@@ -103,6 +108,58 @@ describe("Agent detail", () => {
       expect.stringContaining(`/agents/${agentId}`),
       expect.objectContaining({ method: "DELETE" }),
     ));
+  });
+
+  it("shows the Activity feed on Overview by default", async () => {
+    const channel = {
+      id: space.general_channel_id,
+      space_id: space.id,
+      slug: "general",
+      kind: "public",
+      name: "General",
+      joined: true,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [channel] });
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }, { id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] }]);
+      if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
+        current_task: null,
+        focus: null,
+        current_run: null,
+        another_item_waiting: false,
+        session_continuity: { state: "unavailable", generation: 0 },
+      });
+      if (path.endsWith(`/agents/${agentId}`) && !init?.method) return json(agent("active", "ready"));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    recordAgentActivity({
+      event_id: "evt-1",
+      occurred_at: "2026-08-03T00:00:00Z",
+      data: {
+        member_id: agentId,
+        kind: "message.send",
+        channel_id: space.general_channel_id,
+        message_id: "message-1",
+      },
+    });
+    recordAgentActivity({
+      event_id: "evt-2",
+      occurred_at: "2026-08-03T00:01:00Z",
+      data: { member_id: agentId, kind: "task.done", task_id: "task" },
+    });
+    renderRoute(`/s/sumi-lab/agents/${agentId}`);
+
+    expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Activity" })).toBeVisible();
+    expect(screen.getByText("Completed task")).toBeVisible();
+    expect(screen.getByRole("link", { name: "View task" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
+    expect(screen.getByText("Sent a message")).toBeVisible();
+    expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
   });
 });
 

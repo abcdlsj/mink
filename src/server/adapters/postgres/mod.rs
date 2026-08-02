@@ -235,6 +235,7 @@ impl PostgresAdapter {
                 })
                 .filter(|event| {
                     event_is_visible(
+                        &event.event_type,
                         &event.data,
                         viewer_member_id,
                         governs_space,
@@ -244,11 +245,53 @@ impl PostgresAdapter {
                 .collect(),
         ))
     }
+
+    /// Best-effort insert of an ephemeral `agent.activity` event for the Browser feed. A failed
+    /// insert must never fail the Agent action that produced the activity.
+    pub(in crate::server::adapters) async fn record_agent_activity(
+        &self,
+        space_id: SpaceId,
+        agent_member_id: MemberId,
+        kind: &str,
+        payload: serde_json::Value,
+    ) {
+        let mut record = payload;
+        if let Some(object) = record.as_object_mut() {
+            object.insert(
+                "member_id".to_owned(),
+                serde_json::json!(agent_member_id.into_uuid()),
+            );
+            object.insert("kind".to_owned(), serde_json::json!(kind));
+        } else {
+            record = serde_json::json!({
+                "member_id": agent_member_id.into_uuid(),
+                "kind": kind,
+            });
+        }
+        let result = sqlx::query(
+            "INSERT INTO outbox_events (id,space_id,kind,payload_json,created_at) \
+             VALUES ($1,$2,'agent.activity',$3,now())",
+        )
+        .bind(Uuid::now_v7())
+        .bind(space_id.into_uuid())
+        .bind(record)
+        .execute(&self.pool)
+        .await;
+        if let Err(error) = result {
+            tracing::warn!(
+                agent_member_id = %agent_member_id.into_uuid(),
+                kind,
+                error = %error,
+                "agent.activity event could not be recorded"
+            );
+        }
+    }
 }
 
 /// Decides whether one event may reach a viewer. An event that names no Channel and no Member
 /// carries only a resource ID the viewer already reaches through an authorized read, so it passes.
 fn event_is_visible(
+    kind: &str,
     payload: &serde_json::Value,
     viewer_member_id: MemberId,
     governs_space: bool,
@@ -265,7 +308,8 @@ fn event_is_visible(
     {
         return false;
     }
-    if let Some(member_id) = payload_uuid("member_id")
+    if kind != "agent.activity"
+        && let Some(member_id) = payload_uuid("member_id")
         && member_id != viewer_member_id.into_uuid()
         && !governs_space
     {

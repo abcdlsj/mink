@@ -2,7 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use axum::http::{HeaderMap, HeaderValue};
 use object_store::local::LocalFileSystem;
-use sqlx::{Connection, PgConnection, postgres::PgConnectOptions};
+use sqlx::{Connection, PgConnection, Row, postgres::PgConnectOptions};
 use tempfile::TempDir;
 use url::Url;
 
@@ -1149,4 +1149,216 @@ fn task_create_dto_rejects_system_derived_source_fields() {
         "source_thread_id": Uuid::now_v7()
     });
     assert!(serde_json::from_value::<CreateTaskBody>(body).is_err());
+}
+
+#[tokio::test]
+async fn agent_write_actions_emit_agent_activity_events() {
+    let mut fixture = CapabilityFixture::create().await;
+    let agent_id = fixture.context.agent_id.into_uuid();
+    let space_id = fixture.context.space_id.into_uuid();
+    let focus_id = fixture.context.focus_thread_id.into_uuid();
+    sqlx::query(
+        "INSERT INTO member_permissions (member_id,space_id,action_code,granted_by_member_id,created_at) \
+         VALUES ($1,$2,'channel.create',$3,now()), ($1,$2,'agent.create',$3,now())",
+    )
+    .bind(agent_id)
+    .bind(space_id)
+    .bind(fixture.owner_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+
+    fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: "activity check".into(),
+            attachment_ids: Vec::new(),
+            handle_item_id: None,
+            snapshot_sequence: None,
+        }))
+        .await
+        .unwrap();
+    let task_id = fixture.bind_task().await;
+    fixture
+        .execute(capability::Action::TaskUpdate {
+            title: "Renamed by Agent".into(),
+        })
+        .await
+        .unwrap();
+    let created_channel = fixture
+        .execute(capability::Action::ChannelCreate {
+            name: "News".into(),
+            private: false,
+        })
+        .await
+        .unwrap();
+    let created_agent = fixture
+        .execute(capability::Action::AgentCreate {
+            name: "Coder".into(),
+            role: "Write code".into(),
+            driver: capability::DriverKind::Codex,
+        })
+        .await
+        .unwrap();
+    fixture
+        .execute(capability::Action::InboxAck {
+            item_id: fixture.handled_item_id,
+            reason: None,
+        })
+        .await
+        .unwrap();
+    let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
+        .bind(fixture.channel_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+    fixture.context.message_snapshot_sequence = snapshot as u64;
+    fixture
+        .execute(capability::Action::TaskDone {
+            result: "Agent Result".into(),
+            post_to: capability::PostTarget::Focus,
+        })
+        .await
+        .unwrap();
+
+    let rows = sqlx::query(
+        "SELECT payload_json FROM outbox_events WHERE kind='agent.activity' \
+         ORDER BY created_at,id",
+    )
+    .fetch_all(&fixture.state.pool)
+    .await
+    .unwrap();
+    let payloads: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|row| row.get("payload_json"))
+        .collect();
+    let kinds: Vec<&str> = payloads
+        .iter()
+        .map(|payload| payload["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "message.send",
+            "task.create",
+            "task.update",
+            "channel.create",
+            "agent.create",
+            "inbox.ack",
+            "task.done",
+        ]
+    );
+    for payload in &payloads {
+        assert_eq!(payload["member_id"], serde_json::json!(agent_id));
+    }
+    assert_eq!(
+        payloads[0]["channel_id"],
+        serde_json::json!(fixture.channel_id)
+    );
+    assert_eq!(payloads[0]["thread_id"], serde_json::json!(focus_id));
+    assert!(payloads[0]["message_id"].as_str().is_some());
+    assert_eq!(
+        payloads[1]["task_id"],
+        serde_json::json!(task_id.into_uuid())
+    );
+    assert_eq!(
+        payloads[6]["task_id"],
+        serde_json::json!(task_id.into_uuid())
+    );
+    assert_eq!(payloads[3]["channel_id"], created_channel["channel_id"]);
+    assert_eq!(payloads[4]["target_member_id"], created_agent["agent_id"]);
+    assert_eq!(
+        payloads[5]["item_id"],
+        serde_json::json!(fixture.handled_item_id.into_uuid())
+    );
+
+    // A Space member who cannot read the private Channel still receives the
+    // Channel-independent activity rows, but not message.send / channel.create.
+    let viewer = MemberId::from_uuid(Uuid::now_v7());
+    let visible = fixture
+        .state
+        .storage
+        .browser_events(SpaceId::from_uuid(space_id), viewer, None)
+        .await
+        .unwrap()
+        .unwrap();
+    let visible_activity: Vec<&str> = visible
+        .iter()
+        .filter(|event| event.event_type == "agent.activity")
+        .map(|event| event.data["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        visible_activity,
+        vec![
+            "task.create",
+            "task.update",
+            "agent.create",
+            "inbox.ack",
+            "task.done",
+        ]
+    );
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn yielded_run_emits_agent_activity_event() {
+    let fixture = CapabilityFixture::create().await;
+    let agent_id = fixture.context.agent_id.into_uuid();
+    let space_id = fixture.context.space_id.into_uuid();
+    let run_id = fixture.context.run_id.into_uuid();
+    let focus_id = fixture.context.focus_thread_id.into_uuid();
+
+    apply_run_result(
+        &fixture.state,
+        fixture.computer_id,
+        RunResult {
+            event_id: EventId::from_uuid(Uuid::now_v7()),
+            run_id: fixture.context.run_id,
+            fencing_token: FencingToken::new(fixture.context.fencing_token.clone()),
+            status: RunTerminalStatus::Yielded,
+            item_outcomes: vec![
+                ItemOutcome {
+                    item_id: fixture.handled_item_id,
+                    disposition: ItemDisposition::Handled,
+                },
+                ItemOutcome {
+                    item_id: fixture.deferred_item_id,
+                    disposition: ItemDisposition::Deferred,
+                },
+            ],
+            continuation_note: Some("continue later".to_owned()),
+            error_code: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload_json FROM outbox_events WHERE kind='agent.activity'")
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(payload["kind"], serde_json::json!("run.yield"));
+    assert_eq!(payload["member_id"], serde_json::json!(agent_id));
+    assert_eq!(payload["run_id"], serde_json::json!(run_id));
+    assert_eq!(payload["thread_id"], serde_json::json!(focus_id));
+
+    let viewer = MemberId::from_uuid(Uuid::now_v7());
+    let visible = fixture
+        .state
+        .storage
+        .browser_events(SpaceId::from_uuid(space_id), viewer, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        visible
+            .iter()
+            .filter(|event| event.event_type == "agent.activity")
+            .count(),
+        1
+    );
+
+    fixture.destroy().await;
 }
