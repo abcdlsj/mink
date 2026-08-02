@@ -282,7 +282,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
 }
 
 export function ExpandableMessageText({ messageId, body, mentionedHandles }: { messageId: string; body: string; mentionedHandles: ReadonlySet<string> }) {
-  const paragraph = useRef<HTMLParagraphElement>(null);
+  const paragraph = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const bodyId = `message-body-${messageId}`;
@@ -300,9 +300,9 @@ export function ExpandableMessageText({ messageId, body, mentionedHandles }: { m
 
   return (
     <div className="message-body-wrap">
-      <p ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
+      <div ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
         {renderMessageBody(body, mentionedHandles)}
-      </p>
+      </div>
       {overflowing || expanded ? (
         <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
           {expanded ? "Show less" : "Show more"}
@@ -364,26 +364,269 @@ function highlightMentions(
   return nodes;
 }
 
+type MessageBlock =
+  | { kind: "heading"; level: number; line: string }
+  | { kind: "list"; ordered: boolean; items: string[] }
+  | { kind: "quote"; lines: string[] }
+  | { kind: "code"; lines: string[] }
+  | { kind: "hr" }
+  | { kind: "paragraph"; lines: string[] };
+
+const MAX_INLINE_DEPTH = 6;
+const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
+
 function renderMessageBody(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const inlineCodePattern = /`([^`\n]+)`/g;
-  let cursor = 0;
-  let segment = 0;
-  for (const match of body.matchAll(inlineCodePattern)) {
-    const matchStart = match.index ?? 0;
-    nodes.push(
-      ...highlightMentions(body.slice(cursor, matchStart), mentionedHandles, `text-${segment}`),
-    );
-    nodes.push(
-      <code className="message-inline-code" key={`code-${matchStart}`}>
-        {match[1]}
-      </code>,
-    );
-    segment += 1;
-    cursor = matchStart + match[0].length;
+  return splitMessageBlocks(body).map((block, index) =>
+    renderMessageBlock(block, mentionedHandles, index),
+  );
+}
+
+function splitMessageBlocks(body: string): MessageBlock[] {
+  const blocks: MessageBlock[] = [];
+  const lines = body.split("\n");
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      index += 1;
+      continue;
+    }
+    if (trimmed.startsWith("```")) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push({ kind: "code", lines: codeLines });
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      blocks.push({ kind: "heading", level: heading[1].length, line: heading[2] });
+      index += 1;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push({ kind: "hr" });
+      index += 1;
+      continue;
+    }
+    const ordered = /^\d+[.)]\s+/.test(trimmed);
+    if (ordered || /^[-*+]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      const itemPattern = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+      while (index < lines.length && itemPattern.test(lines[index])) {
+        items.push(lines[index].replace(itemPattern, ""));
+        index += 1;
+      }
+      blocks.push({ kind: "list", ordered, items });
+      continue;
+    }
+    if (trimmed.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith(">")) {
+        quoteLines.push(lines[index].replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      blocks.push({ kind: "quote", lines: quoteLines });
+      continue;
+    }
+    const paragraph: string[] = [line];
+    index += 1;
+    while (
+      index < lines.length &&
+      lines[index].trim() !== "" &&
+      !startsMessageBlock(lines[index])
+    ) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push({ kind: "paragraph", lines: paragraph });
   }
-  nodes.push(...highlightMentions(body.slice(cursor), mentionedHandles, `text-${segment}`));
+  return blocks;
+}
+
+function startsMessageBlock(line: string): boolean {
+  const trimmed = line.trim();
+  return (
+    /^#{1,6}\s+/.test(trimmed) ||
+    trimmed.startsWith("```") ||
+    /^[-*+]\s+/.test(trimmed) ||
+    /^\d+[.)]\s+/.test(trimmed) ||
+    /^>\s?/.test(trimmed) ||
+    /^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)
+  );
+}
+
+function renderMessageBlock(
+  block: MessageBlock,
+  mentionedHandles: ReadonlySet<string>,
+  blockIndex: number,
+): ReactNode {
+  const key = `message-block-${blockIndex}`;
+  switch (block.kind) {
+    case "heading": {
+      const Heading = HEADING_TAGS[Math.min(block.level, HEADING_TAGS.length) - 1];
+      return (
+        <Heading key={key} className="message-heading">
+          {renderInline(block.line, mentionedHandles, `heading-${blockIndex}`)}
+        </Heading>
+      );
+    }
+    case "list":
+      return block.ordered ? (
+        <ol key={key}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`${key}-${itemIndex}`}>
+              {renderInline(item, mentionedHandles, `list-${blockIndex}-${itemIndex}`)}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <ul key={key}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`${key}-${itemIndex}`}>
+              {renderInline(item, mentionedHandles, `list-${blockIndex}-${itemIndex}`)}
+            </li>
+          ))}
+        </ul>
+      );
+    case "quote":
+      return (
+        <blockquote key={key}>
+          {block.lines.map((line, lineIndex) => (
+            <p key={`${key}-${lineIndex}`}>
+              {renderInline(line, mentionedHandles, `quote-${blockIndex}-${lineIndex}`)}
+            </p>
+          ))}
+        </blockquote>
+      );
+    case "code":
+      return (
+        <pre key={key}>
+          <code>{block.lines.join("\n")}</code>
+        </pre>
+      );
+    case "hr":
+      return <hr key={key} />;
+    case "paragraph":
+      return (
+        <p key={key}>
+          {block.lines.map((line, lineIndex) =>
+            lineIndex === 0
+              ? renderInline(line, mentionedHandles, `paragraph-${blockIndex}`)
+              : renderInline(`\n${line}`, mentionedHandles, `paragraph-${blockIndex}-${lineIndex}`),
+          )}
+        </p>
+      );
+  }
+}
+
+function renderInline(
+  text: string,
+  mentionedHandles: ReadonlySet<string>,
+  keyPrefix: string,
+  depth = 0,
+): ReactNode[] {
+  if (depth > MAX_INLINE_DEPTH) {
+    return highlightMentions(text, mentionedHandles, keyPrefix);
+  }
+  const codeMatch = /`([^`\n]+)`/.exec(text);
+  const boldMatch = /\*\*([^*\n]+)\*\*/.exec(text);
+  const italicMatch = /(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)/.exec(text);
+  const deleteMatch = /~~([^~\n]+)~~/.exec(text);
+  const linkMatch = /\[([^\]\n]+)\]\(([^)\s]+)\)/.exec(text);
+  const candidates = [
+    { kind: "code" as const, match: codeMatch },
+    { kind: "bold" as const, match: boldMatch },
+    { kind: "italic" as const, match: italicMatch },
+    { kind: "delete" as const, match: deleteMatch },
+    { kind: "link" as const, match: linkMatch },
+  ]
+    .filter((candidate): candidate is { kind: typeof candidate.kind; match: RegExpExecArray } =>
+      Boolean(candidate.match),
+    )
+    .sort((left, right) => (left.match.index ?? 0) - (right.match.index ?? 0));
+  if (candidates.length === 0) {
+    return highlightMentions(text, mentionedHandles, keyPrefix);
+  }
+  const first = candidates[0];
+  const match = first.match;
+  const matchStart = match.index ?? 0;
+  const nodes: ReactNode[] = [];
+  nodes.push(...highlightMentions(text.slice(0, matchStart), mentionedHandles, `${keyPrefix}-b`));
+  const innerKey = `${keyPrefix}-t`;
+  switch (first.kind) {
+    case "code":
+      nodes.push(
+        <code key={innerKey} className="message-inline-code">
+          {match[1]}
+        </code>,
+      );
+      break;
+    case "bold":
+      nodes.push(
+        <strong key={innerKey}>
+          {renderInline(match[1], mentionedHandles, `${keyPrefix}-s`, depth + 1)}
+        </strong>,
+      );
+      break;
+    case "italic":
+      nodes.push(
+        <em key={innerKey}>
+          {renderInline(match[1] ?? match[2], mentionedHandles, `${keyPrefix}-e`, depth + 1)}
+        </em>,
+      );
+      break;
+    case "delete":
+      nodes.push(
+        <del key={innerKey}>
+          {renderInline(match[1], mentionedHandles, `${keyPrefix}-d`, depth + 1)}
+        </del>,
+      );
+      break;
+    case "link": {
+      const href = safeMessageLink(match[2]);
+      nodes.push(
+        href ? (
+          <a key={innerKey} href={href} rel="noreferrer" target="_blank">
+            {renderInline(match[1], mentionedHandles, `${keyPrefix}-l`, depth + 1)}
+          </a>
+        ) : (
+          <span key={innerKey}>{match[0]}</span>
+        ),
+      );
+      break;
+    }
+  }
+  nodes.push(
+    ...renderInline(
+      text.slice(matchStart + match[0].length),
+      mentionedHandles,
+      `${keyPrefix}-a`,
+      depth + 1,
+    ),
+  );
   return nodes;
+}
+
+function safeMessageLink(url: string): string | null {
+  const trimmed = url.trim();
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+    return trimmed;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function textBody(message: Message): string {

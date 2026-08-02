@@ -10,7 +10,7 @@ describe("ExpandableMessageText", () => {
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(240);
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(120);
 
-    render(
+    const { container } = render(
       <ExpandableMessageText
         messageId="message-1"
         body={Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n")}
@@ -18,7 +18,7 @@ describe("ExpandableMessageText", () => {
       />,
     );
 
-    const body = screen.getByText(/Line 1/);
+    const body = container.querySelector(".message-body") as HTMLElement;
     const toggle = screen.getByRole("button", { name: "Show more" });
     expect(body).toHaveClass("message-body--collapsed");
     fireEvent.click(toggle);
@@ -86,5 +86,89 @@ describe("inline code", () => {
 
     expect(container.querySelector("code.message-inline-code")).not.toBeInTheDocument();
     expect(container).toHaveTextContent("A lone `backtick stays plain");
+  });
+});
+
+describe("markdown rendering", () => {
+  it("renders bold and italic", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-bold"
+        body="Use **strong** and *emphasis* together."
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelector("strong")).toHaveTextContent("strong");
+    expect(container.querySelector("em")).toHaveTextContent("emphasis");
+    expect(container).toHaveTextContent("Use strong and emphasis together.");
+  });
+
+  it("renders h1 to h3 headings", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-headings"
+        body={"# One\n## Two\n### Three\nbody text"}
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelector("h1.message-heading")).toHaveTextContent("One");
+    expect(container.querySelector("h2.message-heading")).toHaveTextContent("Two");
+    expect(container.querySelector("h3.message-heading")).toHaveTextContent("Three");
+  });
+
+  it("renders unordered and ordered lists", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-lists"
+        body={"- first\n- second\n\n1. one\n2. two"}
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelectorAll("ul li")).toHaveLength(2);
+    expect(container.querySelectorAll("ol li")).toHaveLength(2);
+  });
+
+  it("renders links and rejects unsafe protocols", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-links"
+        body="See [docs](https://example.test/docs) and [bad](javascript:alert(1))."
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    const link = container.querySelector("a");
+    expect(link).toHaveAttribute("href", "https://example.test/docs");
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+    expect(container).toHaveTextContent("See docs and [bad](javascript:alert(1)).");
+  });
+
+  it("renders fenced code blocks as pre with mono code", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-code-block"
+        body={"```\nsumi server --help\n```"}
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelector("pre code")).toHaveTextContent("sumi server --help");
+  });
+
+  it("supports nested inline markup inside bold", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-nested"
+        body="Run **`sumi server`** now."
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    const strong = container.querySelector("strong");
+    expect(strong).not.toBeNull();
+    expect(strong?.querySelector("code.message-inline-code")).toHaveTextContent("sumi server");
   });
 });

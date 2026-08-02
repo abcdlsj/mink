@@ -101,7 +101,11 @@ Message投递或attention失败使用与日期分隔相同的居中系统信息�
 
 ## 5. Message 投影
 
-Message 正文支持 Markdown inline code：反引号包裹的片段渲染为 `code` 元素，使用Space Mono与浅色背景；inline code 内不解析 mention 高亮。未闭合的反引号保持普通正文。
+Message 正文支持常见 Markdown：
+
+- 行内：`**bold**`、`*italic*`、`_italic_`、`~~deleted~~`、`` `inline code` ``、`[label](url)`。链接只允许 http/https 与站内路径，其他协议保持普通正文。inline code 内不解析 mention 高亮。
+- 块级：`#`至`######`标题、无序列表（`-`/`*`）、有序列表（`1.`）、引用（`>`）、围栏代码块（```` ``` ````）和分隔线（`---`）。
+- 未闭合的反引号保持普通正文；正文行高为1.4，消息内标题使用14至16px、700字重，块间距压缩为0.25em。
 
 普通 Message 正文中的 `@handle` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 handle 时才使用高亮。Browser 不得仅根据正文中的 `@` 文本推断 mention；未被 Server 识别的文本保持普通正文样式。
 

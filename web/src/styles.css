@@ -279,7 +279,6 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .send-button { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border: 2px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); }
 .icon-button svg,
 .send-button svg { width: 18px; height: 18px; }
-.mobile-menu { display: none; }
 .empty-channel { display: grid; min-height: 100%; align-content: start; justify-items: start; gap: 10px; padding: clamp(28px, 6vh, 60px) 24px; text-align: start; }
 .channel-glyph { display: grid; width: 44px; height: 44px; place-items: center; border: 2px solid var(--ink); background: var(--space-accent); box-shadow: 3px 3px 0 var(--ink); }
 .channel-glyph svg { width: 22px; height: 22px; }
@@ -497,7 +496,6 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .space-navigation--open { position: fixed; z-index: 20; top: 0; bottom: 0; left: 56px; display: block; width: min(300px, calc(100vw - 76px)); border-right: 2px solid var(--ink); box-shadow: 6px 0 0 var(--ink); }
   .navigation-scrim { position: fixed; z-index: 19; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: rgb(23 23 23 / 45%); }
   .navigation-close { display: grid; }
-  .mobile-menu { display: grid; }
   .channel-workspace--thread-open { grid-template-columns: minmax(0, 1fr); }
   .thread-pane { position: fixed; z-index: 18; inset: 0 0 0 56px; grid-column: auto; grid-row: auto; border-left: 2px solid var(--ink); }
 }
@@ -872,8 +870,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .space-navigation { display: none; }
   .space-navigation--open { position: fixed; z-index: 20; top: 0; bottom: 0; left: 52px; display: block; width: min(300px, calc(100vw - 72px)); border-right: 2px solid var(--ink); box-shadow: 4px 0 0 var(--ink); }
   .navigation-scrim { position: fixed; z-index: 19; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: rgb(23 23 23 / 38%); }
-  .navigation-close,
-  .mobile-menu { display: grid; }
+  .navigation-close { display: grid; }
   .channel-workspace { grid-template-rows: 56px minmax(0, 1fr) auto; }
   .channel-header { gap: 10px; padding: 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 34%, transparent); }
   .channel-header-glyph { width: 34px; height: 34px; flex-basis: 34px; border-width: 1px; background: var(--accent-soft); color: var(--ink); box-shadow: none; }
@@ -886,7 +883,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .message-row { gap: 10px; padding: 7px 18px; }
   .message-row > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; border-width: 1px; }
   .message-content { padding-right: 0; }
-  .message-content p { line-height: 1.45; }
+  .message-content p { line-height: 1.4; }
   .message-seq { display: none; }
   .composer { min-height: 0; grid-template-rows: minmax(44px, auto) auto; gap: 6px 8px; margin: 0; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-color: color-mix(in srgb, var(--ink) 38%, transparent); background: color-mix(in srgb, var(--paper) 94%, var(--panel)); box-shadow: none; }
   .composer > .icon-button { width: 40px; height: 40px; flex-basis: 40px; border-color: color-mix(in srgb, var(--ink) 45%, transparent); }
@@ -913,7 +910,6 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .space-navigation--open { left: 0; width: min(320px, 88vw); }
   .channel-header { min-height: 58px; padding: 0 10px; }
   .channel-header-glyph { display: none; }
-  .mobile-menu,
   .channel-header > .icon-button { width: 44px; height: 44px; flex-basis: 44px; }
   .member-strip .pixel-identity:nth-child(n + 3),
   .member-strip .presence-identity:nth-child(n + 3) { display: none; }
@@ -1254,8 +1250,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; padding: 8px 20px; position: relative; }
 .message-content p,
 .thread-message p { font-size: var(--text-body); }
-.message-content p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.55; white-space: pre-wrap; margin-top: 2px; }
-.thread-message p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.45; white-space: pre-wrap; }
+.message-content p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; margin-top: 2px; }
+.thread-message p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; }
 .message-content > header,
 .message-row--grouped .message-content > p,
 .message-row--grouped .message-body { padding-right: 50px; }
@@ -1271,7 +1267,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-action-error { position: absolute; top: calc(100% + 6px); right: -2px; width: max-content; max-width: 220px; padding: 5px 7px; border: 2px solid var(--ink); background: color-mix(in srgb, var(--red) 30%, var(--paper)); color: var(--ink); font-size: var(--text-system); font-weight: 600; }
 .message-mention { padding: 0 2px; background: var(--accent-soft); color: var(--ink); font-weight: 700; text-decoration: none; }
 .message-body-wrap { min-width: 0; }
-.message-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-body { font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-inline-code {
   font-family: var(--font-mono);
   font-size: .9em;
@@ -1771,3 +1767,32 @@ kbd,
 pre {
   font-family: var(--font-mono);
 }
+
+/* Markdown blocks inside a Message share one compact rhythm. */
+.message-body > *:first-child { margin-top: 0; }
+.message-body > *:last-child { margin-bottom: 0; }
+.message-body p,
+.message-body ul,
+.message-body ol,
+.message-body blockquote,
+.message-body pre { margin: .25em 0; }
+.message-body h1,
+.message-body h2,
+.message-body h3,
+.message-body h4,
+.message-body h5,
+.message-body h6 { margin: .5em 0 .25em; font-weight: 700; line-height: 1.25; }
+.message-body h1 { font-size: 16px; }
+.message-body h2 { font-size: 15px; }
+.message-body h3 { font-size: 14px; }
+.message-body h4,
+.message-body h5,
+.message-body h6 { font-size: 13px; }
+.message-body ul,
+.message-body ol { padding-left: 1.4em; }
+.message-body li { margin: .15em 0; }
+.message-body blockquote { padding-left: .8em; border-left: 2px solid var(--ink); color: var(--muted); }
+.message-body pre { padding: 8px 10px; background: var(--code-bg); overflow-x: auto; }
+.message-body pre code { background: transparent; padding: 0; font-size: .9em; }
+.message-body hr { margin: .6em 0; border: 0; border-top: 2px solid var(--ink); }
+.message-body a { color: var(--accent-core); text-decoration: underline; text-underline-offset: 2px; }
