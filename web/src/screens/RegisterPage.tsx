@@ -4,7 +4,7 @@ import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
 import type { FormEvent } from "react";
 
 import { register } from "../api/client";
-import { SumiMark } from "../components/SumiMark";
+import { SumiLogo } from "../components/SumiLogo";
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -35,7 +35,7 @@ export function RegisterPage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <SumiMark />
+            <SumiLogo />
           </span>
           SUMI
         </Link>

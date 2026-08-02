@@ -5,7 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { createSpace } from "../api/client";
 import { OnboardingProgress } from "./RegisterPage";
-import { SumiMark } from "../components/SumiMark";
+import { SumiLogo } from "../components/SumiLogo";
 
 const accents = [
   { value: "#FE7DA8", label: "Pink" },
@@ -43,7 +43,7 @@ export function SpaceCreatePage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <SumiMark />
+            <SumiLogo />
           </span>
           SUMI
         </Link>

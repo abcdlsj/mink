@@ -1,15 +1,15 @@
-// A relaxed 12×12 pixel "S" on a 16-grid. Equal top/bottom bars and a tall
-// waist keep it from reading as a "5"; wide bars give it a distinct rhythm.
+// Compact 8×8 pixel "S" for small surfaces (rail badge, favicon). Rounded
+// ends on the top and bottom bars keep it from reading as a "5".
 // The container supplies background and border; this component only draws ink.
 export function SumiMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" className={className} aria-hidden="true" shapeRendering="crispEdges">
       <g fill="currentColor">
-        <rect x="2" y="2" width="12" height="2" />
-        <rect x="2" y="4" width="2" height="3" />
-        <rect x="2" y="7" width="12" height="2" />
-        <rect x="12" y="9" width="2" height="3" />
-        <rect x="2" y="12" width="12" height="2" />
+        <rect x="5" y="3" width="6" height="2" />
+        <rect x="4" y="5" width="2" height="2" />
+        <rect x="4" y="7" width="8" height="2" />
+        <rect x="10" y="9" width="2" height="2" />
+        <rect x="5" y="11" width="6" height="2" />
       </g>
     </svg>
   );
