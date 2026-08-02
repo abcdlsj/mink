@@ -43,8 +43,26 @@ pub(in crate::computer) struct TaskInput {
 pub(in crate::computer) struct RunContextInput {
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) message_snapshot_sequence: u64,
-    pub(in crate::computer) focus_messages: Vec<String>,
+    pub(in crate::computer) focus_messages: Vec<ContextMessageInput>,
     pub(in crate::computer) claimed_items: Vec<ClaimedItemInput>,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::computer) struct ContextMessageInput {
+    pub(in crate::computer) message_id: MessageId,
+    pub(in crate::computer) author_member_id: crate::ids::MemberId,
+    pub(in crate::computer) body: String,
+}
+
+impl fmt::Debug for ContextMessageInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContextMessageInput")
+            .field("message_id", &self.message_id)
+            .field("author_member_id", &self.author_member_id)
+            .field("has_body", &!self.body.is_empty())
+            .finish()
+    }
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -52,6 +70,7 @@ pub(in crate::computer) struct ClaimedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) thread_id: ThreadId,
+    pub(in crate::computer) source_message_id: Option<MessageId>,
     pub(in crate::computer) content: Option<String>,
 }
 
@@ -79,6 +98,9 @@ impl ClaimedItemInput {
         digest.update(self.item_id.to_string().as_bytes());
         digest.update(format!("{:?}", self.task_id).as_bytes());
         digest.update(self.thread_id.to_string().as_bytes());
+        if let Some(message_id) = self.source_message_id {
+            digest.update(message_id.to_string().as_bytes());
+        }
         if let Some(content) = &self.content {
             digest.update(content.as_bytes());
         }
@@ -93,6 +115,7 @@ impl fmt::Debug for ClaimedItemInput {
             .field("item_id", &self.item_id)
             .field("task_id", &self.task_id)
             .field("thread_id", &self.thread_id)
+            .field("source_message_id", &self.source_message_id)
             .field("has_content", &self.content.is_some())
             .finish()
     }
@@ -122,7 +145,9 @@ impl RunInput {
         digest.update(self.context.focus_thread_id.to_string().as_bytes());
         digest.update(self.context.message_snapshot_sequence.to_le_bytes());
         for message in &self.context.focus_messages {
-            digest.update(message.as_bytes());
+            digest.update(message.message_id.to_string().as_bytes());
+            digest.update(message.author_member_id.to_string().as_bytes());
+            digest.update(message.body.as_bytes());
         }
         for item in &self.context.claimed_items {
             digest.update(item.content_hash().as_bytes());

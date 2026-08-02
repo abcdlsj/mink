@@ -843,9 +843,9 @@ mod tests {
 
     use super::*;
     use crate::computer::application::{
-        AgentInput, ClaimedItemInput, DriverKind, FencingToken, LocalRun, NewRun, ProviderSession,
-        ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority, SessionFingerprint,
-        SessionScope, SessionState, WorkInput, WorkStrength,
+        AgentInput, ClaimedItemInput, ContextMessageInput, DriverKind, FencingToken, LocalRun,
+        NewRun, ProviderSession, ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority,
+        SessionFingerprint, SessionScope, SessionState, WorkInput, WorkStrength,
         command::Command,
         ports::{CommandStatus, LocalEvent, StoredCommand},
     };
@@ -1050,6 +1050,7 @@ mod tests {
             item_id: json_item_id,
             task_id: None,
             thread_id,
+            source_message_id: None,
             content: Some("item".to_owned()),
         };
         adapter
@@ -1152,6 +1153,7 @@ mod tests {
                 item_id,
                 task_id: None,
                 thread_id,
+                source_message_id: None,
                 content: Some("item".to_owned()),
             })
             .into_iter()
@@ -1187,7 +1189,11 @@ mod tests {
                 context: RunContextInput {
                     focus_thread_id: thread_id,
                     message_snapshot_sequence: 1,
-                    focus_messages: vec!["body".to_owned()],
+                    focus_messages: vec![ContextMessageInput {
+                        message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
+                        author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                        body: "body".to_owned(),
+                    }],
                     claimed_items,
                 },
             },

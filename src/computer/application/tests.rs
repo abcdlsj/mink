@@ -11,8 +11,8 @@ use crate::ids::{
 use crate::computer::core::{
     home::LocalAgent,
     input::{
-        AgentInput, AttentionNoticeInput, ClaimedItemInput, NoticeLocationInput, RunContextInput,
-        RunInput, TaskInput, WorkInput,
+        AgentInput, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
+        NoticeLocationInput, RunContextInput, RunInput, TaskInput, WorkInput,
     },
     scheduler::{PendingRun, RunPriority, Scheduler, WorkStrength},
     session::{
@@ -1481,7 +1481,11 @@ fn test_input<const N: usize>(
         context: RunContextInput {
             focus_thread_id: thread_id,
             message_snapshot_sequence: 1,
-            focus_messages: vec!["message body".to_owned()],
+            focus_messages: vec![ContextMessageInput {
+                message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
+                author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                body: "message body".to_owned(),
+            }],
             claimed_items: items
                 .into_iter()
                 .map(|(item_id, task_id, thread_id)| claimed_item(item_id, task_id, thread_id))
@@ -1499,6 +1503,7 @@ fn claimed_item(
         item_id,
         task_id,
         thread_id,
+        source_message_id: None,
         content: Some("steering body".to_owned()),
     }
 }

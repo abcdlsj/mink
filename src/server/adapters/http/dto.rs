@@ -222,7 +222,7 @@ pub(super) async fn member_row(
 pub(super) async fn message_row(
     pool: &PgPool,
     row: &sqlx::postgres::PgRow,
-    _viewer: Uuid,
+    viewer: Uuid,
 ) -> Result<MessageResponse, ApiError> {
     let id: Uuid = row.get("id");
     let author = sqlx::query("SELECT id,kind,display_name,handle FROM members WHERE id=$1")
@@ -266,6 +266,63 @@ pub(super) async fn message_row(
     .fetch_all(pool)
     .await
     .map_err(map_sqlx)?;
+    let citation_rows = sqlx::query(
+        "SELECT c.answer_start,c.answer_end,c.source_message_id,c.source_start,c.source_end, \
+                s.channel_id,s.thread_id,s.body_markdown,a.id AS author_id,a.kind AS author_kind, \
+                a.display_name AS author_display_name,a.handle AS author_handle \
+         FROM message_context_citations c \
+         JOIN messages s ON s.id=c.source_message_id \
+         JOIN members a ON a.id=s.author_member_id \
+         JOIN channel_members cm ON cm.channel_id=s.channel_id AND cm.member_id=$2 \
+         WHERE c.answer_message_id=$1 AND s.content_kind='text' AND s.body_markdown IS NOT NULL \
+           AND s.deleted_at IS NULL \
+         ORDER BY c.answer_start,c.id",
+    )
+    .bind(id)
+    .bind(viewer)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx)?;
+    let context_citations = citation_rows
+        .iter()
+        .map(|citation| {
+            let source_start = u64::try_from(citation.get::<i64, _>("source_start"))
+                .map_err(|_| ApiError::internal())?;
+            let source_end = u64::try_from(citation.get::<i64, _>("source_end"))
+                .map_err(|_| ApiError::internal())?;
+            let excerpt_start = usize::try_from(source_start).map_err(|_| ApiError::internal())?;
+            let excerpt_len =
+                usize::try_from(source_end - source_start).map_err(|_| ApiError::internal())?;
+            let source_excerpt = citation
+                .get::<String, _>("body_markdown")
+                .chars()
+                .skip(excerpt_start)
+                .take(excerpt_len)
+                .collect();
+            Ok(ContextCitationResponse {
+                answer_start: u64::try_from(citation.get::<i64, _>("answer_start"))
+                    .map_err(|_| ApiError::internal())?,
+                answer_end: u64::try_from(citation.get::<i64, _>("answer_end"))
+                    .map_err(|_| ApiError::internal())?,
+                source_message_id: citation.get("source_message_id"),
+                source_start,
+                source_end,
+                source_channel_id: citation.get("channel_id"),
+                source_thread_id: citation.get("thread_id"),
+                source_author: MessageAuthor {
+                    id: citation.get("author_id"),
+                    kind: match citation.get::<&str, _>("author_kind") {
+                        "human" => MemberKindCode::Human,
+                        "agent" => MemberKindCode::Agent,
+                        _ => return Err(ApiError::internal()),
+                    },
+                    display_name: citation.get("author_display_name"),
+                    handle: citation.get("author_handle"),
+                },
+                source_excerpt,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
     let content = match row.get::<&str, _>("content_kind") {
         "text" => MessageContentResponse::Text {
             body_markdown: row
@@ -345,6 +402,7 @@ pub(super) async fn message_row(
         created_at: timestamp(row.get("created_at")),
         edited_at: optional_timestamp(row.get("edited_at")),
         deleted_at: optional_timestamp(row.get("deleted_at")),
+        context_citations,
     })
 }
 

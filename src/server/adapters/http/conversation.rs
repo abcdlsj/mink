@@ -5,6 +5,10 @@ pub(super) struct MessageWriteContext {
     pub(in crate::server::adapters) thread_id: Option<Uuid>,
     pub(in crate::server::adapters) handled_item: Option<(Uuid, Uuid)>,
     pub(in crate::server::adapters) expected_snapshot: Option<u64>,
+    pub(in crate::server::adapters) citations:
+        Vec<crate::server::application::ports::MessageCitationDraft>,
+    pub(in crate::server::adapters) citation_context:
+        Option<crate::server::application::ports::CitationContext>,
 }
 
 pub(super) async fn list_channels(
@@ -177,6 +181,8 @@ pub(super) async fn create_root_message(
             thread_id: None,
             handled_item: None,
             expected_snapshot: None,
+            citations: Vec::new(),
+            citation_context: None,
         },
         body,
     )
@@ -264,6 +270,8 @@ pub(super) async fn create_thread_reply(
             thread_id: Some(thread_id),
             handled_item: None,
             expected_snapshot: None,
+            citations: Vec::new(),
+            citation_context: None,
         },
         body,
     )
@@ -380,6 +388,8 @@ pub(super) async fn insert_message(
                 (RunId::from_uuid(run_id), InboxItemId::from_uuid(item_id))
             }),
             expected_snapshot: context.expected_snapshot,
+            citations: context.citations,
+            citation_context: context.citation_context,
             now: OffsetDateTime::now_utc(),
         },
     )

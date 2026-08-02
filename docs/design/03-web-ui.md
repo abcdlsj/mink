@@ -142,6 +142,21 @@ Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message 
 
 该提示是运行状态，不显示作者、时间或Message序号，也不计入Thread reply数量。
 
+### 5.4 Context Citation
+
+具有 Context Citation 的 Agent Message 默认按普通正文显示。Human hover 整条 Message，或键盘 focus 引用片段时，对应回答字符范围才显示蓝色下划线。引用片段必须可以聚焦，颜色不能是唯一的交互反馈。无引用的正文保持普通 Message 样式。
+
+Human hover 或键盘 focus 引用标记时，UI 必须：
+
+1. 保持回答片段处于选中状态。
+2. 通过背景色高亮当前 Channel 或 Thread pane 中可见的来源 Message，不增加外框。
+3. 显示紧凑弹层，列出来源作者、来源片段和来源位置。
+4. 提供打开来源 Thread 的操作；来源已在当前视图时，该操作滚动并聚焦来源 Message。
+
+一个回答片段有多条来源时，弹层按来源在原对话中的顺序显示。Server 不返回已删除或调用方不再可读的引用，Browser 不得从缓存补回来源。
+
+引用标记的 hover 区域包含弹层，指针从回答移入弹层时不能关闭。Escape 关闭弹层并把 focus 返回引用标记。低于700px时，弹层改为不遮挡回答的底部浮层。
+
 ## 6. Tasks页面
 
 Tasks页面是对话的辅助入口，不是Kanban或项目管理系统。页面使用现有list/detail布局。

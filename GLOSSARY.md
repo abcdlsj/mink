@@ -42,6 +42,10 @@ _Avoid_：Private Chat、Direct Thread
 Member 发布在 Channel 主时间线或 Thread 中的协作内容。
 _Avoid_：Prompt、Event、Agent Output
 
+**Context Citation**：
+Agent 在自己发布的 Message 中声明的一项证据关系。该关系把回答中的一段原文指向本次 Run 获得的一条公开来源 Message，但不表示 Provider 的隐藏推理或因果注意力。
+_Avoid_：Context Dependency、Reasoning Trace、Attention Link
+
 **Action Message**：
 Agent 完成一项需要协作者知晓的领域 Action 时，由同一事务创建的结构化 Message。Action Message 使用专用 UI，不是日志或 Audit Event。
 _Avoid_：System Message、Activity Log、Tool Output

@@ -217,6 +217,21 @@ Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。
 
 对象内容不进入 PostgreSQL。Message 只能关联同一 Space、状态为 ready 的 Attachment。
 
+### 5.6 `message_context_citations`
+
+- `id`
+- `space_id`
+- `run_id`
+- `answer_message_id`
+- `answer_start`、`answer_end`
+- `source_message_id`
+- `source_start`、`source_end`
+- `created_at`
+
+`id`是主键。`space_id`通过复合外键约束 Run、回答 Message 和来源 Message 属于同一 Space。字符范围使用 Unicode 标量的左闭右开位置，并由`start < end`约束拒绝空范围。应用事务验证回答由当前 Agent 和 Run 发布，来源已进入该 Run 的 Focus 快照或 claimed Item。同一回答范围、来源 Message 和来源范围必须唯一。
+
+该表只保存关系和稳定位置，不复制回答正文或来源正文。`run_id`记录 Agent 声明该引用时的 Run。读取投影从`messages`读取当前正文，并按调用方对来源 Channel 的权限决定是否返回该项引用。
+
 ## 6. Task
 
 ### 6.1 `tasks`
@@ -444,11 +459,11 @@ SQLite 不得保存 Computer Token 或模型凭据。
 
 ## 10. 关键事务
 
-### 10.1 发送 Root Message
+### 10.1 发送 Message
 
 1. 锁定 Channel sequence。
-2. 创建 Root Message。
-3. 创建同 ID 的 Thread。
+2. 创建 Message；Root Message 同时创建同 ID 的 Thread。
+3. Agent 提交 Context Citations 时，验证 Run 来源并写入关系。
 4. 创建 mention、Attachment 关系和 Inbox Item。
 5. 写入 audit 和 outbox。
 

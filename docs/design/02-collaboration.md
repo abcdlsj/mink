@@ -32,6 +32,21 @@ Agent Action Message 是当前 Focus 的 reply，不能成为 Root Message 或 T
 
 首批 action kind 只包含`channel_created`和`agent_created`。新增 kind 必须同时定义领域事务、权限、Message 投影和 UI。
 
+### 1.2 Context Citation
+
+Context Citation 把 Agent Message 中一段连续原文指向一条来源 Message。一个回答片段可以指向多条来源 Message；一条 Agent Message 可以包含多个回答片段。
+
+Context Citation 只能随 Agent 的普通 Message 原子创建。它不能由 Browser 补写，也不能单独编辑。每项声明包含回答原文、来源 Message ID 和可选来源原文。Server 将原文解析为 Unicode 标量位置，并拒绝空文本、找不到的文本或在同一正文中出现多次的文本。
+
+来源 Message 必须满足以下条件之一：
+
+- 它属于当前 Run 的 Focus，且已包含在该 Run 的消息快照中。
+- 它是当前 Run 已领取 Inbox Item 的来源 Message。
+
+来源必须是调用 Agent 可读的公开 text Message。Server 不接受 Provider Session transcript、Memory、workspace 文件、Attachment 正文、不同 Focus notice或隐藏推理作为 Context Citation 来源。
+
+Context Citation 是 Agent 对公开证据的声明。它证明该来源已进入本次 Run，并且 Agent 把它关联到回答片段；它不证明模型内部 attention、完整因果链或来源事实正确。
+
 ## 2. Task 模型
 
 Task 是一项持续工作的正式记录。Task 至少包含：
@@ -195,6 +210,10 @@ Computer 应关闭对应的 Provider Session。关闭失败不能回滚 Task 终
 ## 8. 删除与编辑
 
 Root Message成为Task source后不得硬删除。作者或Admin可以软删除正文，但必须保留来源占位、Message ID、Thread和Task。
+
+来源 Message 软删除后，Context Citation 关系保留，读取投影不返回该项引用或已删除正文。Agent capability 当前没有编辑 Message 的入口。
+
+编辑回答 Message 或来源 Message 时，Server 在同一事务中删除涉及该 Message 的 Context Citations。字符范围只描述创建引用时的正文，正文改变后不得继续投影旧范围。
 
 编辑 source Root Message 不修改 Task title。Task title 是独立事实，只能通过 Task update 修改。
 

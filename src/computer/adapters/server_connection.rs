@@ -3,9 +3,9 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContinuityState,
-        DriverKind, FencingToken, ItemDisposition, LocalAgent, LocalAgentState, LocalRun,
-        MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
+        AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
+        ContinuityState, DriverKind, FencingToken, ItemDisposition, LocalAgent, LocalAgentState,
+        LocalRun, MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
         SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
@@ -207,7 +207,7 @@ impl ServerConnectionAdapter {
                         message_snapshot_sequence: start.focus.message_sequence,
                         focus_messages: std::iter::once(&start.focus.root)
                             .chain(start.focus.replies.iter())
-                            .map(message_content)
+                            .map(context_message)
                             .collect(),
                         claimed_items,
                     },
@@ -397,7 +397,16 @@ fn claimed_item(item: &wire::InboxItemSnapshot) -> ClaimedItemInput {
         item_id: item.item_id,
         task_id: item.task_id,
         thread_id: item.thread_id,
+        source_message_id: item.message.as_ref().map(|message| message.message_id),
         content: item.message.as_ref().map(message_content),
+    }
+}
+
+fn context_message(message: &wire::MessageSnapshot) -> ContextMessageInput {
+    ContextMessageInput {
+        message_id: message.message_id,
+        author_member_id: message.author_member_id,
+        body: message_content(message),
     }
 }
 

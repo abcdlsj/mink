@@ -74,6 +74,8 @@ Builtin token 可以来自 Computer TOML 或`SUMI_COMPUTER__BUILTIN__TOKEN`。�
 - Provider transcript和隐藏推理。
 - Secret和完整环境变量。
 
+Context Citation 只允许指向 Server Message。读取投影必须按当前调用方重新检查来源 Channel 权限；来源不可读或已软删除时省略该项引用。日志和 audit 可以记录回答 Message ID、来源 Message ID 和字符范围，但不得记录`response_text`、`source_text`或来源片段。
+
 UI activity只显示可验证动作，例如“正在处理 #design:42”“正在等待外部输入”或“Session正在恢复”。
 
 ## 7. 删除

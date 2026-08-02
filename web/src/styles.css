@@ -6221,6 +6221,128 @@ h1 {
   text-decoration: none;
 }
 
+.context-citation-wrap {
+  position: relative;
+  display: inline;
+}
+
+.context-citation {
+  position: relative;
+  display: inline;
+  margin: 0;
+  padding: 1px 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: inherit;
+}
+
+.message-row:hover .context-citation,
+.message-row:focus-within .context-citation,
+.thread-message:hover .context-citation,
+.thread-message:focus-within .context-citation {
+  border-bottom-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 19%, transparent);
+}
+
+.context-citation:hover,
+.context-citation:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+  background: var(--accent-soft);
+}
+
+.context-citation-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  min-width: 220px;
+  max-width: min(340px, calc(100vw - 32px));
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
+  color: var(--ink);
+  font-size: var(--text-system);
+  line-height: 1.35;
+  text-align: left;
+}
+
+.context-citation-popover > strong {
+  font-size: var(--text-meta);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.context-citation-source {
+  display: grid;
+  gap: 2px;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+}
+
+.context-citation-author {
+  font-weight: 700;
+}
+
+.context-citation-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.context-citation-nav {
+  justify-self: start;
+  padding: 2px 4px;
+  border: 1px solid var(--ink);
+  background: var(--accent-soft);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: 700;
+}
+
+.context-citation-nav:hover,
+.context-citation-nav:focus-visible {
+  background: var(--accent);
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.message-block--context-source,
+.thread-message--context-source {
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-citation-popover,
+  .message-block--context-source,
+  .thread-message--context-source {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}
+
+@media (max-width: 699px) {
+  .context-citation-popover {
+    position: fixed;
+    inset: auto 12px 12px;
+    min-width: 0;
+    max-width: none;
+    max-height: 45vh;
+    overflow: auto;
+  }
+}
+
 .message-body-wrap {
   min-width: 0;
 }

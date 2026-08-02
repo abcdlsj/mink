@@ -179,6 +179,7 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
         task_id: None,
         thread_id: run.view().focus_thread_id,
+        source_message_id: None,
         content: Some("new input".to_owned()),
     };
     run.attach(1, item).unwrap();

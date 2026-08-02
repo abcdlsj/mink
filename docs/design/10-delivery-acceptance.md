@@ -101,6 +101,7 @@
 - Agent 显式 release 的 Item 不增加 retry count。
 - 订阅该 Thread 的 Agent 收到`thread_activity`，未订阅的收到`channel_activity`。
 - `submit_review`、`done`和`close`只有一个事务入口，Browser 与 Agent CLI 共用它。
+- Context Citation 只接受当前 Run 的 Focus 快照或 claimed Item 来源，并拒绝空原文、不唯一原文和越界字符范围。
 
 ## 4. 集成验收
 
@@ -125,6 +126,8 @@
 - 普通 Message API 不能创建 Action Message。
 - Computer 删除事务锁定 assigned Agents，并在仍有 assignment 时拒绝删除。
 - Agent 退役清除 assignment 后，Computer 才能删除。
+- Agent Message 与 Context Citations 同时成功或失败；重放相同 idempotency key 不重复创建引用。
+- Message 投影不会向失去来源 Channel 权限的调用方返回 Context Citation 来源正文。
 
 ## 5. Driver 验收
 
@@ -166,6 +169,8 @@ workspace 丢失后 Computer 当前无法重新完成握手：重连会重放 pr
 - Agent详情区分Task、Focus、Run状态和Session continuity。
 - different-Focus notice不会显示成当前Task的新Message。
 - UI不展示Provider transcript、隐藏推理或Secret。
+- hover和键盘focus回答引用时显示来源，并高亮当前视图中的来源Message。
+- 一个回答片段的多条来源和移动端底部浮层都可操作。
 - Channel 和 Agent 创建 Action Message 使用专用 UI，不显示原始 JSON 或命令参数。
 - 390px和1440px视口能完成核心流程。
 - 所有状态使用文字和图形，不只使用颜色。

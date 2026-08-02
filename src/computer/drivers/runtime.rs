@@ -554,7 +554,7 @@ mod tests {
     use crate::{
         computer::core::{
             home::LocalAgentState,
-            input::{AgentInput, RunContextInput, WorkInput},
+            input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
             session::DriverKind,
         },
         ids::{InboxItemId, SpaceId, ThreadId},
@@ -630,7 +630,11 @@ done
             context: RunContextInput {
                 focus_thread_id: thread_id,
                 message_snapshot_sequence: 1,
-                focus_messages: vec!["message".to_owned()],
+                focus_messages: vec![ContextMessageInput {
+                    message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
+                    author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                    body: "message".to_owned(),
+                }],
                 claimed_items: Vec::new(),
             },
         };
@@ -647,6 +651,7 @@ done
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id,
+                        source_message_id: None,
                         content: Some("new item".to_owned()),
                     },
                 )

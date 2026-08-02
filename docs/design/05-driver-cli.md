@@ -33,6 +33,8 @@ Computer传给 Driver 的输入分为四块：
 
 Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历史不能替代Server的最新可选Task、Message、权限和Inbox事实。
 
+`run_context`中的 text Message 必须包含稳定 Message ID、作者 ID 和正文。claimed Item 有来源 Message 时也必须包含该 Message ID。Driver 不得把 Message ID 从传给 Agent 的结构化输入中移除，否则 Agent 无法声明可验证的 Context Citation。
+
 `global_contract` 必须要求 Agent 处理每个 claimed Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
 
 ## 3. Codex Driver
@@ -159,9 +161,12 @@ sumi agent memory read {path} --json
 sumi agent message send --body "text" [--handle item-id] --json
 sumi agent message send --thread {linked-thread-id} --stdin [--handle item-id] --json
 sumi agent message send --channel {channel-id} --stdin --json
+sumi agent message send --stdin --citations-file {path} [--handle item-id] --json
 ```
 
 省略目标时发送到当前Focus。发送到其他Thread要求该Thread已链接到当前Task。发送到普通Channel主时间线必须显式提供目标。
+
+`--citations-file`读取一个 JSON 数组。每项包含`response_text`、`source_message_id`和可选`source_text`。正文和引用文件在同一个`message send`事务中提交。Agent 不计算字符位置；Server 从精确原文解析位置。引用文件不得包含解释、隐藏推理或 Provider transcript。
 
 ### 7.2 Task
 

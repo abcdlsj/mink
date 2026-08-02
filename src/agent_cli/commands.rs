@@ -3,9 +3,13 @@ use clap::{Args, Subcommand};
 use crate::{
     ids::IdempotencyKey,
     protocol::capability::{
-        Action, CloseReason, DriverKind, MessageSend, MessageTarget, Page, PostTarget,
+        Action, CloseReason, DriverKind, MessageCitation, MessageSend, MessageTarget, Page,
+        PostTarget,
     },
 };
+
+const MAX_MESSAGE_CITATIONS: usize = 32;
+const MAX_CITATION_TEXT_CHARS: usize = 20_000;
 
 #[derive(Debug, Args)]
 pub(crate) struct AgentCli {
@@ -62,6 +66,9 @@ struct MessageSendArgs {
     channel: Option<crate::ids::ChannelId>,
     #[arg(long)]
     handle: Option<crate::ids::InboxItemId>,
+    /// JSON array of public response-to-source Message citations.
+    #[arg(long)]
+    citations_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -274,6 +281,10 @@ impl AgentCli {
                 if body.trim().is_empty() || body.chars().count() > 20_000 {
                     return Err("Message must contain 1 to 20000 characters");
                 }
+                let citations = match args.citations_file {
+                    Some(path) => read_citations_file(path).await?,
+                    None => Vec::new(),
+                };
                 let target = args
                     .thread
                     .map(MessageTarget::Thread)
@@ -285,6 +296,7 @@ impl AgentCli {
                         body,
                         handle_item_id: args.handle,
                         snapshot_sequence: None,
+                        citations,
                     }),
                     true,
                 )
@@ -465,6 +477,33 @@ impl AgentCli {
     }
 }
 
+async fn read_citations_file(
+    path: std::path::PathBuf,
+) -> Result<Vec<MessageCitation>, &'static str> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| "--citations-file could not be read")?;
+    let citations: Vec<MessageCitation> = serde_json::from_slice(&bytes)
+        .map_err(|_| "--citations-file must be a JSON array of citations")?;
+    if citations.is_empty() {
+        return Err("--citations-file must contain at least one citation");
+    }
+    if citations.len() > MAX_MESSAGE_CITATIONS {
+        return Err("--citations-file contains too many citations (maximum 32)");
+    }
+    for citation in &citations {
+        if citation.response_text.trim().is_empty()
+            || citation.response_text.chars().count() > MAX_CITATION_TEXT_CHARS
+            || citation.source_text.as_ref().is_some_and(|text| {
+                text.trim().is_empty() || text.chars().count() > MAX_CITATION_TEXT_CHARS
+            })
+        {
+            return Err("citation text must contain 1 to 20000 characters");
+        }
+    }
+    Ok(citations)
+}
+
 fn parse_post_target(value: &str) -> Result<PostTarget, &'static str> {
     match value {
         "focus" => Ok(PostTarget::Focus),
@@ -534,5 +573,76 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
         assert_eq!(value["ok"], false);
         assert_eq!(value["error"]["code"], "invalid_argument");
+    }
+
+    #[tokio::test]
+    async fn citations_file_is_strict_and_rejects_empty_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("citations.json");
+        tokio::fs::write(
+            &path,
+            serde_json::json!([{
+                "response_text": "reply span",
+                "source_message_id": uuid::Uuid::now_v7(),
+                "source_text": "source span",
+                "unexpected": true
+            }])
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            read_citations_file(path).await.unwrap_err(),
+            "--citations-file must be a JSON array of citations"
+        );
+
+        let path = directory.path().join("empty.json");
+        tokio::fs::write(&path, "[]").await.unwrap();
+        assert_eq!(
+            read_citations_file(path).await.unwrap_err(),
+            "--citations-file must contain at least one citation"
+        );
+    }
+
+    #[tokio::test]
+    async fn message_send_reads_citations_file_into_typed_action() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("citations.json");
+        let source_message_id = uuid::Uuid::now_v7();
+        tokio::fs::write(
+            &path,
+            serde_json::json!([{
+                "response_text": "reply span",
+                "source_message_id": source_message_id,
+                "source_text": "source span"
+            }])
+            .to_string(),
+        )
+        .await
+        .unwrap();
+        let (action, _) = AgentCli {
+            json: true,
+            command: Command::Message(MessageArgs {
+                command: MessageCommand::Send(MessageSendArgs {
+                    body: Some("reply".to_owned()),
+                    stdin: false,
+                    thread: None,
+                    channel: None,
+                    handle: None,
+                    citations_file: Some(path),
+                }),
+            }),
+        }
+        .action(None)
+        .await
+        .unwrap();
+        let Action::MessageSend(send) = action else {
+            panic!("expected message.send action");
+        };
+        assert_eq!(send.citations.len(), 1);
+        assert_eq!(
+            send.citations[0].source_message_id,
+            crate::ids::MessageId::from_uuid(source_message_id)
+        );
     }
 }

@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { CircleCheck, CircleDot, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip, Search, XCircle } from "lucide-react";
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
+import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type ContextCitation, type Member, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
 import { formatBytes } from "../../format";
 import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
 
@@ -30,10 +30,22 @@ export function MessageTimeline({
   emptyTitle: string;
   channelId: string;
   spaceSlug: string;
-  openThread: (threadId: string, trigger: HTMLButtonElement) => void;
+  openThread: (threadId: string, trigger?: HTMLButtonElement) => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
   members: Member[];
 }) {
+  const [highlightedSourceIds, setHighlightedSourceIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  function navigateToSource(sourceMessageId: string, sourceThreadId: string) {
+    const source = timelineRef.current?.querySelector<HTMLElement>(`[data-message-id="${sourceMessageId}"]`);
+    if (!source) {
+      openThread(sourceThreadId);
+      return;
+    }
+    source.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
+    source.focus({ preventScroll: true });
+  }
+
   return (
       <div ref={timelineRef} className="message-timeline" aria-live="polite">
         {header}
@@ -60,7 +72,7 @@ export function MessageTimeline({
           // A day divider always restarts the visual grouping.
           const grouped = !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
-            <div className="message-block" id={`message-${message.id}`} tabIndex={-1} key={message.id}>
+            <div className={`message-block${highlightedSourceIds.has(message.id) ? " message-block--context-source" : ""}`} id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1} key={message.id}>
               {showDivider ? (
                 <div className="day-divider" role="separator">
                   <time dateTime={message.created_at}>{formatDayDivider(message.created_at)}</time>
@@ -84,7 +96,13 @@ export function MessageTimeline({
                       <span className="message-seq">@{message.seq}</span>
                     </header>
                   )}
-                  <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+                  <MessageBody
+                    message={message}
+                    spaceSlug={spaceSlug}
+                    members={members}
+                    onCitationFocus={(sourceIds) => setHighlightedSourceIds(sourceIds ? new Set(sourceIds) : new Set())}
+                    onCitationNavigate={navigateToSource}
+                  />
                   {!message.deleted_at && message.attachments?.length ? (
                     <AttachmentList attachments={message.attachments} />
                   ) : null}
@@ -112,9 +130,9 @@ export function MessageTimeline({
   );
 }
 
-export function CompactMessage({ message, activityStatus, spaceSlug, members }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[] }) {
+export function CompactMessage({ message, activityStatus, spaceSlug, members, onCitationFocus, onCitationNavigate, highlighted }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[]; onCitationFocus?: (sourceMessageIds: string[] | null) => void; onCitationNavigate?: (sourceMessageId: string, sourceThreadId: string) => void; highlighted?: boolean }) {
   return (
-    <article className="thread-message">
+    <article className={`thread-message${highlighted ? " thread-message--context-source" : ""}`} id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1}>
       <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityStatus} />
       <div>
         <header>
@@ -123,7 +141,7 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
           {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
           <span className="message-seq">@{message.seq}</span>
         </header>
-        <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+        <MessageBody message={message} spaceSlug={spaceSlug} members={members} onCitationFocus={onCitationFocus} onCitationNavigate={onCitationNavigate} />
         <AttentionFailureNotice message={message} />
         {!message.deleted_at && message.attachments?.length ? (
           <AttachmentList attachments={message.attachments} />
@@ -240,13 +258,13 @@ function MessageActions({ message, channelId, openThread }: { message: Message; 
   );
 }
 
-function MessageBody({ message, spaceSlug, members }: { message: Message; spaceSlug: string; members: Member[] }) {
+function MessageBody({ message, spaceSlug, members, onCitationFocus, onCitationNavigate }: { message: Message; spaceSlug: string; members: Member[]; onCitationFocus?: (sourceMessageIds: string[] | null) => void; onCitationNavigate?: (sourceMessageId: string, sourceThreadId: string) => void }) {
   if (message.deleted_at) return <p>Message 已删除</p>;
   if (message.content.type === "text") {
     const mentionedMemberIds = new Set(message.mentions);
     const mentionedHandles = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.handle.toLowerCase()));
     if (message.mention_all) mentionedHandles.add("all");
-    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedHandles={mentionedHandles} />;
+    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedHandles={mentionedHandles} contextCitations={message.context_citations} onCitationFocus={onCitationFocus} onCitationNavigate={onCitationNavigate} />;
   }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
@@ -254,7 +272,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
 
-export function ExpandableMessageText({ messageId, body, mentionedHandles }: { messageId: string; body: string; mentionedHandles: ReadonlySet<string> }) {
+export function ExpandableMessageText({ messageId, body, mentionedHandles, contextCitations = [], onCitationFocus, onCitationNavigate }: { messageId: string; body: string; mentionedHandles: ReadonlySet<string>; contextCitations?: ContextCitation[]; onCitationFocus?: (sourceMessageIds: string[] | null) => void; onCitationNavigate?: (sourceMessageId: string, sourceThreadId: string) => void }) {
   const paragraph = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -274,7 +292,7 @@ export function ExpandableMessageText({ messageId, body, mentionedHandles }: { m
   return (
     <div className="message-body-wrap">
       <p ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
-        {highlightMentions(body, mentionedHandles)}
+        {renderMessageBody(body, mentionedHandles, contextCitations, onCitationFocus, onCitationNavigate)}
       </p>
       {overflowing || expanded ? (
         <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
@@ -331,6 +349,160 @@ function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>):
 
   nodes.push(body.slice(cursor));
   return nodes;
+}
+
+type CitationRange = ContextCitation & { startOffset: number; endOffset: number; ordinal: number };
+
+function renderMessageBody(
+  body: string,
+  mentionedHandles: ReadonlySet<string>,
+  citations: ContextCitation[],
+  onCitationFocus?: (sourceMessageIds: string[] | null) => void,
+  onCitationNavigate?: (sourceMessageId: string, sourceThreadId: string) => void,
+): ReactNode[] {
+  if (citations.length === 0) return highlightMentions(body, mentionedHandles);
+
+  const scalars = Array.from(body);
+  const scalarOffsets = [0];
+  for (const scalar of scalars) scalarOffsets.push(scalarOffsets[scalarOffsets.length - 1] + scalar.length);
+  const normalized: CitationRange[] = citations.flatMap((citation, ordinal) => {
+    const start = Number.isInteger(citation.answer_start) ? citation.answer_start : -1;
+    const end = Number.isInteger(citation.answer_end) ? citation.answer_end : -1;
+    if (start < 0 || end <= start || start >= scalars.length) return [];
+    const boundedEnd = Math.min(end, scalars.length);
+    if (boundedEnd <= start) return [];
+    return [{ ...citation, answer_start: start, answer_end: boundedEnd, startOffset: scalarOffsets[start], endOffset: scalarOffsets[boundedEnd], ordinal }];
+  });
+  if (normalized.length === 0) return highlightMentions(body, mentionedHandles);
+
+  const mentionRanges: Array<{ start: number; end: number; handle: string }> = [];
+  const mentionPattern = /(^|\s)(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi;
+  for (const match of body.matchAll(mentionPattern)) {
+    const matchStart = match.index ?? 0;
+    const token = match[2];
+    const start = matchStart + match[1].length;
+    if (mentionedHandles.has(token.slice(1).toLowerCase())) mentionRanges.push({ start, end: start + token.length, handle: token });
+  }
+  const boundaries = new Set<number>([0, body.length]);
+  for (const citation of normalized) {
+    boundaries.add(citation.startOffset);
+    boundaries.add(citation.endOffset);
+  }
+  for (const mention of mentionRanges) {
+    boundaries.add(mention.start);
+    boundaries.add(mention.end);
+  }
+  const sortedBoundaries = [...boundaries].sort((left, right) => left - right);
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {
+    const start = sortedBoundaries[index];
+    const end = sortedBoundaries[index + 1];
+    if (start === end) continue;
+    const text = body.slice(start, end);
+    const active = normalized.filter((citation) => citation.startOffset <= start && citation.endOffset >= end);
+    const mention = mentionRanges.some((range) => range.start <= start && range.end >= end);
+    const content = mention ? <mark className="message-mention" key={`mention-${start}`}>{text}</mark> : text;
+    if (active.length === 0) {
+      nodes.push(content);
+    } else {
+      nodes.push(
+        <ContextCitationMark
+          key={`context-citation-${start}-${end}`}
+          citations={active}
+          onFocus={onCitationFocus}
+          onNavigate={onCitationNavigate}
+        >
+          {content}
+        </ContextCitationMark>,
+      );
+    }
+  }
+  return nodes;
+}
+
+function ContextCitationMark({
+  citations,
+  children,
+  onFocus,
+  onNavigate,
+}: {
+  citations: CitationRange[];
+  children: ReactNode;
+  onFocus?: (sourceMessageIds: string[] | null) => void;
+  onNavigate?: (sourceMessageId: string, sourceThreadId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const suppressNextFocus = useRef(false);
+  const source = citations[0];
+  const tooltipId = `context-citation-${source.ordinal}-${source.answer_start}-${source.answer_end}`;
+  const sourceIds = citations.map((citation) => citation.source_message_id);
+  function show() {
+    if (suppressNextFocus.current) {
+      suppressNextFocus.current = false;
+      return;
+    }
+    setOpen(true);
+    onFocus?.(sourceIds.length > 0 ? sourceIds : null);
+  }
+  function hide() {
+    setOpen(false);
+    onFocus?.(null);
+  }
+  return (
+    <span
+      className="context-citation-wrap"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hide();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          const trigger = event.currentTarget.querySelector<HTMLButtonElement>(".context-citation");
+          hide();
+          if (event.target !== trigger) {
+            suppressNextFocus.current = true;
+            trigger?.focus();
+          }
+        }
+      }}
+    >
+      <button
+        type="button"
+        className="context-citation"
+        aria-label={`Context citation: ${citations.length} source${citations.length === 1 ? "" : "s"}`}
+        aria-expanded={open}
+        aria-controls={tooltipId}
+        aria-haspopup="dialog"
+        onFocus={show}
+      >
+        {children}
+      </button>
+      {open ? (
+        <span id={tooltipId} className="context-citation-popover" role="dialog" aria-label="Used context">
+          <strong>Used context</strong>
+          {citations.map((citation) => {
+            const author = citation.source_author;
+            const excerpt = citation.source_excerpt;
+            return (
+              <span className="context-citation-source" key={`${citation.source_message_id}-${citation.source_start}-${citation.source_end}`}>
+                <span className="context-citation-author">{author.display_name}{author.handle ? ` @${author.handle}` : ""}</span>
+                <span className="context-citation-excerpt">{excerpt}</span>
+                <button type="button" className="context-citation-nav" onClick={() => onNavigate?.(citation.source_message_id, citation.source_thread_id)}>
+                  Jump to source
+                </button>
+              </span>
+            );
+          })}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function textBody(message: Message): string {

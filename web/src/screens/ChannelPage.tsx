@@ -365,6 +365,7 @@ export function MessageWorkspace({
           resizeWithKeyboard={resizeThreadPaneWithKeyboard}
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
+          openSourceThread={openThread}
           activityByMemberId={activityByMemberId}
         />
       ) : null}

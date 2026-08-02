@@ -476,6 +476,19 @@ pub(super) struct MessageResponse {
     pub(super) created_at: String,
     pub(super) edited_at: Option<String>,
     pub(super) deleted_at: Option<String>,
+    pub(super) context_citations: Vec<ContextCitationResponse>,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub(super) struct ContextCitationResponse {
+    pub(super) answer_start: u64,
+    pub(super) answer_end: u64,
+    pub(super) source_message_id: Uuid,
+    pub(super) source_start: u64,
+    pub(super) source_end: u64,
+    pub(super) source_channel_id: Uuid,
+    pub(super) source_thread_id: Uuid,
+    pub(super) source_author: MessageAuthor,
+    pub(super) source_excerpt: String,
 }
 #[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -781,7 +794,6 @@ mod tests {
             "provider_session_locator",
             "provider_transcript",
             "hidden_reasoning",
-            "source_message_id",
             "assigned_agent_member_id",
         ] {
             assert!(!serialized.contains(forbidden), "schema leaks {forbidden}");

@@ -165,6 +165,24 @@ export interface components {
             /** Format: uuid */
             space_id: string;
         };
+        ContextCitationResponse: {
+            /** Format: int64 */
+            answer_end: number;
+            /** Format: int64 */
+            answer_start: number;
+            source_author: components["schemas"]["MessageAuthor"];
+            /** Format: uuid */
+            source_channel_id: string;
+            /** Format: int64 */
+            source_end: number;
+            source_excerpt: string;
+            /** Format: uuid */
+            source_message_id: string;
+            /** Format: int64 */
+            source_start: number;
+            /** Format: uuid */
+            source_thread_id: string;
+        };
         CreateAgentRequest: {
             access_level: components["schemas"]["AgentAccessLevel"];
             /** Format: uuid */
@@ -390,6 +408,7 @@ export interface components {
             /** Format: uuid */
             channel_id: string;
             content: components["schemas"]["MessageContentResponse"];
+            context_citations: components["schemas"]["ContextCitationResponse"][];
             created_at: string;
             deleted_at?: string | null;
             edited_at?: string | null;
@@ -591,6 +610,7 @@ export type AttentionConfig = components["schemas"]["AttentionConfig"];
 export type Channel = components["schemas"]["ChannelResponse"];
 export type ChannelList = components["schemas"]["ChannelListResponse"];
 export type ChannelMembers = components["schemas"]["ChannelMembersResponse"];
+export type ContextCitation = components["schemas"]["ContextCitationResponse"];
 export type CompleteUploadInput = components["schemas"]["CompleteUploadRequest"];
 export type Computer = components["schemas"]["ComputerResponse"];
 export type ConfirmPairingInput = components["schemas"]["ConfirmPairingRequest"];
