@@ -425,7 +425,7 @@ h1 {
   display: grid;
   min-width: 320px;
   min-height: 100dvh;
-  grid-template-columns: 56px 260px minmax(0, 1fr);
+  grid-template-columns: 56px 294px minmax(0, 1fr);
   background: var(--paper);
 }
 
@@ -713,7 +713,7 @@ h1 {
   display: grid;
   min-width: 0;
   height: 100dvh;
-  grid-template-rows: 64px minmax(0, 1fr) auto;
+  grid-template-rows: 62px minmax(0, 1fr) auto;
 }
 
 .channel-workspace--thread-open {
@@ -1077,7 +1077,7 @@ h1 {
   min-height: 0;
   grid-column: 2;
   grid-row: 1 / 4;
-  grid-template-rows: 64px minmax(0, 1fr) auto;
+  grid-template-rows: 62px minmax(0, 1fr) auto;
   border-left: 2px solid var(--ink);
   background: var(--paper);
 }
@@ -1277,7 +1277,7 @@ h1 {
   min-width: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: 64px auto minmax(0, 1fr);
+  grid-template-rows: 62px auto minmax(0, 1fr);
   background: var(--paper);
 }
 
@@ -1615,7 +1615,7 @@ h1 {
 .inbox-workspace {
   display: grid;
   min-width: 0;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 62px minmax(0, 1fr);
   background: var(--paper);
 }
 
@@ -2270,7 +2270,7 @@ h1 {
 /* Channel fidelity pass: Sumi's current visual density and domain model. */
 .space-shell {
   --space-accent: var(--accent);
-  grid-template-columns: 56px 260px minmax(0, 1fr);
+  grid-template-columns: 56px 294px minmax(0, 1fr);
 }
 
 .space-rail {
@@ -3346,7 +3346,7 @@ h1 {
 .agent-workspace {
   display: grid;
   min-width: 0;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 62px minmax(0, 1fr);
   background: var(--paper);
 }
 
@@ -3782,7 +3782,7 @@ h1 {
 
 /* Keep the shell geometry authoritative after the compact detail-page rules above. */
 @media (min-width: 901px) {
-  .space-shell { grid-template-columns: 56px 260px minmax(0, 1fr); }
+  .space-shell { grid-template-columns: 56px 294px minmax(0, 1fr); }
   .space-name-row { height: 64px; }
   .space-navigation nav { padding: 12px 10px 20px; }
 }
@@ -6234,8 +6234,8 @@ h1 {
 
 .message-action-button {
   display: grid;
-  width: 21px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   padding: 0;
   border: 0;
@@ -6261,8 +6261,8 @@ h1 {
 }
 
 .message-action-button svg {
-  width: 10px;
-  height: 10px;
+  width: 16px;
+  height: 16px;
 }
 
 .message-action-error {
@@ -7598,6 +7598,45 @@ summary.system-event-heading {
 .permission-controls label {
   border-width: 1px;
   border-color: rgb(20 17 17 / 18%);
+}
+
+/* Shared interactive feedback: one hover tone and interruptible transitions. */
+.icon-button:hover:not(:disabled),
+.command-button:hover:not(:disabled),
+.secondary-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.command-button,
+.secondary-action,
+.icon-button,
+.send-button {
+  transition: background-color 100ms linear, box-shadow 100ms linear, transform 100ms ease-out;
+}
+
+/* One-shot entrances stay out of the way under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .dialog-backdrop {
+    animation: dialogBackdropIn 180ms ease-out;
+  }
+  .dialog-surface {
+    animation: dialogSurfaceIn 220ms ease-out;
+  }
+  .thread-pane {
+    animation: threadPaneIn 200ms ease-out;
+  }
+}
+
+@keyframes dialogBackdropIn {
+  from { opacity: 0; }
+}
+
+@keyframes dialogSurfaceIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+@keyframes threadPaneIn {
+  from { opacity: 0; transform: translateX(12px); }
 }
 
 @media (max-width: 700px) {
