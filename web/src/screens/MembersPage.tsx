@@ -24,7 +24,6 @@ import {
   type Member,
   type Space,
 } from "../api/client";
-import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
 const explicitPermissions = ["channel.create", "agent.create"] as const;
@@ -62,6 +61,9 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   });
   const activityByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
+  );
+  const roleByMemberId = new Map(
+    (agents.data ?? []).map((agent) => [agent.member_id, agent.role_text] as const),
   );
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
@@ -252,7 +254,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                 <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
                 <div>
                   <strong title={member.display_name}>{member.display_name}</strong>
-                  <span>{member.kind === "agent" ? activityLabel(activityByMemberId.get(member.id)) : `@${member.handle}`}</span>
+                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : `@${member.handle}`}</span>
                 </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (

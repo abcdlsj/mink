@@ -136,9 +136,9 @@ function ComputersWorkspace({
         </div>
       ) : null}
       {computers.data?.length === 0 ? (
-        canManage ? <ComputerOnboarding openNavigation={openNavigation} /> : <div className="computer-empty"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p className="section-kicker">COMPUTE LAYER</p><h2>No Computers paired</h2><p>A Human Owner or Admin must pair a machine before this Space can host Agents.</p></div>
+        canManage ? <ComputerOnboarding openNavigation={openNavigation} active={pairFormOpen} /> : <div className="computer-empty"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p className="section-kicker">COMPUTE LAYER</p><h2>No Computers paired</h2><p>A Human Owner or Admin must pair a machine before this Space can host Agents.</p></div>
       ) : null}
-      {canManage && (!selectedFromHash || pairFormOpen) && computers.data?.length ? <ComputerOnboarding openNavigation={openNavigation} /> : null}
+      {canManage && (!selectedFromHash || pairFormOpen) && computers.data?.length ? <ComputerOnboarding openNavigation={openNavigation} active={pairFormOpen} /> : null}
       {!canManage && !selectedFromHash && computers.data?.length ? <div className="computer-page-state"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p>Select a Computer from the navigation.</p></div> : null}
       {selected ? (
         <div className="computer-split">
@@ -179,7 +179,7 @@ function ComputersWorkspace({
   );
 }
 
-function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) {
+function ComputerOnboarding({ openNavigation, active }: { openNavigation: () => void; active?: boolean }) {
   const command = `sumi computer --server ${window.location.origin}`;
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -193,7 +193,7 @@ function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) 
     }
   }
   return (
-    <section className="computer-onboarding" aria-labelledby="computer-onboarding-heading">
+    <section className={active ? "computer-onboarding computer-onboarding--pairing" : "computer-onboarding"} aria-labelledby="computer-onboarding-heading">
       <header className="computer-onboarding-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Confirm this machine in a Space.</p></div>
@@ -203,9 +203,24 @@ function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) 
           <p className="eyebrow">COMPUTE LAYER</p>
           <h2>Bring a machine online</h2>
           <ol className="computer-onboarding-steps">
-            <li>Run the pairing command.</li>
-            <li>Open the URL it prints.</li>
-            <li>Verify the identity, then confirm this Space.</li>
+            <li>
+              <div>
+                <strong>Run the pairing command</strong>
+                <p>Run the command in a terminal on the machine to pair. It creates the Computer Token that identifies this Space.</p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>Open the URL it prints</strong>
+                <p>The daemon prints a pairing URL. Open it in a browser to present this machine's identity.</p>
+              </div>
+            </li>
+            <li>
+              <div>
+                <strong>Verify the identity, then confirm this Space</strong>
+                <p>Check that the hostname and fingerprint match the machine you ran the command on, then confirm the pairing.</p>
+              </div>
+            </li>
           </ol>
         </div>
         <div className="computer-onboarding-command">
@@ -263,7 +278,7 @@ function ComputerDetail({
         {agents.length ? <ul className="hosted-agent-list">{agents.map((agent) => (
           <li key={agent.member_id}><Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
-            <span><strong>{agent.name}</strong><small>{agent.driver_kind === "builtin" ? "Builtin" : "Codex"} Driver</small></span>
+            <span><strong>{agent.name}</strong><small title={agent.role_text}>{agent.role_text}</small></span>
             <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${agent.activity_status}`} title={`Activity: ${agent.activity_status}`}><i aria-hidden="true" />{agent.activity_status}</span>
           </Link></li>
         ))}</ul> : <div className="computer-agents-empty"><p>No Agents are hosted on this Computer.</p>{canCreateAgent && computer.status === "online" ? <button className="command-button" type="button" onClick={onCreate}><Plus />Create first Agent</button> : null}</div>}
