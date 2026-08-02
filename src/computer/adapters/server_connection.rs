@@ -5,8 +5,9 @@ use crate::{
     computer::application::{
         AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
         ContinuityState, DriverKind, FencingToken, ItemDisposition, LocalAgent, LocalAgentState,
-        LocalRun, MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
-        SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput, RunContextInput,
+        RunInput, RunPriority, SessionFingerprint, SessionScope, TaskInput, TerminalStatus,
+        WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -153,6 +154,17 @@ impl ServerConnectionAdapter {
                 if agent.state != LocalAgentState::Active {
                     return Err(ApplicationError::Conflict);
                 }
+                let memory = homes
+                    .list_memory(start.agent_id)
+                    .await?
+                    .into_iter()
+                    .map(|file| MemoryEntryInput {
+                        path: file.path,
+                        size: file.size,
+                        sha256: file.sha256,
+                        updated_at: file.updated_at,
+                    })
+                    .collect::<Vec<_>>();
                 let fingerprint = session_fingerprint(
                     &agent,
                     homes.workspace_fingerprint(agent.agent_id).await?,
@@ -188,7 +200,7 @@ impl ServerConnectionAdapter {
                         identity: format!("{} (@{})", agent.name, agent.handle),
                         role_revision: agent.role_revision,
                         role: agent.role.clone(),
-                        memory_entry: "memory/".to_owned(),
+                        memory,
                     },
                     work: WorkInput {
                         task: start.task.as_ref().map(|task| TaskInput {
@@ -397,6 +409,7 @@ fn claimed_item(item: &wire::InboxItemSnapshot) -> ClaimedItemInput {
         item_id: item.item_id,
         task_id: item.task_id,
         thread_id: item.thread_id,
+        message_id: item.message.as_ref().map(|message| message.message_id),
         content: item.message.as_ref().map(message_content),
     }
 }

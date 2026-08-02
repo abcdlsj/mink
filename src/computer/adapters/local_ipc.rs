@@ -344,7 +344,7 @@ mod tests {
                     identity: "agent".to_owned(),
                     role_revision: 1,
                     role: "role".to_owned(),
-                    memory_entry: "memory/".to_owned(),
+                    memory: Vec::new(),
                 },
                 work: WorkInput {
                     task: Some(TaskInput {

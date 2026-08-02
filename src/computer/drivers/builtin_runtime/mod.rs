@@ -226,10 +226,10 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 ),
                 Err(_) => return DriverTurnOutcome::Failed,
             };
-            let turn = match serde_json::to_string(&input_owned) {
+            let turn = match serde_json::to_string(&input_owned.model_view()) {
                 Ok(input) => Turn {
                     input: format!(
-                        "Process this Sumi Run. The JSON is the current authoritative run_context and work_context.\n{input}"
+                        "Process this Sumi Run. The JSON is the model-facing view of the authoritative run_context and work_context; fields under `reference` are identification only, all others must be read. Older focus messages are omitted from the window; read them with thread.read when needed.\n{input}"
                     ),
                     blocked_tools: Default::default(),
                 },
@@ -358,11 +358,8 @@ fn system_messages(input: &RunInput) -> Vec<Message> {
     vec![
         Message::cacheable_system(input.global_contract.clone()),
         Message::system(format!(
-            "Agent identity: {}\nRole revision: {}\nRole: {}\nMemory entry: {}",
-            input.agent.identity,
-            input.agent.role_revision,
-            input.agent.role,
-            input.agent.memory_entry
+            "Agent identity: {}\nRole: {}",
+            input.agent.identity, input.agent.role
         )),
     ]
 }
@@ -593,6 +590,7 @@ mod tests {
                         item_id: crate::ids::InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id: input.context.focus_thread_id,
+                        message_id: None,
                         content: Some("new item".to_owned()),
                     },
                 )
@@ -667,7 +665,7 @@ mod tests {
                 identity: "Builtin".to_owned(),
                 role_revision: 1,
                 role: "Complete the current Run".to_owned(),
-                memory_entry: "memory/".to_owned(),
+                memory: Vec::new(),
             },
             work: WorkInput {
                 task: None,

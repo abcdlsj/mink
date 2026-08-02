@@ -1467,7 +1467,7 @@ fn test_input<const N: usize>(
             identity: "agent".to_owned(),
             role_revision: 1,
             role: "role".to_owned(),
-            memory_entry: "memory/".to_owned(),
+            memory: Vec::new(),
         },
         work: WorkInput {
             task: task_id.map(|task_id| TaskInput {
@@ -1503,6 +1503,7 @@ fn claimed_item(
         item_id,
         task_id,
         thread_id,
+        message_id: None,
         content: Some("steering body".to_owned()),
     }
 }

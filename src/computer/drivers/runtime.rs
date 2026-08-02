@@ -397,7 +397,8 @@ impl StructuredProviderClient for CodexRuntimeClient {
         if self.owner_for_locator(locator)? != agent_id {
             return Err(ApplicationError::SessionLost);
         }
-        let encoded = serde_json::to_string(input).map_err(|_| ApplicationError::Internal)?;
+        let encoded =
+            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
         let result = self
             .process(agent_id)
             .await?
@@ -407,7 +408,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
                     "threadId": locator,
                     "input": [{
                         "type": "text",
-                        "text": format!("Process this Sumi Run input. Treat each top-level field as a separate contract block.\n{encoded}")
+                        "text": format!("Process this Sumi Run input. Treat each top-level field as a separate contract block; fields under `reference` are identification only, all others must be read. Older focus messages are omitted from the window; read them with thread.read when needed.\n{encoded}")
                     }],
                     "sandboxPolicy": {
                         "type": "dangerFullAccess"
@@ -620,7 +621,7 @@ done
                 identity: agent.name,
                 role_revision: agent.role_revision,
                 role: agent.role,
-                memory_entry: "memory/".to_owned(),
+                memory: Vec::new(),
             },
             work: WorkInput {
                 task: None,
@@ -651,6 +652,7 @@ done
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id,
+                        message_id: None,
                         content: Some("new item".to_owned()),
                     },
                 )

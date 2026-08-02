@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -22,7 +22,16 @@ pub(in crate::computer) struct AgentInput {
     pub(in crate::computer) identity: String,
     pub(in crate::computer) role_revision: u64,
     pub(in crate::computer) role: String,
-    pub(in crate::computer) memory_entry: String,
+    pub(in crate::computer) memory: Vec<MemoryEntryInput>,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::computer) struct MemoryEntryInput {
+    pub(in crate::computer) path: String,
+    pub(in crate::computer) size: u64,
+    pub(in crate::computer) sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(in crate::computer) updated_at: OffsetDateTime,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -70,6 +79,7 @@ pub(in crate::computer) struct ClaimedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) thread_id: ThreadId,
+    pub(in crate::computer) message_id: Option<MessageId>,
     pub(in crate::computer) content: Option<String>,
 }
 
@@ -97,6 +107,9 @@ impl ClaimedItemInput {
         digest.update(self.item_id.to_string().as_bytes());
         digest.update(format!("{:?}", self.task_id).as_bytes());
         digest.update(self.thread_id.to_string().as_bytes());
+        if let Some(message_id) = self.message_id {
+            digest.update(message_id.to_string().as_bytes());
+        }
         if let Some(content) = &self.content {
             digest.update(content.as_bytes());
         }
@@ -125,7 +138,12 @@ impl RunInput {
         digest.update(self.agent.identity.as_bytes());
         digest.update(self.agent.role_revision.to_le_bytes());
         digest.update(self.agent.role.as_bytes());
-        digest.update(self.agent.memory_entry.as_bytes());
+        for entry in &self.agent.memory {
+            digest.update(entry.path.as_bytes());
+            digest.update(entry.size.to_le_bytes());
+            digest.update(entry.sha256.as_bytes());
+            digest.update(entry.updated_at.unix_timestamp_nanos().to_le_bytes());
+        }
         if let Some(task) = &self.work.task {
             digest.update(task.task_id.to_string().as_bytes());
             digest.update(task.title.as_bytes());
@@ -149,6 +167,113 @@ impl RunInput {
         }
         hex::encode(digest.finalize())
     }
+
+    /// Model-facing view: keeps only facts the model needs, drops internal sync fields,
+    /// empty fields and duplicated bodies, and caps the focus message window.
+    pub(in crate::computer) fn model_view(&self) -> serde_json::Value {
+        const FOCUS_MESSAGE_WINDOW: usize = 5;
+
+        // The root is always retained; only the last 5 replies are kept in full,
+        // older messages are read on demand via thread.read.
+        let mut retained: Vec<&ContextMessageInput> = Vec::new();
+        let mut omitted_replies = 0usize;
+        if let Some(root) = self.context.focus_messages.first() {
+            retained.push(root);
+        }
+        let replies = &self.context.focus_messages[1..];
+        if replies.len() > FOCUS_MESSAGE_WINDOW {
+            omitted_replies = replies.len() - FOCUS_MESSAGE_WINDOW;
+            retained.extend(&replies[replies.len() - FOCUS_MESSAGE_WINDOW..]);
+        } else {
+            retained.extend(replies);
+        }
+        let retained_ids: HashSet<MessageId> =
+            retained.iter().map(|message| message.message_id).collect();
+
+        let focus_messages = retained
+            .iter()
+            .filter_map(|message| serde_json::to_value(message).ok())
+            .collect::<Vec<_>>();
+
+        // Inject only the item identity when the source message is inside the window;
+        // the body is already in focus_messages. Bodies outside the window are kept.
+        let claimed_items = self
+            .context
+            .claimed_items
+            .iter()
+            .map(|item| {
+                let mut view = serde_json::Map::new();
+                view.insert("item_id".to_owned(), serde_json::json!(item.item_id));
+                if let Some(task_id) = item.task_id {
+                    view.insert("task_id".to_owned(), serde_json::json!(task_id));
+                }
+                view.insert("thread_id".to_owned(), serde_json::json!(item.thread_id));
+                let content_in_window = item
+                    .message_id
+                    .is_some_and(|message_id| retained_ids.contains(&message_id));
+                if let Some(content) = &item.content
+                    && !content_in_window
+                {
+                    view.insert("content".to_owned(), serde_json::json!(content));
+                }
+                serde_json::Value::Object(view)
+            })
+            .collect::<Vec<_>>();
+
+        let mut work = serde_json::Map::new();
+        if let Some(task) = &self.work.task {
+            work.insert("task".to_owned(), serde_json::json!(task));
+        }
+        if !self.work.linked_thread_ids.is_empty() {
+            work.insert(
+                "linked_thread_ids".to_owned(),
+                serde_json::json!(self.work.linked_thread_ids),
+            );
+        }
+        if let Some(message_id) = self.work.public_result_message_id {
+            work.insert(
+                "public_result_message_id".to_owned(),
+                serde_json::json!(message_id),
+            );
+        }
+
+        let mut context = serde_json::Map::new();
+        context.insert(
+            "focus_thread_id".to_owned(),
+            serde_json::json!(self.context.focus_thread_id),
+        );
+        context.insert(
+            "focus_messages".to_owned(),
+            serde_json::Value::Array(focus_messages),
+        );
+        if omitted_replies > 0 {
+            context.insert(
+                "omitted_earlier_message_count".to_owned(),
+                serde_json::json!(omitted_replies),
+            );
+        }
+        context.insert(
+            "claimed_items".to_owned(),
+            serde_json::Value::Array(claimed_items),
+        );
+
+        serde_json::json!({
+            "global_contract": self.global_contract.clone(),
+            "agent": {
+                "identity": self.agent.identity.clone(),
+                "role": self.agent.role.clone(),
+                "memory": self.agent.memory.iter()
+                    .filter_map(|entry| serde_json::to_value(entry).ok())
+                    .collect::<Vec<_>>(),
+            },
+            "work": work,
+            "run_context": context,
+            "reference": {
+                "agent_id": self.agent.agent_id,
+                "space_id": self.agent.space_id,
+            },
+        })
+    }
 }
 
 impl fmt::Debug for RunInput {
@@ -161,5 +286,184 @@ impl fmt::Debug for RunInput {
             .field("message_count", &self.context.focus_messages.len())
             .field("claimed_item_count", &self.context.claimed_items.len())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::{MemberId, SpaceId, TaskId, ThreadId};
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    fn message(sequence: u64, body: &str) -> ContextMessageInput {
+        ContextMessageInput {
+            message_id: MessageId::from_uuid(Uuid::from_u128(100 + u128::from(sequence))),
+            author_member_id: MemberId::from_uuid(Uuid::from_u128(1)),
+            body: body.to_owned(),
+        }
+    }
+
+    fn item(item_sequence: u64, message_id: Option<MessageId>) -> ClaimedItemInput {
+        ClaimedItemInput {
+            item_id: InboxItemId::from_uuid(Uuid::from_u128(200 + u128::from(item_sequence))),
+            task_id: None,
+            thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
+            message_id,
+            content: Some("item body".to_owned()),
+        }
+    }
+
+    fn run_input(
+        focus_messages: Vec<ContextMessageInput>,
+        claimed_items: Vec<ClaimedItemInput>,
+    ) -> RunInput {
+        RunInput {
+            global_contract: "contract".to_owned(),
+            agent: AgentInput {
+                agent_id: AgentId::from_uuid(Uuid::from_u128(1)),
+                space_id: SpaceId::from_uuid(Uuid::from_u128(2)),
+                identity: "agent".to_owned(),
+                role_revision: 3,
+                role: "role".to_owned(),
+                memory: Vec::new(),
+            },
+            work: WorkInput {
+                task: None,
+                linked_thread_ids: Vec::new(),
+                public_result_message_id: None,
+            },
+            context: RunContextInput {
+                focus_thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
+                message_snapshot_sequence: 7,
+                focus_messages,
+                claimed_items,
+            },
+        }
+    }
+
+    #[test]
+    fn model_view_drops_internal_and_empty_fields() {
+        let view = run_input(vec![message(1, "root")], Vec::new()).model_view();
+
+        assert_eq!(view["global_contract"], "contract");
+        assert_eq!(view["agent"]["identity"], "agent");
+        assert_eq!(view["agent"]["role"], "role");
+        assert_eq!(
+            view["run_context"]["focus_thread_id"],
+            serde_json::to_value(ThreadId::from_uuid(Uuid::from_u128(3))).unwrap()
+        );
+        assert_eq!(
+            view["reference"]["agent_id"],
+            serde_json::to_value(AgentId::from_uuid(Uuid::from_u128(1))).unwrap()
+        );
+        assert_eq!(
+            view["reference"]["space_id"],
+            serde_json::to_value(SpaceId::from_uuid(Uuid::from_u128(2))).unwrap()
+        );
+
+        assert!(view["agent"].get("role_revision").is_none());
+        assert!(
+            view["run_context"]
+                .get("message_snapshot_sequence")
+                .is_none()
+        );
+        assert!(view["work"].get("task").is_none());
+        assert!(view["work"].get("linked_thread_ids").is_none());
+        assert!(view["work"].get("public_result_message_id").is_none());
+        assert!(
+            view["run_context"]
+                .get("omitted_earlier_message_count")
+                .is_none()
+        );
+        assert_eq!(view["run_context"]["claimed_items"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn model_view_caps_focus_message_window() {
+        let mut messages = vec![message(1, "root")];
+        for sequence in 2..=8 {
+            messages.push(message(sequence, &format!("reply {sequence}")));
+        }
+        let view = run_input(messages, Vec::new()).model_view();
+
+        let focus = view["run_context"]["focus_messages"].as_array().unwrap();
+        assert_eq!(focus.len(), 6);
+        assert_eq!(focus[0]["body"], "root");
+        assert_eq!(focus[1]["body"], "reply 4");
+        assert_eq!(focus[5]["body"], "reply 8");
+        assert_eq!(view["run_context"]["omitted_earlier_message_count"], 2);
+    }
+
+    #[test]
+    fn model_view_deduplicates_item_body_inside_window() {
+        let mut messages = vec![message(1, "root")];
+        for sequence in 2..=8 {
+            messages.push(message(sequence, &format!("reply {sequence}")));
+        }
+        let root_id = messages[0].message_id;
+        let outside_id = messages[1].message_id;
+        let inside_id = messages[7].message_id;
+        let items = vec![
+            item(1, Some(root_id)),
+            item(2, Some(outside_id)),
+            item(3, Some(inside_id)),
+            item(4, None),
+        ];
+        let view = run_input(messages, items.clone()).model_view();
+
+        let claimed = view["run_context"]["claimed_items"].as_array().unwrap();
+        assert!(claimed[0].get("content").is_none());
+        assert!(claimed[1].get("content").is_some());
+        assert!(claimed[2].get("content").is_none());
+        assert!(claimed[3].get("content").is_some());
+        assert_eq!(
+            claimed[0]["item_id"],
+            serde_json::to_value(items[0].item_id).unwrap()
+        );
+    }
+
+    #[test]
+    fn model_view_includes_memory_projection() {
+        let updated_at = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        let mut input = run_input(vec![message(1, "root")], Vec::new());
+        input.agent.memory = vec![MemoryEntryInput {
+            path: "projects/sumi.md".to_owned(),
+            size: 42,
+            sha256: "abc".to_owned(),
+            updated_at,
+        }];
+
+        let view = input.model_view();
+        let memory = view["agent"]["memory"].as_array().unwrap();
+        assert_eq!(memory.len(), 1);
+        assert_eq!(memory[0]["path"], "projects/sumi.md");
+        assert_eq!(memory[0]["size"], 42);
+        assert_eq!(memory[0]["sha256"], "abc");
+        assert_eq!(memory[0]["updated_at"], "2023-11-14T22:13:20Z");
+    }
+
+    #[test]
+    fn model_view_keeps_task_and_result_when_present() {
+        let mut input = run_input(vec![message(1, "root")], Vec::new());
+        input.work.task = Some(TaskInput {
+            task_id: TaskId::from_uuid(Uuid::from_u128(9)),
+            title: "title".to_owned(),
+            status: "in_progress".to_owned(),
+        });
+        input.work.linked_thread_ids = vec![ThreadId::from_uuid(Uuid::from_u128(3))];
+        input.work.public_result_message_id = Some(MessageId::from_uuid(Uuid::from_u128(10)));
+
+        let work = input.model_view()["work"].clone();
+        assert_eq!(work["task"]["title"], "title");
+        assert_eq!(work["task"]["status"], "in_progress");
+        assert_eq!(
+            work["public_result_message_id"],
+            serde_json::to_value(MessageId::from_uuid(Uuid::from_u128(10))).unwrap()
+        );
+        assert_eq!(
+            work["linked_thread_ids"],
+            serde_json::to_value([ThreadId::from_uuid(Uuid::from_u128(3))]).unwrap()
+        );
     }
 }

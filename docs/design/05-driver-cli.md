@@ -25,15 +25,17 @@ Driver stdout、final response 和 tool output 都不能自动创建 Message、T
 Computer传给 Driver 的输入分为四块：
 
 1. `global_contract`：安全规则、Sumi能力和沟通约束。
-2. `agent_profile`：Agent identity、Role revision 和 Memory入口。
+2. `agent_profile`：Agent identity、Role 和 Memory 投影，见 [Computer 与 Agent](04-computer-agent.md) 的 Memory 定义。
 3. `work_context`：可选Task、Linked Threads、Session scope和已有公开结果。
 4. `run_context`：Run、Focus、claimed Items 和当前消息窗口。
+
+注入内容采用固定结构并标注读取优先级：除 reference 标识外的块必须读取；Agent ID、Space ID 等身份标识只作为 reference 提供。`message_snapshot_sequence`、`role_revision` 等内部同步字段和空值字段不注入。claimed Item 正文与窗口内 focus 消息重复时不重复注入。
 
 稳定内容和动态内容必须保持结构化边界。Driver可以按 provider协议映射缓存，但不能修改产品语义。
 
 Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历史不能替代Server的最新可选Task、Message、权限和Inbox事实。
 
-`run_context`中的 focus 消息包含稳定 Message ID、作者 ID 和正文。
+`run_context`中的 focus 消息包含稳定 Message ID、作者 ID 和正文。注入采用有界窗口：Root 与最近 5 条 reply 注入全文，更早消息不注入；Agent 需要更早消息时用 `thread.read` 按需读取。claimed Item 的来源正文只在来源消息不在窗口内时注入，来源消息在窗口内时只注入 Item 标识与引用关系。
 
 `global_contract` 必须要求 Agent 处理每个 claimed Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
 

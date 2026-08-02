@@ -9,7 +9,7 @@ pub(in crate::computer) mod scheduler;
 pub(in crate::computer) use crate::computer::core::{
     home::{LocalAgent, LocalAgentState, MemoryFile},
     input::{
-        AgentInput, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
+        AgentInput, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput, MemoryEntryInput,
         NoticeLocationInput, RunContextInput, RunInput, TaskInput, WorkInput,
     },
     scheduler::{RunPriority, WorkStrength},

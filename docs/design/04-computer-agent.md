@@ -173,13 +173,13 @@ Sumi 通过 Task、Message、Result 和 Memory 保证事实可重建。系统不
 
 Session 丢失不等于 Task 丢失。Computer 创建新 generation，并注入：
 
-- Agent identity、Role revision 和 Memory 入口。
+- Agent identity、Role revision 和 Memory 投影。
 - Task title、status、Result 草稿元数据和 Linked Threads。
 - Focus Root Message 和必要 replies。
 - 未处理 Inbox Items。
 - 最近 Runs 的结构化结果和错误，不包含隐藏推理。
 
-Agent 可以按需读取更多 Message 和 Memory。Server 不保存或重放 provider transcript。
+Agent 可以按需读取更多 Message 和 Memory。Server 不保存或重放 provider transcript。Memory 投影的注入规则见 [Driver 与 Agent CLI](05-driver-cli.md)。
 
 ## 10. Memory 与 workspace
 

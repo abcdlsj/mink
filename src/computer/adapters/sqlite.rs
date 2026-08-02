@@ -1050,6 +1050,7 @@ mod tests {
             item_id: json_item_id,
             task_id: None,
             thread_id,
+            message_id: None,
             content: Some("item".to_owned()),
         };
         adapter
@@ -1152,6 +1153,7 @@ mod tests {
                 item_id,
                 task_id: None,
                 thread_id,
+                message_id: None,
                 content: Some("item".to_owned()),
             })
             .into_iter()
@@ -1177,7 +1179,7 @@ mod tests {
                     identity: "agent".to_owned(),
                     role_revision: 1,
                     role: "role".to_owned(),
-                    memory_entry: "memory/".to_owned(),
+                    memory: Vec::new(),
                 },
                 work: WorkInput {
                     task: None,
