@@ -5993,23 +5993,6 @@ h1 {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.computer-add-nav {
-  display: block;
-  margin: 0 10px 8px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-weight: 700;
-  text-decoration: none;
-}
-.computer-add-nav--active {
-  border-color: var(--ink);
-  background: var(--accent-soft);
-  color: var(--ink);
-  box-shadow: 2px 2px 0 var(--ink);
-}
-
 .computer-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

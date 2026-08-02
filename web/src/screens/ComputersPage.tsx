@@ -196,16 +196,15 @@ function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) 
     <section className="computer-onboarding" aria-labelledby="computer-onboarding-heading">
       <header className="computer-onboarding-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Bring a machine online and confirm it in this Space.</p></div>
+        <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Confirm this machine in a Space.</p></div>
       </header>
       <div className="computer-onboarding-body">
         <div className="computer-onboarding-intro">
           <p className="eyebrow">COMPUTE LAYER</p>
           <h2>Bring a machine online</h2>
-          <p>Run this command on the machine that will host Agents, then finish the pairing in this browser.</p>
           <ol className="computer-onboarding-steps">
-            <li>Run the command on the target machine.</li>
-            <li>Open the pairing URL it prints.</li>
+            <li>Run the pairing command.</li>
+            <li>Open the URL it prints.</li>
             <li>Verify the identity, then confirm this Space.</li>
           </ol>
         </div>

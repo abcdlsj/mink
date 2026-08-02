@@ -225,7 +225,9 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Computer Hosted Agents 列表和 Agent Runtime 区域共用状态信号、字段间距和按钮高度。三栏分布、Computer/Agent 路由及 API 行为保持不变。
 - Members 主页按 Agents、Humans 分组显示扁平成员行；不显示表头行、不使用斑马纹，行间以细分割线分隔。每行的状态、类型和治理控件共用一条 baseline。Permission 直接使用裸 checkbox，Owner/Admin 继承只显示最短提示。
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题13px大写、字段值16px/600、字段标签10px大写，页面标题保持18px。
+- Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。
+- Computers 左侧导航只提供已配对列表和 `+` 配对入口，不显示重复的 Add Computer 项。
 
 ## 10. 通用组件
 

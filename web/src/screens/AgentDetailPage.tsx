@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { Brain, Eye, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
-import { getAgent, getAgentRuntime, grantMemberPermission, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
+import { getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
@@ -40,6 +40,12 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
   const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false });
   const members = useQuery({ queryKey: ["members", spaceId], queryFn: () => listMembers(spaceId) });
+  const computers = useQuery({
+    queryKey: ["computers", spaceId],
+    queryFn: () => listComputers(spaceId),
+    enabled: Boolean(agent.data?.computer_id),
+    retry: false,
+  });
   const update = useMutation({
     mutationFn: (input: Parameters<typeof updateAgent>[1]) => updateAgent(agentId, input),
     onSuccess: (updated) => {
@@ -110,8 +116,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
               ) : null}
               {runtime.data?.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}
             </DetailSection>
-            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Handle" value={`@${value.handle}`} tabular /><Field label="Role" value={value.role_text} /><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Created" value={new Date(value.created_at).toLocaleDateString()} tabular /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Computer" value={value.computer_id} tabular /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
+            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Handle">{`@${value.handle}`}</Field><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" chip="runtime">{capitalize(value.driver_kind)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Lifecycle">{capitalize(value.desired_lifecycle)}</Field><Field label="Provision">{capitalize(value.provision_status)}</Field></dl></DetailSection>
             <DetailSection title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
@@ -153,7 +159,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
             <form className="agent-settings" onSubmit={save}>
               <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.desired_lifecycle === "retired"} /></label>
               <p className="section-kicker">ATTENTION POLICY / SERVER MANAGED</p>
-              <dl className="detail-grid"><Field label="Ambient attention" value={value.attention_config.ambient_enabled ? "Enabled" : "Disabled"} /><Field label="Debounce" value={`${value.attention_config.ambient_debounce_seconds}s`} tabular /><Field label="Maximum wait" value={`${value.attention_config.ambient_max_wait_seconds}s`} tabular /><Field label="Maximum retries" value={String(value.attention_config.max_retry_count)} tabular /></dl>
+              <dl className="detail-grid"><Field label="Ambient attention">{value.attention_config.ambient_enabled ? "Enabled" : "Disabled"}</Field><Field label="Debounce" tabular>{`${value.attention_config.ambient_debounce_seconds}s`}</Field><Field label="Maximum wait" tabular>{`${value.attention_config.ambient_max_wait_seconds}s`}</Field><Field label="Maximum retries" tabular>{String(value.attention_config.max_retry_count)}</Field></dl>
               {canManage && value.desired_lifecycle !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
             </form>
             {canManage && value.desired_lifecycle !== "retired" ? <section className="agent-lifecycle" aria-label="Agent lifecycle"><h2>Lifecycle</h2>{value.desired_lifecycle === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}{value.desired_lifecycle === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}{value.desired_lifecycle === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}{value.provision_status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}<button className="danger-button" type="button" disabled={update.isPending || retirement.isPending} onClick={() => retirement.mutate()}><Trash2 /> Retire permanently</button></section> : null}
@@ -166,9 +172,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
 }
 
 function DetailSection({ title, className, children }: { title: string; className?: string; children: ReactNode }) { return <section className={className ? `detail-section ${className}` : "detail-section"}><h2>{title}</h2>{children}</section>; }
-function Field({ label, value, tabular = false, chip }: { label: string; value?: string | null; tabular?: boolean; chip?: "runtime" | "model" | "reasoning" | "mode" }) {
-  const displayedValue = value ?? "Unassigned";
-  const body = chip ? <dd><span className={`chip chip--${chip}`}>{displayedValue}</span></dd> : <dd className={tabular ? "tabular" : undefined}>{displayedValue}</dd>;
+function Field({ label, children, tabular = false, chip }: { label: string; children?: ReactNode; tabular?: boolean; chip?: "runtime" | "model" | "reasoning" | "mode" }) {
+  const body = chip ? <dd><span className={`chip chip--${chip}`}>{children}</span></dd> : <dd className={tabular ? "tabular" : undefined}>{children ?? "Unassigned"}</dd>;
   return <div><dt>{label}</dt>{body}</div>;
 }
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }

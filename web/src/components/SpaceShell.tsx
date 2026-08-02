@@ -598,7 +598,6 @@ function ComputersNavigation({ computers, spaceSlug, activeHash, canManage }: { 
       <p className="nav-label">COMPUTERS <span>{computers.length}</span></p>
       {canManage ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer" aria-label="Pair Computer" title="Pair Computer"><Plus /></Link> : null}
     </div>
-    {canManage ? <Link className={`computer-add-nav${!normalizedHash || normalizedHash === "pair-computer" ? " computer-add-nav--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} aria-current={!normalizedHash || normalizedHash === "pair-computer" ? "page" : undefined}>Add Computer</Link> : null}
     {computers.length ? computers.map((computer) => {
       const hash = `computer-${computer.id}`;
       const selected = normalizedHash === hash;
