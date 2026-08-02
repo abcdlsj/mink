@@ -14,7 +14,7 @@ describe("ExpandableMessageText", () => {
       <ExpandableMessageText
         messageId="message-1"
         body={Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n")}
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -28,12 +28,12 @@ describe("ExpandableMessageText", () => {
 });
 
 describe("highlightMentions", () => {
-  it("highlights only recognized handles at mention boundaries", () => {
+  it("highlights only recognized display names at mention boundaries", () => {
     const { container } = render(
       <ExpandableMessageText
         messageId="message-mentions"
         body="@Lin please check email@lin, @lincoln, and (@Lin)."
-        mentionedHandles={new Set(["lin"])}
+        mentionedNames={new Set(["lin"])}
       />,
     );
 
@@ -42,12 +42,12 @@ describe("highlightMentions", () => {
     expect(container).toHaveTextContent("@Lin please check email@lin, @lincoln, and (@Lin).");
   });
 
-  it("does not infer a mention from text when no structured handle is present", () => {
+  it("does not infer a mention from text when no structured display name is present", () => {
     const { container } = render(
       <ExpandableMessageText
         messageId="message-unrecognized-mention"
         body="Please check @lin."
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -62,7 +62,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-inline-code"
         body="Run `sumi server --help`, then check @lin and `@lin` inside code."
-        mentionedHandles={new Set(["lin"])}
+        mentionedNames={new Set(["lin"])}
       />,
     );
 
@@ -80,7 +80,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-unclosed-code"
         body="A lone `backtick stays plain"
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -95,7 +95,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-bold"
         body="Use **strong** and *emphasis* together."
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -109,7 +109,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-headings"
         body={"# One\n## Two\n### Three\nbody text"}
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -123,7 +123,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-lists"
         body={"- first\n- second\n\n1. one\n2. two"}
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -136,7 +136,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-links"
         body="See [docs](https://example.test/docs) and [bad](javascript:alert(1))."
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -151,7 +151,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-code-block"
         body={"```\nsumi server --help\n```"}
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 
@@ -163,7 +163,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-nested"
         body="Run **`sumi server`** now."
-        mentionedHandles={new Set()}
+        mentionedNames={new Set()}
       />,
     );
 

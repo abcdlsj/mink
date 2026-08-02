@@ -68,8 +68,8 @@ const space = {
   general_channel_id: channelId,
 };
 
-const owner = { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] };
-const agentMember = { id: agentId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] };
+const owner = { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] };
+const agentMember = { id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] };
 const agent = { member_id: agentId, name: "Lin", desired_lifecycle: "active", activity_status: "running" };
 
 function task(session_continuity: { state: string; generation: number }) {

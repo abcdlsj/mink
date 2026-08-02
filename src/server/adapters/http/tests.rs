@@ -59,8 +59,8 @@ impl CapabilityFixture {
         sqlx::raw_sql(&format!(
                 "BEGIN;
                  INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','#FE7DA8','{owner_id}',now());
-                 INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner','owner',now());
-                 INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','agent','member',now());
+                 INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner',now());
+                 INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','member',now());
                  INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','{}','online',1,now());
                  INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent_id}','{space_id}','{computer_id}','Test',1,'active','codex',now());
                  INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel_id}','{space_id}','private','general',2,now());
@@ -177,7 +177,7 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
 
     async fn read_agent(fixture: &CapabilityFixture, agent_id: Uuid) -> AgentResponse {
         let row = sqlx::query(&format!(
-            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
                  c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
                  FROM agents a JOIN members m ON m.id=a.member_id \
                  LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} \
@@ -339,7 +339,6 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
         failures[0].agent_member_id,
         fixture.context.agent_id.into_uuid()
     );
-    assert_eq!(failures[0].agent_handle, "agent");
     assert_eq!(failures[0].error_code, "run_claim_unavailable");
     assert!(failures[0].retrying);
     assert_eq!(

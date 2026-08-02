@@ -1560,7 +1560,6 @@ fn local_agent(driver: DriverKind, role_revision: u64) -> LocalAgent {
         agent_id: agent_id(),
         space_id: SpaceId::from_uuid(Uuid::now_v7()),
         name: "agent".to_owned(),
-        handle: "agent".to_owned(),
         role_revision,
         role: "role".to_owned(),
         driver,

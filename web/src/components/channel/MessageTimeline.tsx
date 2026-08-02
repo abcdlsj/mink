@@ -115,7 +115,7 @@ export function MessageTimeline({
                   {!message.deleted_at && message.attachments?.length ? (
                     <AttachmentList attachments={message.attachments} />
                   ) : null}
-                  <AttentionFailureNotice message={message} />
+                  <AttentionFailureNotice message={message} members={members} />
                   {!message.deleted_at && message.thread_id && message.reply_count > 0 ? (
                     <InlineThreadPreview
                       threadId={message.thread_id}
@@ -151,7 +151,7 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
           <span className="message-seq">@{message.seq}</span>
         </header>
         <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
-        <AttentionFailureNotice message={message} />
+        <AttentionFailureNotice message={message} members={members} />
         {!message.deleted_at && message.attachments?.length ? (
           <AttachmentList attachments={message.attachments} />
         ) : null}
@@ -271,9 +271,9 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   if (message.deleted_at) return <p>Message deleted</p>;
   if (message.content.type === "text") {
     const mentionedMemberIds = new Set(message.mentions);
-    const mentionedHandles = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.handle.toLowerCase()));
-    if (message.mention_all) mentionedHandles.add("all");
-    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedHandles={mentionedHandles} />;
+    const mentionedNames = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.display_name.toLowerCase()));
+    if (message.mention_all) mentionedNames.add("all");
+    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedNames={mentionedNames} />;
   }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
@@ -281,7 +281,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
 
-export function ExpandableMessageText({ messageId, body, mentionedHandles }: { messageId: string; body: string; mentionedHandles: ReadonlySet<string> }) {
+export function ExpandableMessageText({ messageId, body, mentionedNames }: { messageId: string; body: string; mentionedNames: ReadonlySet<string> }) {
   const paragraph = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -301,7 +301,7 @@ export function ExpandableMessageText({ messageId, body, mentionedHandles }: { m
   return (
     <div className="message-body-wrap">
       <div ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
-        {renderMessageBody(body, mentionedHandles)}
+        {renderMessageBody(body, mentionedNames)}
       </div>
       {overflowing || expanded ? (
         <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
@@ -312,14 +312,15 @@ export function ExpandableMessageText({ messageId, body, mentionedHandles }: { m
   );
 }
 
-function AttentionFailureNotice({ message }: { message: Message }) {
+function AttentionFailureNotice({ message, members }: { message: Message; members: Member[] }) {
   if (message.attention_failures.length === 0) return null;
   if (message.attention_failures.length === 1) {
     const failure = message.attention_failures[0];
+    const agentName = members.find((member) => member.id === failure.agent_member_id)?.display_name ?? "Agent";
     return (
       <div className="system-event" role="alert">
         <div className="system-event-heading">
-          <span>Could not start <strong>@{failure.agent_handle}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code></span>
+          <span>Could not start <strong>{agentName}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code></span>
         </div>
       </div>
     );
@@ -330,7 +331,7 @@ function AttentionFailureNotice({ message }: { message: Message }) {
       <div className="system-event-details">
         {message.attention_failures.map((failure) => (
           <p key={failure.agent_member_id}>
-            Could not start <strong>@{failure.agent_handle}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code>
+            Could not start <strong>{members.find((member) => member.id === failure.agent_member_id)?.display_name ?? "Agent"}</strong>. {failure.retrying ? "Sumi will retry automatically." : "Retry is required."} <code>{failure.error_code}</code>
           </p>
         ))}
       </div>
@@ -340,11 +341,11 @@ function AttentionFailureNotice({ message }: { message: Message }) {
 
 function highlightMentions(
   body: string,
-  mentionedHandles: ReadonlySet<string>,
+  mentionedNames: ReadonlySet<string>,
   keyPrefix: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const mentionPattern = /(^|\s)(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi;
+  const mentionPattern = /(^|\s)(@[\p{L}_]+)/giu;
   let cursor = 0;
 
   for (const match of body.matchAll(mentionPattern)) {
@@ -353,7 +354,7 @@ function highlightMentions(
     const tokenStart = matchStart + match[1].length;
     nodes.push(body.slice(cursor, tokenStart));
     nodes.push(
-      mentionedHandles.has(token.slice(1).toLowerCase())
+      mentionedNames.has(token.slice(1).toLowerCase())
         ? <mark className="message-mention" key={`${keyPrefix}-mention-${tokenStart}`}>{token}</mark>
         : token,
     );

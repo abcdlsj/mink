@@ -29,7 +29,7 @@ describe("Human Inbox", () => {
       if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
-        return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }]);
       }
       if (path.endsWith(`/members/${ownerId}/inbox`)) return json([]);
       throw new Error(`Unexpected request: ${path}`);
@@ -55,9 +55,9 @@ describe("Human Inbox", () => {
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
         return json([
-          { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] },
-          { id: "grace", kind: "human", display_name: "Grace", handle: "grace", access_level: "member", permissions: [] },
-          { id: "lin", kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] },
+          { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
+          { id: "grace", kind: "human", display_name: "Grace", access_level: "member", permissions: [] },
+          { id: "lin", kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
         ]);
       }
       if (path.endsWith(`/members/${ownerId}/inbox`)) {
@@ -93,7 +93,7 @@ describe("Human Inbox", () => {
       if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
-        return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }]);
       }
       if (path.endsWith(`/members/${ownerId}/inbox`)) {
         return json([inboxItem("reply", "reply", "grace", "Grace", "A reply")]);

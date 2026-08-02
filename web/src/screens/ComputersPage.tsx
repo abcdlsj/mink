@@ -116,7 +116,6 @@ function ComputersWorkspace({
     agentCreation.mutate({
       computer_id: String(form.get("computer_id") ?? ""),
       name: String(form.get("name") ?? ""),
-      handle: String(form.get("handle") ?? "") || undefined,
       role_text: String(form.get("role_text") ?? ""),
       access_level: String(form.get("access_level") ?? "member") as "member" | "admin",
       driver_kind: String(form.get("driver_kind") ?? "codex") as "codex" | "builtin",
@@ -300,7 +299,6 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
         <form className="agent-create-form" onSubmit={submit}>
           <label className="agent-field agent-field--wide">Computer *<select name="computer_id" required defaultValue={selectedComputerId ?? computers[0]?.id ?? ""} disabled={computers.length === 0}>{computers.map((computer) => <option key={computer.id} value={computer.id}>{computer.name} · {computer.hostname}</option>)}</select></label>
           <label className="agent-field">Name *<input name="name" aria-label="Agent name" required maxLength={40} placeholder="e.g. Iris" data-dialog-initial-focus /></label>
-          <label className="agent-field">Handle<input name="handle" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="auto-generated" /></label>
           <label className="agent-field agent-field--wide">Role *<textarea name="role_text" aria-label="Role" required maxLength={12000} placeholder="Describe responsibilities and boundaries…" /></label>
           <label className="agent-field">Driver<select name="driver_kind"><option value="codex">Codex</option><option value="builtin">Builtin</option></select></label>
           <label className="agent-field">Access Level<select name="access_level"><option value="member">Member</option>{isOwner ? <option value="admin">Admin</option> : null}</select></label>

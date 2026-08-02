@@ -176,7 +176,7 @@ impl PostgresTransaction {
     ) -> Result<Vec<DirectMessageView>, ApplicationError> {
         let rows = sqlx::query(
             "SELECT c.id AS channel_id,c.created_at, \
-                    other.id,other.kind,other.display_name,other.handle,other.access_level \
+                    other.id,other.kind,other.display_name,other.access_level \
              FROM channel_members mine \
              JOIN channels c ON c.id=mine.channel_id \
              JOIN channel_members theirs \
@@ -247,7 +247,7 @@ impl PostgresTransaction {
     ) -> Result<Option<DirectMessageView>, ApplicationError> {
         let row = sqlx::query(
             "SELECT c.id AS channel_id,c.created_at, \
-                    other.id,other.kind,other.display_name,other.handle,other.access_level \
+                    other.id,other.kind,other.display_name,other.access_level \
              FROM channels c \
              JOIN channel_members mine ON mine.channel_id=c.id AND mine.member_id=$2 \
              JOIN channel_members theirs ON theirs.channel_id=c.id AND theirs.member_id=$3 \

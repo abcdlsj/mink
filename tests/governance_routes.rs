@@ -41,7 +41,7 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let owner = register(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
     let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
     let space_id = space["id"].as_str().context("Space ID")?.to_owned();
     let general_id = space["general_channel_id"]
@@ -234,7 +234,7 @@ async fn invite_and_accept(
         .json()
         .await?;
     let token = created["token"].as_str().context("plaintext token")?;
-    let cookie = register(client, server, "Grace Hopper", "grace@example.test").await?;
+    let cookie = register(client, server, "Grace_Hopper", "grace@example.test").await?;
     client
         .post(server.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &cookie)

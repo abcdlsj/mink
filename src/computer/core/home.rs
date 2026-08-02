@@ -25,7 +25,6 @@ pub(in crate::computer) struct LocalAgent {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) space_id: SpaceId,
     pub(in crate::computer) name: String,
-    pub(in crate::computer) handle: String,
     pub(in crate::computer) role_revision: u64,
     pub(in crate::computer) role: String,
     pub(in crate::computer) driver: DriverKind,

@@ -41,7 +41,7 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let owner = register(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
     let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
     let space_id = space["id"].as_str().context("Space ID")?.to_owned();
     let owner_member_id = space["owner_member_id"]
@@ -69,10 +69,7 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         .as_array()
         .context("Member list")?
         .iter()
-        .find(|member| {
-            member["handle"] != space["owner_member_id"]
-                && member["id"] != Value::String(owner_member_id.clone())
-        })
+        .find(|member| member["id"] != Value::String(owner_member_id.clone()))
         .and_then(|member| member["id"].as_str())
         .context("recipient Member ID")?
         .to_owned();
@@ -160,7 +157,7 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
         server.log_text()
     );
 
-    let outsider = register(&client, &server_url, "Alan Turing", "alan@example.test").await?;
+    let outsider = register(&client, &server_url, "Alan_Turing", "alan@example.test").await?;
     let other_space = create_space(&client, &server_url, &outsider, "other-lab").await?;
     let other_member_id = other_space["owner_member_id"]
         .as_str()
@@ -224,7 +221,7 @@ async fn run_human_inbox_flow(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let owner = register(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
     let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
     let space_id = space["id"].as_str().context("Space ID")?.to_owned();
     let owner_member_id = space["owner_member_id"]
@@ -446,7 +443,7 @@ async fn invite_and_accept(
         .json()
         .await?;
     let token = created["token"].as_str().context("plaintext token")?;
-    let cookie = register(client, server, "Grace Hopper", email).await?;
+    let cookie = register(client, server, "Grace_Hopper", email).await?;
     client
         .post(server.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &cookie)

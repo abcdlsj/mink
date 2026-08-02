@@ -125,7 +125,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage }: { agentId: s
               ) : null}
               {runtime.data?.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}
             </DetailSection>
-            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Handle">{`@${value.handle}`}</Field><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
+            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
             <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" chip="runtime">{capitalize(value.driver_kind)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Lifecycle">{capitalize(value.desired_lifecycle)}</Field><Field label="Provision">{capitalize(value.provision_status)}</Field></dl></DetailSection>
             <DetailSection title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">

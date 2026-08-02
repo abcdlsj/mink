@@ -52,7 +52,6 @@ pub(super) struct AddChannelAgentsBody {
 pub(super) struct CreateAgentBody {
     pub(super) computer_id: Uuid,
     pub(super) name: String,
-    pub(super) handle: Option<String>,
     pub(super) role_text: String,
     pub(super) driver_kind: String,
     pub(super) access_level: String,
@@ -217,7 +216,6 @@ pub(super) async fn member_row(
             _ => return Err(ApiError::internal()),
         },
         display_name: row.get("display_name"),
-        handle: row.get("handle"),
         access_level: match row.get::<&str, _>("access_level") {
             "owner" => AccessLevelCode::Owner,
             "admin" => AccessLevelCode::Admin,
@@ -233,7 +231,7 @@ pub(super) async fn message_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<MessageResponse, ApiError> {
     let id: Uuid = row.get("id");
-    let author = sqlx::query("SELECT id,kind,display_name,handle FROM members WHERE id=$1")
+    let author = sqlx::query("SELECT id,kind,display_name FROM members WHERE id=$1")
         .bind(row.get::<Uuid, _>("author_member_id"))
         .fetch_one(pool)
         .await
@@ -251,9 +249,8 @@ pub(super) async fn message_row(
         attachment_views.push(attachment_row(attachment)?);
     }
     let attention_failures = sqlx::query(
-        "SELECT i.member_id,m.handle,i.last_error_code FROM inbox_items i \
-         JOIN members m ON m.id=i.member_id WHERE i.message_id=$1 \
-         AND i.last_error_code IS NOT NULL ORDER BY m.handle,i.member_id",
+        "SELECT member_id,last_error_code FROM inbox_items WHERE message_id=$1 \
+         AND last_error_code IS NOT NULL ORDER BY member_id",
     )
     .bind(id)
     .fetch_all(pool)
@@ -262,7 +259,6 @@ pub(super) async fn message_row(
     .iter()
     .map(|failure| AttentionFailureResponse {
         agent_member_id: failure.get("member_id"),
-        agent_handle: failure.get("handle"),
         error_code: failure.get("last_error_code"),
         retrying: true,
     })
@@ -341,7 +337,6 @@ pub(super) async fn message_row(
                 _ => return Err(ApiError::internal()),
             },
             display_name: author.get("display_name"),
-            handle: author.get("handle"),
         },
         content,
         mentions,

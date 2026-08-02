@@ -337,7 +337,6 @@ pub(super) fn space_member_from_row(
         space_id,
         kind: member_kind_from_str(row.get("kind"))?,
         display_name: row.get("display_name"),
-        handle: row.get("handle"),
         access_level: access_level_from_str(row.get("access_level"))?,
         permissions,
     })

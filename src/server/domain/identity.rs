@@ -15,9 +15,20 @@ pub(in crate::server) struct Member {
     pub(in crate::server) id: MemberId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
     pub(in crate::server) access_level: AccessLevel,
     pub(in crate::server) created_at: OffsetDateTime,
+}
+
+/// Display name is the only member address: Unicode letters and underscores,
+/// no spaces, no leading/trailing underscore, and never the reserved `all`.
+pub(in crate::server) fn valid_display_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.to_lowercase() != "all"
+        && !name.starts_with('_')
+        && !name.ends_with('_')
+        && name
+            .chars()
+            .all(|character| character.is_alphabetic() || character == '_')
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -233,7 +244,6 @@ mod tests {
             id: MemberId::from_uuid(uuid::Uuid::from_u128(5)),
             space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
             display_name: "Member".into(),
-            handle: "member".into(),
             access_level,
             created_at: OffsetDateTime::UNIX_EPOCH,
         }

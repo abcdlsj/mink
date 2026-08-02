@@ -44,7 +44,7 @@ async function main() {
 
   const agentsRes = await api("GET", `/api/v1/spaces/${space.id}/agents`, { cookie });
   const agents = await agentsRes.json();
-  const coder = agents.find((agent) => agent.handle === "coder" || agent.name === "Coder");
+  const coder = agents.find((agent) => agent.name === "Coder");
   if (!coder) throw new Error(`@coder not found; agents: ${JSON.stringify(agents)}`);
   const agentMemberId = coder.member_id;
   console.log(`[probe] posting mention to @coder (member ${agentMemberId}) in channel ${channelId}`);

@@ -25,7 +25,7 @@ const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi"
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
 const SEED_MARKER = "[dev-seed]";
-export const DEV_SPACE = Object.freeze({ name: "Sumi Dev Lab", slug: "sumi-dev", accent: "#FE7DA8" });
+export const DEV_SPACE = Object.freeze({ name: "Sumi Dev", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
 export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi-dev-seed", "computer");
 export const DEV_SEED_STATE_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT
@@ -36,19 +36,16 @@ const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 export const AGENT_PROFILES = Object.freeze([
   Object.freeze({
     name: "PM",
-    handle: "pm",
     role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
     driver_kind: "codex",
   }),
   Object.freeze({
     name: "Coder",
-    handle: "coder",
     role_text: "You are the implementation owner. Diagnose root causes, write focused code, run relevant tests, and report verifiable results. Keep changes simple and never hide failures behind compatibility layers.",
     driver_kind: "codex",
   }),
   Object.freeze({
     name: "Reviewer",
-    handle: "reviewer",
     role_text: "You are the independent reviewer. Inspect specifications and changes for correctness, security, regressions, and missing tests. Challenge weak evidence and do not approve work until risks are explicit.",
     driver_kind: "codex",
   }),
@@ -229,7 +226,7 @@ export async function createBrowserSessionHandoff(cookie, destination) {
 // keeps `mise run dev-seed` idempotent across restarts against the same DB.
 async function ensureOwner() {
   const registered = await api("POST", "/api/v1/auth/register", {
-    body: { display_name: "Sumi Dev", email: OWNER_EMAIL, password: OWNER_PASSWORD },
+    body: { display_name: "abcdlsj", email: OWNER_EMAIL, password: OWNER_PASSWORD },
   });
   if (registered.status === 201) {
     log(`registered owner ${OWNER_EMAIL}`);
@@ -380,7 +377,6 @@ async function createAgent(cookie, spaceId, computerId, profile) {
     body: {
       computer_id: computerId,
       name: profile.name,
-      handle: profile.handle,
       role_text: profile.role_text,
       access_level: "member",
       driver_kind: profile.driver_kind,
@@ -398,7 +394,7 @@ async function updateAgentRole(cookie, agent, profile) {
     body: { role_text: profile.role_text },
   });
   if (!response.ok) {
-    throw new Error(`update @${profile.handle} failed: ${response.status} ${await response.text()}`);
+    throw new Error(`update ${profile.name} failed: ${response.status} ${await response.text()}`);
   }
   return response.json();
 }
@@ -411,20 +407,20 @@ async function ensureAgents(cookie, spaceId, computerId) {
   const existing = await response.json();
   const agents = [];
   for (const profile of AGENT_PROFILES) {
-    const matches = existing.filter((agent) => agent.handle === profile.handle);
-    if (matches.length > 1) throw new Error(`multiple active Agents use @${profile.handle}`);
+    const matches = existing.filter((agent) => agent.name === profile.name);
+    if (matches.length > 1) throw new Error(`multiple active Agents use ${profile.name}`);
     const agent = matches[0];
     if (!agent) {
       agents.push(await createAgent(cookie, spaceId, computerId, profile));
-      log(`created @${profile.handle}`);
+      log(`created ${profile.name}`);
       continue;
     }
-    if (agent.desired_lifecycle === "retired") throw new Error(`seed Agent @${profile.handle} is retired`);
+    if (agent.desired_lifecycle === "retired") throw new Error(`seed Agent ${profile.name} is retired`);
     if (agent.computer_id !== computerId) {
-      throw new Error(`seed Agent @${profile.handle} belongs to another Computer`);
+      throw new Error(`seed Agent ${profile.name} belongs to another Computer`);
     }
     if (agent.driver_kind !== profile.driver_kind) {
-      throw new Error(`seed Agent @${profile.handle} uses ${agent.driver_kind}, expected ${profile.driver_kind}`);
+      throw new Error(`seed Agent ${profile.name} uses ${agent.driver_kind}, expected ${profile.driver_kind}`);
     }
     agents.push(agent.role_text === profile.role_text ? agent : await updateAgentRole(cookie, agent, profile));
   }
@@ -472,7 +468,7 @@ async function main() {
 
   const agents = await ensureAgents(cookie, space.id, computer.id);
   await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
-  log(`Agents ready in #${DEV_CHANNEL_SLUG}: ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")}`);
+  log(`Agents ready in #${DEV_CHANNEL_SLUG}: ${AGENT_PROFILES.map((profile) => profile.name).join(", ")}`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
   const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);
 
@@ -482,7 +478,7 @@ async function main() {
   log(`  destination: ${channelUrl}`);
   log(`  fallback login: ${OWNER_EMAIL} / ${OWNER_PASSWORD}`);
   log("");
-  log(`Keeping the Computer daemon alive so ${AGENT_PROFILES.map((profile) => `@${profile.handle}`).join(", ")} can reply. Ctrl-C to stop.`);
+  log(`Keeping the Computer daemon alive so ${AGENT_PROFILES.map((profile) => profile.name).join(", ")} can reply. Ctrl-C to stop.`);
 
   // Keep the daemon (and this process) running for the acceptance session.
   await new Promise(() => {});

@@ -1,5 +1,6 @@
 use super::*;
 use crate::server::adapters::websocket::computer_socket;
+use crate::server::domain::identity::valid_display_name;
 
 pub(super) async fn connect_computer(
     State(state): State<RuntimeState>,
@@ -83,7 +84,7 @@ pub(super) async fn computer_agents(
     authenticate_computer(&state, &headers, computer_id).await?;
     let rows = sqlx::query(
         "SELECT a.member_id,a.space_id,a.role_text,a.role_revision,a.lifecycle,a.driver_kind,\
-                a.driver_config_json,m.display_name,m.handle,m.access_level \
+                a.driver_config_json,m.display_name,m.access_level \
          FROM agents a JOIN members m ON m.id=a.member_id \
          WHERE a.computer_id=$1 AND a.lifecycle<>'retired' ORDER BY a.created_at,a.member_id",
     )
@@ -98,7 +99,6 @@ pub(super) async fn computer_agents(
                     "member_id": row.get::<Uuid,_>("member_id"),
                     "space_id": row.get::<Uuid,_>("space_id"),
                     "display_name": row.get::<String,_>("display_name"),
-                    "handle": row.get::<String,_>("handle"),
                     "access_level": row.get::<String,_>("access_level"),
                     "role_text": row.get::<String,_>("role_text"),
                     "role_revision": row.get::<i64,_>("role_revision"),
@@ -132,7 +132,7 @@ pub(super) async fn list_agents(
     current_member(&state, &jar, space_id).await?;
     let rows = sqlx::query(
         &format!(
-            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
              c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
              FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
              {ACTIVITY_JOINS} WHERE a.space_id=$1 ORDER BY a.created_at"
@@ -156,7 +156,7 @@ pub(super) async fn get_agent(
 ) -> Result<Json<AgentResponse>, ApiError> {
     let row = sqlx::query(
         &format!(
-            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
              c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
              FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
              {ACTIVITY_JOINS} WHERE a.member_id=$1"
@@ -234,7 +234,7 @@ pub(super) async fn retire_agent(
     .await
     .map_err(application_error)?;
     let row = sqlx::query(&format!(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+        "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
              c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
              FROM agents a JOIN members m ON m.id=a.member_id \
              LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"
@@ -285,7 +285,7 @@ pub(super) async fn create_agent(
     };
     let name = body.name.trim();
     let role = body.role_text.trim();
-    if name.is_empty()
+    if !valid_display_name(name)
         || name.chars().count() > 40
         || role.is_empty()
         || role.chars().count() > 12_000
@@ -295,21 +295,6 @@ pub(super) async fn create_agent(
         return Err(ApiError::invalid("Agent configuration is invalid"));
     }
     let agent_id = Uuid::now_v7();
-    let handle = body.handle.map_or_else(
-        || unique_handle(name, agent_id),
-        |value| value.trim().to_owned(),
-    );
-    if handle.is_empty()
-        || handle == "all"
-        || !handle.chars().all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-        })
-        || handle.starts_with('-')
-        || handle.ends_with('-')
-        || handle.contains("--")
-    {
-        return Err(ApiError::invalid("Agent handle is invalid"));
-    }
     let now = OffsetDateTime::now_utc();
     let mut storage = state.storage.clone();
     CreateAgent::execute(
@@ -318,7 +303,6 @@ pub(super) async fn create_agent(
             agent_member_id: MemberId::from_uuid(agent_id),
             space_id: SpaceId::from_uuid(space_id),
             display_name: name.to_owned(),
-            handle: handle.clone(),
             access_level: requested_access,
             role_text: role.to_owned(),
             computer_id: ComputerId::from_uuid(body.computer_id),
@@ -337,7 +321,7 @@ pub(super) async fn create_agent(
 
     let row = sqlx::query(
         &format!(
-            "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
              c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
              FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id \
              {ACTIVITY_JOINS} WHERE a.member_id=$1"
@@ -460,7 +444,6 @@ pub(super) fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, Ap
         space_id: row.get("space_id"),
         computer_id: row.get("computer_id"),
         name: row.get("display_name"),
-        handle: row.get("handle"),
         access_level: match row.get::<&str, _>("access_level") {
             "admin" => AgentAccessLevel::Admin,
             "member" => AgentAccessLevel::Member,
@@ -658,7 +641,7 @@ pub(super) async fn read_agent_projection(
     agent_id: Uuid,
 ) -> Result<Json<AgentResponse>, ApiError> {
     let row = sqlx::query(&format!(
-        "SELECT a.*,m.display_name,m.handle,m.access_level,c.connection_status,\
+        "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
          c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
          FROM agents a JOIN members m ON m.id=a.member_id \
          LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"

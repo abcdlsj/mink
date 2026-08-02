@@ -41,7 +41,7 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let owner = register(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
     let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
     let space_id = space["id"].as_str().context("Space ID")?.to_owned();
 
@@ -109,7 +109,7 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let unknown: Value = unknown.json().await?;
     ensure!(unknown["error"]["code"] == "invitation_unavailable");
 
-    let stranger = register(&client, &server_url, "Alan Turing", "alan@example.test").await?;
+    let stranger = register(&client, &server_url, "Alan_Turing", "alan@example.test").await?;
     let rejected = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &stranger)
@@ -123,7 +123,7 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let rejected: Value = rejected.json().await?;
     ensure!(rejected["error"]["code"] == "invitation_email_mismatch");
 
-    let recipient = register(&client, &server_url, "Grace Hopper", "grace@example.test").await?;
+    let recipient = register(&client, &server_url, "Grace_Hopper", "grace@example.test").await?;
     let accepted = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &recipient)

@@ -46,7 +46,7 @@ describe("RegisterPage", () => {
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels")) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") || path.endsWith("/agents") || path.endsWith("/computers")) return json([]);
-      if (path.endsWith("/members")) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+      if (path.endsWith("/members")) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }]);
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -109,7 +109,6 @@ describe("RegisterPage", () => {
         id: space.owner_member_id,
         kind: "human",
         display_name: "Ada Lovelace",
-        handle: "ada-lovelace",
         access_level: "owner",
         permissions: [],
       }]);

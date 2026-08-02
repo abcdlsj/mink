@@ -88,7 +88,6 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
             id: owner_id,
             space_id,
             display_name: "Owner".into(),
-            handle: "owner".into(),
             access_level: AccessLevel::Owner,
             created_at: OffsetDateTime::now_utc(),
         },
@@ -128,7 +127,6 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
             agent_member_id: agent_id,
             space_id,
             display_name: "Agent".into(),
-            handle: "agent".into(),
             access_level: AccessLevel::Admin,
             role_text: "Review changes".into(),
             computer_id,
@@ -407,7 +405,6 @@ impl IdentityTransaction for MemoryTransaction {
         _name: &str,
         _slug: &str,
         _accent: &str,
-        _owner_handle: &str,
         _owner_display_name: &str,
         _idempotency_key: IdempotencyKey,
         _now: time::OffsetDateTime,
@@ -638,7 +635,6 @@ impl IdentityTransaction for MemoryTransaction {
                 member_id: record.member_id,
                 space_id: record.space_id,
                 display_name: record.display_name.clone(),
-                handle: record.handle.clone(),
             },
         );
         Ok(())
@@ -927,7 +923,6 @@ impl CollaborationTransaction for MemoryTransaction {
                     MemberKind::Human
                 },
                 display_name: member.display_name.clone(),
-                handle: member.handle.clone(),
                 access_level: member.access_level,
                 permissions: self
                     .state
@@ -2769,7 +2764,6 @@ async fn agent_creation_and_action_message_share_permission_and_transaction() {
     let input = || CreateAgentActionInput {
         agent_member_id: created_agent,
         display_name: "Implementer".into(),
-        handle: "implementer".into(),
         role_text: "Implement code".into(),
         computer_id,
         driver_kind: DriverKind::Codex,
@@ -2817,7 +2811,6 @@ async fn message_edit_and_delete_are_authorized_idempotent_text_mutations() {
             id: author,
             space_id: space(1),
             display_name: "Author".into(),
-            handle: "author".into(),
             access_level: AccessLevel::Member,
             created_at: OffsetDateTime::UNIX_EPOCH,
         },
@@ -2876,7 +2869,6 @@ async fn permission_changes_require_a_space_governor_and_are_idempotent() {
                 id,
                 space_id: space(1),
                 display_name: id.to_string(),
-                handle: id.to_string(),
                 access_level,
                 created_at: OffsetDateTime::UNIX_EPOCH,
             },
@@ -3239,7 +3231,7 @@ async fn registration_establishes_a_session_and_rejects_a_duplicate_email() {
         RegisterHumanInput {
             user_id: Uuid::from_u128(4003),
             session_id: Uuid::from_u128(4004),
-            display_name: "Casey Again",
+            display_name: "Casey_Again",
             email: "casey@example.com",
             password: "another long password",
             lifetime: hour_lifetime(),
@@ -3399,7 +3391,6 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
                 id,
                 space_id,
                 display_name: "Member".into(),
-                handle: "member".into(),
                 access_level: level,
                 created_at: now,
             },
@@ -4177,7 +4168,6 @@ fn space_member_fixture(
             id,
             space_id,
             display_name: "Member".into(),
-            handle: "member".into(),
             access_level,
             created_at: OffsetDateTime::UNIX_EPOCH,
         },
@@ -4459,7 +4449,6 @@ async fn space_with_governor(port: &mut MemoryPort, space_id: SpaceId, actor_id:
             id: actor_id,
             space_id,
             display_name: "Owner".into(),
-            handle: "owner".into(),
             access_level: AccessLevel::Owner,
             created_at: OffsetDateTime::UNIX_EPOCH,
         },
@@ -4553,7 +4542,6 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
                 user_id: Uuid::from_u128(6107),
                 user_email: "other@example.com",
                 display_name: "Other",
-                handle: "other-6107",
                 now,
             },
         )
@@ -4573,7 +4561,6 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
             user_id,
             user_email: " Invitee@Example.COM ",
             display_name: "  Invitee  ",
-            handle: "invitee-6108",
             now,
         },
     )
@@ -4591,7 +4578,6 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
             user_id,
             user_email: RECIPIENT,
             display_name: "Invitee",
-            handle: "invitee-6199",
             now,
         },
     )
@@ -4642,7 +4628,6 @@ async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
                 user_id: Uuid::from_u128(6206),
                 user_email: RECIPIENT,
                 display_name: "Invitee",
-                handle: "invitee-6205",
                 now: after,
             },
         )

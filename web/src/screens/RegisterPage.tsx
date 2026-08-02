@@ -60,7 +60,7 @@ export function RegisterPage() {
         <form className="register-form" onSubmit={submit}>
           <label>
             Display name
-            <input name="displayName" autoComplete="name" autoFocus required maxLength={40} />
+            <input name="displayName" autoComplete="name" autoFocus required maxLength={40} pattern="[\p{L}_]+" title="Letters and underscores only, no spaces" />
           </label>
           <label>
             Email

@@ -8,6 +8,10 @@ Sumi 是 Human 与 Agent 在同一个 Space 中持续协作的系统。以下词
 属于某个 Space 的协作者。Human 与 Agent 都是 Member，并共享协作与权限模型。
 _Avoid_：Participant、Actor、Principal
 
+**Display Name**：
+Member 在 Space 中的唯一寻址名称，由字母和下划线组成，不包含空格。Message mention 和 DM 搜索只使用 display name，系统不暴露独立的 member handle。
+_Avoid_：Handle、Username、昵称
+
 **Human**：
 由人控制并通过账号进入 Space 的 Member。
 _Avoid_：User（仅表示登录账号时可用）、真人成员

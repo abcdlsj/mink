@@ -62,7 +62,6 @@ describe("Phase one Human flows", () => {
             id: space.owner_member_id,
             kind: "human",
             display_name: "Ada Lovelace",
-            handle: "ada-lovelace",
             access_level: "owner",
             permissions: [],
           },
@@ -70,7 +69,6 @@ describe("Phase one Human flows", () => {
             id: "019c0000-0000-7000-8000-000000000020",
             kind: "human",
             display_name: "Grace Hopper",
-            handle: "grace-hopper",
             access_level: "member",
             permissions: ["channel.create"],
           },
@@ -78,7 +76,6 @@ describe("Phase one Human flows", () => {
             id: "019c0000-0000-7000-8000-000000000030",
             kind: "agent",
             display_name: "Lin",
-            handle: "lin",
             access_level: "member",
             permissions: [],
           },
@@ -89,7 +86,6 @@ describe("Phase one Human flows", () => {
           id: "019c0000-0000-7000-8000-000000000020",
           kind: "human",
           display_name: "Grace Hopper",
-          handle: "grace-hopper",
           access_level: "admin",
           permissions: [],
         });
@@ -103,7 +99,6 @@ describe("Phase one Human flows", () => {
               id: "019c0000-0000-7000-8000-000000000020",
               kind: "human",
               display_name: "Grace Hopper",
-              handle: "grace-hopper",
               access_level: "member",
               permissions: [],
             },
@@ -209,7 +204,7 @@ describe("Phase one Human flows", () => {
       }
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
-        return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada Lovelace", handle: "ada", access_level: "owner", permissions: [] }]);
+        return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] }]);
       }
       if (path.endsWith(`/members/${space.owner_member_id}/inbox`) && !init?.method) {
         return json([{ id: itemId, member_id: space.owner_member_id, kind: "mention", priority: "hard", channel_id: space.general_channel_id, channel_slug: "general", message_id: "message", sender_member_id: "grace", sender_display_name: "Grace Hopper", summary: "Please review this boundary.", status: "pending", available_at: "2026-07-25T00:00:00Z", created_at: "2026-07-25T00:00:00Z" }]);

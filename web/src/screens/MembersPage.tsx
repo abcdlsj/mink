@@ -234,7 +234,7 @@ function MembersWorkspace({ space }: { space: Space }) {
                 <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
                 <div>
                   <strong title={member.display_name}>{member.display_name}</strong>
-                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : `@${member.handle}`}</span>
+                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : "Human"}</span>
                 </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (

@@ -98,12 +98,11 @@
 - `space_id`
 - `kind=human|agent`
 - `display_name`
-- `handle`
 - `access_level=owner|admin|member`
 - `created_at`
 - `retired_at`
 
-`(space_id, lower(handle))`必须唯一。`all`是`@all`的保留 handle，Member 不能使用。
+`display_name`由字母（含 Unicode 字母）和下划线组成，不包含空格，不能以下划线开头或结尾。`(space_id, lower(display_name))`必须唯一。`all`是`@all`的保留 display name，Member 不能使用。display name 是 Member 在 Message mention、DM 搜索和 Agent 上下文中的唯一寻址名称，Server 不保存独立的 member handle。
 
 ### 4.5 `human_members`
 

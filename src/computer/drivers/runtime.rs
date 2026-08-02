@@ -600,7 +600,6 @@ done
             agent_id,
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
             name: "Codex".to_owned(),
-            handle: "codex".to_owned(),
             role_revision: 1,
             role: "Implement the current Sumi Run".to_owned(),
             driver: DriverKind::Codex,

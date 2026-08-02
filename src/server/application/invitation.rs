@@ -4,6 +4,7 @@ use crate::ids::{IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::{
     DomainError,
+    identity::valid_display_name,
     invitation::{Invitation, InvitationDraft},
 };
 
@@ -112,7 +113,6 @@ pub(in crate::server) struct AcceptInvitationInput<'a> {
     pub(in crate::server) user_id: uuid::Uuid,
     pub(in crate::server) user_email: &'a str,
     pub(in crate::server) display_name: &'a str,
-    pub(in crate::server) handle: &'a str,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -123,7 +123,7 @@ impl AcceptInvitation {
     ) -> Result<SpaceHumanMember, ApplicationError> {
         let token_hash = input.token.sha256_hash();
         let display_name = input.display_name.trim();
-        if display_name.is_empty() || input.handle.is_empty() {
+        if !valid_display_name(display_name) {
             return Err(DomainError::InvalidInvitation.into());
         }
         port.transact(async |transaction| {
@@ -152,7 +152,6 @@ impl AcceptInvitation {
                 space_id: invitation.draft.space_id,
                 user_id: input.user_id,
                 display_name: display_name.to_owned(),
-                handle: input.handle.to_owned(),
                 created_at: input.now,
             };
             transaction.insert_human_member(&record).await?;
@@ -163,7 +162,6 @@ impl AcceptInvitation {
                 member_id: record.member_id,
                 space_id: record.space_id,
                 display_name: record.display_name,
-                handle: record.handle,
             })
         })
         .await

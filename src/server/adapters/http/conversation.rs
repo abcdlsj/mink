@@ -112,7 +112,7 @@ pub(super) async fn channel_members_response(
             .await
             .map_err(map_sqlx)?;
     let rows = sqlx::query(
-        "SELECT members.id,members.kind,members.display_name,members.handle,members.access_level \
+        "SELECT members.id,members.kind,members.display_name,members.access_level \
          FROM channel_members JOIN members ON members.id=channel_members.member_id \
          WHERE channel_members.channel_id=$1 ORDER BY channel_members.joined_at,members.id",
     )
@@ -574,7 +574,6 @@ pub(super) fn space_member_response(member: &SpaceMemberView) -> MemberResponse 
             MemberKind::Agent => MemberKindCode::Agent,
         },
         display_name: member.display_name.clone(),
-        handle: member.handle.clone(),
         access_level: access_level_code(member.access_level),
         permissions: member
             .permissions
