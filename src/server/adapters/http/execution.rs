@@ -101,7 +101,7 @@ pub(super) async fn apply_run_result(
         })
         .collect();
     let mut storage = state.storage.clone();
-    CompleteRun::execute(
+    let run = CompleteRun::execute(
         &mut storage,
         CompleteRunInput {
             event_id: result.event_id,
@@ -117,6 +117,20 @@ pub(super) async fn apply_run_result(
     )
     .await
     .map_err(application_error)?;
+    if result.status == RunTerminalStatus::Yielded {
+        let run_view = run.view();
+        record_agent_activity(
+            state,
+            run_view.space_id.into_uuid(),
+            run_view.agent_id.into_uuid(),
+            "run.yield",
+            json!({
+                "run_id": run_view.id,
+                "thread_id": run_view.focus_thread_id,
+            }),
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -455,6 +469,19 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(api_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "message.send",
+                json!({
+                    "run_id": context.run_id,
+                    "channel_id": channel_id,
+                    "thread_id": thread_id.unwrap_or(message_id),
+                    "message_id": message_id,
+                }),
+            )
+            .await;
             Ok(
                 json!({"message_id":message_id,"thread_id":thread_id.unwrap_or(message_id),"channel_id":channel_id}),
             )
@@ -494,8 +521,21 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            let task_id = task.view().id;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "task.create",
+                json!({
+                    "run_id": context.run_id,
+                    "task_id": task_id,
+                    "thread_id": context.focus_thread_id,
+                }),
+            )
+            .await;
             capability_value(
-                &task_projection(&state.pool, task.view().id.into_uuid())
+                &task_projection(&state.pool, task_id.into_uuid())
                     .await
                     .map_err(api_to_capability)?,
             )
@@ -528,6 +568,18 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "task.link_thread",
+                json!({
+                    "run_id": context.run_id,
+                    "task_id": task_id,
+                    "thread_id": thread_id,
+                }),
+            )
+            .await;
             capability_value(
                 &task_projection(&state.pool, task_id.into_uuid())
                     .await
@@ -562,6 +614,18 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "task.unlink_thread",
+                json!({
+                    "run_id": context.run_id,
+                    "task_id": task_id,
+                    "thread_id": thread_id,
+                }),
+            )
+            .await;
             capability_value(
                 &task_projection(&state.pool, task_id.into_uuid())
                     .await
@@ -596,6 +660,17 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "task.update",
+                json!({
+                    "run_id": context.run_id,
+                    "task_id": task_id,
+                }),
+            )
+            .await;
             capability_value(
                 &task_projection(&state.pool, task_id.into_uuid())
                     .await
@@ -681,6 +756,18 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "channel.create",
+                json!({
+                    "run_id": context.run_id,
+                    "channel_id": channel.id,
+                    "thread_id": context.focus_thread_id,
+                }),
+            )
+            .await;
             Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
         }
         capability::Action::AgentCreate { name, role, driver } => {
@@ -719,6 +806,18 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "agent.create",
+                json!({
+                    "run_id": context.run_id,
+                    "target_member_id": agent.member_id,
+                    "thread_id": context.focus_thread_id,
+                }),
+            )
+            .await;
             Ok(json!({"agent_id":agent.member_id,"lifecycle":"provisioning"}))
         }
         capability::Action::InboxCurrent => {
@@ -737,6 +836,17 @@ pub(super) async fn execute_agent_action(
                 None,
             )
             .await?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "inbox.ack",
+                json!({
+                    "run_id": context.run_id,
+                    "item_id": item_id,
+                }),
+            )
+            .await;
             Ok(json!({"item_id":item_id,"disposition":"handled"}))
         }
         capability::Action::InboxDefer { item_id, until } => {
@@ -749,6 +859,17 @@ pub(super) async fn execute_agent_action(
                 Some(until),
             )
             .await?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "inbox.defer",
+                json!({
+                    "run_id": context.run_id,
+                    "item_id": item_id,
+                }),
+            )
+            .await;
             Ok(json!({"item_id":item_id,"disposition":"deferred","available_at":timestamp(until)}))
         }
         _ => Err(capability_error(
@@ -787,6 +908,11 @@ pub(super) async fn finish_agent_task(
             false,
         )
     })?;
+    let activity_kind = match &outcome {
+        TaskOutcome::SubmitReview { .. } => "task.submit_review",
+        TaskOutcome::Done { .. } => "task.done",
+        TaskOutcome::Close { .. } => "task.close",
+    };
     let mut storage = state.storage.clone();
     RecordTaskOutcome::execute(
         &mut storage,
@@ -805,6 +931,17 @@ pub(super) async fn finish_agent_task(
     )
     .await
     .map_err(app_to_capability)?;
+    record_agent_activity(
+        state,
+        context.space_id.into_uuid(),
+        context.agent_id.into_uuid(),
+        activity_kind,
+        json!({
+            "run_id": context.run_id,
+            "task_id": task_id,
+        }),
+    )
+    .await;
     capability_value(
         &task_projection(&state.pool, task_id.into_uuid())
             .await
@@ -1011,6 +1148,26 @@ pub(super) fn capability_value(value: &impl serde::Serialize) -> Result<Value, c
             false,
         )
     })
+}
+
+/// Records an ephemeral `agent.activity` event for the Browser feed. The feed is best-effort, so a
+/// failed insert never fails the Agent action that produced the activity.
+pub(super) async fn record_agent_activity(
+    state: &RuntimeState,
+    space_id: Uuid,
+    agent_member_id: Uuid,
+    kind: &str,
+    payload: serde_json::Value,
+) {
+    state
+        .storage
+        .record_agent_activity(
+            SpaceId::from_uuid(space_id),
+            MemberId::from_uuid(agent_member_id),
+            kind,
+            payload,
+        )
+        .await;
 }
 
 #[derive(Clone, Copy)]

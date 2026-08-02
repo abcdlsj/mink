@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
-import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
-import { activityLabel } from "../agentActivity";
+import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
+import { activityLabel, useAgentActivity, type AgentActivityItem } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
@@ -20,11 +20,12 @@ export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="members">
-      {({ space, currentMember }) => (
+      {({ space, currentMember, channels }) => (
         <AgentWorkspace
           agentId={agentId}
           spaceId={space.id}
           spaceSlug={spaceSlug}
+          channels={channels}
           canManage={currentMember.access_level === "owner" || currentMember.access_level === "admin"}
         />
       )}
@@ -32,7 +33,7 @@ export function AgentDetailPage() {
   );
 }
 
-function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage }: { agentId: string; spaceId: string; spaceSlug: string; canManage: boolean }) {
+function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { agentId: string; spaceId: string; spaceSlug: string; channels: Channel[]; canManage: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [tab, setTab] = useState<AgentTab>("overview");
@@ -112,6 +113,9 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage }: { agentId: s
         {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <div className="agent-overview-grid">
+            <DetailSection className="agent-activity" title="Activity">
+              <AgentActivityFeed agentId={value.member_id} spaceSlug={spaceSlug} channels={channels} />
+            </DetailSection>
             <DetailSection className="agent-work" title="Current work">
               {runtime.isPending ? <p>Loading current Run…</p> : null}
               {runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}
@@ -125,9 +129,9 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage }: { agentId: s
               ) : null}
               {runtime.data?.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}
             </DetailSection>
-            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" chip="runtime">{capitalize(value.driver_kind)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Lifecycle">{capitalize(value.desired_lifecycle)}</Field><Field label="Provision">{capitalize(value.provision_status)}</Field></dl></DetailSection>
-            <DetailSection title="Action permissions">
+            <DetailSection className="agent-identity" title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
+            <DetailSection className="agent-runtime" title="Runtime"><dl className="detail-grid"><Field label="Driver" chip="runtime">{capitalize(value.driver_kind)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Lifecycle">{capitalize(value.desired_lifecycle)}</Field><Field label="Provision">{capitalize(value.provision_status)}</Field></dl></DetailSection>
+            <DetailSection className="agent-permissions" title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
                   const enabled = agentMember?.permissions.includes(action) ?? false;
@@ -186,3 +190,68 @@ function Field({ label, children, tabular = false, chip }: { label: string; chil
   return <div><dt>{label}</dt>{body}</div>;
 }
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
+
+const activityLabels: Record<AgentActivityItem["kind"], string> = {
+  "message.send": "Sent a message",
+  "task.create": "Created task",
+  "task.update": "Updated task",
+  "task.link_thread": "Linked a thread to task",
+  "task.unlink_thread": "Unlinked a thread from task",
+  "task.submit_review": "Submitted task for review",
+  "task.done": "Completed task",
+  "task.close": "Closed task",
+  "channel.create": "Created channel",
+  "agent.create": "Created agent",
+  "inbox.ack": "Acknowledged an inbox item",
+  "inbox.defer": "Deferred an inbox item",
+  "run.yield": "Yielded the current run",
+};
+
+function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; spaceSlug: string; channels: Channel[] }) {
+  const items = useAgentActivity(agentId);
+  const channelById = new Map(channels.map((channel) => [channel.id, channel]));
+  if (items.length === 0) {
+    return <p className="agent-activity-empty">No visible activity yet.</p>;
+  }
+  return (
+    <ol className="agent-activity-list" aria-label="Agent activity">
+      {items.map((item) => {
+        const link = activityLink(item, spaceSlug, channelById);
+        return (
+          <li className="agent-activity-row" key={item.eventId}>
+            <p>{activityLabels[item.kind]}{link ? <> {link}</> : null}</p>
+            <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {
+  if ((item.kind === "message.send" || item.kind === "channel.create") && item.channelId) {
+    const channel = channelById.get(item.channelId);
+    if (!channel) return null;
+    return <Link
+      to="/s/$spaceSlug/channels/$channelSlug"
+      params={{ spaceSlug, channelSlug: channel.slug }}
+      hash={item.kind === "message.send" && item.messageId ? `message-${item.messageId}` : undefined}
+    >#{channel.slug}</Link>;
+  }
+  if (item.kind.startsWith("task.") && item.taskId) {
+    return <Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: item.taskId }}>View task</Link>;
+  }
+  if (item.kind === "agent.create" && item.targetMemberId) {
+    return <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: item.targetMemberId }}>View agent</Link>;
+  }
+  return null;
+}
+
+function activityTime(occurredAt: string): string {
+  const date = new Date(occurredAt);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date().toDateString() === date.toDateString()
+    ? time
+    : `${date.toLocaleDateString()} ${time}`;
+}

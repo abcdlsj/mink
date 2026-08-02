@@ -332,10 +332,15 @@ GET /api/v1/spaces/{space_id}/events
 - `session.close|reset`
 - `channel.created|updated`
 - `agent.created|updated|changed`
+- `agent.activity`
 - `computer.changed`
 - `member.changed`
 
 事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得。
+
+`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
+
+`agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`时，读不到该 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
 
 Server 按调用方过滤事件流。payload 指向的 Channel 调用方读不到时，该事件不进入流；`inbox.changed`只发给 Item 所属 Member 和有权读取 Agent Inbox 的 Space 治理者。因此 SSE 不成为 private Channel 的存在性探测面。
 

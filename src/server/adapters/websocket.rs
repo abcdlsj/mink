@@ -1,12 +1,15 @@
 use crate::protocol::{
     computer::{
         CommandAck, CommandEnvelope, CommandOutcome, CommandResult, CommandSequence, ComputerFrame,
-        ComputerHello, DeliveryOutcome, HandshakeErrorCode, Receipt, ReceiptKind, ServerFrame,
-        ServerHandshake,
+        ComputerHello, DeliveryOutcome, HandshakeErrorCode, Receipt, ReceiptKind,
+        RunTerminalStatus, ServerFrame, ServerHandshake,
     },
     version::SUPPORTED,
 };
-use crate::{ids::ComputerId, server::application::ports::ApplicationError};
+use crate::{
+    ids::{ComputerId, MemberId, SpaceId, ThreadId},
+    server::application::ports::ApplicationError,
+};
 
 use super::postgres::PostgresAdapter;
 
@@ -62,7 +65,7 @@ use crate::server::application::execution::{
 };
 use axum::extract::ws::{Message as WebSocketMessage, WebSocket};
 use futures_util::StreamExt;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 pub(super) async fn computer_socket(
@@ -163,6 +166,8 @@ pub(super) async fn computer_socket(
             ComputerFrame::CommandAck { .. } => {}
             ComputerFrame::RunResult { result } => {
                 let event_id = result.event_id;
+                let run_id = result.run_id;
+                let yielded = result.status == RunTerminalStatus::Yielded;
                 let response = super::http::submit_run_result(
                     &storage,
                     ComputerPrincipal {
@@ -172,6 +177,27 @@ pub(super) async fn computer_socket(
                 )
                 .await;
                 if response.is_ok() {
+                    if yielded {
+                        let run = sqlx::query(
+                            "SELECT agent_id,space_id,focus_thread_id FROM agent_runs WHERE id=$1",
+                        )
+                        .bind(run_id.into_uuid())
+                        .fetch_optional(&pool)
+                        .await;
+                        if let Ok(Some(row)) = run {
+                            storage
+                                .record_agent_activity(
+                                    SpaceId::from_uuid(row.get("space_id")),
+                                    MemberId::from_uuid(row.get("agent_id")),
+                                    "run.yield",
+                                    serde_json::json!({
+                                        "run_id": run_id,
+                                        "thread_id": ThreadId::from_uuid(row.get("focus_thread_id")),
+                                    }),
+                                )
+                                .await;
+                        }
+                    }
                     let _ = send_json(
                         &mut socket,
                         &ServerFrame::Receipt {

@@ -1,10 +1,23 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+import { recordAgentActivity, type AgentActivityEvent } from "../agentActivity";
+
 interface SumiEvent {
   type: string;
+  event_id?: string;
   occurred_at?: string;
-  data: { channel_id?: string };
+  data: {
+    channel_id?: string;
+    member_id?: string;
+    kind?: string;
+    run_id?: string;
+    thread_id?: string;
+    message_id?: string;
+    task_id?: string;
+    item_id?: string;
+    target_member_id?: string;
+  };
 }
 
 export function useSpaceEvents(
@@ -52,6 +65,15 @@ export function useSpaceEvents(
       if (payload.type === "member.changed") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       }
+      if (
+        payload.type === "agent.activity" &&
+        payload.event_id &&
+        payload.occurred_at &&
+        payload.data.member_id &&
+        payload.data.kind
+      ) {
+        recordAgentActivity(payload as AgentActivityEvent);
+      }
       if (payload.type === "agent.changed" || payload.type === "agent.updated" || payload.type === "run.changed") {
         void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });
         void queryClient.invalidateQueries({ queryKey: ["agent"] });
@@ -77,6 +99,7 @@ export function useSpaceEvents(
       "agent.changed",
       "agent.created",
       "agent.updated",
+      "agent.activity",
       "computer.changed",
       "run.changed",
       "task.created",

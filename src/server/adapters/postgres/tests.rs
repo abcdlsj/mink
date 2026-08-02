@@ -25,12 +25,14 @@ fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
     let in_readable_channel = json!({"resource_id": Uuid::now_v7(), "channel_id": readable});
     let in_private_channel = json!({"resource_id": Uuid::now_v7(), "channel_id": private});
     assert!(event_is_visible(
+        "message.created",
         &in_readable_channel,
         viewer,
         false,
         &channels
     ));
     assert!(!event_is_visible(
+        "message.created",
         &in_private_channel,
         viewer,
         false,
@@ -38,6 +40,7 @@ fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
     ));
     // A governor reads Agent Inboxes but still holds no membership in a private Channel.
     assert!(!event_is_visible(
+        "message.created",
         &in_private_channel,
         viewer,
         true,
@@ -46,12 +49,49 @@ fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
 
     let own_inbox = json!({"member_id": viewer});
     let foreign_inbox = json!({"member_id": other_member});
-    assert!(event_is_visible(&own_inbox, viewer, false, &channels));
-    assert!(!event_is_visible(&foreign_inbox, viewer, false, &channels));
-    assert!(event_is_visible(&foreign_inbox, viewer, true, &channels));
+    assert!(event_is_visible(
+        "inbox.changed",
+        &own_inbox,
+        viewer,
+        false,
+        &channels
+    ));
+    assert!(!event_is_visible(
+        "inbox.changed",
+        &foreign_inbox,
+        viewer,
+        false,
+        &channels
+    ));
+    assert!(event_is_visible(
+        "inbox.changed",
+        &foreign_inbox,
+        viewer,
+        true,
+        &channels
+    ));
+
+    // agent.activity reaches every Space Member, but still hides Channels the viewer cannot read.
+    let agent_activity_in_readable = json!({"member_id": other_member, "channel_id": readable});
+    let agent_activity_in_private = json!({"member_id": other_member, "channel_id": private});
+    assert!(event_is_visible(
+        "agent.activity",
+        &agent_activity_in_readable,
+        viewer,
+        false,
+        &channels
+    ));
+    assert!(!event_is_visible(
+        "agent.activity",
+        &agent_activity_in_private,
+        viewer,
+        false,
+        &channels
+    ));
 
     // An event naming no Channel and no Member reaches every Space Member.
     assert!(event_is_visible(
+        "task.updated",
         &json!({"resource_id": Uuid::now_v7()}),
         viewer,
         false,
