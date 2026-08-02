@@ -456,7 +456,7 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
             {agents.length ? agents.map((agent, index) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} {...(index === 0 ? { "data-dialog-initial-focus": true } : {})} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
           </fieldset>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? "Adding…" : "Add selected"}</button></footer>
+          <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null} Add selected</button></footer>
         </form>
     </DialogFrame>
   );

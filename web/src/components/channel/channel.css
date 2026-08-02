@@ -17,7 +17,7 @@
   background: transparent;
   color: var(--ink);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
 .inline-thread-heading {
@@ -25,7 +25,7 @@
   min-height: 20px;
   align-items: center;
   padding: 0;
-  color: rgb(20 17 17 / 56%);
+  color: rgb(20 17 17 / 60%);
   font-size: 12px;
   font-weight: 700;
 }
@@ -85,7 +85,7 @@
 }
 
 .inline-reply > time {
-  color: rgb(20 17 17 / 40%);
+  color: rgb(20 17 17 / 60%);
   font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -116,7 +116,7 @@
 }
 
 .thread-header > div > span {
-  color: rgb(20 17 17 / 48%);
+  color: rgb(20 17 17 / 60%);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .08em;
@@ -161,7 +161,7 @@
   color: var(--ink);
   cursor: pointer;
   font-size: 11px;
-  text-align: left;
+  text-align: start;
 }
 
 .thread-context-update strong {
@@ -174,7 +174,7 @@
   padding: 8px 12px;
   border-bottom-color: rgb(20 17 17 / 18%);
   background: var(--panel);
-  color: rgb(20 17 17 / 50%);
+  color: rgb(20 17 17 / 60%);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .08em;

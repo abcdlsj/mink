@@ -159,7 +159,7 @@ describe("ChannelPage", () => {
       );
     });
     await waitFor(() => expect(screen.getByRole("heading", { name: "Grace Hopper" })).toBeVisible());
-    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Message @grace-hopper");
+    expect(screen.getByRole("combobox", { name: "Message" })).toHaveAttribute("placeholder", "Message @grace-hopper");
   });
 
   it("renders API Messages and sends structured mentions", async () => {

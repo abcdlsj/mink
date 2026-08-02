@@ -67,7 +67,7 @@ export function LoginPage() {
             </p>
           ) : null}
           <button className="primary-action" type="submit" disabled={authentication.isPending}>
-            {authentication.isPending ? "Opening Session" : "Sign in"}
+            <span>Sign in</span>
             {authentication.isPending ? (
               <LoaderCircle className="spin" aria-hidden="true" />
             ) : (

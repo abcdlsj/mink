@@ -1,5 +1,4 @@
 import {
-  Outlet,
   createRootRoute,
   createRoute,
   createRouter,
@@ -7,6 +6,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 
+import { RouteChrome } from "./RouteChrome";
 import { ChannelPage } from "./screens/ChannelPage";
 import { AgentDetailPage } from "./screens/AgentDetailPage";
 import { ComputersPage } from "./screens/ComputersPage";
@@ -20,7 +20,7 @@ import { PairComputerPage } from "./screens/PairComputerPage";
 import { SpaceCreatePage } from "./screens/SpaceCreatePage";
 import { TaskDetailPage, TasksPage } from "./screens/TasksPage";
 
-const rootRoute = createRootRoute({ component: Outlet });
+const rootRoute = createRootRoute({ component: RouteChrome });
 const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CircleCheck, CircleDot, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip, Search, XCircle } from "lucide-react";
-import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type ContextCitation, type Member, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
 import { formatBytes } from "../../format";
@@ -35,6 +35,26 @@ export function MessageTimeline({
   members: Member[];
 }) {
   const [highlightedSourceIds, setHighlightedSourceIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [newMessageAnnouncement, setNewMessageAnnouncement] = useState("");
+  const announcedMessageRef = useRef<string | null>(null);
+
+  // The timeline itself must not be a live region: a polite region on the
+  // whole list makes screen readers re-read every message on each update.
+  // Announce only the newest arrival through one stable status region.
+  useEffect(() => {
+    if (!page || page.messages.length === 0) return;
+    const latest = page.messages[page.messages.length - 1];
+    if (announcedMessageRef.current === null) {
+      announcedMessageRef.current = latest.id;
+      return;
+    }
+    if (latest.id !== announcedMessageRef.current) {
+      announcedMessageRef.current = latest.id;
+      setNewMessageAnnouncement(
+        `New message from ${latest.author.display_name} (#${latest.seq})`,
+      );
+    }
+  }, [page]);
 
   function navigateToSource(sourceMessageId: string, sourceThreadId: string) {
     const source = timelineRef.current?.querySelector<HTMLElement>(`[data-message-id="${sourceMessageId}"]`);
@@ -47,7 +67,8 @@ export function MessageTimeline({
   }
 
   return (
-      <div ref={timelineRef} className="message-timeline" aria-live="polite">
+      <div ref={timelineRef} className="message-timeline">
+        <div className="visually-hidden" role="status">{newMessageAnnouncement}</div>
         {header}
         {pending ? <div className="timeline-status">Loading Messages...</div> : null}
         {error ? (
@@ -194,7 +215,7 @@ function InlineThreadPreview({ threadId, replyCount, open }: { threadId: string;
             <strong>{reply.author.display_name}</strong>
             {reply.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
           </span>
-          <span className="inline-reply-body">{reply.deleted_at ? "Message 已删除" : messagePreview(reply)}</span>
+          <span className="inline-reply-body">{reply.deleted_at ? "Message deleted" : messagePreview(reply)}</span>
           <time dateTime={reply.created_at}>{formatMessageTime(reply.created_at)}</time>
         </button>
       ))}
@@ -259,7 +280,7 @@ function MessageActions({ message, channelId, openThread }: { message: Message; 
 }
 
 function MessageBody({ message, spaceSlug, members, onCitationFocus, onCitationNavigate }: { message: Message; spaceSlug: string; members: Member[]; onCitationFocus?: (sourceMessageIds: string[] | null) => void; onCitationNavigate?: (sourceMessageId: string, sourceThreadId: string) => void }) {
-  if (message.deleted_at) return <p>Message 已删除</p>;
+  if (message.deleted_at) return <p>Message deleted</p>;
   if (message.content.type === "text") {
     const mentionedMemberIds = new Set(message.mentions);
     const mentionedHandles = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.handle.toLowerCase()));

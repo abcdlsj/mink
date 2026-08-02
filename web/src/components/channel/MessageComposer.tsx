@@ -105,7 +105,8 @@ export function MessageComposer({
         title={sendButtonLabel}
         disabled={submission.isPending || upload.isPending || !body.trim()}
       >
-        {submission.isPending ? <LoaderCircle className="spin" /> : <><Send /><span>Send</span></>}
+        {submission.isPending ? <LoaderCircle className="spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
+        <span>Send</span>
       </button>
       <span className="composer-shortcut">⌘ ENTER TO SEND</span>
       {attachments.length ? (
@@ -146,6 +147,19 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
     return member.handle.toLowerCase().includes(query) || member.display_name.toLowerCase().includes(query);
   }).slice(0, 6) : [];
   const allSuggestion = Boolean(match && "all".startsWith(match.query.toLowerCase()));
+  const listboxId = "mention-suggestions";
+  const allOptionId = "mention-option-all";
+  const listboxOpen = suggestions.length > 0 || allSuggestion;
+  let activeDescendant: string | undefined;
+  if (listboxOpen) {
+    if (allSuggestion && activeIndex === 0) {
+      activeDescendant = allOptionId;
+    } else {
+      const optionIndex = Math.max(0, activeIndex - (allSuggestion ? 1 : 0));
+      const member = suggestions[Math.min(optionIndex, suggestions.length - 1)];
+      activeDescendant = member ? `mention-option-${member.id}` : undefined;
+    }
+  }
 
   useEffect(() => {
     const input = textarea.current;
@@ -209,14 +223,14 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
   return (
     <div className="mention-input">
       {suggestions.length || allSuggestion ? (
-        <div className="mention-suggestions" role="listbox" aria-label="Mention suggestions">
+        <div className="mention-suggestions" id={listboxId} role="listbox" aria-label="Mention suggestions">
           {allSuggestion ? (
-            <button className="mention-suggestion-all" type="button" role="option" aria-selected={activeIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={chooseAll}>
+            <button className="mention-suggestion-all" id={allOptionId} type="button" role="option" tabIndex={-1} aria-selected={activeIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={chooseAll}>
               <span><strong>Everyone</strong><small>@all</small></span>
             </button>
           ) : null}
           {suggestions.map((member, index) => (
-            <button key={member.id} type="button" role="option" aria-selected={index + (allSuggestion ? 1 : 0) === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
+            <button key={member.id} id={`mention-option-${member.id}`} type="button" role="option" tabIndex={-1} aria-selected={index + (allSuggestion ? 1 : 0) === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
               <PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} />
               <span><strong>{member.display_name}</strong><small>@{member.handle}</small></span>
               {member.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
@@ -227,6 +241,12 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
       <textarea
         ref={textarea}
         aria-label={ariaLabel}
+        role="combobox"
+        aria-expanded={listboxOpen}
+        aria-controls={listboxOpen ? listboxId : undefined}
+        aria-activedescendant={listboxOpen ? activeDescendant : undefined}
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
         placeholder={placeholder}
         rows={rows}
         value={value}

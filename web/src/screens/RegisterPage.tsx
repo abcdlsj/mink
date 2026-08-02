@@ -81,7 +81,7 @@ export function RegisterPage() {
             </p>
           ) : null}
           <button className="primary-action" type="submit" disabled={registration.isPending}>
-            {registration.isPending ? "Creating account" : "Continue"}
+            <span>Continue</span>
             {registration.isPending ? (
               <LoaderCircle className="spin" aria-hidden="true" />
             ) : (

@@ -5,6 +5,7 @@ import {
   Inbox,
   LockKeyhole,
   ListTodo,
+  LoaderCircle,
   MessageCircle,
   Monitor,
   Plus,
@@ -205,6 +206,15 @@ export function SpaceShell({
     return () => document.removeEventListener("keydown", handleKey);
   }, [navigationOpen, navigationTrigger]);
 
+  // SPA navigation does not move focus on its own. After a route change,
+  // focus the new view's h1 so keyboard users land at the content start.
+  useEffect(() => {
+    const heading = document.querySelector<HTMLElement>(".space-shell h1");
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  }, [location.pathname]);
+
   if (
     space.isPending ||
     user.isPending ||
@@ -231,10 +241,13 @@ export function SpaceShell({
   );
 
   return (
-    <main
-      className={`space-shell${navigationCollapsed ? " space-shell--navigation-collapsed" : ""}`}
-      style={{ "--space-accent": space.data.accent } as CSSProperties}
-    >
+    <>
+      <a className="skip-link" href="#main-content">Skip to content</a>
+      <main
+        id="main-content"
+        className={`space-shell${navigationCollapsed ? " space-shell--navigation-collapsed" : ""}`}
+        style={{ "--space-accent": space.data.accent } as CSSProperties}
+      >
       <aside
         className="space-rail"
         aria-label="Space tools"
@@ -489,17 +502,18 @@ export function SpaceShell({
         />
       ) : null}
 
-      {children({
-        space: space.data,
-        user: user.data,
-        channels: channels.data.channels,
-        directMessages: availableDirectMessages,
-        members: members.data,
-        currentMember,
-        navigationOpen,
-        openNavigation,
-      })}
-    </main>
+        {children({
+          space: space.data,
+          user: user.data,
+          channels: channels.data.channels,
+          directMessages: availableDirectMessages,
+          members: members.data,
+          currentMember,
+          navigationOpen,
+          openNavigation,
+        })}
+      </main>
+    </>
   );
 }
 
@@ -656,7 +670,10 @@ function ChannelDialog({
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <footer>
             <button className="command-button" type="button" onClick={close}>Cancel</button>
-            <button className="command-button command-button--accent" type="submit" disabled={pending}>{pending ? "Creating…" : "Create Channel"}</button>
+            <button className="command-button command-button--accent" type="submit" disabled={pending}>
+              {pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null}
+              Create Channel
+            </button>
           </footer>
         </form>
     </DialogFrame>
