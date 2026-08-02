@@ -734,6 +734,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .agent-dialog .agent-create-form { grid-template-columns: 1fr; }
   .agent-field--wide { grid-column: auto; }
   .agent-dialog form > footer { grid-column: auto; }
+  .dm-dialog { width: min(520px, calc(100vw - 20px)); max-height: calc(100vh - 20px); }
   .channel-dialog { width: min(520px, calc(100vw - 20px)); max-height: calc(100vh - 20px); }
   .channel-dialog .channel-create-form { grid-template-columns: 1fr; }
   .channel-dialog .channel-create-form > *, .channel-agent-picker, .channel-dialog form > footer { grid-column: auto; }
@@ -792,17 +793,16 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .pixel-identity--agent svg { filter: saturate(.82); }
 /* Agent activity is a separate identity layer, never Message content. */.presence-identity { position: relative; display: inline-grid; width: 36px; height: 36px; flex: 0 0 36px; overflow: visible; }
 .presence-identity > .pixel-identity { width: 100%; height: 100%; flex-basis: 100%; }
-.presence-dot { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border: 2px solid var(--ink); border-radius: 50%; background: var(--status-offline); }
+.presence-dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border: 1px solid var(--ink); border-radius: 50%; background: var(--status-offline); }
 .presence-dot--idle { background: var(--green); }
 .presence-dot--busy,
 .presence-dot--queued,
 .presence-dot--starting,
 .presence-dot--running,
-.presence-dot--stopping { background: var(--accent-soft); }
+.presence-dot--stopping { background: var(--yellow); }
 .presence-dot--unreachable,
 .presence-dot--suspended { background: var(--stone); }
 .presence-dot--error { background: var(--red); }
-.dm-nav-item { min-height: 52px; height: auto; padding-top: 6px; padding-bottom: 6px; }
 .dm-nav-item > .presence-identity,
 .dm-nav-item > .pixel-identity { width: 28px; height: 28px; flex-basis: 28px; }
 .dm-nav-item > span:last-child { min-width: 0; }
@@ -976,17 +976,23 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .nav-item:hover:not(.nav-item--active) { background: var(--paper); border-color: var(--ink); box-shadow: 2px 2px 0 var(--ink); }
 .nav-item--active { border: 2px solid var(--ink); background: var(--accent); box-shadow: 2px 2px 0 var(--ink); font-weight: 700; border-color: var(--ink); color: var(--ink); }
 .dm-nav-item.nav-item--active small { color: rgb(20 17 17 / 60%); }
+.dm-nav-item { min-height: 52px; height: auto; padding-top: 6px; padding-bottom: 6px; }
+.dm-nav-item.nav-item--active { min-height: 54px; margin-bottom: 2px; }
+.dm-nav-item > .presence-identity { overflow: visible; }
 .nav-section-heading--dms .nav-label { margin-top: 12px; }
-.dialog-surface.dm-dialog { width: min(480px, 100%); }
-.dm-picker { display: grid; gap: 12px; padding: 18px; }
+.dialog-surface.dm-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; border: 2px solid var(--ink); background: var(--paper); box-shadow: 6px 6px 0 var(--ink); }
+.dm-dialog > header { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-bottom: 2px solid var(--ink); }
+.dm-dialog > header h2 { margin: 0; font-size: 18px; }
+.dm-dialog > header .section-kicker { margin: 0 0 2px; }
+.dm-picker { display: grid; gap: 14px; padding: 18px; }
 .dm-search { display: grid; gap: 6px; font-size: 11px; font-weight: 700; }
-.dm-search input { width: 100%; height: 38px; padding: 0 10px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font: inherit; }
-.dm-member-list { display: grid; max-height: min(420px, 55dvh); gap: 6px; margin: 0; padding: 0; overflow: auto; list-style: none; }
-.dm-member-list > li > button { display: grid; min-width: 0; min-height: 52px; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 9px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); cursor: pointer; text-align: start; }
+.dm-search input { width: 100%; height: 36px; padding: 0 9px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font-size: 13px; }
+.dm-member-list { display: grid; max-height: min(420px, 55dvh); gap: 6px; margin: 0; padding: 10px; overflow: auto; list-style: none; border: 2px solid var(--ink); }
+.dm-member-list > li > button { display: grid; width: 100%; min-width: 0; min-height: 46px; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent); background: transparent; color: var(--ink); cursor: pointer; text-align: start; }
 .dm-member-list > li > button .pixel-identity,
-.dm-member-list > li > button .presence-identity { width: 28px; height: 28px; flex-basis: 28px; }
+.dm-member-list > li > button .presence-identity { width: 32px; height: 32px; flex-basis: 32px; }
 .dm-member-list > li > button:hover:not(:disabled),
-.dm-member-list > li > button:focus-visible { background: var(--accent-soft); box-shadow: 2px 2px 0 var(--ink); }
+.dm-member-list > li > button:focus-visible { background: var(--accent-soft); }
 .dm-member-list > li > button:disabled { cursor: wait; opacity: .58; }
 .dm-member-list > li > button > span:nth-child(2),
 .dm-member-list strong,
@@ -1028,7 +1034,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-content time { color: rgb(20 17 17 / 60%); font-family: var(--font-sans); font-size: 10px; font-variant-numeric: tabular-nums; }
 .message-seq { color: rgb(20 17 17 / 60%); font-family: var(--font-sans); font-size: 10px; font-variant-numeric: tabular-nums; }
 .agent-label { padding: 1px 5px; border: 0; background: var(--cyan); font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
-.composer textarea { min-height: 44px; padding-top: 9px; font-size: 14px; display: block; width: 100%; max-height: 180px; resize: none; border: 2px solid var(--ink); border-radius: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; padding: 10px 11px; box-shadow: 2px 2px 0 var(--ink); line-height: 1.5; transition: box-shadow 100ms linear; }
+.composer textarea { min-height: 44px; padding-top: 9px; font-size: var(--text-body); font-weight: 400; display: block; width: 100%; max-height: 180px; resize: none; border: 2px solid var(--ink); border-radius: 0; outline: 0; background: transparent; color: var(--ink); padding: 10px 11px; box-shadow: 2px 2px 0 var(--ink); line-height: 1.5; transition: box-shadow 100ms linear; }
+.composer textarea::placeholder { color: var(--muted); font-size: var(--text-system); font-weight: 400; }
 .composer textarea:focus { outline: 0; box-shadow: 4px 4px 0 var(--ink); }
 .composer .send-button { display: inline-flex; width: 30px; min-width: 30px; flex-basis: auto; align-items: center; justify-content: center; gap: 7px; padding: 0; font-size: 13px; font-weight: 700; height: 30px; background: var(--accent); color: var(--ink); }
 .composer .send-button span { display: none; }
@@ -1078,7 +1085,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .agent-workspace .entity-detail-header > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; font-size: 13px; }
 .agent-workspace .entity-detail-header > .presence-identity { width: 36px; height: 36px; flex-basis: 36px; }
 .agent-workspace .entity-detail-header > .agent-state { margin: 0; padding: 0; border: 0; background: transparent; font-size: 10px; text-transform: capitalize; gap: 6px; font-family: var(--font-sans); font-weight: 600; }
-.agent-state--busy i { background: var(--accent-soft); }
+.agent-state--busy i { background: var(--yellow); }
 .agent-state--idle i { background: var(--green); }
 .agent-state--offline i { background: var(--stone); }
 .agent-state--error i { background: var(--red); }

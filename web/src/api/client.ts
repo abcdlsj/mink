@@ -256,13 +256,6 @@ export function addChannelAgents(
   );
 }
 
-export function archiveChannel(channelId: string): Promise<Channel> {
-  return mutate<Channel>(
-    `/api/v1/channels/${encodeURIComponent(channelId)}/archive`,
-    "POST",
-  );
-}
-
 export function listDirectMessages(spaceId: string): Promise<DirectMessage[]> {
   return apiRequest<DirectMessage[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/dms`);
 }

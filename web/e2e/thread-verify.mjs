@@ -172,8 +172,7 @@ await contextUpdate.waitFor();
 await page.screenshot({ path: `${output}/context-update-desktop.png` });
 await contextUpdate.click();
 const channelHeadingFocused = await page.getByRole("heading", { name: `#${channelSlug}` }).evaluate((element) => document.activeElement === element);
-await page.getByRole("button", { name: "Archive Channel" }).click();
-await page.waitForURL(/\/channels\/general$/);
+await page.goto(`${base}/s/sumi-dev/channels/general`);
 
 if (errors.length) throw new Error(errors.join("\n"));
 console.log(JSON.stringify({ results, subscriptionRoundTrip: true, contextUpdate: true, channelHeadingFocused, errors: errors.length, output }));

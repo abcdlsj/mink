@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Asterisk, Check, Hash, LoaderCircle, MessageCircle, Monitor, Plus, X } from "lucide-react";
+import { Link, useLocation, useParams } from "@tanstack/react-router";
+import { Asterisk, Check, Hash, LoaderCircle, MessageCircle, Monitor, Plus, X } from "lucide-react";
 import { type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
-  archiveChannel,
   createMessage,
   listAgents,
   listChannelMembers,
@@ -46,11 +45,6 @@ export function ChannelPage() {
             subtitle={channel.topic ?? (channel.kind === "private" ? "Private Channel" : "Public Channel")}
             placeholder={`Message #${channel.slug}`}
             emptyTitle={`#${channel.slug} starts here.`}
-            canArchive={
-              channel.slug !== "general" &&
-              (channel.created_by_member_id === space.current_member_id ||
-                ["owner", "admin"].includes(currentMember.access_level))
-            }
             spaceSlug={space.slug}
             setup={channel.slug === "general" ? {
               canPairComputer: ["owner", "admin"].includes(currentMember.access_level),
@@ -72,7 +66,6 @@ export function MessageWorkspace({
   placeholder,
   emptyTitle,
   direct = false,
-  canArchive = false,
   spaceSlug,
   setup,
 }: {
@@ -83,12 +76,10 @@ export function MessageWorkspace({
   placeholder: string;
   emptyTitle: string;
   direct?: boolean;
-  canArchive?: boolean;
   spaceSlug: string;
   setup?: { canPairComputer: boolean; canCreateAgent: boolean };
 }) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const location = useLocation();
   const [threadId, setThreadId] = useState<string>();
   const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
@@ -240,18 +231,6 @@ export function MessageWorkspace({
     }));
   }
 
-  const archive = useMutation({
-    mutationFn: () => archiveChannel(channel.id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["channels", spaceId] });
-      if (spaceSlug) {
-        void navigate({
-          to: "/s/$spaceSlug/channels/$channelSlug",
-          params: { spaceSlug, channelSlug: "general" },
-        });
-      }
-    },
-  });
   const addAgents = useMutation({
     mutationFn: (agentIds: string[]) => addChannelAgents(channel.id, agentIds),
     onSuccess: (result) => {
@@ -285,18 +264,6 @@ export function MessageWorkspace({
             <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
           ) : null}
         </div>
-        {canArchive ? (
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Archive Channel"
-            title="Archive Channel"
-            disabled={archive.isPending}
-            onClick={() => archive.mutate()}
-          >
-            {archive.isPending ? <LoaderCircle className="spin" /> : <Archive />}
-          </button>
-        ) : null}
       </header>
       <MessageTimeline
         timelineRef={timeline}

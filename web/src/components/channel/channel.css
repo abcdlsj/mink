@@ -143,13 +143,6 @@
   background: var(--red);
 }
 
-.thread-header > .icon-button {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  box-shadow: 2px 2px 0 var(--ink);
-}
-
 .thread-messages {
   background: var(--paper);
   scrollbar-color: rgb(20 17 17 / 24%) transparent;
@@ -235,9 +228,15 @@
   }
 
   .thread-header .thread-close {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+  .thread-header > .icon-button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
     padding: 0;
   }
 
@@ -261,6 +260,12 @@
 
   .thread-header .thread-close {
     order: -1;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .thread-header > .icon-button {
     width: 44px;
     min-width: 44px;
     height: 44px;

@@ -497,54 +497,6 @@ describe("ChannelPage", () => {
     await waitFor(() => expect(within(preview).getByRole("button", { name: "1 reply" })).toHaveFocus());
   });
 
-  it("archives a managed Channel and returns to general", async () => {
-    const designId = "019c0000-0000-7000-8000-000000000030";
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path.includes("/spaces/by-slug/")) {
-        return json({
-          id: "019c0000-0000-7000-8000-000000000001",
-          name: "Sumi Lab",
-          slug: "sumi-lab",
-          accent: "#FE7DA8",
-          owner_member_id: "019c0000-0000-7000-8000-000000000002",
-          current_member_id: "019c0000-0000-7000-8000-000000000002",
-          general_channel_id: "019c0000-0000-7000-8000-000000000003",
-        });
-      }
-      if (path === "/api/v1/auth/me") {
-        return json({ id: "user", display_name: "Ada Lovelace", email: "ada@example.test" });
-      }
-      if (path.endsWith(`/channels/${designId}/members`) && !init?.method) {
-        return json({ members: [{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] }], can_manage: true });
-      }
-      if (path.endsWith("/members")) {
-        return json([{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] }]);
-      }
-      if (path.endsWith("/dms") && !init?.method) return json([]);
-      if (path.endsWith("/channels") && !init?.method) {
-        return json({ can_create: true, channels: [{ id: designId, space_id: "019c0000-0000-7000-8000-000000000001", kind: "public", name: "Design", slug: "design", created_by_member_id: "019c0000-0000-7000-8000-000000000002", joined: true }] });
-      }
-      if (path.endsWith(`/channels/${designId}/messages`) && !init?.method) {
-        return json({ channel_id: designId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
-      }
-      if (path.endsWith(`/channels/${designId}/archive`) && init?.method === "POST") {
-        return json({ id: designId, space_id: "019c0000-0000-7000-8000-000000000001", kind: "public", name: "Design", slug: "design", created_by_member_id: "019c0000-0000-7000-8000-000000000002", joined: true, archived_at: "2026-07-25T00:00:00Z" });
-      }
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    renderRoute("/s/sumi-lab/channels/design");
-
-    const archive = await screen.findByRole("button", { name: "Archive Channel" });
-    fireEvent.click(archive);
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining(`/channels/${designId}/archive`),
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-  });
 });
 
 function renderRoute(path: string) {
