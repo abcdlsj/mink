@@ -524,10 +524,10 @@ pub(super) async fn thread_reference(
     thread_id: Uuid,
     relation: ThreadRelation,
 ) -> Result<ThreadReferenceResponse, ApiError> {
-    let row=sqlx::query("SELECT t.id,t.root_message_id,t.channel_id,c.slug,m.channel_seq FROM threads t JOIN channels c ON c.id=t.channel_id JOIN messages m ON m.id=t.root_message_id WHERE t.id=$1").bind(thread_id).fetch_one(pool).await.map_err(map_sqlx)?;
+    let row=sqlx::query("SELECT m.id,m.channel_id,c.slug,m.channel_seq FROM messages m JOIN channels c ON c.id=m.channel_id WHERE m.id=$1 AND m.placement='root'").bind(thread_id).fetch_one(pool).await.map_err(map_sqlx)?;
     Ok(ThreadReferenceResponse {
         id: thread_id,
-        root_message_id: row.get("root_message_id"),
+        root_message_id: row.get("id"),
         channel_id: row.get("channel_id"),
         channel_slug: row.get("slug"),
         root_message_seq: u64::try_from(row.get::<i64, _>("channel_seq"))

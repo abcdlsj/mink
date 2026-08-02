@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (3, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (4, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -83,8 +83,6 @@ CREATE TABLE space_invitations (
 );
 CREATE UNIQUE INDEX space_invitations_one_pending_per_email
     ON space_invitations (space_id, email_normalized) WHERE status = 'pending';
-CREATE INDEX space_invitations_space_cursor
-    ON space_invitations (space_id, created_at DESC, id DESC);
 
 CREATE TABLE member_permissions (
     member_id UUID NOT NULL,
@@ -203,6 +201,7 @@ CREATE TABLE messages (
     FOREIGN KEY (reply_to_message_id) REFERENCES messages(id) ON DELETE RESTRICT,
     FOREIGN KEY (action_channel_id) REFERENCES channels(id) ON DELETE RESTRICT,
     FOREIGN KEY (action_agent_member_id) REFERENCES members(id) ON DELETE RESTRICT,
+    FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     CHECK (
         (content_kind = 'text' AND body_markdown IS NOT NULL AND action_channel_id IS NULL AND action_agent_member_id IS NULL)
         OR (content_kind = 'channel_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NOT NULL AND action_agent_member_id IS NULL)
@@ -223,32 +222,15 @@ CREATE TABLE message_mentions (
     FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
 
-CREATE TABLE threads (
-    id UUID PRIMARY KEY,
-    space_id UUID NOT NULL,
-    channel_id UUID NOT NULL,
-    root_message_id UUID NOT NULL UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL,
-    UNIQUE (id, space_id),
-    FOREIGN KEY (channel_id, space_id) REFERENCES channels(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (root_message_id) REFERENCES messages(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
-    CHECK (id = root_message_id)
-);
-
 CREATE TABLE thread_subscriptions (
     thread_id UUID NOT NULL,
     space_id UUID NOT NULL,
     member_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (thread_id, member_id),
-    FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
-CREATE INDEX thread_subscriptions_by_thread ON thread_subscriptions (thread_id);
-
-ALTER TABLE messages ADD CONSTRAINT messages_thread_in_space
-    FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id)
-    ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
 CREATE TABLE attachments (
     id UUID PRIMARY KEY,
@@ -299,7 +281,7 @@ CREATE TABLE tasks (
     updated_at TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
-    FOREIGN KEY (source_thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (source_thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (creator_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (assignee_agent_member_id) REFERENCES agents(member_id) ON DELETE RESTRICT,
     FOREIGN KEY (result_message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
@@ -319,7 +301,7 @@ CREATE TABLE task_threads (
     linked_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (task_id, thread_id),
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (linked_by_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
 
@@ -350,7 +332,7 @@ CREATE TABLE agent_runs (
     finished_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (focus_thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (focus_thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (finished_at IS NOT NULL)),
     CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (outcome_code IS NOT NULL)),
     CHECK (error_code IS NULL OR outcome_code = 'failed')
@@ -381,7 +363,7 @@ CREATE TABLE inbox_items (
     force_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
     FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (thread_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT,
+    FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (lease_run_id, space_id) REFERENCES agent_runs(id, space_id) ON DELETE RESTRICT,
     CHECK ((status = 'leased') = (lease_run_id IS NOT NULL AND lease_expires_at IS NOT NULL)),
@@ -439,10 +421,8 @@ CREATE TABLE outbox_events (
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     kind TEXT NOT NULL,
     payload_json JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    published_at TIMESTAMPTZ
+    created_at TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX outbox_events_pending ON outbox_events(created_at) WHERE published_at IS NULL;
 
 CREATE TABLE idempotency_records (
     actor_member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
@@ -540,7 +520,8 @@ CREATE FUNCTION enforce_task_thread_availability() RETURNS trigger AS $$
 DECLARE
     source_thread UUID;
 BEGIN
-    PERFORM 1 FROM threads WHERE id = NEW.thread_id FOR UPDATE;
+    PERFORM 1 FROM messages
+    WHERE id = NEW.thread_id AND space_id = NEW.space_id AND placement = 'root' FOR UPDATE;
     SELECT tasks.source_thread_id INTO source_thread FROM tasks WHERE id = NEW.task_id;
     IF source_thread = NEW.thread_id THEN
         RAISE EXCEPTION 'Source Thread cannot be stored as a Related Thread' USING ERRCODE = '23514';
@@ -566,7 +547,8 @@ FOR EACH ROW EXECUTE FUNCTION enforce_task_thread_availability();
 
 CREATE FUNCTION enforce_task_source_availability() RETURNS trigger AS $$
 BEGIN
-    PERFORM 1 FROM threads WHERE id = NEW.source_thread_id FOR UPDATE;
+    PERFORM 1 FROM messages
+    WHERE id = NEW.source_thread_id AND space_id = NEW.space_id AND placement = 'root' FOR UPDATE;
     IF NEW.status NOT IN ('done', 'closed') AND EXISTS (
         SELECT 1 FROM task_threads links
         JOIN tasks ON tasks.id = links.task_id
@@ -621,7 +603,80 @@ CREATE TRIGGER agent_runs_enforce_focus
 BEFORE INSERT OR UPDATE OF task_id, focus_thread_id ON agent_runs
 FOR EACH ROW EXECUTE FUNCTION enforce_run_focus();
 
-CREATE INDEX messages_channel_cursor ON messages(channel_id, channel_seq DESC);
+CREATE FUNCTION enforce_reply_thread_is_root() RETURNS trigger AS $$
+BEGIN
+    IF NEW.placement = 'reply' AND NOT EXISTS (
+        SELECT 1 FROM messages
+        WHERE id = NEW.thread_id AND space_id = NEW.space_id AND placement = 'root'
+    ) THEN
+        RAISE EXCEPTION 'Reply Thread must reference a Root Message' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER messages_enforce_reply_thread_is_root
+BEFORE INSERT OR UPDATE OF placement, thread_id, space_id ON messages
+FOR EACH ROW EXECUTE FUNCTION enforce_reply_thread_is_root();
+
+CREATE FUNCTION enforce_thread_reference_is_root() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM messages
+        WHERE id = NEW.thread_id AND space_id = NEW.space_id AND placement = 'root'
+    ) THEN
+        RAISE EXCEPTION 'Thread reference must point to a Root Message' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER task_threads_enforce_thread_is_root
+BEFORE INSERT OR UPDATE OF thread_id, space_id ON task_threads
+FOR EACH ROW EXECUTE FUNCTION enforce_thread_reference_is_root();
+CREATE TRIGGER inbox_items_enforce_thread_is_root
+BEFORE INSERT OR UPDATE OF thread_id, space_id ON inbox_items
+FOR EACH ROW EXECUTE FUNCTION enforce_thread_reference_is_root();
+CREATE TRIGGER thread_subscriptions_enforce_thread_is_root
+BEFORE INSERT OR UPDATE OF thread_id, space_id ON thread_subscriptions
+FOR EACH ROW EXECUTE FUNCTION enforce_thread_reference_is_root();
+
+CREATE FUNCTION enforce_source_thread_is_root() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM messages
+        WHERE id = NEW.source_thread_id AND space_id = NEW.space_id AND placement = 'root'
+    ) THEN
+        RAISE EXCEPTION 'Source Thread must be a Root Message' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER tasks_enforce_source_is_root
+BEFORE INSERT OR UPDATE OF source_thread_id, space_id ON tasks
+FOR EACH ROW EXECUTE FUNCTION enforce_source_thread_is_root();
+
+CREATE FUNCTION enforce_focus_thread_is_root() RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM messages
+        WHERE id = NEW.focus_thread_id AND space_id = NEW.space_id AND placement = 'root'
+    ) THEN
+        RAISE EXCEPTION 'Run Focus must be a Root Message' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER agent_runs_enforce_focus_is_root
+BEFORE INSERT OR UPDATE OF focus_thread_id, space_id ON agent_runs
+FOR EACH ROW EXECUTE FUNCTION enforce_focus_thread_is_root();
+
+CREATE INDEX messages_thread_cursor ON messages(thread_id, channel_seq);
+CREATE INDEX task_threads_by_thread ON task_threads(thread_id);
+CREATE INDEX human_members_user_lookup ON human_members(user_id, space_id);
+CREATE INDEX channel_members_member_cursor ON channel_members(member_id);
+CREATE INDEX computers_space_cursor ON computers(space_id, created_at);
+CREATE INDEX agents_space_cursor ON agents(space_id, created_at);
+CREATE INDEX agents_computer_lookup ON agents(computer_id);
+CREATE INDEX outbox_events_space_cursor ON outbox_events(space_id, created_at, id);
 CREATE INDEX tasks_space_cursor ON tasks(space_id, updated_at DESC, id DESC);
 CREATE INDEX agent_runs_task_cursor ON agent_runs(task_id, created_at DESC, id DESC);
 CREATE INDEX inbox_items_pending ON inbox_items(member_id, available_at, id)

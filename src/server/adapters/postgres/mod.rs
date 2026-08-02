@@ -595,11 +595,14 @@ impl PostgresTransaction {
                 ));
             }
             Effect::ThreadUpdated(thread_id) => {
-                let row = sqlx::query("SELECT space_id,channel_id FROM threads WHERE id=$1")
-                    .bind(thread_id.into_uuid())
-                    .fetch_one(&mut *self.connection)
-                    .await
-                    .map_err(map_sqlx)?;
+                let row = sqlx::query(
+                    "SELECT space_id,channel_id FROM messages \
+                     WHERE id=$1 AND placement='root'",
+                )
+                .bind(thread_id.into_uuid())
+                .fetch_one(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
                 return Ok((
                     SpaceId::from_uuid(row.get("space_id")),
                     "thread.updated",

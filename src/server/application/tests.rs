@@ -3089,7 +3089,7 @@ async fn rejected_delivery_releases_the_item_once() {
 }
 
 fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
-    let root_id = message(id.into_uuid().as_u128());
+    let root_id = MessageId::from_uuid(id.into_uuid());
     let audience = members.iter().copied().collect::<BTreeSet<_>>();
     port.state.threads.insert(
         id,
@@ -3097,7 +3097,6 @@ fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
             id,
             space_id: space(1),
             channel_id: channel(id.into_uuid().as_u128()),
-            root_message_id: root_id,
             audience,
         },
     );

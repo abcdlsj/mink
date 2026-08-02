@@ -355,7 +355,7 @@ pub(super) const ACTIVITY_COLUMNS: &str = "\
     active_run.task_id AS run_task_id,\
     active_task.title AS run_task_title,\
     focus_channel.slug AS run_focus_slug,\
-    focus_message.channel_seq AS run_focus_seq,\
+    focus_thread.channel_seq AS run_focus_seq,\
     COALESCE(\
         (SELECT r.error_code FROM agent_runs r \
          WHERE r.agent_id=a.member_id AND r.outcome_code='failed' AND r.error_code IS NOT NULL \
@@ -373,9 +373,9 @@ pub(super) const ACTIVITY_JOINS: &str = "\
         ORDER BY r.created_at DESC LIMIT 1\
     ) active_run ON true \
     LEFT JOIN tasks active_task ON active_task.id=active_run.task_id \
-    LEFT JOIN threads focus_thread ON focus_thread.id=active_run.focus_thread_id \
-    LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id \
-    LEFT JOIN messages focus_message ON focus_message.id=focus_thread.root_message_id";
+    LEFT JOIN messages focus_thread ON focus_thread.id=active_run.focus_thread_id \
+        AND focus_thread.placement='root' \
+    LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id";
 
 /// Projects the limits the domain enforces, so the published policy cannot drift from the applied one.
 pub(super) fn attention_policy() -> AttentionConfig {

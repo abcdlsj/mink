@@ -113,7 +113,6 @@ pub(in crate::server) struct Thread {
     pub(in crate::server) id: ThreadId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) channel_id: ChannelId,
-    pub(in crate::server) root_message_id: MessageId,
     pub(in crate::server) audience: BTreeSet<MemberId>,
 }
 
@@ -122,7 +121,7 @@ impl Thread {
         if message.placement != MessagePlacement::Root {
             return Err(DomainError::SourceIsNotRoot);
         }
-        if message.id != self.root_message_id || message.thread_id != self.id {
+        if message.thread_id != self.id || message.id.into_uuid() != self.id.into_uuid() {
             return Err(DomainError::SourceMismatch);
         }
         Ok(())

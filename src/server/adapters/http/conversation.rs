@@ -197,7 +197,7 @@ pub(super) async fn read_thread(
     jar: CookieJar,
     Path(thread_id): Path<Uuid>,
 ) -> Result<Json<ThreadReadResponse>, ApiError> {
-    let thread = sqlx::query("SELECT channel_id FROM threads WHERE id=$1")
+    let thread = sqlx::query("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
         .bind(thread_id)
         .fetch_optional(&state.pool)
         .await
@@ -247,7 +247,7 @@ pub(super) async fn create_thread_reply(
     Path(thread_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
-    let row = sqlx::query("SELECT channel_id FROM threads WHERE id=$1")
+    let row = sqlx::query("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
         .bind(thread_id)
         .fetch_optional(&state.pool)
         .await
@@ -739,12 +739,13 @@ pub(super) async fn set_subscription(
     thread_id: Uuid,
     following: bool,
 ) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
-    let row = sqlx::query("SELECT space_id,channel_id FROM threads WHERE id=$1")
-        .bind(thread_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or_else(ApiError::not_found)?;
+    let row =
+        sqlx::query("SELECT space_id,channel_id FROM messages WHERE id=$1 AND placement='root'")
+            .bind(thread_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(map_sqlx)?
+            .ok_or_else(ApiError::not_found)?;
     let actor_id = current_member(&state, &jar, row.get("space_id")).await?;
     let mut storage = state.storage.clone();
     let is_following = SetThreadSubscription::execute(
