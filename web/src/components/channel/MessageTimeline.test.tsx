@@ -1,4 +1,8 @@
+/// <reference types="node" />
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ExpandableMessageText } from "./MessageTimeline";
@@ -24,6 +28,17 @@ describe("ExpandableMessageText", () => {
     fireEvent.click(toggle);
     expect(body).toHaveClass("message-body--expanded");
     expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("collapsed message body style", () => {
+  it("clamps by height so overflow detection can show the toggle", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    const rule = css.match(/\.message-body--collapsed\s*\{([^}]*)\}/)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/display:\s*-webkit-box/);
+    expect(rule).toMatch(/max-height:\s*11\.2em/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
   });
 });
 

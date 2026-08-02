@@ -833,7 +833,6 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .inline-thread-more:hover { background: var(--accent-soft); }
 .inline-reply > .pixel-identity { width: 28px; height: 28px; flex-basis: 28px; }
 .inline-reply > span { min-width: 0; }
-.inline-reply-body { display: -webkit-box; margin-top: 2px; overflow: hidden; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 .inline-thread-more,
 .inline-thread-status { min-height: 30px; padding: 7px 10px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .inline-thread-more { width: 100%; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); background: transparent; color: var(--muted); cursor: pointer; text-align: start; min-height: 30px; padding: 7px 10px; font-size: 11px; font-weight: 700; }
@@ -1276,7 +1275,11 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   padding: 1px 5px;
   border-radius: 2px;
 }
-.message-body--collapsed { display: -webkit-box; overflow: hidden; }
+.message-body--collapsed {
+  /* Eight visual lines at 1.4 line-height; height-based so overflow detection stays accurate for multi-block markdown. */
+  max-height: 11.2em;
+  overflow: hidden;
+}
 .message-expand { margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .message-expand:hover { color: var(--ink); }
 .system-event { margin: 8px 0 2px; color: color-mix(in srgb, var(--red) 58%, var(--muted)); font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 500; }
