@@ -5,7 +5,6 @@ import {
   Copy,
   LoaderCircle,
   MailPlus,
-  Menu,
   MessageCircle,
   Plus,
   ShieldCheck,
@@ -31,14 +30,14 @@ export function MembersPage() {
 
   return (
     <SpaceShell spaceSlug={spaceSlug} active="members">
-      {({ space, openNavigation }) => (
-        <MembersWorkspace space={space} openNavigation={openNavigation} />
+      {({ space }) => (
+        <MembersWorkspace space={space} />
       )}
     </SpaceShell>
   );
 }
 
-function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigation: () => void }) {
+function MembersWorkspace({ space }: { space: Space }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -111,15 +110,6 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   return (
     <section className="members-workspace" aria-labelledby="members-heading">
       <header className="members-header">
-        <button
-          className="mobile-menu icon-button"
-          type="button"
-          aria-label="Open navigation"
-          title="Open navigation"
-          onClick={openNavigation}
-        >
-          <Menu />
-        </button>
         <div className="members-title">
           <h1 id="members-heading">Members</h1>
           <p>Agents and Humans in this Space.</p>

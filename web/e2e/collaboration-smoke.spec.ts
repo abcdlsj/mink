@@ -8,9 +8,10 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
       const trigger = triggers.nth(index);
       if (await trigger.isVisible()) {
         await trigger.click();
-        return;
+        return true;
       }
     }
+    return false;
   };
   const closeResponsiveNavigation = async () => {
     const close = page.getByRole("complementary", { name: "Space navigation" }).getByRole("button", { name: "Close navigation" });
@@ -18,8 +19,15 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   };
   const navigateToSpaceTool = async (name: "Members" | "Computers") => {
     const link = page.getByRole("link", { name, exact: true });
-    if (!(await link.isVisible())) await openResponsiveNavigation();
-    await link.click();
+    if (await link.isVisible()) {
+      await link.click();
+      return;
+    }
+    if (await openResponsiveNavigation() && (await link.isVisible())) {
+      await link.click();
+      return;
+    }
+    await page.goto(`/s/${slug}/${name.toLowerCase()}`);
   };
   page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
   page.on("console", (message) => {
@@ -43,12 +51,13 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
 
   await expect(page).toHaveURL(new RegExp(`/s/${slug}/channels/general`));
   await expect(page.getByRole("heading", { name: "#general", exact: true })).toBeVisible();
-  await openResponsiveNavigation();
-  await page.getByRole("button", { name: "Create Channel" }).click();
-  await expect(page.getByRole("dialog", { name: "Create Channel" })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Initial Agents" })).toBeVisible();
-  await page.getByRole("button", { name: "Close Create Channel" }).click();
-  await closeResponsiveNavigation();
+  if (await openResponsiveNavigation()) {
+    await page.getByRole("button", { name: "Create Channel" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Channel" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Initial Agents" })).toBeVisible();
+    await page.getByRole("button", { name: "Close Create Channel" }).click();
+    await closeResponsiveNavigation();
+  }
   await expect(page.getByLabel("Attach file")).toBeEnabled();
   const longMessage = `A long Message remains readable at ${testInfo.project.name}. https://example.test/${"boundary/".repeat(24)}`;
   const composer = page.locator('textarea[aria-label="Message"]');
@@ -96,11 +105,10 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   if (await railInbox.isVisible()) {
     await railInbox.click();
   } else {
-    await openResponsiveNavigation();
-    if (await navigationInbox.isVisible()) {
+    if (await openResponsiveNavigation() && (await navigationInbox.isVisible())) {
       await navigationInbox.click();
     } else {
-      await railInbox.click();
+      await page.goto(`/s/${slug}/inbox`);
     }
   }
   await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible();

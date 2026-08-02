@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Brain, Eye, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
+import { Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
@@ -20,20 +20,19 @@ export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="members">
-      {({ space, currentMember, openNavigation }) => (
+      {({ space, currentMember }) => (
         <AgentWorkspace
           agentId={agentId}
           spaceId={space.id}
           spaceSlug={spaceSlug}
           canManage={currentMember.access_level === "owner" || currentMember.access_level === "admin"}
-          openNavigation={openNavigation}
         />
       )}
     </SpaceShell>
   );
 }
 
-function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation }: { agentId: string; spaceId: string; spaceSlug: string; canManage: boolean; openNavigation: () => void }) {
+function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage }: { agentId: string; spaceId: string; spaceSlug: string; canManage: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [tab, setTab] = useState<AgentTab>("overview");
@@ -94,7 +93,6 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
   return (
     <section className="agent-workspace" aria-labelledby="agent-heading">
       <header className="entity-detail-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <PresenceIdentity name={value.name} kind="agent" seed={value.member_id} activityStatus={value.activity_status} />
         <div className="entity-detail-title">
           <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>

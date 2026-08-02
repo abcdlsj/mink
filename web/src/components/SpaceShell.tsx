@@ -52,7 +52,6 @@ export interface SpaceShellContext {
   directMessages: DirectMessage[];
   members: Member[];
   currentMember: Member;
-  openNavigation: () => void;
 }
 
 export function SpaceShell({
@@ -531,7 +530,6 @@ export function SpaceShell({
           members: members.data,
           currentMember,
           navigationOpen,
-          openNavigation,
         })}
       </main>
     </>

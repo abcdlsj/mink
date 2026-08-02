@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Inbox, Menu, type LucideIcon } from "lucide-react";
+import { Inbox, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { listInbox, markInboxItemRead, type InboxItem, type Member } from "../api/client";
@@ -36,13 +36,12 @@ export function InboxPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/inbox" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="inbox">
-      {({ space, members, currentMember, openNavigation }) => (
+      {({ space, members, currentMember }) => (
         <InboxWorkspace
           spaceSlug={space.slug}
           spaceId={space.id}
           memberId={currentMember.id}
           members={members}
-          openNavigation={openNavigation}
         />
       )}
     </SpaceShell>
@@ -54,13 +53,11 @@ function InboxWorkspace({
   spaceId,
   memberId,
   members,
-  openNavigation,
 }: {
   spaceSlug: string;
   spaceId: string;
   memberId: string;
   members: Member[];
-  openNavigation: () => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -105,9 +102,6 @@ function InboxWorkspace({
   return (
     <section className="inbox-workspace">
       <header className="channel-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}>
-          <Menu />
-        </button>
         <div className="channel-title">
           <h1>Inbox</h1>
           <p>Attention routed to you. Open the source to respond.</p>

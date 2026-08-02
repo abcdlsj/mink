@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Asterisk, Check, Hash, LoaderCircle, Menu, MessageCircle, Monitor, Plus, X } from "lucide-react";
+import { Archive, Asterisk, Check, Hash, LoaderCircle, MessageCircle, Monitor, Plus, X } from "lucide-react";
 import { type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -30,19 +30,18 @@ export function ChannelPage() {
   });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="channel">
-      {({ space, channels, currentMember, openNavigation }) => {
+      {({ space, channels, currentMember }) => {
         const channel = channels.find(
           (candidate) => candidate.slug === channelSlug && candidate.joined,
         );
         if (!channel) {
-          return <UnavailableChannel channelSlug={channelSlug} openNavigation={openNavigation} />;
+          return <UnavailableChannel channelSlug={channelSlug} />;
         }
         return (
           <MessageWorkspace
             key={channel.id}
             channel={channel}
             spaceId={space.id}
-            openNavigation={openNavigation}
             title={`#${channel.slug}`}
             subtitle={channel.topic ?? (channel.kind === "private" ? "Private Channel" : "Public Channel")}
             placeholder={`Message #${channel.slug}`}
@@ -68,7 +67,6 @@ export function ChannelPage() {
 export function MessageWorkspace({
   channel,
   spaceId,
-  openNavigation,
   title,
   subtitle,
   placeholder,
@@ -80,7 +78,6 @@ export function MessageWorkspace({
 }: {
   channel: Channel;
   spaceId: string;
-  openNavigation: () => void;
   title: string;
   subtitle: string;
   placeholder: string;
@@ -271,15 +268,6 @@ export function MessageWorkspace({
       aria-labelledby="channel-heading"
     >
       <header className="channel-header">
-        <button
-          className="mobile-menu icon-button"
-          type="button"
-          aria-label="Open navigation"
-          title="Open navigation"
-          onClick={openNavigation}
-        >
-          <Menu />
-        </button>
         <span className="channel-header-glyph" aria-hidden="true">
           {direct ? <MessageCircle /> : <Hash />}
         </span>
@@ -462,23 +450,12 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
 
 function UnavailableChannel({
   channelSlug,
-  openNavigation,
 }: {
   channelSlug: string;
-  openNavigation: () => void;
 }) {
   return (
     <section className="channel-workspace">
       <header className="channel-header">
-        <button
-          className="mobile-menu icon-button"
-          type="button"
-          aria-label="Open navigation"
-          title="Open navigation"
-          onClick={openNavigation}
-        >
-          <Menu />
-        </button>
         <div className="channel-title">
           <h1>Channel unavailable</h1>
           <p>Join a public Channel from Discover or request private access.</p>

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Copy, Menu, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Check, Copy, Monitor, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -18,7 +18,7 @@ export function ComputersPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/computers" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="computers">
-      {({ space, currentMember, openNavigation }) => (
+      {({ space, currentMember }) => (
         <ComputersWorkspace
           spaceId={space.id}
           spaceSlug={space.slug}
@@ -28,7 +28,6 @@ export function ComputersPage() {
             currentMember.permissions.includes("agent.create")
           }
           isOwner={currentMember.access_level === "owner"}
-          openNavigation={openNavigation}
         />
       )}
     </SpaceShell>
@@ -41,14 +40,12 @@ function ComputersWorkspace({
   canManage,
   canCreateAgent,
   isOwner,
-  openNavigation,
 }: {
   spaceId: string;
   spaceSlug: string;
   canManage: boolean;
   canCreateAgent: boolean;
   isOwner: boolean;
-  openNavigation: () => void;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -131,15 +128,14 @@ function ComputersWorkspace({
       {computers.isPending || agents.isPending ? <div className="detail-skeleton" aria-label="Loading Computers" /> : null}
       {computers.error || agents.error ? (
         <div className="computer-page-state">
-          <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
           <p className="form-error" role="alert">Computers are unavailable. Retry after checking the Server connection.</p>
         </div>
       ) : null}
       {computers.data?.length === 0 ? (
-        canManage ? <ComputerOnboarding openNavigation={openNavigation} active={pairFormOpen} /> : <div className="computer-empty"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p className="section-kicker">COMPUTE LAYER</p><h2>No Computers paired</h2><p>A Human Owner or Admin must pair a machine before this Space can host Agents.</p></div>
+        canManage ? <ComputerOnboarding active={pairFormOpen} /> : <div className="computer-empty"><p className="section-kicker">COMPUTE LAYER</p><h2>No Computers paired</h2><p>A Human Owner or Admin must pair a machine before this Space can host Agents.</p></div>
       ) : null}
-      {canManage && (!selectedFromHash || pairFormOpen) && computers.data?.length ? <ComputerOnboarding openNavigation={openNavigation} active={pairFormOpen} /> : null}
-      {!canManage && !selectedFromHash && computers.data?.length ? <div className="computer-page-state"><button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button><p>Select a Computer from the navigation.</p></div> : null}
+      {canManage && (!selectedFromHash || pairFormOpen) && computers.data?.length ? <ComputerOnboarding active={pairFormOpen} /> : null}
+      {!canManage && !selectedFromHash && computers.data?.length ? <div className="computer-page-state"><p>Select a Computer from the navigation.</p></div> : null}
       {selected ? (
         <div className="computer-split">
           <ComputerDetail
@@ -148,7 +144,6 @@ function ComputersWorkspace({
             canManage={canManage}
             canCreateAgent={canCreateAgent}
             spaceSlug={spaceSlug}
-            openNavigation={openNavigation}
             onCreate={() => openAgentDialog(selected.id)}
             onDelete={() => setDeleteTarget(selected)}
           />
@@ -179,7 +174,7 @@ function ComputersWorkspace({
   );
 }
 
-function ComputerOnboarding({ openNavigation, active }: { openNavigation: () => void; active?: boolean }) {
+function ComputerOnboarding({ active }: { active?: boolean }) {
   const command = `sumi computer --server ${window.location.origin}`;
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -196,7 +191,6 @@ function ComputerOnboarding({ openNavigation, active }: { openNavigation: () => 
     <section className={active ? "computer-onboarding computer-onboarding--pairing" : "computer-onboarding"} aria-labelledby="computer-onboarding-heading">
       {active ? <div className="computer-onboarding-banner" role="status"><Monitor aria-hidden="true" /><span>Pairing mode active</span><p>This Space is waiting for this machine to confirm.</p></div> : null}
       <header className="computer-onboarding-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Confirm this machine in a Space.</p></div>
       </header>
       <div className="computer-onboarding-body">
@@ -240,7 +234,6 @@ function ComputerDetail({
   canManage,
   canCreateAgent,
   spaceSlug,
-  openNavigation,
   onCreate,
   onDelete,
 }: {
@@ -249,7 +242,6 @@ function ComputerDetail({
   canManage: boolean;
   canCreateAgent: boolean;
   spaceSlug: string;
-  openNavigation: () => void;
   onCreate: () => void;
   onDelete: () => void;
 }) {
@@ -257,7 +249,6 @@ function ComputerDetail({
   return (
     <article className="computer-detail">
       <header className="entity-detail-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="entity-detail-title"><h1 title={computer.name}>{computer.name}</h1><p>{computer.hostname} · {computer.os === "macos" ? "macOS" : "Linux"}</p></div>
         <Status value={computer.status} />
       </header>

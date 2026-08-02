@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { CircleCheck, CircleDot, Clock, Link2, ListTodo, Menu, RotateCcw, Search, Unlink, XCircle } from "lucide-react";
+import { CircleCheck, CircleDot, Clock, Link2, ListTodo, RotateCcw, Search, Unlink, XCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -47,19 +47,18 @@ export function TasksPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/tasks" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="tasks">
-      {({ space, openNavigation }) => (
+      {({ space }) => (
         <TaskList
           spaceId={space.id}
           spaceSlug={space.slug}
           currentMemberId={space.current_member_id}
-          openNavigation={openNavigation}
         />
       )}
     </SpaceShell>
   );
 }
 
-function TaskList({ spaceId, spaceSlug, currentMemberId, openNavigation }: { spaceId: string; spaceSlug: string; currentMemberId: string; openNavigation: () => void }) {
+function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; spaceSlug: string; currentMemberId: string }) {
   const [filter, setFilter] = useState<TaskFilter>("all_open");
   const tasks = useQuery({ queryKey: ["tasks", spaceId], queryFn: () => listTasks(spaceId) });
   const visible = (tasks.data ?? [])
@@ -73,7 +72,6 @@ function TaskList({ spaceId, spaceSlug, currentMemberId, openNavigation }: { spa
   return (
     <section className="tasks-workspace" aria-labelledby="tasks-heading">
       <header className="tasks-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="page-title"><h1 id="tasks-heading">Tasks</h1><p>Formal work stays connected to its Threads and Result.</p></div>
         <span className="task-total">{visible.length} SHOWN</span>
       </header>
@@ -109,12 +107,12 @@ export function TaskDetailPage() {
   const { spaceSlug, taskId } = useParams({ from: "/s/$spaceSlug/tasks/$taskId" });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="tasks">
-      {({ space, openNavigation }) => <TaskDetail taskId={taskId} spaceId={space.id} spaceSlug={space.slug} openNavigation={openNavigation} />}
+      {({ space }) => <TaskDetail taskId={taskId} spaceId={space.id} spaceSlug={space.slug} />}
     </SpaceShell>
   );
 }
 
-function TaskDetail({ taskId, spaceId, spaceSlug, openNavigation }: { taskId: string; spaceId: string; spaceSlug: string; openNavigation: () => void }) {
+function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: string; spaceSlug: string }) {
   const queryClient = useQueryClient();
   const task = useQuery({ queryKey: ["task", taskId], queryFn: () => getTask(taskId) });
   const agents = useQuery({ queryKey: ["agents", spaceId], queryFn: () => listAgents(spaceId) });
@@ -155,7 +153,6 @@ function TaskDetail({ taskId, spaceId, spaceSlug, openNavigation }: { taskId: st
   return (
     <section className="task-detail" aria-labelledby="task-heading">
       <header className="task-detail-header">
-        <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="page-title"><h1 id="task-heading">{value.title}</h1><p>#{value.source_thread.channel_slug} · message {value.source_thread.root_message_seq}</p></div>
         <TaskStatusLabel status={value.status} />
       </header>
