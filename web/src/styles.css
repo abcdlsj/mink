@@ -8729,3 +8729,149 @@ summary.system-event-heading {
     padding: 24px 14px 40px;
   }
 }
+
+/* ==================================================================
+   Members row controls: one 32px control scale, one shared baseline.
+   Manage/Message buttons, access select, permission toggles and the
+   inherited hint all render at the same height with matched type.
+   ================================================================== */
+
+.member-row {
+  align-items: center;
+}
+
+.member-identity {
+  min-height: 40px;
+}
+
+.agent-detail-link {
+  margin-inline-start: auto;
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.agent-detail-link:hover {
+  background: var(--accent-soft);
+}
+
+.member-message-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.member-message-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.access-control {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.access-control > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.access-control strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.access-control select {
+  width: 118px;
+  height: 32px;
+  min-height: 32px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.permission-controls {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 22px;
+}
+
+.permission-controls .permission-toggle {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-controls .permission-toggle::before {
+  width: 17px;
+  height: 17px;
+}
+
+.permission-copy strong {
+  font: 600 12px/1 var(--font-mono);
+}
+
+.permission-inherited {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.permission-inherited > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.permission-inherited strong {
+  font: inherit;
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .permission-inherited {
+    white-space: normal;
+    flex: 1 1 auto;
+  }
+}
+
+/* Admin/owner rows keep only the inherited hint; the disabled toggles stay
+   hidden even though later rules re-enable the base toggle layout. */
+.permission-controls--inherited .permission-toggle {
+  display: none;
+}
