@@ -1,6 +1,5 @@
 import "@fontsource-variable/space-grotesk";
-import "@fontsource/space-mono/400.css";
-import "@fontsource/space-mono/700.css";
+import "@fontsource-variable/noto-sans-sc";
 import "./styles.css";
 import "./components/channel/channel.css";
 

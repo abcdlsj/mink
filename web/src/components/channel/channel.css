@@ -86,7 +86,7 @@
 
 .inline-reply > time {
   color: rgb(20 17 17 / 60%);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -128,7 +128,7 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
