@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Brain, Eye, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
-import { getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
+import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
@@ -35,6 +35,7 @@ export function AgentDetailPage() {
 
 function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation }: { agentId: string; spaceId: string; spaceSlug: string; canManage: boolean; openNavigation: () => void }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<AgentTab>("overview");
   const [cancelNow, setCancelNow] = useState(false);
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
@@ -67,6 +68,16 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
     mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => enabled ? grantMemberPermission(agentId, action) : revokeMemberPermission(agentId, action),
     onSuccess: (member) => queryClient.setQueryData(["members", spaceId], (current: Awaited<ReturnType<typeof listMembers>> | undefined) => current?.map((item) => item.id === member.id ? member : item)),
   });
+  const directMessage = useMutation({
+    mutationFn: (memberId: string) => createDirectMessage(spaceId, memberId),
+    onSuccess: (dm) => {
+      void queryClient.invalidateQueries({ queryKey: ["direct-messages", spaceId] });
+      void navigate({
+        to: "/s/$spaceSlug/dm/$memberId",
+        params: { spaceSlug, memberId: dm.other_member.id },
+      });
+    },
+  });
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,7 +101,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
           <p>{value.role_text}</p>
         </div>
         <span className={`agent-state agent-state--${value.activity_status}`} role="status" aria-label={`Activity: ${activityLabel(value.activity_status)}`} title={`Activity: ${activityLabel(value.activity_status)}`}><i aria-hidden="true" />{activityLabel(value.activity_status)}</span>
-        <Link className="agent-message-action icon-button" to="/s/$spaceSlug/dm/$memberId" params={{ spaceSlug, memberId: value.member_id }} aria-label={`Message ${value.name}`} title={`Message ${value.name}`}><MessageCircle /></Link>
+        <button className="agent-message-action icon-button" type="button" aria-label={`Message ${value.name}`} title={`Message ${value.name}`} disabled={directMessage.isPending} onClick={() => directMessage.mutate(value.member_id)}><MessageCircle /></button>
       </header>
       <nav className="detail-tabs" aria-label="Agent detail">
         {agentTabs.map(({ id, label, icon: Icon }) => (

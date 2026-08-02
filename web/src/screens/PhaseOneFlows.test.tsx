@@ -129,10 +129,9 @@ describe("Phase one Human flows", () => {
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
-    // Server returns dotted action codes, so the toggle must reflect the granted Permission.
-    const granted = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"))!;
-    expect(within(granted).getByRole("checkbox", { name: /Create Channels/ })).toBeChecked();
-    expect(within(granted).getByRole("checkbox", { name: /Create Agents/ })).not.toBeChecked();
+    // Permissions are managed in Agent detail; the Members list stays clean.
+    const graceRow = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"))!;
+    expect(within(graceRow).queryByRole("checkbox")).not.toBeInTheDocument();
 
     fireEvent.change(access, { target: { value: "admin" } });
 
@@ -146,8 +145,6 @@ describe("Phase one Human flows", () => {
       );
     });
 
-    const graceRow = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"));
-    expect(graceRow).toBeDefined();
     fireEvent.click(within(graceRow!).getByRole("button", { name: /message/i }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

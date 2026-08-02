@@ -67,7 +67,7 @@ describe("Agent detail", () => {
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getAllByRole("img", { name: "Lin avatar" })[0]).toHaveAttribute("data-agent-identicon");
     expect(screen.getAllByRole("status").find((status) => status.textContent === "Running")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Message Lin" })).toHaveAttribute("href", `/s/sumi-lab/dm/${agentId}`);
+    expect(screen.getByRole("button", { name: "Message Lin" })).toBeVisible();
     expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
     const channelPermission = screen.getByRole("checkbox", { name: "channel.create permission" });

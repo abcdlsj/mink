@@ -26,12 +26,6 @@ import {
 } from "../api/client";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
-const explicitPermissions = ["channel.create", "agent.create"] as const;
-const permissionLabels: Record<(typeof explicitPermissions)[number], { title: string; description: string }> = {
-  "channel.create": { title: "Create Channels", description: "Create channels" },
-  "agent.create": { title: "Create Agents", description: "Create agents" },
-};
-
 export function MembersPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/members" });
 
@@ -244,10 +238,6 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
           {group.members.map((member) => {
           const currentAccess = currentMember?.access_level;
           const ownerCanSetAccess = currentAccess === "owner" && member.access_level !== "owner";
-          const canSetPermissions =
-            member.access_level === "member" &&
-            (currentAccess === "owner" ||
-              (currentAccess === "admin" && member.id !== currentMember?.id));
           return (
             <article className="member-row" key={member.id}>
               <div className="member-identity">
@@ -293,34 +283,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                   <strong>{capitalize(member.access_level)}</strong>
                 )}
               </div>
-              <div className={`permission-controls${member.access_level !== "member" ? " permission-controls--inherited" : ""}`}>
-                {member.access_level !== "member" ? (
-                  <p className="permission-inherited"><ShieldCheck aria-hidden="true" /><span><strong>Inherited from {capitalize(member.access_level)}</strong></span></p>
-                ) : null}
-                {explicitPermissions.map((permission) => {
-                  const label = permissionLabels[permission];
-                  return (
-                    <label className="permission-toggle" key={permission}>
-                      <span className="permission-copy"><strong>{permission}</strong><small>{label.description}</small></span>
-                      <input
-                        type="checkbox"
-                        aria-label={`${label.title} permission`}
-                        checked={member.permissions.includes(permission)}
-                        disabled={!canSetPermissions || memberUpdate.isPending}
-                        onChange={(event) => {
-                          const next = event.target.checked
-                            ? [...member.permissions, permission]
-                            : member.permissions.filter((value) => value !== permission);
-                          memberUpdate.mutate({
-                            memberId: member.id,
-                            input: { permissions: next },
-                          });
-                        }}
-                      />
-                      <span className="permission-switch" aria-hidden="true"><i /></span>
-                    </label>
-                  );
-                })}
+              <div className="member-actions">
                 {member.id !== currentMember?.id ? (
                   <button
                     className="member-message-button"
