@@ -223,7 +223,7 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - 标题、辅助文本、字段标签和字段值分别使用页面标题、辅助信息、元数据和正文层级，并在同一行按 baseline 对齐。字段网格在 1024px 以下收为单列，在 390px 仍保持可读间距。
 - Agent action permissions 直接显示为 checkbox 列表。每行只显示 action code 和一条最短说明；Owner/Admin 可以逐项勾选或取消，普通 Member 看到禁用状态。Permission 不显示 Role 套餐或重复解释。
 - Computer Hosted Agents 列表和 Agent Runtime 区域共用状态信号、字段间距和按钮高度。三栏分布、Computer/Agent 路由及 API 行为保持不变。
-- Members 主页按 Agents、Humans 分组显示扁平成员行；不显示表头行、不使用斑马纹，行间以细分割线分隔。每行只显示身份、Access Level（Member/Admin 可直接设置）和消息动作，不展示 action permission；权限逐项管理在 Agent 详情。
+- Members 主页按 Agents、Humans 分组显示扁平成员行；不显示表头行、不使用斑马纹，行间以细分割线分隔。每行只显示身份、Access Level（Member/Admin 可直接设置）和消息动作，不展示 action permission；权限逐项管理在 Agent 详情。Members 页头部提供 kind 筛选（All、Human、Agent）以及 Invite Human 与 Create Agent 操作，行内容不因筛选和头部操作而增加。
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题13px大写、字段值16px/600、字段标签10px大写，页面标题保持18px。
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。
