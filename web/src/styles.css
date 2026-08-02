@@ -1505,6 +1505,13 @@ h1 {
   white-space: nowrap;
 }
 
+.channel-member-avatars {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
 .icon-button,
 .send-button {
   display: grid;
