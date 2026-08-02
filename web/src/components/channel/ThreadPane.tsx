@@ -170,7 +170,7 @@ export function ThreadPane({
         className="thread-composer"
         spaceId={spaceId}
         members={members}
-        placeholder={`Reply to Thread #${threadId}`}
+        placeholder={`Reply to #${channelSlug}`}
         ariaLabel="Thread reply"
         attachmentAriaLabel="Choose Thread Attachment"
         attachButtonLabel="Attach file to Thread"

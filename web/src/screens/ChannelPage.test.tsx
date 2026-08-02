@@ -490,7 +490,7 @@ describe("ChannelPage", () => {
     fireEvent.click(unfollow);
     expect(await screen.findByRole("button", { name: "Follow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");
-    expect(threadInput).toHaveAttribute("placeholder", "Reply to Thread #1");
+    expect(threadInput).toHaveAttribute("placeholder", "Reply to #general");
     expect(threadInput).toHaveAttribute("rows", "1");
     expect(threadInput.closest("form")).toHaveClass("composer", "thread-composer");
     expect(threadInput).toHaveStyle({ height: "42px" });
