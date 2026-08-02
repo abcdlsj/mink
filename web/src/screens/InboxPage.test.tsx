@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
@@ -82,6 +82,33 @@ describe("Human Inbox", () => {
     expect(linIdenticons[0]).toHaveAttribute("data-agent-identicon", linIdenticons[1].getAttribute("data-agent-identicon"));
     expect(view.getByRole("img", { name: "Grace avatar" })).toBeVisible();
     expect(view.getAllByRole("button", { name: "Open #general from Lin" })).toHaveLength(2);
+  });
+
+  it("marks an Item read when its source is opened", async () => {
+    const reads: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) {
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+      }
+      if (path.endsWith(`/members/${ownerId}/inbox`)) {
+        return json([inboxItem("reply", "reply", "grace", "Grace", "A reply")]);
+      }
+      if (path.endsWith("/inbox-items/reply/read") && init?.method === "POST") {
+        reads.push(path);
+        return json({ ...inboxItem("reply", "reply", "grace", "Grace", "A reply"), status: "handled" });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/inbox");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open #general from Grace" }));
+    await waitFor(() => expect(reads).toEqual(["/api/v1/inbox-items/reply/read"]));
   });
 });
 

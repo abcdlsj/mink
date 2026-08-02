@@ -66,7 +66,7 @@ impl CapabilityFixture {
                  INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',1,'root','text','{owner_id}','source',now());
                  INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',now());
                  INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space_id}','{agent_id}','{focus_id}','running','{}',now()+interval '1 hour',now(),now());
-                 INSERT INTO inbox_items(id,space_id,agent_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,created_at) VALUES
+                 INSERT INTO inbox_items(id,space_id,member_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,created_at) VALUES
                    ('{handled_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now()),
                    ('{deferred_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now());
                  INSERT INTO run_items(run_id,inbox_item_id,delivery_seq,attached_at) VALUES
@@ -271,7 +271,7 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
 
     let item_id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,\
+        "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,\
              status,available_at,last_error_code,created_at) \
              VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),'run_claim_unavailable',now())",
     )
@@ -344,7 +344,7 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
     let item_id = Uuid::now_v7();
     let message_id = fixture.context.focus_thread_id.into_uuid();
     sqlx::query(
-            "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength, \
+            "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength, \
              status,available_at,created_at) VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),now())",
         )
         .bind(item_id)

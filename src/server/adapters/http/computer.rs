@@ -361,7 +361,7 @@ pub(super) const ACTIVITY_COLUMNS: &str = "\
          WHERE r.agent_id=a.member_id AND r.outcome_code='failed' AND r.error_code IS NOT NULL \
          ORDER BY r.finished_at DESC NULLS LAST,r.id DESC LIMIT 1),\
         (SELECT i.last_error_code FROM inbox_items i \
-         WHERE i.agent_id=a.member_id AND i.status='pending' AND i.last_error_code IS NOT NULL \
+         WHERE i.member_id=a.member_id AND i.status='pending' AND i.last_error_code IS NOT NULL \
          ORDER BY i.created_at DESC,i.id DESC LIMIT 1)\
     ) AS last_error_code";
 

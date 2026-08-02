@@ -262,7 +262,7 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                  INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
                  INSERT INTO thread_subscriptions (thread_id,space_id,member_id,created_at) VALUES ('{root}','{space}','{subscriber}',now());
                  INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','running','hash',now()-interval '5 minutes',now(),now());
-                 INSERT INTO inbox_items (id,space_id,agent_id,message_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','leased',now(),'{stale_run}',now()-interval '5 minutes',0,now());
+                 INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','leased',now(),'{stale_run}',now()-interval '5 minutes',0,now());
                  INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{stale_run}','{stale_item}',1,now());
                  COMMIT;"
             ))
@@ -337,8 +337,8 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                 .await
                 .unwrap();
             let routed: (String, String) = sqlx::query_as(
-                "SELECT (SELECT kind FROM inbox_items WHERE agent_id=$1 ORDER BY created_at DESC LIMIT 1), \
-                        (SELECT kind FROM inbox_items WHERE agent_id=$2 ORDER BY created_at DESC LIMIT 1)",
+                "SELECT (SELECT kind FROM inbox_items WHERE member_id=$1 ORDER BY created_at DESC LIMIT 1), \
+                        (SELECT kind FROM inbox_items WHERE member_id=$2 ORDER BY created_at DESC LIMIT 1)",
             )
             .bind(subscriber)
             .bind(agent)
@@ -531,7 +531,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             ) = sqlx::query_as(
                 "SELECT count(*) OVER (),aggregated_count,first_message_seq,last_message_seq,\
                         force_at,available_at \
-                 FROM inbox_items WHERE agent_id=$1 LIMIT 1",
+                 FROM inbox_items WHERE member_id=$1 LIMIT 1",
             )
             .bind(agent)
             .fetch_one(&pool)
@@ -551,7 +551,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
 
             // The single-aggregate rule is enforced by the schema, not only by the write path.
             let duplicate = sqlx::query(
-                "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+                "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,\
                  strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
                  force_at,created_at) \
                  VALUES($1,$2,$3,NULL,$4,NULL,'channel_activity','ambient','pending',now(),99,99,1,\
@@ -571,7 +571,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             // The aggregate names no source Message, so claiming it must not depend on one. Claiming
             // also closes it to further Messages, which is why this runs last.
             let aggregate_id: Uuid =
-                sqlx::query_scalar("SELECT id FROM inbox_items WHERE agent_id=$1")
+                sqlx::query_scalar("SELECT id FROM inbox_items WHERE member_id=$1")
                     .bind(agent)
                     .fetch_one(&pool)
                     .await
@@ -827,7 +827,7 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
              INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0),('{channel_id}','{space_id}','{agent_id}',now(),0);
              INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',1,'root','text','{owner_id}','mention',now());
              INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',now());
-             INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,kind,strength,status,available_at,last_error_code,created_at) VALUES ('{item_id}','{space_id}','{agent_id}','{message_id}','{message_id}','mention','hard','pending',now(),'run_claim_unavailable',now());
+             INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,last_error_code,created_at) VALUES ('{item_id}','{space_id}','{agent_id}','{message_id}','{message_id}','mention','hard','pending',now(),'run_claim_unavailable',now());
              COMMIT;"
         ))
         .execute(&pool)

@@ -338,7 +338,7 @@ struct MemoryState {
     computer_assignments: HashSet<(ComputerId, MemberId)>,
     effects: Vec<Effect>,
     /// Agents the memory port reports as having received an Item from a published Message.
-    notified_agents: Vec<MemberId>,
+    notified_members: Vec<MemberId>,
     dead_item_notices: Vec<(MemberId, &'static str)>,
     reject_message_insert: bool,
     humans: HashMap<String, (AuthenticatedHuman, String)>,
@@ -947,7 +947,7 @@ impl CollaborationTransaction for MemoryTransaction {
             .values()
             .filter(|item| {
                 let item = item.view();
-                item.agent_id == member_id
+                item.member_id == member_id
                     && match scope {
                         InboxScope::Queue => matches!(
                             item.status,
@@ -1074,7 +1074,7 @@ impl CollaborationTransaction for MemoryTransaction {
         Ok(PublishedMessage {
             message_id: draft.message_id,
             hard_item_ids: Vec::new(),
-            notified_agent_ids: self.state.notified_agents.clone(),
+            notified_member_ids: self.state.notified_members.clone(),
         })
     }
     async fn insert_message(&mut self, message: Message) -> Result<(), ApplicationError> {
@@ -1210,7 +1210,7 @@ impl CollaborationTransaction for MemoryTransaction {
     ) -> Result<bool, ApplicationError> {
         Ok(self.state.items.values().any(|i| {
             let v = i.view();
-            v.agent_id == agent_id
+            v.member_id == agent_id
                 && v.status == crate::server::domain::attention::InboxItemStatus::Pending
         }))
     }
@@ -1995,7 +1995,7 @@ async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
     let root = thread(253);
     let mut port = MemoryPort::default();
     insert_thread(&mut port, root, &[author, first_agent, second_agent]);
-    port.state.notified_agents = vec![first_agent, second_agent];
+    port.state.notified_members = vec![first_agent, second_agent];
 
     PublishMessage::execute(
         &mut port,
@@ -3066,7 +3066,7 @@ fn inbox_view(item: &InboxItem) -> InboxItemView {
     let item = item.view();
     InboxItemView {
         id: item.id,
-        member_id: item.agent_id,
+        member_id: item.member_id,
         kind: item.kind,
         strength: item.strength,
         status: item.status,

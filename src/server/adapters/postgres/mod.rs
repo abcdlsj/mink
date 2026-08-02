@@ -89,7 +89,7 @@ impl PostgresAdapter {
         let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
             .fetch_one(&mut *transaction)
             .await?;
-        if version != 1 {
+        if version != 2 {
             return Err(sqlx::Error::Protocol(format!(
                 "unsupported schema baseline version {version}"
             )));

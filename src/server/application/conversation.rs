@@ -195,7 +195,7 @@ impl PublishMessage {
                 return Ok(PublishedMessage {
                     message_id: MessageId::from_uuid(message_id),
                     hard_item_ids: Vec::new(),
-                    notified_agent_ids: Vec::new(),
+                    notified_member_ids: Vec::new(),
                 });
             }
             let actor = draft.author_member_id;
@@ -215,8 +215,8 @@ impl PublishMessage {
             if let Some(thread_id) = replied_thread_id {
                 transaction.emit(Effect::ThreadUpdated(thread_id));
             }
-            for agent_id in &published.notified_agent_ids {
-                transaction.emit(Effect::InboxChanged(*agent_id));
+            for member_id in &published.notified_member_ids {
+                transaction.emit(Effect::InboxChanged(*member_id));
             }
             Ok(published)
         })

@@ -332,7 +332,7 @@ impl Run {
             return Err(DomainError::RunNotAcceptingItems);
         }
         let item_view = item.view();
-        if item_view.agent_id != self.agent_id
+        if item_view.member_id != self.agent_id
             || item_view.thread_id != self.focus_thread_id
             || item_view.task_id != self.task_id
         {

@@ -11,7 +11,7 @@ impl PostgresTransaction {
         let item_id = InboxItemId::from_uuid(Uuid::now_v7());
         sqlx::query(
             "INSERT INTO inbox_items \
-             (id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,\
+             (id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status,\
               available_at,last_error_code,created_at) \
              SELECT $1,agents.space_id,$2,NULL,$3,NULL,'system','hard','pending',$4,$5,$4 \
              FROM agents WHERE agents.member_id=$2",
@@ -58,7 +58,7 @@ impl PostgresTransaction {
         item_id: InboxItemId,
     ) -> Result<InboxItemView, ApplicationError> {
         let row = sqlx::query(
-            "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+            "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
@@ -127,7 +127,7 @@ impl PostgresTransaction {
             InboxScope::Dead => &["dead"],
         };
         let rows = sqlx::query(
-            "SELECT i.id,i.agent_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+            "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
@@ -136,7 +136,7 @@ impl PostgresTransaction {
              JOIN channels c ON c.id=t.channel_id \
              LEFT JOIN messages m ON m.id=i.message_id \
              LEFT JOIN members sender ON sender.id=m.author_member_id \
-             WHERE i.agent_id=$1 AND i.status = ANY($2) \
+             WHERE i.member_id=$1 AND i.status = ANY($2) \
              ORDER BY i.created_at DESC,i.id DESC",
         )
         .bind(member_id.into_uuid())
@@ -152,22 +152,22 @@ impl PostgresTransaction {
     pub(super) async fn route_ambient_activity(
         &mut self,
         space_id: SpaceId,
-        agent_id: MemberId,
+        member_id: MemberId,
         thread_id: ThreadId,
         kind: InboxItemKind,
         message_seq: u64,
         now: OffsetDateTime,
     ) -> Result<(), ApplicationError> {
         let open = sqlx::query(
-            "SELECT id,space_id,agent_id,message_id,thread_id,task_id,kind,strength,status,\
+            "SELECT id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status,\
                     available_at,lease_run_id,lease_expires_at,retry_count,requeue_count,\
                     handled_at,first_message_seq,last_message_seq,aggregated_count,force_at \
              FROM inbox_items \
-             WHERE agent_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \
+             WHERE member_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \
                AND retry_count=0 \
              FOR UPDATE",
         )
-        .bind(agent_id.into_uuid())
+        .bind(member_id.into_uuid())
         .bind(thread_id.into_uuid())
         .fetch_optional(&mut *self.connection)
         .await
@@ -196,7 +196,7 @@ impl PostgresTransaction {
         let item = InboxItem::open_ambient(
             InboxItemId::from_uuid(Uuid::now_v7()),
             space_id,
-            agent_id,
+            member_id,
             thread_id,
             kind,
             message_seq,
@@ -205,14 +205,14 @@ impl PostgresTransaction {
         let item_view = item.view();
         let ambient = item_view.ambient.ok_or(ApplicationError::Internal)?;
         sqlx::query(
-            "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+            "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,\
              strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
              force_at,created_at) \
              VALUES($1,$2,$3,NULL,$4,NULL,$5,'ambient','pending',$6,$7,$7,1,$8,$9)",
         )
         .bind(item_view.id.into_uuid())
         .bind(space_id.into_uuid())
-        .bind(agent_id.into_uuid())
+        .bind(member_id.into_uuid())
         .bind(thread_id.into_uuid())
         .bind(inbox_kind_str(kind))
         .bind(item_view.available_at)

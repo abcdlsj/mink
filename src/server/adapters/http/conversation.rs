@@ -537,6 +537,36 @@ pub(super) async fn requeue_inbox_item(
     Ok(Json(inbox_item_response(&item)))
 }
 
+/// Marks the caller's own Human-owned Item handled. The owner opened the source and has seen it, so
+/// the Item leaves the queue; an already handled Item is idempotent. Agent Items never resolve
+/// through this endpoint, only through the Run that leased them.
+pub(super) async fn read_inbox_item(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(item_id): Path<Uuid>,
+) -> Result<Json<InboxItemResponse>, ApiError> {
+    let item_id = InboxItemId::from_uuid(item_id);
+    let mut storage = state.storage.clone();
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM inbox_items WHERE id=$1")
+        .bind(item_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = current_member(&state, &jar, space_id).await?;
+    let item = MarkInboxItemRead::execute(
+        &mut storage,
+        MarkInboxItemReadInput {
+            item_id,
+            actor_id: MemberId::from_uuid(actor),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(inbox_item_response(&item)))
+}
+
 pub(super) fn direct_message_response(conversation: &DirectMessageView) -> DirectMessageResponse {
     DirectMessageResponse {
         channel_id: conversation.channel_id.into_uuid(),

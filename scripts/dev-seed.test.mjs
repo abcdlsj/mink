@@ -70,7 +70,7 @@ test("dev-seed provisions its PostgreSQL database and exposes an explicit clean 
   const databaseTask = miseConfig.match(/\[tasks\.db-start\]\n(?<body>(?:[^\[]|\[(?!tasks\.))*?)(?=\n\[|$)/)?.groups?.body;
   assert.ok(databaseTask, "mise.toml must define tasks.db-start");
   assert.match(databaseTask, /dropdb" --force sumi_dev/);
-  assert.match(databaseTask, /installed_version.*!= "1"/);
+  assert.match(databaseTask, /installed_version.*!= "2"/);
 });
 
 test("development seed cleanup removes only its resolved state root", (context) => {

@@ -65,7 +65,7 @@ impl RequeueDeadItem {
                 return Err(ApplicationError::PermissionDenied);
             }
             item.requeue_from_dead(input.now)?;
-            let agent_id = item_view.agent_id;
+            let member_id = item_view.member_id;
             let source_message_id = item_view.message_id;
             transaction.save_inbox_item(item).await?;
             transaction
@@ -78,10 +78,48 @@ impl RequeueDeadItem {
                 .await?;
             // The Item is claimable again, so both the Agent's queue and the source Message's run
             // state projection are stale.
-            transaction.emit(Effect::InboxChanged(agent_id));
+            transaction.emit(Effect::InboxChanged(member_id));
             if let Some(message_id) = source_message_id {
                 transaction.emit(Effect::MessageUpdated(message_id));
             }
+            transaction.inbox_item_view(input.item_id).await
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct MarkInboxItemReadInput {
+    pub(in crate::server) item_id: InboxItemId,
+    pub(in crate::server) actor_id: MemberId,
+    pub(in crate::server) now: time::OffsetDateTime,
+}
+
+/// Marks a Human-owned Item handled on its owner's explicit read. Agent Items never enter this
+/// path: their terminal state belongs to the Run that leased them, so this command rejects them.
+/// Reading an already handled Item is idempotent and returns the current projection.
+pub(in crate::server) struct MarkInboxItemRead;
+
+impl MarkInboxItemRead {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: MarkInboxItemReadInput,
+    ) -> Result<InboxItemView, ApplicationError> {
+        port.transact(async |transaction| {
+            let mut item = transaction.inbox_item(input.item_id).await?;
+            let item_view = item.view();
+            if input.actor_id != item_view.member_id {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            let owner = transaction
+                .space_member(item_view.member_id, item_view.space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            if owner.kind != MemberKind::Human {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            item.mark_read(input.now)?;
+            transaction.save_inbox_item(item).await?;
+            transaction.emit(Effect::InboxChanged(item_view.member_id));
             transaction.inbox_item_view(input.item_id).await
         })
         .await
@@ -114,7 +152,10 @@ impl RouteHardItem {
             {
                 return Ok(HardItemRoute::Pending);
             }
-            let Some(run_id) = transaction.active_run_for_agent(item_view.agent_id).await? else {
+            let Some(run_id) = transaction
+                .active_run_for_agent(item_view.member_id)
+                .await?
+            else {
                 return Ok(HardItemRoute::Pending);
             };
             let mut run = transaction.run(run_id).await?;

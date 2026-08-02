@@ -479,16 +479,28 @@ impl PostgresTransaction {
         } else {
             None
         };
-        let recipients = sqlx::query_scalar::<_, Uuid>(
-            "SELECT members.id FROM channel_members JOIN members \
+        // Attention routes to every non-retired Member except the sender. Human recipients receive
+        // hard Items (DM, mention, reply, Task activity) and subscribed-Thread activity, but never
+        // plain Channel activity: ordinary Channel Messages are already visible where they live.
+        let recipients = sqlx::query(
+            "SELECT members.id,members.kind FROM channel_members JOIN members \
              ON members.id=channel_members.member_id WHERE channel_members.channel_id=$1 \
-             AND members.kind='agent' AND members.retired_at IS NULL AND members.id<>$2",
+             AND members.retired_at IS NULL AND members.id<>$2",
         )
         .bind(draft.channel_id.into_uuid())
         .bind(draft.author_member_id.into_uuid())
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        let recipients = recipients
+            .into_iter()
+            .map(|row| {
+                (
+                    MemberId::from_uuid(row.get::<Uuid, _>("id")),
+                    row.get::<String, _>("kind") == "agent",
+                )
+            })
+            .collect::<Vec<_>>();
         // An explicit Thread subscription raises ordinary activity above channel_activity. Read only
         // for a reply: a Root Message creates its Thread, which nobody can have subscribed to yet.
         let subscribers = if draft.thread_id.is_some() {
@@ -506,47 +518,50 @@ impl PostgresTransaction {
         };
         let mut mentioned = draft.mentions.into_iter().collect::<BTreeSet<_>>();
         if draft.mention_all {
-            mentioned.extend(recipients.iter().copied().map(MemberId::from_uuid));
+            mentioned.extend(recipients.iter().map(|(member_id, _)| *member_id));
         }
         let message_seq =
             u64::try_from(channel_sequence).map_err(|_| ApplicationError::Internal)?;
         let mut hard_item_ids = Vec::new();
-        let mut notified_agent_ids = Vec::new();
-        for recipient in recipients {
-            let agent_id = MemberId::from_uuid(recipient);
-            // One Message yields one Item per Agent at its highest strength. Ambient activity merges
-            // into that Agent's open aggregate for the Thread instead of adding a row per Message.
+        let mut notified_member_ids = Vec::new();
+        for (member_id, is_agent) in recipients {
+            // One Message yields one Item per Member at its highest strength. Ambient activity merges
+            // into that Member's open aggregate for the Thread instead of adding a row per Message.
             let kind = if task_id.is_some() {
                 InboxItemKind::TaskActivity
             } else if channel_kind == "direct" {
                 InboxItemKind::Direct
-            } else if mentioned.contains(&agent_id) {
+            } else if mentioned.contains(&member_id) {
                 InboxItemKind::Mention
-            } else if reply_author == Some(recipient) {
+            } else if reply_author == Some(member_id.into_uuid()) {
                 InboxItemKind::Reply
             } else {
-                let kind = if subscribers.contains(&recipient) {
+                let subscribed = subscribers.contains(&member_id.into_uuid());
+                if !is_agent && !subscribed {
+                    continue;
+                }
+                let kind = if subscribed {
                     InboxItemKind::ThreadActivity
                 } else {
                     InboxItemKind::ChannelActivity
                 };
                 self.route_ambient_activity(
                     SpaceId::from_uuid(space_id),
-                    agent_id,
+                    member_id,
                     thread_id,
                     kind,
                     message_seq,
                     draft.now,
                 )
                 .await?;
-                notified_agent_ids.push(agent_id);
+                notified_member_ids.push(member_id);
                 continue;
             };
             let item_id = InboxItemId::from_uuid(Uuid::now_v7());
             let item = InboxItem::open_hard(
                 item_id,
                 SpaceId::from_uuid(space_id),
-                agent_id,
+                member_id,
                 Some(draft.message_id),
                 thread_id,
                 task_id.map(TaskId::from_uuid),
@@ -555,13 +570,13 @@ impl PostgresTransaction {
             )?;
             let item = item.view();
             sqlx::query(
-                "INSERT INTO inbox_items(id,space_id,agent_id,message_id,thread_id,task_id,kind,\
+                "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,\
                  strength,status,available_at,created_at) \
                  VALUES($1,$2,$3,$4,$5,$6,$7,'hard','pending',$8,$8)",
             )
             .bind(item.id.into_uuid())
             .bind(space_id)
-            .bind(recipient)
+            .bind(member_id.into_uuid())
             .bind(draft.message_id.into_uuid())
             .bind(thread_id.into_uuid())
             .bind(task_id)
@@ -570,13 +585,17 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-            hard_item_ids.push(item_id);
-            notified_agent_ids.push(agent_id);
+            // Only Agent Items enter the active-Run routing pass; Human Items have no Run to
+            // attach to or notify.
+            if is_agent {
+                hard_item_ids.push(item_id);
+            }
+            notified_member_ids.push(member_id);
         }
         Ok(PublishedMessage {
             message_id: draft.message_id,
             hard_item_ids,
-            notified_agent_ids,
+            notified_member_ids,
         })
     }
 

@@ -196,6 +196,238 @@ async fn run_inbox_flow(database: &TestDatabase) -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn human_inbox_routes_replies_mentions_and_dms_and_marks_read() -> Result<()> {
+    let database = TestDatabase::create("sumi_human_inbox").await?;
+    let result = run_human_inbox_flow(&database).await;
+    database.drop().await?;
+    result
+}
+
+async fn run_human_inbox_flow(database: &TestDatabase) -> Result<()> {
+    let root = tempdir()?;
+    let web_dist = root.path().join("web");
+    let attachments = root.path().join("attachments");
+    std::fs::create_dir(&web_dist)?;
+    std::fs::write(
+        web_dist.join("index.html"),
+        "<!doctype html><title>Sumi</title>",
+    )?;
+
+    let bind = SocketAddr::from(([127, 0, 0, 1], reserve_local_port()?));
+    let server_url = Url::parse(&format!("http://{bind}"))?;
+    let config = root.path().join("server.toml");
+    write_server_config(&config, bind, &database.url, &attachments, &web_dist)?;
+    let mut server = spawn_server(&config)?;
+    wait_for_health(&server_url).await?;
+
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let owner = register(&client, &server_url, "Ada Lovelace", "ada@example.test").await?;
+    let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
+    let space_id = space["id"].as_str().context("Space ID")?.to_owned();
+    let owner_member_id = space["owner_member_id"]
+        .as_str()
+        .context("owner Member ID")?
+        .to_owned();
+    let general_channel_id = space["general_channel_id"]
+        .as_str()
+        .context("general Channel ID")?
+        .to_owned();
+
+    let grace = invite_and_accept(
+        &client,
+        &server_url,
+        &owner,
+        &space_id,
+        "grace@example.test",
+    )
+    .await?;
+    let members: Value = client
+        .get(server_url.join(&format!("/api/v1/spaces/{space_id}/members"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let grace_member_id = members
+        .as_array()
+        .context("Member list")?
+        .iter()
+        .find(|member| member["id"] != Value::String(owner_member_id.clone()))
+        .and_then(|member| member["id"].as_str())
+        .context("Grace Member ID")?
+        .to_owned();
+
+    // A plain Channel Message creates no Human Item: ordinary Channel activity is not attention.
+    let root: Value = client
+        .post(server_url.join(&format!("/api/v1/channels/{general_channel_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({
+            "body_markdown": "planning thread",
+            "mentions": [],
+            "mention_all": false,
+            "attachment_ids": []
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let root_id = root["id"].as_str().context("root Message ID")?.to_owned();
+    let thread_id = root["thread_id"].as_str().context("thread ID")?.to_owned();
+    let quiet: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(
+        quiet.as_array().context("Inbox")?.is_empty(),
+        "plain Channel Messages must not route to Humans"
+    );
+
+    // A reply to Ada's Message routes a hard reply Item to Ada, not to sender Grace.
+    client
+        .post(server_url.join(&format!("/api/v1/threads/{thread_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &grace)
+        .json(&serde_json::json!({
+            "body_markdown": "I can take this",
+            "mentions": [],
+            "mention_all": false,
+            "attachment_ids": [],
+            "reply_to_message_id": root_id
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let inbox: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let inbox = inbox.as_array().context("Inbox")?;
+    ensure!(inbox.len() == 1, "{inbox:?}");
+    ensure!(inbox[0]["kind"] == "reply", "{inbox:?}");
+    ensure!(inbox[0]["sender_member_id"] == grace_member_id, "{inbox:?}");
+    let reply_item_id = inbox[0]["id"].as_str().context("Item ID")?.to_owned();
+    let sender_inbox: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{grace_member_id}/inbox"))?)
+        .header(header::COOKIE, &grace)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(
+        sender_inbox.as_array().context("sender Inbox")?.is_empty(),
+        "the sender must not receive an Item for its own Message"
+    );
+
+    // Marking the Item read removes it from the queue; repeating the read stays idempotent.
+    let read: Value = client
+        .post(server_url.join(&format!("/api/v1/inbox-items/{reply_item_id}/read"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(read["status"] == "handled", "{read:?}");
+    client
+        .post(server_url.join(&format!("/api/v1/inbox-items/{reply_item_id}/read"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?;
+    let drained: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(drained.as_array().context("Inbox")?.is_empty());
+
+    // A mention routes to the named Human, and a DM routes to the other participant.
+    client
+        .post(server_url.join(&format!("/api/v1/channels/{general_channel_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({
+            "body_markdown": "@grace please confirm",
+            "mentions": [grace_member_id],
+            "mention_all": false,
+            "attachment_ids": []
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let mentioned: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{grace_member_id}/inbox"))?)
+        .header(header::COOKIE, &grace)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let mentioned = mentioned.as_array().context("Inbox")?;
+    ensure!(mentioned.len() == 1, "{mentioned:?}");
+    ensure!(mentioned[0]["kind"] == "mention", "{mentioned:?}");
+
+    let dm: Value = client
+        .post(server_url.join(&format!("/api/v1/spaces/{space_id}/dms"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &grace)
+        .json(&serde_json::json!({"member_id": owner_member_id}))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let dm_channel_id = dm["channel_id"]
+        .as_str()
+        .context("DM Channel ID")?
+        .to_owned();
+    client
+        .post(server_url.join(&format!("/api/v1/channels/{dm_channel_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &grace)
+        .json(&serde_json::json!({
+            "body_markdown": "ping",
+            "mentions": [],
+            "mention_all": false,
+            "attachment_ids": []
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let dmed: Value = client
+        .get(server_url.join(&format!("/api/v1/members/{owner_member_id}/inbox"))?)
+        .header(header::COOKIE, &owner)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let dmed = dmed.as_array().context("Inbox")?;
+    ensure!(dmed.len() == 1, "{dmed:?}");
+    ensure!(dmed[0]["kind"] == "direct", "{dmed:?}");
+
+    server.interrupt().await?;
+    Ok(())
+}
+
 async fn invite_and_accept(
     client: &Client,
     server: &Url,

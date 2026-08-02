@@ -363,10 +363,12 @@ pub(in crate::server) struct CitationContext {
 
 pub(in crate::server) struct PublishedMessage {
     pub(in crate::server) message_id: MessageId,
+    /// Hard Items only for Agent recipients. `RouteHardItem` decides whether they attach to an
+    /// active Run or become a notice; Human Items have no Run to route to.
     pub(in crate::server) hard_item_ids: Vec<InboxItemId>,
-    /// Agents that received an Item from this Message, hard or ambient. Drives `inbox.changed`, so
-    /// it covers ambient recipients that `hard_item_ids` omits.
-    pub(in crate::server) notified_agent_ids: Vec<MemberId>,
+    /// Members that received an Item from this Message, hard or ambient. Drives `inbox.changed`,
+    /// so it covers ambient recipients that `hard_item_ids` omits.
+    pub(in crate::server) notified_member_ids: Vec<MemberId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

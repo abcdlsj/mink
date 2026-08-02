@@ -110,7 +110,7 @@ pub(in crate::server) enum InboxItemDisposition {
 pub(in crate::server) struct InboxItem {
     id: InboxItemId,
     space_id: SpaceId,
-    agent_id: MemberId,
+    member_id: MemberId,
     message_id: Option<MessageId>,
     thread_id: ThreadId,
     task_id: Option<TaskId>,
@@ -133,7 +133,7 @@ pub(in crate::server) struct InboxItem {
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
     pub(in crate::server) space_id: SpaceId,
-    pub(in crate::server) agent_id: MemberId,
+    pub(in crate::server) member_id: MemberId,
     pub(in crate::server) message_id: Option<MessageId>,
     pub(in crate::server) thread_id: ThreadId,
     pub(in crate::server) task_id: Option<TaskId>,
@@ -153,7 +153,7 @@ pub(in crate::server) struct InboxItemView {
 pub(in crate::server) struct InboxItemSnapshot {
     pub(in crate::server) id: InboxItemId,
     pub(in crate::server) space_id: SpaceId,
-    pub(in crate::server) agent_id: MemberId,
+    pub(in crate::server) member_id: MemberId,
     pub(in crate::server) message_id: Option<MessageId>,
     pub(in crate::server) thread_id: ThreadId,
     pub(in crate::server) task_id: Option<TaskId>,
@@ -174,7 +174,7 @@ impl InboxItem {
     pub(in crate::server) fn open_hard(
         id: InboxItemId,
         space_id: SpaceId,
-        agent_id: MemberId,
+        member_id: MemberId,
         message_id: Option<MessageId>,
         thread_id: ThreadId,
         task_id: Option<TaskId>,
@@ -194,7 +194,7 @@ impl InboxItem {
         Ok(Self {
             id,
             space_id,
-            agent_id,
+            member_id,
             message_id,
             thread_id,
             task_id,
@@ -217,7 +217,7 @@ impl InboxItem {
     pub(in crate::server) fn open_ambient(
         id: InboxItemId,
         space_id: SpaceId,
-        agent_id: MemberId,
+        member_id: MemberId,
         thread_id: ThreadId,
         kind: InboxItemKind,
         message_seq: u64,
@@ -234,7 +234,7 @@ impl InboxItem {
         Ok(Self {
             id,
             space_id,
-            agent_id,
+            member_id,
             message_id: None,
             thread_id,
             task_id: None,
@@ -255,7 +255,7 @@ impl InboxItem {
         InboxItemView {
             id: self.id,
             space_id: self.space_id,
-            agent_id: self.agent_id,
+            member_id: self.member_id,
             message_id: self.message_id,
             thread_id: self.thread_id,
             task_id: self.task_id,
@@ -282,7 +282,7 @@ impl InboxItem {
         InboxItemSnapshot {
             id: view.id,
             space_id: view.space_id,
-            agent_id: view.agent_id,
+            member_id: view.member_id,
             message_id: view.message_id,
             thread_id: view.thread_id,
             task_id: view.task_id,
@@ -355,7 +355,7 @@ impl InboxItem {
         Ok(Self {
             id: snapshot.id,
             space_id: snapshot.space_id,
-            agent_id: snapshot.agent_id,
+            member_id: snapshot.member_id,
             message_id: snapshot.message_id,
             thread_id: snapshot.thread_id,
             task_id: snapshot.task_id,
@@ -448,6 +448,21 @@ impl InboxItem {
         self.lease_run_id = None;
         self.lease_expires_at = None;
         Ok(())
+    }
+
+    /// Marks a Human-owned Item handled on its owner's explicit read. Agent Items never use this
+    /// path: their terminal state is decided by the Run that leased them, so callers must guard on
+    /// owner kind before invoking. Reading an already handled Item stays idempotent.
+    pub(in crate::server) fn mark_read(&mut self, now: OffsetDateTime) -> Result<(), DomainError> {
+        match self.status {
+            InboxItemStatus::Handled => Ok(()),
+            InboxItemStatus::Pending => {
+                self.status = InboxItemStatus::Handled;
+                self.handled_at = Some(now);
+                Ok(())
+            }
+            _ => Err(DomainError::InvalidTransition),
+        }
     }
 
     pub(in crate::server) fn renew_lease(
@@ -614,7 +629,7 @@ mod tests {
         InboxItem {
             id: InboxItemId::from_uuid(uuid::Uuid::from_u128(1)),
             space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
-            agent_id: MemberId::from_uuid(uuid::Uuid::from_u128(3)),
+            member_id: MemberId::from_uuid(uuid::Uuid::from_u128(3)),
             message_id: None,
             thread_id: ThreadId::from_uuid(uuid::Uuid::from_u128(4)),
             task_id: None,

@@ -85,7 +85,7 @@ if ! "$pg_bin/psql" --dbname postgres --tuples-only --no-align --command "SELECT
   "$pg_bin/createdb" sumi_dev
 else
   installed_version="$("$pg_bin/psql" --dbname sumi_dev --tuples-only --no-align --command "SELECT max(version) FROM schema_meta" 2>/dev/null || true)"
-  if [ "$installed_version" != "1" ]; then
+  if [ "$installed_version" != "2" ]; then
     echo "sumi_dev uses an incompatible schema baseline; recreating the development database" >&2
     "$pg_bin/dropdb" --force sumi_dev
     "$pg_bin/createdb" sumi_dev

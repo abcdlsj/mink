@@ -86,7 +86,7 @@ pub(super) fn inbox_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItem, A
     InboxItem::rehydrate(DomainInboxItemSnapshot {
         id: InboxItemId::from_uuid(row.get("id")),
         space_id: SpaceId::from_uuid(row.get("space_id")),
-        agent_id: MemberId::from_uuid(row.get("agent_id")),
+        member_id: MemberId::from_uuid(row.get("member_id")),
         message_id: row
             .get::<Option<Uuid>, _>("message_id")
             .map(MessageId::from_uuid),
@@ -361,7 +361,7 @@ pub(super) fn inbox_view_from_row(
 ) -> Result<InboxItemView, ApplicationError> {
     Ok(InboxItemView {
         id: InboxItemId::from_uuid(row.get("id")),
-        member_id: MemberId::from_uuid(row.get("agent_id")),
+        member_id: MemberId::from_uuid(row.get("member_id")),
         kind: inbox_kind_from_str(row.get("kind"))?,
         strength: strength_from_str(row.get("strength"))?,
         status: inbox_status_from_str(row.get("status"))?,

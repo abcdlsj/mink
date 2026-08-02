@@ -56,7 +56,7 @@ impl PostgresTransaction {
         agent_id: MemberId,
     ) -> Result<bool, ApplicationError> {
         sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM inbox_items WHERE agent_id=$1 AND status='pending')",
+            "SELECT EXISTS(SELECT 1 FROM inbox_items WHERE member_id=$1 AND status='pending')",
         )
         .bind(agent_id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -89,11 +89,11 @@ impl PostgresTransaction {
         computer_id: ComputerId,
     ) -> Result<Option<ClaimCandidate>, ApplicationError> {
         let row = sqlx::query(
-            "SELECT i.id,i.agent_id,i.task_id,i.thread_id,i.message_id,t.channel_id FROM inbox_items i \
-             JOIN agents a ON a.member_id=i.agent_id JOIN threads t ON t.id=i.thread_id \
+            "SELECT i.id,i.member_id,i.task_id,i.thread_id,i.message_id,t.channel_id FROM inbox_items i \
+             JOIN agents a ON a.member_id=i.member_id JOIN threads t ON t.id=i.thread_id \
              WHERE a.computer_id=$1 AND a.lifecycle='active' AND i.status='pending' \
                AND i.available_at<=now() \
-               AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.agent_id \
+               AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.member_id \
                  AND r.status NOT IN ('completed','yielded','failed','canceled')) \
              ORDER BY (i.strength='hard') DESC,i.available_at,(i.task_id IS NOT NULL) DESC,i.id LIMIT 1",
         )
@@ -103,7 +103,7 @@ impl PostgresTransaction {
         .map_err(map_sqlx)?;
         Ok(row.map(|row| ClaimCandidate {
             item_id: InboxItemId::from_uuid(row.get("id")),
-            agent_id: MemberId::from_uuid(row.get("agent_id")),
+            agent_id: MemberId::from_uuid(row.get("member_id")),
             task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
             thread_id: ThreadId::from_uuid(row.get("thread_id")),
             message_id: row

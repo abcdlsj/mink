@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (1, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (2, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -383,7 +383,7 @@ ALTER TABLE message_context_citations
 CREATE TABLE inbox_items (
     id UUID PRIMARY KEY,
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
-    agent_id UUID NOT NULL REFERENCES agents(member_id) ON DELETE RESTRICT,
+    member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
     message_id UUID,
     thread_id UUID NOT NULL,
     task_id UUID,
@@ -424,7 +424,7 @@ CREATE TABLE inbox_items (
 -- covers a range the Agent already received, so it accepts no further Messages and must not block the
 -- next aggregate for that Thread.
 CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate
-    ON inbox_items(agent_id, thread_id)
+    ON inbox_items(member_id, thread_id)
     WHERE strength = 'ambient' AND status = 'pending' AND retry_count = 0;
 
 CREATE TABLE run_items (
@@ -647,5 +647,5 @@ FOR EACH ROW EXECUTE FUNCTION enforce_run_focus();
 CREATE INDEX messages_channel_cursor ON messages(channel_id, channel_seq DESC);
 CREATE INDEX tasks_space_cursor ON tasks(space_id, updated_at DESC, id DESC);
 CREATE INDEX agent_runs_task_cursor ON agent_runs(task_id, created_at DESC, id DESC);
-CREATE INDEX inbox_items_pending ON inbox_items(agent_id, available_at, id)
+CREATE INDEX inbox_items_pending ON inbox_items(member_id, available_at, id)
     WHERE status IN ('pending', 'deferred');

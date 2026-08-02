@@ -213,7 +213,7 @@ impl ClaimRun {
                 let mut item = transaction.inbox_item(item_id).await?;
                 let item_view = item.view();
                 let run_view = run.view();
-                if item_view.agent_id != run_view.agent_id
+                if item_view.member_id != run_view.agent_id
                     || item_view.thread_id != run_view.focus_thread_id
                     || item_view.task_id != run_view.task_id
                 {
@@ -489,7 +489,7 @@ impl ReclaimExpiredLeases {
                             InboxItemStatus::Dead
                         );
                         let item_view = item.view();
-                        let agent_id = item_view.agent_id;
+                        let agent_id = item_view.member_id;
                         let thread_id = item_view.thread_id;
                         transaction.save_inbox_item(item).await?;
                         if retired {

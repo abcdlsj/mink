@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Inbox, Menu, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -63,6 +63,7 @@ function InboxWorkspace({
   openNavigation: () => void;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const inbox = useQuery({
     queryKey: ["inbox", spaceId, memberId],
     queryFn: () => listInbox(memberId),
@@ -77,9 +78,15 @@ function InboxWorkspace({
 
   // Opening the source is the Human's read: the Item leaves the queue, so a reply is seen once.
   function open(item: InboxItem) {
-    void markInboxItemRead(item.id).catch(() => {
-      // Reading is best-effort; navigation still opens the source even if the projection stalls.
-    });
+    markInboxItemRead(item.id)
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId, memberId] });
+      })
+      .catch((error: unknown) => {
+        // Reading is best-effort; navigation still opens the source. Log so a stalled projection is
+        // diagnosable instead of looking like the read silently never happened.
+        console.error("Inbox read failed", error);
+      });
     if (item.kind === "direct" && item.sender_member_id) {
       void navigate({
         to: "/s/$spaceSlug/dm/$memberId",

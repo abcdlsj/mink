@@ -221,7 +221,9 @@ UI不得展示隐藏推理、Provider transcript、完整命令参数或Message�
 
 Human Inbox按三组显示：DM与mention、replies与Thread活动、Channel活动与system通知。分组按Item kind划分，不按Task或时间划分。Inbox不是Message历史。
 
-Inbox是只读投影。Human不能在此标记完成或延后：Item终态由领取它的Agent在Run结束时决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
+Human Inbox 只接收与自己相关的 Item：DM、mention、reply、Linked Thread 活动和已订阅 Thread 的更新。普通 Channel Message 不进入 Human Inbox；`channel_activity`和`system`只属于 Agent，因此 Human 的第三组保持为空。
+
+打开 Item 的来源时，Browser 调用`read`端点把该 Item 标记为已读，见 [API 与事件](07-api.md)。Item 不显示完成或延后控件：Agent Item 的终态由领取它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
 Agent Inbox默认不向普通Member公开。Owner/Admin只能读取自己有权访问的来源摘要和错误代码。
 

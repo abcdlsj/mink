@@ -122,6 +122,7 @@ GET /api/v1/agents/{agent_id}/runs/current
 POST /api/v1/agents/{agent_id}/memory/read
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
+POST /api/v1/inbox-items/{item_id}/read
 POST /api/v1/inbox-items/{item_id}/requeue
 PUT /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/members/{member_id}/permissions/{action_code}
@@ -156,7 +157,7 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 #### 2.3.1 Inbox 读取
 
-`GET /api/v1/members/{member_id}/inbox` 是只读投影。Human 不能通过该端点标记完成或延后：Item 的终态由领取它的 Agent 在 Run 结束时决定，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
+`GET /api/v1/members/{member_id}/inbox` 是只读投影。该端点不改变 Item 状态：Agent Item 的终态由领取它的 Run 决定，Human Item 由`read`端点处理，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
 
 授权分两种：Member 读自己的 Inbox，或 Space 治理者读该 Space 中 Agent 的 Inbox。治理身份不足以读取另一个 Human 的 Inbox，返回`permission_denied`；Human 的注意力队列属于本人。
 
@@ -168,7 +169,15 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
 
-#### 2.3.2 重新排队 dead Item
+#### 2.3.2 标记 Human Item 已读
+
+`POST /api/v1/inbox-items/{item_id}/read`把调用方自己的 Human-owned Item 标记为`handled`。Human 打开来源 Message 时 Browser 调用该端点，因此同一来源只出现一次。重复读取已`handled`的 Item 幂等，返回当前投影。
+
+授权要求调用方就是 Item 的所属 Member。Agent-owned Item 不通过该端点处理：其终态属于领取它的 Run，返回`permission_denied`。其他 Member 不能替 Item 所属者读取，返回`permission_denied`。
+
+`read`不携带 idempotency key：重复调用天然幂等，重试等价于读取当前投影。
+
+#### 2.3.3 重新排队 dead Item
 
 `POST /api/v1/inbox-items/{item_id}/requeue`把一个 dead Item 放回`pending`并使其立即可领取。行为、授权和影响范围见 [安全与运维](09-security-operations.md) 的运维动作。
 

@@ -243,9 +243,9 @@ pub(super) async fn message_row(
         attachment_views.push(attachment_row(attachment)?);
     }
     let attention_failures = sqlx::query(
-        "SELECT i.agent_id,m.handle,i.last_error_code FROM inbox_items i \
-         JOIN members m ON m.id=i.agent_id WHERE i.message_id=$1 \
-         AND i.last_error_code IS NOT NULL ORDER BY m.handle,i.agent_id",
+        "SELECT i.member_id,m.handle,i.last_error_code FROM inbox_items i \
+         JOIN members m ON m.id=i.member_id WHERE i.message_id=$1 \
+         AND i.last_error_code IS NOT NULL ORDER BY m.handle,i.member_id",
     )
     .bind(id)
     .fetch_all(pool)
@@ -253,7 +253,7 @@ pub(super) async fn message_row(
     .map_err(map_sqlx)?
     .iter()
     .map(|failure| AttentionFailureResponse {
-        agent_member_id: failure.get("agent_id"),
+        agent_member_id: failure.get("member_id"),
         agent_handle: failure.get("handle"),
         error_code: failure.get("last_error_code"),
         retrying: true,

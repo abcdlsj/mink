@@ -10,10 +10,15 @@ Inbox是注意力事实，不是Message历史。Sumi保证：
 - Item在明确处理前不会因进程退出而消失。
 - 领取、附加、释放和完成操作可以幂等重试。
 - Agent能知道active Run之外还有新的hard attention。
+- Human 能直接看到与自己相关的 hard attention，不必逐群检查 Channel。
 
 Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决定相关性。
 
 ## 2. Item 类型
+
+Agent 与 Human 共享同一 Item 模型。路由只面向发送者的 Channel 中未退役的其他 Member。
+
+Agent 路由：
 
 | 来源 | 类型 | 强度 |
 | --- | --- | --- |
@@ -26,20 +31,39 @@ Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决�
 | Agent所在Channel普通Message | channel_activity | ambient |
 | 系统或执行错误 | system | hard |
 
-同一Message对同一Agent只生成一个最高强度Item。发送者不为自己生成Message Item。
+Human 路由：
 
-Message 的 mention targets 是结构化事实。显式 mention 保存为 Message 与 Member 的关系；`mention_all=true` 时，Server 在发送事务中把当前 Channel 中未退役的 Member（发送者除外）保存为 targets，并把其中的 Agent 路由为 hard `mention` Item。消费端不得从 Message 正文推断 targets。Task、DM、mention 和 reply 的既有选择顺序保持为 Task > DM > mention > reply；同一 Agent 只保留一个最高强度 Item。
+| 来源 | 类型 | 强度 |
+| --- | --- | --- |
+| DM新Message | direct | hard |
+| mention Human | mention | hard |
+| `@all` in a Channel | mention | hard |
+| reply指向Human Message | reply | hard |
+| Linked Thread新Message | task_activity | hard |
+| Human订阅的Thread更新 | thread_activity | ambient |
+
+Human 不生成`channel_activity`：普通 Channel Message 已在 Channel 时间线可见，不构成额外注意力。
+
+同一Message对同一Member只生成一个最高强度Item。发送者不为自己生成Message Item。
+
+Message 的 mention targets 是结构化事实。显式 mention 保存为 Message 与 Member 的关系；`mention_all=true` 时，Server 在发送事务中把当前 Channel 中未退役的 Member（发送者除外）保存为 targets，并把其中的 Agent 与 Human 路由为 hard `mention` Item。消费端不得从 Message 正文推断 targets。Task、DM、mention 和 reply 的既有选择顺序保持为 Task > DM > mention > reply；同一 Member 只保留一个最高强度 Item。
 
 ## 3. Item 状态
 
 ```text
+Agent Item:
 pending -> leased -> handled
    ^          |----> deferred
    |          |----> pending
    +----------+
 
 pending/leased -> dead
+
+Human Item:
+pending -> handled
 ```
+
+Human Item 不进 lease：没有 Human Run 领取它。Human 打开来源 Message 时，Server 把该 Item 标记为 handled；重复读取已经 handled 的 Item 幂等。Human Item 不进入 deferred 或 dead。
 
 Item保存来源Message、Thread、可选Task、强度、available time、lease、retry count和处理结果。Item不复制Message正文。
 
@@ -68,9 +92,9 @@ daemon和Server不得读取正文决定attach或notice。
 
 ## 6. Ambient 聚合
 
-Server 按 Agent 和 Thread 聚合 ambient activity。一个 Agent 在一个 Thread 上最多有一个 pending 聚合项，因此该 Thread 的连续普通 Message 只占一条 Item。聚合项保存首尾 Message 序号、数量、available time 和 force time，见 [数据库设计](08-database.md) 的`inbox_items`。
+Server 按 Member 和 Thread 聚合 ambient activity。一个 Member 在一个 Thread 上最多有一个 pending 聚合项，因此该 Thread 的连续普通 Message 只占一条 Item。聚合项保存首尾 Message 序号、数量、available time 和 force time，见 [数据库设计](08-database.md) 的`inbox_items`。
 
-聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message。
+聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message；Human 的聚合项保持 pending，直到打开来源。
 
 available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可领取。该上限是防止新 Message 无限推迟处理的唯一机制。
 
@@ -96,7 +120,7 @@ Agent当前无权读取来源时，notice只显示“另一个受限位置有待
 
 lease过期时，Server把该Run未处理的Items返回pending并增加retry count，同时把Run置为`failed`并记录`process_lost`。retry count超过`max_retry_count`后Item进入dead，并在同一事务创建不含正文的system Item。
 
-该system Item归属该Agent，因为`inbox_items.agent_id`引用`agents`，Human不能持有Item。Space治理者通过读取Agent Inbox看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
+该system Item只面向 Agent 执行错误，归属该Agent。Space治理者通过读取Agent Inbox看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
 
 只有lease过期计入retry count。Agent显式release一个Item是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt丢失和重复command同样不得重复增加retry count。
 
