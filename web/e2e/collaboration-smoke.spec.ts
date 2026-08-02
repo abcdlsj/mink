@@ -89,7 +89,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await expect(page.getByRole("group", { name: "Filter Members by kind" })).toBeVisible();
 
   await navigateToSpaceTool("Computers");
-  await expect(page.getByRole("heading", { name: "No Computers paired", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Pair a Computer", exact: true })).toBeVisible();
 
   const railInbox = page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" });
   const navigationInbox = page.getByRole("complementary", { name: "Space navigation" }).getByRole("link", { name: "Inbox" });

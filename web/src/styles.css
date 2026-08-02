@@ -7143,3 +7143,117 @@ summary.system-event-heading {
     min-width: 140px;
   }
 }
+
+/* Computer and Agent detail share one flat fact system: identity in the
+   header, one dense fact band, then the workload list and governance. */
+.computer-overview {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.computer-detail > .detail-section {
+  padding: 20px 28px;
+}
+
+.computer-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.computer-agents {
+  flex: 1;
+}
+
+.computer-agents-empty {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.computer-agents-empty p {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+.hosted-agent-list {
+  border-color: rgb(20 17 17 / 18%);
+}
+
+.hosted-agent-list a {
+  min-height: 56px;
+  border-bottom-color: rgb(20 17 17 / 12%);
+}
+
+.computer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
+  border-top: 1px solid rgb(20 17 17 / 14%);
+  background: var(--paper);
+  position: sticky;
+  bottom: 0;
+}
+
+.computer-actions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-system);
+  line-height: 1.45;
+}
+
+.agent-workspace .entity-detail-title p {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.agent-detail-scroll {
+  padding: 0 28px 28px;
+}
+
+.agent-overview-grid > .detail-section {
+  padding: 20px;
+}
+
+.agent-overview-grid > .detail-section:nth-child(2) .detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-overview-grid > .detail-section .permission-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-error {
+  border-color: rgb(20 17 17 / 14%);
+  background: #fbe5e3;
+  color: #8f2d26;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .computer-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .agent-overview-grid > .detail-section .permission-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .computer-detail > .detail-section,
+  .computer-actions {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .agent-detail-scroll {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+}

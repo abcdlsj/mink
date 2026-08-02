@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { Brain, Eye, Inbox, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
+import { Brain, Eye, LayoutDashboard, Menu, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { getAgent, getAgentRuntime, grantMemberPermission, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent } from "../api/client";
@@ -13,7 +13,6 @@ type AgentTab = "overview" | "memory" | "inbox" | "settings";
 const agentTabs: { id: AgentTab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "memory", label: "Memory", icon: Brain },
-  { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "settings", label: "Settings", icon: Settings2 },
 ];
 
@@ -82,7 +81,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
         <PresenceIdentity name={value.name} kind="agent" seed={value.member_id} activityStatus={value.activity_status} />
         <div className="entity-detail-title">
           <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>
-          <p>@{value.handle} · {value.role_text}</p>
+          <p>@{value.handle}</p>
         </div>
         <span className={`agent-state agent-state--${value.activity_status}`} role="status" aria-label={`Activity: ${activityLabel(value.activity_status)}`} title={`Activity: ${activityLabel(value.activity_status)}`}><i aria-hidden="true" />{activityLabel(value.activity_status)}</span>
         <Link className="agent-message-action icon-button" to="/s/$spaceSlug/dm/$memberId" params={{ spaceSlug, memberId: value.member_id }} aria-label={`Message ${value.name}`} title={`Message ${value.name}`}><MessageCircle /></Link>
@@ -98,9 +97,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
         {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <div className="agent-overview-grid">
-            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} tabular /></dl></DetailSection>
-            <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} tabular /><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Status" value={activityLabel(value.activity_status)} /><Field label="Activity" value={value.activity?.label ?? "No active operation"} /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl>{runtime.isPending ? <p>Loading current Run…</p> : null}{runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}{runtime.data ? <div className="agent-runtime-facts">{runtime.data.current_task ? <p><strong>Task</strong><Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link></p> : <p><strong>Task</strong>None</p>}{runtime.data.focus ? <p><strong>Focus</strong><Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link></p> : <p><strong>Focus</strong>None</p>}<p><strong>Run</strong>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p><p><strong>Session continuity</strong>{runtime.data.session_continuity.state.replace("_", " ")}</p>{runtime.data.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}</div> : null}</DetailSection>
+            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Handle" value={`@${value.handle}`} tabular /><Field label="Role" value={value.role_text} /><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Created" value={new Date(value.created_at).toLocaleDateString()} tabular /></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Computer" value={value.computer_id} tabular /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl>{runtime.isPending ? <p>Loading current Run…</p> : null}{runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}{runtime.data ? <div className="agent-runtime-facts">{runtime.data.current_task ? <p><strong>Task</strong><Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link></p> : <p><strong>Task</strong>None</p>}{runtime.data.focus ? <p><strong>Focus</strong><Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link></p> : <p><strong>Focus</strong>None</p>}<p><strong>Run</strong>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p><p><strong>Session continuity</strong>{runtime.data.session_continuity.state.replace("_", " ")}</p>{runtime.data.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}</div> : null}</DetailSection>
             <DetailSection title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
@@ -122,7 +120,6 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
               {!canManage ? <p className="permission-hint">Only Owner or Admin can change permissions.</p> : null}
               {permission.error ? <p className="form-error" role="alert">Permission update failed.</p> : null}
             </DetailSection>
-            <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} tabular /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} tabular /></dl></DetailSection>
           </div>
         ) : null}
         {tab === "memory" ? (
@@ -137,7 +134,6 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
             {memory.error ? <p className="form-error" role="alert">Memory unavailable. The Computer may be offline or you may lack permission.</p> : null}
           </section>
         ) : null}
-        {tab === "inbox" ? <DetailSection title="Inbox"><div className="agent-inbox-state"><Inbox aria-hidden="true" /><h2>Attention status</h2><p>Agent Inbox contents stay private. This view exposes only safe runtime status.</p><dl className="detail-grid"><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Last failure" value={value.last_error_code ?? "No recent failure reported"} tabular={Boolean(value.last_error_code)} /></dl></div></DetailSection> : null}
         {tab === "settings" ? (
           <>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}

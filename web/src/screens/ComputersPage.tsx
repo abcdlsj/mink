@@ -253,18 +253,9 @@ function ComputerDetail({
         <OverviewMetric label="Busy Agents" value={String(busyAgents)} />
         <OverviewMetric label="Platform" value={computer.os === "macos" ? "macOS" : "Linux"} />
         <OverviewMetric label="Daemon" value={`v${computer.daemon_version}`} tabular />
+        <OverviewMetric label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} tabular />
       </section>
-      <section className="detail-section">
-        <h3>Runtime</h3>
-        <dl className="detail-grid">
-          <Field label="Operating system" value={computer.os} />
-          <Field label="Daemon version" value={`v${computer.daemon_version}`} tabular />
-          <Field label="Hostname" value={computer.hostname} tabular />
-          <Field label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} tabular />
-          <Field label="Created" value={new Date(computer.created_at).toLocaleString()} tabular />
-        </dl>
-      </section>
-      <section className="detail-section">
+      <section className="detail-section computer-agents">
         <div className="section-title-row">
           <h3>Agents on this Computer</h3>
           <div className="section-actions">
@@ -275,12 +266,12 @@ function ComputerDetail({
         {agents.length ? <div className="hosted-agent-list">{agents.map((agent) => (
           <Link key={agent.member_id} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
-            <span><strong>{agent.name}</strong><small>{agent.driver_kind} Driver</small></span>
+            <span><strong>{agent.name}</strong><small>{agent.driver_kind === "builtin" ? "Builtin" : "Codex"} Driver</small></span>
             <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${agent.activity_status}`} title={`Activity: ${agent.activity_status}`}><i aria-hidden="true" />{agent.activity_status}</span>
           </Link>
-        ))}</div> : <p className="section-empty">No Agents are hosted on this Computer.</p>}
+        ))}</div> : <div className="computer-agents-empty"><p>No Agents are hosted on this Computer.</p>{canCreateAgent && computer.status === "online" ? <button className="command-button" type="button" onClick={onCreate}><Plus />Create first Agent</button> : null}</div>}
       </section>
-      {canManage ? <section className="detail-section danger-zone"><div><h3>Delete Computer</h3><p>Disconnect this Computer after every hosted Agent has been retired.</p></div><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></section> : null}
+      {canManage ? <div className="computer-actions"><p>Retire every hosted Agent before deleting this Computer.</p><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></div> : null}
     </article>
   );
 }
@@ -318,5 +309,4 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
 }
 
 function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`} title={`Status: ${value}`}><i aria-hidden="true" />{value}</span>; }
-function Field({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><dt>{label}</dt><dd className={tabular ? "tabular" : undefined}>{value}</dd></div>; }
 function OverviewMetric({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><span>{label}</span><strong className={tabular ? "tabular" : undefined}>{value}</strong></div>; }
