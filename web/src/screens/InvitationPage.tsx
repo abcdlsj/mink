@@ -8,7 +8,7 @@ import {
   currentUser,
   getInvitation,
 } from "../api/client";
-import { SumiMark } from "../components/SumiMark";
+import { SumiLogo } from "../components/SumiLogo";
 
 export function InvitationPage() {
   const { inviteToken } = useParams({ from: "/invite/$inviteToken" });
@@ -55,7 +55,7 @@ export function InvitationPage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <SumiMark />
+            <SumiLogo />
           </span>
           SUMI
         </Link>

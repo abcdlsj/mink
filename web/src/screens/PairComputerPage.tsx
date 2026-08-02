@@ -4,7 +4,7 @@ import { Fingerprint, LoaderCircle, MonitorCheck } from "lucide-react";
 import type { FormEvent } from "react";
 
 import { confirmPairing, getPairingDetails, listSpaces } from "../api/client";
-import { SumiMark } from "../components/SumiMark";
+import { SumiLogo } from "../components/SumiLogo";
 
 export function PairComputerPage() {
   const params = useParams({ strict: false });
@@ -35,7 +35,7 @@ export function PairComputerPage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home"><span className="wordmark-mark"><SumiMark /></span>SUMI</Link>
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home"><span className="wordmark-mark"><SumiLogo /></span>SUMI</Link>
         <span className="step-index">PAIR COMPUTER</span>
       </header>
       <section className="pairing-stage" aria-labelledby="pairing-title">
