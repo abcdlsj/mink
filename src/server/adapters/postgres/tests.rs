@@ -145,7 +145,7 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
         let root = Uuid::now_v7();
         sqlx::raw_sql(&format!(
             "BEGIN;
-             INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES ('{space}','mention-all','Mention All','{owner}',now());
+             INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','mention-all','Mention All','#FE7DA8','{owner}',now());
              INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES
                ('{owner}','{space}','human','Owner','owner','owner',now()),
                ('{agent}','{space}','agent','Agent','agent','member',now()),
@@ -247,7 +247,7 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             let stale_item = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
-                 INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{owner}',now());
+                 INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{owner}',now());
                  INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner','owner',now());
                  INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','lin','member',now());
                  INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{subscriber}','{space}','agent','Ada','ada','member',now());
@@ -462,7 +462,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             let root = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
-                 INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{owner}',now());
+                 INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{owner}',now());
                  INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner','owner',now());
                  INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','lin','member',now());
                  INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
@@ -637,7 +637,7 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
     let run_id = Uuid::now_v7();
     sqlx::raw_sql(&format!(
             "BEGIN;
-             INSERT INTO spaces (id,slug,name,owner_member_id,created_at) VALUES ('{space}','space','Space','{member}',now());
+             INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{member}',now());
              INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{member}','{space}','human','Owner','owner','owner',now());
              INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{actor_agent}','{space}','agent','Actor','actor','member',now());
              INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
@@ -812,7 +812,7 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
     let item_id = Uuid::now_v7();
     sqlx::raw_sql(&format!(
             "BEGIN;
-             INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES ('{space_id}','claim-run','Claim Run','{owner_id}',now());
+             INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','claim-run','Claim Run','#FE7DA8','{owner_id}',now());
              INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner','owner',now());
              INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','agent','member',now());
              INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','claim-run-hash','online',1,now());

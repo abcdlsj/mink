@@ -405,6 +405,7 @@ impl IdentityTransaction for MemoryTransaction {
         _general_channel_id: ChannelId,
         _name: &str,
         _slug: &str,
+        _accent: &str,
         _owner_handle: &str,
         _owner_display_name: &str,
         _idempotency_key: IdempotencyKey,

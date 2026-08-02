@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (2, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (3, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -27,6 +27,7 @@ CREATE TABLE spaces (
     id UUID PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
+    accent TEXT NOT NULL,
     owner_member_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     deleted_at TIMESTAMPTZ,

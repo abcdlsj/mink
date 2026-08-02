@@ -14,6 +14,8 @@ Channel 不增加 Tasks tab。Composer 不增加`As Task`。全局 shell 不为 
 
 现有Neo-Brutalism视觉、像素头像、栏宽、硬边框、硬阴影和响应式结构继续使用。本次重建只调整Task、Run和Session相关的信息与交互。
 
+Space 创建时从 4 个预置 accent（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9D877`）中选择一个作为该 Space 的主题色；服务端按白名单校验，`--space-accent` 取所选值，不接收其他颜色。
+
 ## 2. 视觉规则
 
 | Token | Value | 用途 |

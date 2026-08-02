@@ -1,6 +1,14 @@
 use super::*;
 
-const SPACE_ACCENT: &str = "#FFD440";
+pub(super) const SPACE_ACCENTS: [&str; 4] = ["#FE7DA8", "#27CCF3", "#FFD440", "#A9D877"];
+
+pub(super) fn normalize_space_accent(input: &str) -> Option<String> {
+    let value = input.trim().to_uppercase();
+    SPACE_ACCENTS
+        .iter()
+        .find(|candidate| **candidate == value)
+        .map(|candidate| (*candidate).to_owned())
+}
 
 #[derive(Deserialize)]
 pub(super) struct RegisterBody {
@@ -19,8 +27,7 @@ pub(super) struct LoginBody {
 pub(super) struct CreateSpaceBody {
     pub(super) name: String,
     pub(super) slug: String,
-    #[serde(rename = "accent")]
-    pub(super) _accent: String,
+    pub(super) accent: String,
 }
 
 #[derive(Deserialize)]
@@ -138,6 +145,7 @@ pub(super) fn space_response(
     id: Uuid,
     name: &str,
     slug: &str,
+    accent: &str,
     owner: Uuid,
     current: Uuid,
     general: Uuid,
@@ -146,7 +154,7 @@ pub(super) fn space_response(
         id,
         name: name.to_owned(),
         slug: slug.to_owned(),
-        accent: SPACE_ACCENT.to_owned(),
+        accent: accent.to_owned(),
         owner_member_id: owner,
         current_member_id: current,
         general_channel_id: general,
@@ -158,6 +166,7 @@ pub(super) fn space_row(row: &sqlx::postgres::PgRow) -> SpaceResponse {
         row.get("id"),
         row.get("name"),
         row.get("slug"),
+        row.get("accent"),
         row.get("owner_member_id"),
         row.get("current_member_id"),
         row.get("general_channel_id"),
@@ -541,4 +550,31 @@ pub(super) fn optional_timestamp(value: Option<OffsetDateTime>) -> Option<String
 pub(super) struct InboxQuery {
     /// Absent reads the queue. `dead` reads retired Items, which a governor needs to requeue them.
     pub(super) status: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_preset_space_accents() {
+        for preset in SPACE_ACCENTS {
+            assert_eq!(normalize_space_accent(preset).as_deref(), Some(preset));
+            assert_eq!(
+                normalize_space_accent(&preset.to_lowercase()).as_deref(),
+                Some(preset)
+            );
+            assert_eq!(
+                normalize_space_accent(&format!("  {preset}  ")).as_deref(),
+                Some(preset)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_space_accents() {
+        assert_eq!(normalize_space_accent("#123456"), None);
+        assert_eq!(normalize_space_accent("pink"), None);
+        assert_eq!(normalize_space_accent(""), None);
+    }
 }

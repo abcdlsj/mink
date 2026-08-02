@@ -330,6 +330,7 @@ impl PostgresTransaction {
         general_channel_id: ChannelId,
         name: &str,
         slug: &str,
+        accent: &str,
         owner_handle: &str,
         owner_display_name: &str,
         idempotency_key: IdempotencyKey,
@@ -369,11 +370,12 @@ impl PostgresTransaction {
             .await
             .map_err(map_sqlx)?;
         sqlx::query(
-            "INSERT INTO spaces(id,slug,name,owner_member_id,created_at) VALUES($1,$2,$3,$4,$5)",
+            "INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES($1,$2,$3,$4,$5,$6)",
         )
         .bind(space_id.into_uuid())
         .bind(slug)
         .bind(name)
+        .bind(accent)
         .bind(owner_id.into_uuid())
         .bind(now)
         .execute(&mut *self.connection)
@@ -1003,6 +1005,7 @@ impl IdentityTransaction for PostgresTransaction {
         general_channel_id: ChannelId,
         name: &str,
         slug: &str,
+        accent: &str,
         owner_handle: &str,
         owner_display_name: &str,
         idempotency_key: IdempotencyKey,
@@ -1015,6 +1018,7 @@ impl IdentityTransaction for PostgresTransaction {
             general_channel_id,
             name,
             slug,
+            accent,
             owner_handle,
             owner_display_name,
             idempotency_key,

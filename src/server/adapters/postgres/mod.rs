@@ -89,10 +89,19 @@ impl PostgresAdapter {
         let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
             .fetch_one(&mut *transaction)
             .await?;
-        if version != 2 {
-            return Err(sqlx::Error::Protocol(format!(
-                "unsupported schema baseline version {version}"
-            )));
+        if version < 3 {
+            if version != 2 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE spaces ADD COLUMN accent TEXT NOT NULL DEFAULT '#FE7DA8'; \
+                 ALTER TABLE spaces ALTER COLUMN accent DROP DEFAULT; \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (3, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
         }
         transaction.commit().await
     }

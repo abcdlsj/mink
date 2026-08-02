@@ -84,11 +84,13 @@
 - `id`
 - `slug`
 - `name`
+- `accent`
 - `owner_member_id`
 - `created_at`
 - `deleted_at`
 
 `slug`必须全局唯一。Owner 必须是该 Space 中的 Human Member。
+`accent`取 Create Space 请求的预置值之一（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9D877`），由 HTTP 层白名单校验后写入。
 
 ### 4.4 `members`
 

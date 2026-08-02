@@ -363,6 +363,8 @@ pub(super) async fn create_space(
     if name.is_empty() || slug.is_empty() {
         return Err(ApiError::invalid("Space name and slug are required"));
     }
+    let accent = normalize_space_accent(&body.accent)
+        .ok_or_else(|| ApiError::invalid("Space accent must be one of the preset values"))?;
     let space_id = Uuid::now_v7();
     let owner_id = Uuid::now_v7();
     let general_id = Uuid::now_v7();
@@ -378,6 +380,7 @@ pub(super) async fn create_space(
             general_channel_id: ChannelId::from_uuid(general_id),
             name,
             slug: &slug,
+            accent: &accent,
             owner_handle: &owner_handle,
             owner_display_name: &user.display_name,
             idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
@@ -396,6 +399,7 @@ pub(super) async fn create_space(
             created.space_id.into_uuid(),
             name,
             &slug,
+            &accent,
             created.owner_id.into_uuid(),
             created.owner_id.into_uuid(),
             created.general_channel_id.into_uuid(),
@@ -409,7 +413,7 @@ pub(super) async fn list_spaces(
 ) -> Result<Json<Vec<SpaceResponse>>, ApiError> {
     let user = authenticate(&state, &jar).await?;
     let rows = sqlx::query(
-        "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
+        "SELECT s.id,s.name,s.slug,s.accent,s.owner_member_id,hm.member_id AS current_member_id, \
          (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
          FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
          WHERE hm.user_id=$1 AND s.deleted_at IS NULL ORDER BY s.created_at",
@@ -428,7 +432,7 @@ pub(super) async fn space_by_slug(
 ) -> Result<Json<SpaceResponse>, ApiError> {
     let user = authenticate(&state, &jar).await?;
     let row = sqlx::query(
-        "SELECT s.id,s.name,s.slug,s.owner_member_id,hm.member_id AS current_member_id, \
+        "SELECT s.id,s.name,s.slug,s.accent,s.owner_member_id,hm.member_id AS current_member_id, \
          (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
          FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
          WHERE hm.user_id=$1 AND lower(s.slug)=lower($2) AND s.deleted_at IS NULL",
