@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Copy, Menu, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Check, Copy, Menu, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -196,7 +196,7 @@ function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) 
     <section className="computer-onboarding" aria-labelledby="computer-onboarding-heading">
       <header className="computer-onboarding-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <div><p className="section-kicker">NEW COMPUTER</p><h1 id="computer-onboarding-heading">Pair a Computer</h1></div>
+        <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Bring a machine online and confirm it in this Space.</p></div>
       </header>
       <div className="computer-onboarding-body">
         <div className="computer-onboarding-intro">
@@ -243,8 +243,7 @@ function ComputerDetail({
     <article className="computer-detail">
       <header className="entity-detail-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <span className="computer-icon"><Monitor /></span>
-        <div className="entity-detail-title"><h2 title={computer.name}>{computer.name}</h2><p>{computer.hostname}</p></div>
+        <div className="entity-detail-title"><h1 title={computer.name}>{computer.name}</h1><p>{computer.hostname} · {computer.os === "macos" ? "macOS" : "Linux"}</p></div>
         <Status value={computer.status} />
       </header>
       {computer.status !== "online" ? <p className="inline-notice">Computer is offline. Runtime actions are unavailable until it reconnects.</p> : null}

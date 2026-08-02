@@ -75,6 +75,7 @@ Channel 不增加 Tasks tab。Composer 不增加`As Task`。全局 shell 不为 
 - Channel最小宽度480px。
 - Thread pane默认360px，最大480px；未打开时不保留空栏。
 - Header为62px。
+- 所有rail入口页面（Inbox、Tasks、Members、Computers、Agent详情）共用同一条页面头基线：62px高度、18px页面标题、12px辅助文字；标题块为`页面标题 + 辅助文字`，不显示kicker或计数盒子。
 - Composer最小88px，增长到240px后内部滚动。
 
 ## 4. 从对话创建Task
@@ -141,21 +142,6 @@ Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message 
 来源Message存在Agent attention错误时，Message下方显示inline notice。提示必须包含目标Agent、稳定错误码和自动重试状态，不显示数据库错误、Message正文副本或凭据。错误清除后，提示随Message投影刷新而消失。
 
 该提示是运行状态，不显示作者、时间或Message序号，也不计入Thread reply数量。
-
-### 5.4 Context Citation
-
-具有 Context Citation 的 Agent Message 默认按普通正文显示。Human hover 整条 Message，或键盘 focus 引用片段时，对应回答字符范围才显示蓝色下划线。引用片段必须可以聚焦，颜色不能是唯一的交互反馈。无引用的正文保持普通 Message 样式。
-
-Human hover 或键盘 focus 引用标记时，UI 必须：
-
-1. 保持回答片段处于选中状态。
-2. 通过背景色高亮当前 Channel 或 Thread pane 中可见的来源 Message，不增加外框。
-3. 显示紧凑弹层，列出来源作者、来源片段和来源位置。
-4. 提供打开来源 Thread 的操作；来源已在当前视图时，该操作滚动并聚焦来源 Message。
-
-一个回答片段有多条来源时，弹层按来源在原对话中的顺序显示。Server 不返回已删除或调用方不再可读的引用，Browser 不得从缓存补回来源。
-
-引用标记的 hover 区域包含弹层，指针从回答移入弹层时不能关闭。Escape 关闭弹层并把 focus 返回引用标记。低于700px时，弹层改为不遮挡回答的底部浮层。
 
 ## 6. Tasks页面
 
@@ -231,7 +217,7 @@ Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或�
 
 ## 9.1 Members、Computers 与 Agent
 
-Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主体使用扁平分区和紧凑字段网格，不新增卡片层级或改变导航路由。
+Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主体使用扁平分区和紧凑字段网格：分区不绘制卡片边框、底色或阴影，以留白和细分割线组织；状态只使用图形信号加短标签，不带边框。页面头与Inbox/Channel共用62px基线，标题、辅助文字、字段标签和字段值分别使用页面标题、辅助信息、元数据和正文层级，并在同一行按baseline对齐。
 
 - 生命周期、运行和连接状态使用图形信号加短标签。信号必须带 `aria-label` 与 `title`，颜色不能是唯一线索；状态不使用占用整行的彩色卡片。
 - 标题、辅助文本、字段标签和字段值分别使用页面标题、辅助信息、元数据和正文层级，并在同一行按 baseline 对齐。字段网格在 1024px 以下收为单列，在 390px 仍保持可读间距。

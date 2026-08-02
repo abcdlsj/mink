@@ -74,7 +74,7 @@ function TaskList({ spaceId, spaceSlug, currentMemberId, openNavigation }: { spa
     <section className="tasks-workspace" aria-labelledby="tasks-heading">
       <header className="tasks-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <div><p className="page-kicker">WORK CONTINUITY</p><h1 id="tasks-heading">Tasks</h1><p>Tasks keep formal work connected to its Threads and Result.</p></div>
+        <div className="page-title"><h1 id="tasks-heading">Tasks</h1><p>Formal work stays connected to its Threads and Result.</p></div>
         <span className="task-total">{visible.length} SHOWN</span>
       </header>
       <nav className="task-filters" aria-label="Task filters">
@@ -156,7 +156,7 @@ function TaskDetail({ taskId, spaceId, spaceSlug, openNavigation }: { taskId: st
     <section className="task-detail" aria-labelledby="task-heading">
       <header className="task-detail-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <div><p className="page-kicker">TASK</p><h1 id="task-heading">{value.title}</h1></div>
+        <div className="page-title"><h1 id="task-heading">{value.title}</h1><p>#{value.source_thread.channel_slug} · message {value.source_thread.root_message_seq}</p></div>
         <TaskStatusLabel status={value.status} />
       </header>
       {value.runtime_issue_code ? <p className="inline-notice inline-notice--error" role="alert">Task cannot run: <code>{value.runtime_issue_code}</code>. Restore compatible Thread membership or remove the Related Thread.</p> : null}

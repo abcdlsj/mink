@@ -125,8 +125,8 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
           <Menu />
         </button>
         <div className="members-title">
-          <p className="section-kicker">SPACE DIRECTORY</p>
           <h1 id="members-heading">Members</h1>
+          <p>Agents and Humans in this Space.</p>
         </div>
         <span className="member-count" aria-label={`${members.data?.length ?? 0} Members`}>
           {String(members.data?.length ?? 0).padStart(2, "0")}

@@ -6369,128 +6369,6 @@ h1 {
   text-decoration: none;
 }
 
-.context-citation-wrap {
-  position: relative;
-  display: inline;
-}
-
-.context-citation {
-  position: relative;
-  display: inline;
-  margin: 0;
-  padding: 1px 2px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  text-align: inherit;
-}
-
-.message-row:hover .context-citation,
-.message-row:focus-within .context-citation,
-.thread-message:hover .context-citation,
-.thread-message:focus-within .context-citation {
-  border-bottom-color: var(--cyan);
-  background: color-mix(in srgb, var(--cyan) 19%, transparent);
-}
-
-.context-citation:hover,
-.context-citation:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
-  background: var(--accent-soft);
-}
-
-.context-citation-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 7px);
-  left: 0;
-  display: grid;
-  min-width: 220px;
-  max-width: min(340px, calc(100vw - 32px));
-  gap: 6px;
-  padding: 8px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
-  box-shadow: 4px 4px 0 var(--ink);
-  color: var(--ink);
-  font-size: var(--text-system);
-  line-height: 1.35;
-  text-align: start;
-}
-
-.context-citation-popover > strong {
-  font-size: var(--text-meta);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.context-citation-source {
-  display: grid;
-  gap: 2px;
-  padding-top: 5px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
-}
-
-.context-citation-author {
-  font-weight: 700;
-}
-
-.context-citation-excerpt {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--muted);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.context-citation-nav {
-  justify-self: start;
-  padding: 2px 4px;
-  border: 1px solid var(--ink);
-  background: var(--accent-soft);
-  color: var(--ink);
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--text-meta);
-  font-weight: 700;
-}
-
-.context-citation-nav:hover,
-.context-citation-nav:focus-visible {
-  background: var(--accent);
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
-}
-
-.message-block--context-source,
-.thread-message--context-source {
-  background: color-mix(in srgb, var(--cyan) 12%, transparent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .context-citation-popover,
-  .message-block--context-source,
-  .thread-message--context-source {
-    scroll-behavior: auto;
-    transition: none;
-  }
-}
-
-@media (max-width: 699px) {
-  .context-citation-popover {
-    position: fixed;
-    inset: auto 12px 12px;
-    min-width: 0;
-    max-width: none;
-    max-height: 45vh;
-    overflow: auto;
-  }
-}
-
 .message-body-wrap {
   min-width: 0;
 }
@@ -7742,5 +7620,656 @@ summary.system-event-heading {
 @media (max-width: 700px) {
   .pairing-machine {
     border-bottom-color: rgb(20 17 17 / 10%);
+  }
+}
+
+/* ==================================================================
+   Unified page headers — every rail entry page (Inbox, Tasks, Members,
+   Computers, Agent) shares the Channel/Inbox baseline: 62px height,
+   18px page title, 12px mono subtitle, 0 20px padding.
+   ================================================================== */
+
+.tasks-header,
+.task-detail-header,
+.members-header,
+.computer-onboarding-header,
+.computer-detail > .entity-detail-header,
+.agent-workspace > .entity-detail-header {
+  display: flex;
+  height: 62px;
+  min-height: 62px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+}
+
+.tasks-header .page-kicker,
+.task-detail-header .page-kicker,
+.members-header .section-kicker,
+.computer-onboarding-header .section-kicker {
+  display: none;
+}
+
+.page-title,
+.members-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.page-title h1,
+.members-title h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-page-title);
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-title p,
+.members-title p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-system);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-detail-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.entity-detail-title h1,
+.entity-detail-title h2 {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-page-title);
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-detail-title p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-system);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status in detail headers is a bare signal: dot + label, no chip box. */
+.entity-detail-header > .status,
+.entity-detail-header > .agent-state {
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 7px;
+  font-size: var(--text-system);
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.entity-detail-header > .status i,
+.entity-detail-header > .agent-state i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+}
+
+.agent-workspace .entity-detail-title h1 {
+  font-size: var(--text-page-title);
+}
+
+.agent-workspace .entity-detail-title p {
+  margin-top: 2px;
+  font-size: var(--text-system);
+}
+
+/* Counters and totals lose their box dressing and read as metadata. */
+.task-total {
+  flex: 0 0 auto;
+  margin-inline-start: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font: 700 11px var(--font-mono);
+  letter-spacing: .08em;
+}
+
+.member-count {
+  width: auto;
+  height: auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 600 var(--text-system) var(--font-mono);
+  letter-spacing: .04em;
+}
+
+/* ==================================================================
+   Computer detail — flat facts, open spacing, no card boxes.
+   ================================================================== */
+
+.computer-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.computer-detail > .entity-detail-header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.computer-detail > .fact-band,
+.computer-detail > .detail-panel,
+.computer-detail > .computer-actions,
+.computer-detail > .inline-notice {
+  width: min(100%, 920px);
+  align-self: center;
+}
+
+.computer-detail > .inline-notice {
+  margin-top: 24px;
+}
+
+.fact-band {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 28px;
+  padding: 34px 8px 26px;
+  border-bottom: 1px solid rgb(20 17 17 / 12%);
+  background: transparent;
+}
+
+.fact-band > div {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+}
+
+.fact-band span {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.fact-band strong {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.detail-panel {
+  padding: 34px 8px 44px;
+}
+
+.detail-panel-heading {
+  margin-bottom: 18px;
+}
+
+.detail-panel-heading h3 {
+  color: var(--muted);
+  font-size: var(--text-section-title);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.hosted-agent-list {
+  border: 0;
+  background: transparent;
+}
+
+.hosted-agent-list li + li {
+  border-top: 1px solid rgb(20 17 17 / 10%);
+}
+
+.hosted-agent-list a {
+  min-height: 68px;
+  gap: 16px;
+  padding: 12px 8px;
+  border-bottom: 0;
+}
+
+.hosted-agent-list a:hover {
+  background: rgb(20 17 17 / 4%);
+}
+
+.hosted-agent-list .agent-state {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.computer-agents-empty {
+  min-height: 190px;
+  gap: 14px;
+  padding: 28px 0;
+}
+
+.computer-actions {
+  position: static;
+  gap: 24px;
+  margin-top: 10px;
+  padding: 20px 8px 40px;
+  border-top: 1px solid rgb(20 17 17 / 12%);
+  background: transparent;
+}
+
+.computer-empty {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 44px 28px;
+}
+
+/* Onboarding keeps its terminal command card, without the hard shadow. */
+.computer-onboarding-body {
+  gap: clamp(40px, 6vw, 88px);
+  padding: clamp(48px, 8vh, 104px) 0;
+}
+
+.pair-command {
+  padding: 18px 20px;
+  box-shadow: none;
+}
+
+/* ==================================================================
+   Agent detail — flat sections, one open column, hairline separators.
+   ================================================================== */
+
+.agent-workspace {
+  grid-template-rows: 62px 44px minmax(0, 1fr);
+}
+
+.agent-workspace .detail-tabs {
+  min-height: 44px;
+  padding: 0 20px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+}
+
+.agent-workspace .detail-tabs button {
+  min-width: 96px;
+  padding: 0 16px;
+  border: 0;
+  border-right: 1px solid rgb(20 17 17 / 12%);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-system);
+  font-weight: 700;
+}
+
+.agent-workspace .detail-tabs button[aria-current="page"] {
+  border-bottom: 2px solid var(--accent);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+}
+
+.agent-detail-scroll {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: 32px 0 64px;
+  scrollbar-gutter: stable;
+}
+
+.agent-detail-scroll .detail-section,
+.agent-detail-scroll .agent-memory,
+.agent-detail-scroll .agent-settings,
+.agent-detail-scroll .agent-lifecycle {
+  margin: 0;
+  padding: 0 28px 44px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agent-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 24px 56px;
+  align-items: start;
+}
+
+.agent-overview-grid > .detail-section {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-overview-grid > .agent-work {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  border-left: 0;
+  background: transparent;
+}
+
+.agent-overview-grid > .detail-section:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.agent-overview-grid > .detail-section:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.agent-overview-grid > .detail-section:nth-child(4) {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+.agent-overview-grid > .detail-section > h2 {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: var(--text-section-title);
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.agent-detail-scroll .detail-grid {
+  gap: 16px 44px;
+}
+
+.agent-detail-scroll .detail-grid dt {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: var(--text-system);
+  font-weight: 600;
+}
+
+.agent-detail-scroll .detail-grid dd {
+  font-size: var(--text-body);
+}
+
+.agent-work-facts > div {
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgb(20 17 17 / 10%);
+}
+
+.agent-work-facts span {
+  font-size: var(--text-meta);
+}
+
+/* Permissions are flat rows: checkbox + copy, hairline separators only. */
+.permission-list {
+  display: grid;
+  gap: 0;
+  max-width: 720px;
+}
+
+.permission-row {
+  min-height: 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 2px;
+  border: 0;
+  border-bottom: 1px solid rgb(20 17 17 / 10%);
+  background: transparent;
+}
+
+.permission-row:has(input:checked) {
+  border-color: rgb(20 17 17 / 10%);
+  background: transparent;
+}
+
+.permission-row:last-child {
+  border-bottom: 0;
+}
+
+.permission-row-copy strong {
+  font: 600 13px/1.3 var(--font-mono);
+}
+
+.permission-row-copy small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--text-system);
+  line-height: 1.35;
+}
+
+.agent-work .inline-notice {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 0;
+  background: #fff7d6;
+}
+
+/* Memory, settings and lifecycle are flat sections in the same column. */
+.agent-memory {
+  display: grid;
+  gap: 18px;
+}
+
+.agent-memory > div:first-child {
+  min-height: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-memory > div:first-child svg {
+  width: 20px;
+  height: 20px;
+}
+
+.agent-memory h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.agent-memory ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 0;
+}
+
+.agent-memory li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 2px;
+  border-bottom: 1px solid rgb(20 17 17 / 10%);
+}
+
+.agent-memory li:last-child {
+  border-bottom: 0;
+}
+
+.memory-file-button {
+  gap: 10px;
+  font-size: 13px;
+}
+
+.memory-empty {
+  padding: 18px 2px;
+  border: 0;
+  background: transparent;
+}
+
+.memory-reader {
+  margin-top: 4px;
+  border: 1px solid rgb(20 17 17 / 22%);
+  background: var(--panel);
+}
+
+.memory-reader header {
+  min-height: 44px;
+  border-bottom: 1px solid rgb(20 17 17 / 12%);
+}
+
+.agent-settings {
+  display: grid;
+  gap: 24px;
+}
+
+.agent-settings > label {
+  display: grid;
+  gap: 8px;
+  font-size: var(--text-system);
+  font-weight: 700;
+  text-transform: none;
+}
+
+.agent-settings textarea {
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid rgb(20 17 17 / 30%);
+  background: var(--paper);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.agent-lifecycle {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  background: transparent;
+}
+
+.agent-detail-scroll .agent-lifecycle h2 {
+  margin: 0;
+  flex: 1 0 100%;
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Notices and errors read as tinted text, not bordered panels. */
+.inline-notice,
+.permission-notice {
+  padding: 10px 14px;
+  border: 0;
+  background: #fff7d6;
+  color: var(--ink);
+  font-size: var(--text-system);
+  line-height: 1.45;
+}
+
+.inline-notice--error,
+.permission-notice {
+  background: #ffe9e7;
+}
+
+.agent-error {
+  border: 0;
+  background: #fbe5e3;
+  color: #8f2d26;
+}
+
+@media (max-width: 700px) {
+  .channel-header {
+    height: 56px;
+    min-height: 56px;
+    padding: 0 14px;
+  }
+
+  .tasks-header,
+  .task-detail-header,
+  .members-header,
+  .computer-onboarding-header,
+  .computer-detail > .entity-detail-header,
+  .agent-workspace > .entity-detail-header {
+    height: 56px;
+    min-height: 56px;
+    padding: 0 14px;
+    border-bottom-width: 1px;
+  }
+
+  .inbox-workspace {
+    grid-template-rows: 56px minmax(0, 1fr);
+  }
+
+  .agent-workspace {
+    grid-template-rows: 56px 42px minmax(0, 1fr);
+  }
+
+  .agent-workspace .detail-tabs {
+    padding: 0 10px;
+  }
+
+  .page-title p,
+  .members-title p,
+  .entity-detail-title p {
+    max-width: 45vw;
+  }
+
+  .fact-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    padding: 24px 14px 18px;
+  }
+
+  .detail-panel {
+    padding: 24px 14px 32px;
+  }
+
+  .agent-detail-scroll {
+    width: 100%;
+    padding: 24px 0 40px;
+  }
+
+  .agent-detail-scroll .detail-section,
+  .agent-detail-scroll .agent-memory,
+  .agent-detail-scroll .agent-settings,
+  .agent-detail-scroll .agent-lifecycle {
+    padding-right: 14px;
+    padding-left: 14px;
+    padding-bottom: 32px;
+  }
+
+  .agent-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .agent-overview-grid > .agent-work,
+  .agent-overview-grid > .detail-section:nth-child(2),
+  .agent-overview-grid > .detail-section:nth-child(3),
+  .agent-overview-grid > .detail-section:nth-child(4) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .computer-actions {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .computer-onboarding-body {
+    gap: 28px;
+    padding: 32px 0;
   }
 }
