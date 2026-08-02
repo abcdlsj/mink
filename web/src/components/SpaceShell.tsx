@@ -478,9 +478,9 @@ export function SpaceShell({
             </button>
           </div>
           {directMessages.error ? (
-            <span className="nav-empty">DMs unavailable</span>
+            <span className="nav-empty nav-empty--centered">DMs unavailable</span>
           ) : availableDirectMessages.length === 0 ? (
-            <span className="nav-empty">No DMs yet</span>
+            <span className="nav-empty nav-empty--centered">No DMs yet</span>
           ) : null}
           {availableDirectMessages.map((dm) => (
             <DirectMessageNavigationItem

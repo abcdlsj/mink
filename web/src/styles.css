@@ -1251,6 +1251,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .timeline-status { color: var(--muted); font-size: var(--text-system); font-weight: 400; line-height: 1.45; }
 .timeline-status { display: grid; min-height: 160px; place-items: center; font-family: inherit; font-size: var(--text-system); color: var(--muted); font-weight: 400; line-height: 1.45; }
 .nav-empty { font-family: var(--font-sans); color: var(--muted); font-size: var(--text-system); font-weight: 400; line-height: 1.45; }
+.nav-empty--centered { display: block; padding: 4px 0; text-align: center; }
 .message-block:focus { outline: 2px solid color-mix(in srgb, var(--accent) 34%, transparent); outline-offset: -2px; background: color-mix(in srgb, var(--accent-soft) 32%, var(--paper)); }
 .message-content { min-width: 0; position: static; padding-right: 116px; width: min(100%, 80ch); }
 .message-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; padding: 8px 20px; position: relative; }
