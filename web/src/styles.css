@@ -713,7 +713,7 @@ h1 {
   display: grid;
   min-width: 0;
   height: 100dvh;
-  grid-template-rows: 62px auto minmax(0, 1fr) auto;
+  grid-template-rows: 62px minmax(0, 1fr) auto;
 }
 
 .channel-workspace--thread-open {
@@ -726,7 +726,6 @@ h1 {
 }
 
 .channel-workspace--thread-open > .channel-header,
-.channel-workspace--thread-open > .channel-member-strip,
 .channel-workspace--thread-open > .message-timeline,
 .channel-workspace--thread-open > .composer {
   grid-column: 1;
@@ -736,62 +735,12 @@ h1 {
   grid-row: 1;
 }
 
-.channel-workspace--thread-open > .channel-member-strip {
+.channel-workspace--thread-open > .message-timeline {
   grid-row: 2;
 }
 
-.channel-workspace--thread-open > .message-timeline {
-  grid-row: 3;
-}
-
 .channel-workspace--thread-open > .composer {
-  grid-row: 4;
-}
-
-.channel-member-strip {
-  display: flex;
-  min-width: 0;
-  min-height: 44px;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 24px;
-  border-bottom: 1px solid rgb(20 17 17 / 12%);
-  background: var(--paper);
-}
-
-.channel-member-avatars {
-  display: inline-flex;
-  align-items: center;
-}
-
-.channel-member-avatars .pixel-identity,
-.channel-member-avatars .presence-identity {
-  width: 28px;
-  height: 28px;
-  flex-basis: 28px;
-  margin-inline-start: -8px;
-  border-color: var(--paper);
-  box-shadow: none;
-}
-
-.channel-member-avatars .pixel-identity:first-child,
-.channel-member-avatars .presence-identity:first-child {
-  margin-inline-start: 0;
-}
-
-.channel-member-count {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-system);
-  font-weight: 600;
-}
-
-.channel-member-strip > .icon-button {
-  width: 30px;
-  height: 30px;
-  flex-basis: 30px;
-  margin-inline-start: auto;
-  box-shadow: 2px 2px 0 var(--ink);
+  grid-row: 3;
 }
 
 .message-timeline {
@@ -1127,7 +1076,7 @@ h1 {
   min-width: 0;
   min-height: 0;
   grid-column: 2;
-  grid-row: 1 / 5;
+  grid-row: 1 / 4;
   grid-template-rows: 62px minmax(0, 1fr) auto;
   border-left: 2px solid var(--ink);
   background: var(--paper);
@@ -1548,6 +1497,14 @@ h1 {
   white-space: nowrap;
 }
 
+.channel-member-count {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-system);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .icon-button,
 .send-button {
   display: grid;
@@ -1574,11 +1531,11 @@ h1 {
 .empty-channel {
   display: grid;
   min-height: 100%;
-  place-items: center;
-  align-content: center;
-  gap: 12px;
-  padding: clamp(24px, 5vw, 58px);
-  text-align: center;
+  align-content: start;
+  justify-items: start;
+  gap: 10px;
+  padding: clamp(28px, 6vh, 60px) 24px;
+  text-align: start;
 }
 
 .channel-glyph {
@@ -7737,6 +7694,24 @@ summary.system-event-heading {
 
 @keyframes threadPaneIn {
   from { opacity: 0; transform: translateX(12px); }
+}
+
+/* Between 1100px and the point where rail + navigation + channel + thread
+   genuinely fit (≈1198px), the thread pane overlays the conversation instead
+   of squeezing the channel below its 480px minimum. */
+@media (min-width: 1100px) and (max-width: 1197px) {
+  .channel-workspace--thread-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .thread-pane {
+    position: fixed;
+    z-index: 30;
+    inset: 0 0 0 64px;
+    grid-column: auto;
+    grid-row: auto;
+    border-left: 2px solid var(--ink);
+  }
 }
 
 @media (max-width: 700px) {

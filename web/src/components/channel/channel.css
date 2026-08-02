@@ -213,7 +213,7 @@
     z-index: auto;
     inset: auto;
     grid-column: 2;
-    grid-row: 1 / 5;
+    grid-row: 1 / 4;
     grid-template-rows: 56px minmax(0, 1fr) auto;
     border-left: 2px solid var(--ink);
   }
