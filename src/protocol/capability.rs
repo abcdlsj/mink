@@ -172,6 +172,7 @@ pub(crate) struct Page {
 pub(crate) struct MessageSend {
     pub(crate) target: MessageTarget,
     pub(crate) body: String,
+    pub(crate) attachment_ids: Vec<AttachmentId>,
     pub(crate) handle_item_id: Option<InboxItemId>,
     pub(crate) snapshot_sequence: Option<u64>,
 }
@@ -182,6 +183,7 @@ impl fmt::Debug for MessageSend {
             .debug_struct("MessageSend")
             .field("target", &self.target)
             .field("body", &"[REDACTED]")
+            .field("attachment_ids", &self.attachment_ids)
             .field("handle_item_id", &self.handle_item_id)
             .field("snapshot_sequence", &self.snapshot_sequence)
             .finish()
@@ -326,6 +328,7 @@ mod tests {
             action: Action::MessageSend(MessageSend {
                 target: MessageTarget::Focus,
                 body: "private body".to_owned(),
+                attachment_ids: Vec::new(),
                 handle_item_id: None,
                 snapshot_sequence: None,
             }),

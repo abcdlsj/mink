@@ -61,6 +61,8 @@ struct MessageSendArgs {
     #[arg(long, conflicts_with = "thread")]
     channel: Option<ChannelId>,
     #[arg(long)]
+    attachment: Vec<AttachmentId>,
+    #[arg(long)]
     handle: Option<InboxItemId>,
 }
 
@@ -283,6 +285,7 @@ impl AgentCli {
                     Action::MessageSend(MessageSend {
                         target,
                         body,
+                        attachment_ids: args.attachment,
                         handle_item_id: args.handle,
                         snapshot_sequence: None,
                     }),
@@ -522,6 +525,35 @@ mod tests {
         ])
         .unwrap();
         assert!(parse(["sumi-agent", "task", "create", "--task", "bad", "--json"]).is_err());
+    }
+
+    #[test]
+    fn message_send_accepts_repeated_attachment_ids() {
+        let first = AttachmentId::from_uuid(uuid::Uuid::from_u128(7));
+        let second = AttachmentId::from_uuid(uuid::Uuid::from_u128(8));
+        let first_str = first.to_string();
+        let second_str = second.to_string();
+        let cli = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "message",
+            "send",
+            "--body",
+            "text",
+            "--attachment",
+            &first_str,
+            "--attachment",
+            &second_str,
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let Command::Message(MessageArgs {
+            command: MessageCommand::Send(args),
+        }) = cli.command
+        else {
+            panic!("expected message send");
+        };
+        assert_eq!(args.attachment, vec![first, second]);
     }
 
     #[tokio::test]

@@ -6,14 +6,16 @@ use crate::ids::{
     ChannelId, ComputerId, IdempotencyKey, MemberId, MessageId, RunId, SpaceId, ThreadId,
 };
 use crate::server::domain::{
+    DomainError,
     conversation::{Channel, ChannelKind, Message, MessageContent},
     execution::RunStatus,
     identity::{AccessLevel, Agent, AgentLifecycle, DriverKind, Member, PermissionAction},
 };
 
 use super::ports::{
-    ApplicationError, CollaborationTransaction, DirectMessageView, Effect, EffectSink,
-    ExecutionTransaction, IdentityTransaction, MessageDraft, PublishedMessage, TransactionPort,
+    ApplicationError, AttachmentTransaction, CollaborationTransaction, DirectMessageView, Effect,
+    EffectSink, ExecutionTransaction, IdentityTransaction, MessageDraft, PublishedMessage,
+    TransactionPort,
 };
 
 pub(in crate::server) struct ArchiveChannel;
@@ -199,6 +201,21 @@ impl PublishMessage {
                     hard_item_ids: Vec::new(),
                     notified_member_ids: Vec::new(),
                 });
+            }
+            if !draft.attachment_ids.is_empty() {
+                let channel = transaction.channel(draft.channel_id).await?;
+                for attachment_id in &draft.attachment_ids {
+                    let attachment = transaction
+                        .attachment(*attachment_id)
+                        .await?
+                        .ok_or(ApplicationError::NotFound)?;
+                    if attachment.view().space_id != channel.space_id {
+                        return Err(ApplicationError::NotFound);
+                    }
+                    attachment
+                        .require_ready()
+                        .map_err(|_| ApplicationError::Domain(DomainError::AttachmentNotReady))?;
+                }
             }
             let actor = draft.author_member_id;
             let key = draft.idempotency_key;

@@ -431,7 +431,11 @@ pub(super) async fn execute_agent_action(
                     body_markdown: send.body,
                     mentions: Vec::new(),
                     mention_all: false,
-                    attachment_ids: Vec::new(),
+                    attachment_ids: send
+                        .attachment_ids
+                        .into_iter()
+                        .map(AttachmentId::into_uuid)
+                        .collect(),
                     reply_to_message_id: None,
                 },
             )

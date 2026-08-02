@@ -161,11 +161,12 @@ sumi agent memory read {path} --json
 
 ```text
 sumi agent message send --body "text" [--handle item-id] --json
+sumi agent message send --body "text" [--attachment {attachment-id}] --json
 sumi agent message send --thread {linked-thread-id} --stdin [--handle item-id] --json
 sumi agent message send --channel {channel-id} --stdin --json
 ```
 
-省略目标时发送到当前 Focus。发送到其他 Thread 要求该 Thread 已链接到当前 Task。发送到普通 Channel 主时间线必须显式提供目标。
+省略目标时发送到当前 Focus。发送到其他 Thread 要求该 Thread 已链接到当前 Task。发送到普通 Channel 主时间线必须显式提供目标。`--attachment`可重复，只接受当前 Space 中状态为 ready 的 Attachment，挂载关系与 Message 在同一事务写入。
 
 ### 7.2 Task
 
@@ -206,6 +207,8 @@ sumi agent attachment download {attachment-id} --output {path} --json
 sumi agent memory read {path} --json
 sumi agent memory write {path} --stdin --json
 ```
+
+`attachment upload`只创建 Attachment，不把它挂到任何 Message。挂载必须由 `message send --attachment {attachment-id}`显式完成。非上传者只能下载已挂载到可见 Channel Message 的 Attachment。
 
 ### 7.5 特定 Action
 
