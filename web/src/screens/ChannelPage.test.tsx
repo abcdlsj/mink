@@ -442,8 +442,6 @@ describe("ChannelPage", () => {
         }),
       );
     });
-    expect(await screen.findByText("3 Members")).toBeVisible();
-
     const preview = await screen.findByRole("region", { name: "1 Thread reply" });
     expect(within(preview).getByText("Created agent Reviewer · active")).toBeVisible();
     fireEvent.click(within(preview).getByRole("button", { name: "1 reply" }));

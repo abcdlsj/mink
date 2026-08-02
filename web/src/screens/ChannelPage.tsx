@@ -293,7 +293,6 @@ export function MessageWorkspace({
               <PresenceIdentity key={member.id} name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
             ))}
           </span>
-          <span className="channel-member-count">{channelMembers.data ? `${channelMembers.data.members.length} Members` : ""}</span>
         {!direct && channelMembers.data?.can_manage ? (
             <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
           ) : null}
@@ -364,7 +363,6 @@ export function MessageWorkspace({
           resizeWithKeyboard={resizeThreadPaneWithKeyboard}
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
-          openSourceThread={openThread}
           activityByMemberId={activityByMemberId}
         />
       ) : null}
