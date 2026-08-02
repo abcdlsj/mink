@@ -45,7 +45,7 @@ use self::{
     types::{Message, ToolDef},
     workspace::{agent_rooted_path, collect_shell_output, edit_utf8, read_utf8, write_utf8},
 };
-use super::contract::StructuredProviderClient;
+use super::{contract::StructuredProviderClient, prompt};
 
 const MAX_TOOL_OUTPUT_BYTES: usize = 1024 * 1024;
 
@@ -228,9 +228,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             };
             let turn = match serde_json::to_string(&input_owned.model_view()) {
                 Ok(input) => Turn {
-                    input: format!(
-                        "Process this Sumi Run. The JSON is the model-facing view of the authoritative run_context and work_context; fields under `reference` are identification only, all others must be read. Older focus messages are omitted from the window; read them with thread.read when needed.\n{input}"
-                    ),
+                    input: prompt::turn_instruction(&input),
                     blocked_tools: Default::default(),
                 },
                 Err(_) => return DriverTurnOutcome::Failed,
@@ -355,13 +353,12 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
 }
 
 fn system_messages(input: &RunInput) -> Vec<Message> {
-    vec![
-        Message::cacheable_system(input.global_contract.clone()),
-        Message::system(format!(
-            "Agent identity: {}\nRole: {}",
-            input.agent.identity, input.agent.role
-        )),
-    ]
+    let (stable, dynamic) = prompt::system_prompt(
+        &input.global_contract,
+        &input.agent.identity,
+        &input.agent.role,
+    );
+    vec![Message::cacheable_system(stable), Message::system(dynamic)]
 }
 
 fn tool_definitions() -> Vec<ToolDef> {

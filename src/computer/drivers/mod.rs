@@ -2,6 +2,7 @@ mod builtin;
 mod builtin_runtime;
 mod codex;
 mod contract;
+pub(in crate::computer) mod prompt;
 mod runtime;
 
 #[cfg(test)]

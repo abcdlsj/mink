@@ -27,7 +27,7 @@ use crate::{
     ids::{AgentId, RunId},
 };
 
-use super::contract::StructuredProviderClient;
+use super::{contract::StructuredProviderClient, prompt};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -408,7 +408,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
                     "threadId": locator,
                     "input": [{
                         "type": "text",
-                        "text": format!("Process this Sumi Run input. Treat each top-level field as a separate contract block; fields under `reference` are identification only, all others must be read. Older focus messages are omitted from the window; read them with thread.read when needed.\n{encoded}")
+                        "text": prompt::turn_instruction(&encoded)
                     }],
                     "sandboxPolicy": {
                         "type": "dangerFullAccess"
