@@ -702,6 +702,18 @@ h1 {
   white-space: nowrap;
 }
 
+.nav-unread-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--red);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .nav-item--active {
   border: 2px solid var(--ink);
   background: var(--space-accent);
@@ -3983,9 +3995,9 @@ h1 {
 
 .dm-nav-item > .presence-identity,
 .dm-nav-item > .pixel-identity {
-  width: 32px;
-  height: 32px;
-  flex-basis: 32px;
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
 }
 
 .dm-nav-item > span:last-child { min-width: 0; }
@@ -4743,9 +4755,8 @@ h1 {
 
 .space-brand-mark {
   display: block;
-  font-size: 24px;
-  font-weight: 500;
-  line-height: .9;
+  width: 20px;
+  height: 20px;
 }
 
 .rail-tools {
@@ -4905,7 +4916,7 @@ h1 {
   display: grid;
   min-width: 0;
   min-height: 52px;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 6px 9px;
@@ -4914,6 +4925,13 @@ h1 {
   color: var(--ink);
   cursor: pointer;
   text-align: start;
+}
+
+.dm-member-list > li > button .pixel-identity,
+.dm-member-list > li > button .presence-identity {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
 }
 
 .dm-member-list > li > button:hover:not(:disabled),

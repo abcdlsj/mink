@@ -59,7 +59,7 @@ describe("ChannelPage", () => {
     renderRoute("/s/sumi-lab/channels/general");
 
     expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Sumi home" })).toHaveTextContent("S");
+    expect(screen.getByRole("link", { name: "Sumi home" })).toBeVisible();
     expect(screen.getByRole("region", { name: "Finish your Space setup" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair" })).toHaveAttribute(
       "href",
@@ -73,7 +73,7 @@ describe("ChannelPage", () => {
     const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
     expect(linIdenticons.every(Boolean)).toBe(true);
     expect(new Set(linIdenticons)).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Running.*Lin.*@lin.*Running/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
+    expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Running.*Lin.*Running/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
     const shell = screen.getByRole("main");
     const navigation = screen.getByRole("complementary", { name: "Space navigation" });

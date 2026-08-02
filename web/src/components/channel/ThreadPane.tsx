@@ -122,7 +122,7 @@ export function ThreadPane({
       <header className="thread-header">
         <div>
           <span>THREAD</span>
-          <strong>#{channelSlug}:{threadLabel}</strong>
+          <strong>#{channelSlug}:{threadLabel}{channelHasNewMessages ? <i className="thread-unread-dot" aria-label="New messages" /> : null}</strong>
         </div>
         {thread.data?.task && thread.data.task_relation ? (
           <Link className="thread-task-context" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: thread.data.task.id }} aria-label={`${thread.data.task.title} ${thread.data.task_relation.toUpperCase()}`}>

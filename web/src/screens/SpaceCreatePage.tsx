@@ -1,10 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
+import { ArrowRight, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { createSpace } from "../api/client";
 import { OnboardingProgress } from "./RegisterPage";
+import { SumiMark } from "../components/SumiMark";
 
 const accents = [
   { value: "#FE7DA8", label: "Pink" },
@@ -42,7 +43,7 @@ export function SpaceCreatePage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <Asterisk strokeWidth={3} />
+            <SumiMark />
           </span>
           SUMI
         </Link>

@@ -334,6 +334,10 @@ export function listInbox(memberId: string): Promise<InboxItem[]> {
   return apiRequest<InboxItem[]>(`/api/v1/members/${encodeURIComponent(memberId)}/inbox`);
 }
 
+export function markInboxItemRead(itemId: string): Promise<InboxItem> {
+  return mutate<InboxItem>(`/api/v1/inbox-items/${encodeURIComponent(itemId)}/read`, "POST");
+}
+
 export function listTasks(spaceId: string): Promise<Task[]> {
   return apiRequest<Task[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/tasks`);
 }

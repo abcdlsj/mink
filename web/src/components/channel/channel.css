@@ -123,12 +123,24 @@
 }
 
 .thread-header strong {
-  display: block;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.thread-unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--red);
 }
 
 .thread-header > .icon-button {

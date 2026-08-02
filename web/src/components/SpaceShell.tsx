@@ -40,6 +40,7 @@ import { activityLabel } from "../agentActivity";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { PixelIdentity } from "./PixelIdentity";
+import { SumiMark } from "./SumiMark";
 
 export { PixelIdentity } from "./PixelIdentity";
 
@@ -72,6 +73,7 @@ export function SpaceShell({
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
+  const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
   function closeNavigation() {
@@ -118,7 +120,11 @@ export function SpaceShell({
     queryFn: () => listComputers(space.data!.id),
     enabled: active === "computers" && Boolean(space.data),
   });
-  useSpaceEvents(space.data?.id);
+  useSpaceEvents(space.data?.id, ({ channelId }) => {
+    setUnreadChannelIds((current) =>
+      current.has(channelId) ? current : new Set(current).add(channelId),
+    );
+  });
   const channelCreation = useMutation({
     mutationFn: (input: Parameters<typeof createChannel>[1]) => createChannel(space.data!.id, input),
     onSuccess: (channel) => {
@@ -215,6 +221,32 @@ export function SpaceShell({
     heading.focus({ preventScroll: true });
   }, [location.pathname]);
 
+  // Visiting a conversation clears its unread dot; everything else keeps it.
+  useEffect(() => {
+    if (!channels.data) return;
+    const channelMatch = location.pathname.match(/\/channels\/([^/]+)$/);
+    const dmMatch = location.pathname.match(/\/dm\/([^/]+)$/);
+    let channelId: string | undefined;
+    if (channelMatch) {
+      channelId = channels.data.channels.find(
+        (candidate) => candidate.slug === channelMatch[1],
+      )?.id;
+    } else if (dmMatch) {
+      channelId = (directMessages.data ?? []).find(
+        (candidate) => candidate.other_member.id === dmMatch[1],
+      )?.channel_id;
+    }
+    if (!channelId || !unreadChannelIds.has(channelId)) return;
+    window.requestAnimationFrame(() => {
+      setUnreadChannelIds((current) => {
+        if (!current.has(channelId)) return current;
+        const next = new Set(current);
+        next.delete(channelId);
+        return next;
+      });
+    });
+  }, [location.pathname, channels.data, directMessages.data, unreadChannelIds]);
+
   if (
     space.isPending ||
     user.isPending ||
@@ -262,7 +294,7 @@ export function SpaceShell({
           aria-label="Sumi home"
           title="Sumi home"
         >
-          <span className="space-brand-mark" aria-hidden="true">S</span>
+          <SumiMark className="space-brand-mark" />
         </Link>
         <nav className="rail-tools" aria-label="Space management">
           <RailItem
@@ -420,6 +452,7 @@ export function SpaceShell({
                   location.pathname.endsWith(`/channels/${channel.slug}`)
                 }
                 href={`/s/${space.data.slug}/channels/${channel.slug}`}
+                unread={unreadChannelIds.has(channel.id)}
               />
             ))}
           {channels.data.channels.some((channel) => !channel.joined) ? (
@@ -473,6 +506,7 @@ export function SpaceShell({
                 location.pathname.endsWith(`/dm/${dm.other_member.id}`)
               }
               href={`/s/${space.data.slug}/dm/${dm.other_member.id}`}
+              unread={unreadChannelIds.has(dm.channel_id)}
             />
           ))}
             </>
@@ -554,7 +588,7 @@ function MemberNavigationGroup({ label, members, activityByMemberId, spaceSlug, 
       {members.length ? members.map((member) => member.kind === "agent" ? (
         <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}>
           <PresenceIdentity name={member.display_name} kind="agent" seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
-          <span><strong title={member.display_name}>{member.display_name}</strong><small title={member.display_name}>@{member.handle} · {activityLabel(activityByMemberId.get(member.id))}</small></span>
+          <span><strong title={member.display_name}>{member.display_name}</strong><small title={member.display_name}>{activityLabel(activityByMemberId.get(member.id))}</small></span>
         </Link>
       ) : (
         <div className="context-entity-row context-entity-row--static" key={member.id}>
@@ -663,7 +697,7 @@ function ChannelDialog({
               <label key={agent.id}>
                 <input type="checkbox" name="agent_member_ids" value={agent.id} />
                 <PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} />
-                <span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span>
+                <span><strong>{agent.display_name}</strong><small>Agent</small></span>
               </label>
             )) : <p>No active Agents are available.</p>}
           </fieldset>
@@ -721,7 +755,7 @@ function DirectMessageDialog({
               <li key={member.id}>
                 <button type="button" disabled={Boolean(pendingMemberId)} onClick={() => onSelect(member.id)}>
                   <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
-                  <span><strong>{member.display_name}</strong><small>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityStatus)}` : ""}</small></span>
+                  <span><strong>{member.display_name}</strong><small>{member.kind === "agent" ? activityLabel(activityStatus) : `@${member.handle}`}</small></span>
                   <b>{pending ? "Opening…" : existingMemberIds.has(member.id) ? "Open" : "Start"}</b>
                 </button>
               </li>
@@ -739,16 +773,19 @@ function NavigationItem({
   label,
   active = false,
   href,
+  unread = false,
 }: {
   icon: LucideIcon;
   label: string;
   active?: boolean;
   href?: string;
+  unread?: boolean;
 }) {
   const content = (
     <>
       <Icon aria-hidden="true" />
       <span>{label}</span>
+      {unread ? <span className="nav-unread-dot" aria-label="Unread messages" /> : null}
     </>
   );
   const className = `nav-item${active ? " nav-item--active" : ""}`;
@@ -761,14 +798,15 @@ function NavigationItem({
   );
 }
 
-function DirectMessageNavigationItem({ member, activityStatus, active, href }: { member: Member; activityStatus?: Agent["activity_status"]; active: boolean; href: string }) {
+function DirectMessageNavigationItem({ member, activityStatus, active, href, unread }: { member: Member; activityStatus?: Agent["activity_status"]; active: boolean; href: string; unread: boolean }) {
   return (
     <Link className={`nav-item dm-nav-item${active ? " nav-item--active" : ""}`} to={href} aria-current={active ? "page" : undefined}>
       <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
       <span>
         <strong title={member.display_name}>{member.display_name}</strong>
-        <small>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityStatus)}` : ""}</small>
+        <small>{member.kind === "agent" ? activityLabel(activityStatus) : `@${member.handle}`}</small>
       </span>
+      {unread ? <span className="nav-unread-dot" aria-label="Unread messages" /> : null}
     </Link>
   );
 }

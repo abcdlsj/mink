@@ -252,7 +252,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
                 <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
                 <div>
                   <strong title={member.display_name}>{member.display_name}</strong>
-                  <span>@{member.handle}{member.kind === "agent" ? ` · ${activityLabel(activityByMemberId.get(member.id))}` : ""}</span>
+                  <span>{member.kind === "agent" ? activityLabel(activityByMemberId.get(member.id)) : `@${member.handle}`}</span>
                 </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (

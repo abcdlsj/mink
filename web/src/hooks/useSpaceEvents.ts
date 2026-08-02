@@ -1,13 +1,20 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface SumiEvent {
   type: string;
   data: { channel_id?: string };
 }
 
-export function useSpaceEvents(spaceId?: string) {
+export function useSpaceEvents(
+  spaceId?: string,
+  onMessage?: (event: { type: string; channelId: string }) => void,
+) {
   const queryClient = useQueryClient();
+  const onMessageRef = useRef(onMessage);
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  });
 
   useEffect(() => {
     if (!spaceId || typeof EventSource === "undefined") return;
@@ -15,6 +22,9 @@ export function useSpaceEvents(spaceId?: string) {
     const invalidate = (event: MessageEvent<string>) => {
       const payload = JSON.parse(event.data) as SumiEvent;
       if (payload.type.startsWith("message.") && payload.data.channel_id) {
+        if (payload.type === "message.created" && payload.data.channel_id) {
+          onMessageRef.current?.({ type: payload.type, channelId: payload.data.channel_id });
+        }
         void queryClient.invalidateQueries({ queryKey: ["messages", payload.data.channel_id] });
         void queryClient.invalidateQueries({ queryKey: ["thread", payload.data.channel_id] });
       }

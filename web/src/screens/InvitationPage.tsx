@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowRight, Asterisk, KeyRound, LoaderCircle, LogIn } from "lucide-react";
+import { ArrowRight, KeyRound, LoaderCircle, LogIn } from "lucide-react";
 
 import {
   ApiRequestError,
@@ -8,6 +8,7 @@ import {
   currentUser,
   getInvitation,
 } from "../api/client";
+import { SumiMark } from "../components/SumiMark";
 
 export function InvitationPage() {
   const { inviteToken } = useParams({ from: "/invite/$inviteToken" });
@@ -54,7 +55,7 @@ export function InvitationPage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <Asterisk strokeWidth={3} />
+            <SumiMark />
           </span>
           SUMI
         </Link>

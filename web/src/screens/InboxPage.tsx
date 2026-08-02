@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { Inbox, Menu, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { listInbox, type InboxItem, type Member } from "../api/client";
+import { listInbox, markInboxItemRead, type InboxItem, type Member } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 
 const inboxGroups: Array<{
@@ -75,7 +75,11 @@ function InboxWorkspace({
     items: attentionItems.filter((item) => group.kinds.includes(item.kind)),
   }));
 
+  // Opening the source is the Human's read: the Item leaves the queue, so a reply is seen once.
   function open(item: InboxItem) {
+    void markInboxItemRead(item.id).catch(() => {
+      // Reading is best-effort; navigation still opens the source even if the projection stalls.
+    });
     if (item.kind === "direct" && item.sender_member_id) {
       void navigate({
         to: "/s/$spaceSlug/dm/$memberId",

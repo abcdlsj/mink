@@ -294,7 +294,7 @@ export function MessageWorkspace({
             ))}
           </span>
           <span className="channel-member-count">{channelMembers.data ? `${channelMembers.data.members.length} Members` : ""}</span>
-          {channelMembers.data?.can_manage ? (
+        {!direct && channelMembers.data?.can_manage ? (
             <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
           ) : null}
         </div>

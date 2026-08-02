@@ -1,9 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
+import { ArrowRight, LoaderCircle } from "lucide-react";
 import type { FormEvent } from "react";
 
 import { login } from "../api/client";
+import { SumiMark } from "../components/SumiMark";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -33,7 +34,7 @@ export function LoginPage() {
       <header className="brand-bar">
         <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
-            <Asterisk strokeWidth={3} />
+            <SumiMark />
           </span>
           SUMI
         </Link>
