@@ -845,6 +845,51 @@ h1 {
   overflow: auto;
   background: var(--paper);
 }
+.computer-onboarding--pairing {
+  box-shadow: inset 0 0 0 3px var(--accent), 6px 6px 0 var(--ink);
+  animation: computer-onboarding-pop 500ms ease-out both;
+}
+@keyframes computer-onboarding-pop {
+  0% {
+    box-shadow: inset 0 0 0 0 var(--accent), 20px 20px 0 var(--ink);
+  }
+  50% {
+    box-shadow: inset 0 0 0 5px var(--accent), 12px 12px 0 var(--ink);
+  }
+  100% {
+    box-shadow: inset 0 0 0 3px var(--accent), 6px 6px 0 var(--ink);
+  }
+}
+@keyframes computer-onboarding-banner-in {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.computer-onboarding-banner {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 24px;
+  border-bottom: 2px solid var(--ink);
+  background: var(--accent);
+  color: var(--ink);
+  animation: computer-onboarding-banner-in 260ms ease-out both;
+}
+.computer-onboarding-banner svg { width: 18px; height: 18px; }
+.computer-onboarding-banner span {
+  font: 700 12px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.computer-onboarding-banner p {
+  margin: 0 0 0 auto;
+  font-size: var(--text-system);
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .computer-onboarding--pairing,
+  .computer-onboarding-banner { animation: none; }
+}
 .computer-onboarding-header {
   display: flex;
   min-height: 64px;
@@ -876,32 +921,44 @@ h1 {
 .computer-onboarding-intro > p { margin: 0; color: var(--muted); font-size: var(--text-body); line-height: 1.6; }
 .computer-onboarding-steps {
   display: grid;
-  gap: 12px;
-  margin: 10px 0 0;
+  gap: 22px;
+  margin: 14px 0 0;
   padding: 0;
   list-style: none;
   counter-reset: pairing-step;
 }
 .computer-onboarding-steps li {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 16px;
   counter-increment: pairing-step;
   color: var(--ink);
-  font-size: var(--text-body);
-  line-height: 1.45;
 }
 .computer-onboarding-steps li::before {
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  margin-top: 1px;
   place-items: center;
-  background: var(--accent-soft);
+  background: var(--accent);
+  color: var(--ink);
   content: counter(pairing-step);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
+}
+.computer-onboarding-steps strong {
+  display: block;
+  font-size: var(--text-body);
+  font-weight: 700;
+  line-height: 1.45;
+}
+.computer-onboarding-steps p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-system);
+  line-height: 1.6;
 }
 .computer-onboarding-command {
   display: grid;
@@ -916,6 +973,7 @@ h1 {
   }
 }
 @media (max-width: 700px) {
+  .computer-onboarding-banner { padding: 8px 14px; }
   .computer-onboarding-header { padding-inline: 14px; }
   .computer-onboarding-body { width: calc(100% - 28px); padding: 28px 0; gap: 28px; }
 }
@@ -7855,8 +7913,8 @@ summary.system-event-heading {
 
 /* Onboarding keeps its terminal command card, without the hard shadow. */
 .computer-onboarding-body {
-  gap: clamp(40px, 6vw, 88px);
-  padding: clamp(48px, 8vh, 104px) 0;
+  gap: clamp(48px, 7vw, 96px);
+  padding: clamp(72px, 11vh, 144px) 0;
 }
 
 .pair-command {
@@ -8227,8 +8285,8 @@ summary.system-event-heading {
   }
 
   .computer-onboarding-body {
-    gap: 28px;
-    padding: 32px 0;
+    gap: 32px;
+    padding: 40px 0;
   }
 }
 
@@ -8874,4 +8932,27 @@ summary.system-event-heading {
    hidden even though later rules re-enable the base toggle layout. */
 .permission-controls--inherited .permission-toggle {
   display: none;
+}
+
+/* Members: permission toggles move to Agent detail; the row keeps
+   identity, access control and the message action only. */
+.member-row {
+  grid-template-columns: minmax(240px, 1fr) 150px auto;
+}
+
+.member-actions {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+@media (max-width: 700px) {
+  .member-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .member-actions {
+    justify-content: flex-start;
+  }
 }

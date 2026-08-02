@@ -124,7 +124,10 @@ describe("Computer flows", () => {
     fireEvent.click(await screen.findByRole("link", { name: "Pair Computer" }));
     expect(await screen.findByRole("heading", { name: "Pair a Computer" })).toBeVisible();
     expect(screen.getByText(`sumi computer --server ${window.location.origin}`)).toBeVisible();
-    expect(screen.getByText("Verify the identity, then confirm this Space.")).toBeVisible();
+    expect(screen.getByText("Verify the identity, then confirm this Space")).toBeVisible();
+    expect(screen.getByText("Check that the hostname and fingerprint match the machine you ran the command on, then confirm the pairing.")).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("region", { name: "Pair a Computer" })).toHaveClass("computer-onboarding--pairing"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Pairing mode active"));
   });
 
   it("does not expose Computer governance to a regular Human Member", async () => {

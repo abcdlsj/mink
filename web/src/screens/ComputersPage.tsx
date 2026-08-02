@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Copy, Menu, Plus, Trash2, X } from "lucide-react";
+import { Check, Copy, Menu, Monitor, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -194,6 +194,7 @@ function ComputerOnboarding({ openNavigation, active }: { openNavigation: () => 
   }
   return (
     <section className={active ? "computer-onboarding computer-onboarding--pairing" : "computer-onboarding"} aria-labelledby="computer-onboarding-heading">
+      {active ? <div className="computer-onboarding-banner" role="status"><Monitor aria-hidden="true" /><span>Pairing mode active</span><p>This Space is waiting for this machine to confirm.</p></div> : null}
       <header className="computer-onboarding-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
         <div className="page-title"><h1 id="computer-onboarding-heading">Pair a Computer</h1><p>Confirm this machine in a Space.</p></div>
