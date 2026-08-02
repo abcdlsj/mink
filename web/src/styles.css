@@ -8273,3 +8273,178 @@ summary.system-event-heading {
     padding: 32px 0;
   }
 }
+
+/* ==================================================================
+   Contrast pass: flat sections stay, but restore the Neo-brutalist
+   hierarchy — 2px ink dividers, ink section titles, large fact values,
+   accent signals, and tinted hover/selected feedback.
+   ================================================================== */
+
+/* Section titles read as ink (not grey) and keep the uppercase rhythm. */
+.agent-detail-scroll .detail-section > h2,
+.agent-detail-scroll .agent-memory > div:first-child h2,
+.agent-detail-scroll .agent-lifecycle h2,
+.computer-detail .detail-panel-heading h3 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+
+/* Current work keeps an accent edge instead of a card box. */
+.agent-overview-grid > .agent-work {
+  border-left: 4px solid var(--space-accent);
+}
+
+/* Fact band: count values lead, metadata values stay compact. */
+.fact-band {
+  border-bottom: 2px solid var(--ink);
+}
+
+.fact-band > div:nth-child(-n + 2) strong {
+  font-size: 26px;
+}
+
+.fact-band > div:nth-child(n + 3) strong {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: normal;
+}
+
+/* Detail labels are uppercase metadata; values stay body-sized ink. */
+.agent-detail-scroll .detail-grid dt,
+.computer-detail .detail-grid dt {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+/* Panel heading gets a real 2px ink divider below it. */
+.detail-panel-heading {
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--ink);
+}
+
+/* List rows: hairline separators, accent hover, flat status text. */
+.hosted-agent-list li + li {
+  border-top: 1px solid rgb(20 17 17 / 14%);
+}
+
+.hosted-agent-list a:hover {
+  background: var(--accent-soft);
+}
+
+.entity-detail-header > .status,
+.entity-detail-header > .agent-state,
+.hosted-agent-list .agent-state {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Governance row: accent divider and tinted checked state. */
+.computer-actions {
+  border-top: 2px solid var(--ink);
+}
+
+.permission-row:hover {
+  background: rgb(20 17 17 / 4%);
+}
+
+.permission-row:has(input:checked) {
+  background: var(--accent-soft);
+}
+
+/* Agent detail sections close with a 2px ink line between blocks. */
+.agent-overview-grid {
+  padding-bottom: 44px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.agent-memory,
+.agent-settings,
+.agent-lifecycle {
+  border-bottom: 2px solid var(--ink);
+}
+
+/* Onboarding: accent step numbers and larger intro contrast. */
+.computer-onboarding-intro h2 {
+  font-size: clamp(24px, 3.2vw, 34px);
+}
+
+.computer-onboarding-steps li::before {
+  background: var(--accent);
+  color: var(--ink);
+}
+
+.computer-empty h2 {
+  color: var(--ink);
+  font-size: 22px;
+}
+
+/* Pairing flow is a standalone branded card, not a control panel: it keeps
+   the hard border, hard shadow, cyan machine panel and 2px ink form. */
+.pairing-stage {
+  border-color: var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+
+.pairing-machine {
+  border-right: 2px solid var(--ink);
+  background: var(--cyan);
+}
+
+.pairing-machine > svg {
+  width: 56px;
+  height: 56px;
+  padding: 10px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.pairing-machine dd {
+  font-weight: 700;
+}
+
+.pairing-form input,
+.pairing-form select {
+  border: 2px solid var(--ink);
+}
+
+/* Channel and Thread header actions share one icon-button size, kept at or
+   below the member avatar size (26px). */
+.channel-header > .icon-button,
+.member-strip > .icon-button,
+.thread-header > .icon-button,
+.thread-header .thread-close {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.channel-header > .icon-button svg,
+.member-strip > .icon-button svg,
+.thread-header > .icon-button svg,
+.thread-header .thread-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.channel-header > .icon-button:hover:not(:disabled),
+.member-strip > .icon-button:hover:not(:disabled),
+.thread-header > .icon-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+/* The narrow-screen close control is a labelled "Channel" button, not a
+   bare icon; keep its labelled layout. */
+@media (min-width: 700px) and (max-width: 1099px) {
+  .thread-header .thread-close {
+    width: auto;
+    min-width: 88px;
+    height: 38px;
+  }
+}
