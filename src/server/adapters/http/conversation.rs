@@ -228,6 +228,25 @@ pub(super) async fn read_thread(
     .fetch_one(&state.pool)
     .await
     .map_err(map_sqlx)?;
+    let task = message_task_summary(&state.pool, thread_id).await?;
+    let task_relation = match task.as_ref() {
+        Some(summary) => {
+            let is_source = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1 AND source_thread_id=$2)",
+            )
+            .bind(summary.id)
+            .bind(thread_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(map_sqlx)?;
+            Some(if is_source {
+                ThreadRelation::Source
+            } else {
+                ThreadRelation::Related
+            })
+        }
+        None => None,
+    };
     Ok(Json(ThreadReadResponse {
         thread_id,
         channel_id,
@@ -235,8 +254,8 @@ pub(super) async fn read_thread(
         replies: projected.into_iter().skip(1).collect(),
         snapshot_channel_seq: u64::try_from(snapshot).map_err(|_| ApiError::internal())?,
         is_following,
-        task: None,
-        task_relation: None,
+        task,
+        task_relation,
     }))
 }
 

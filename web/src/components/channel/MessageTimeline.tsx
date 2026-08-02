@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskSummary } from "../../api/client";
+import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskRef, type MessageTaskSummary } from "../../api/client";
 import { formatBytes } from "../../format";
 import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
 import { TaskStatusIcon } from "../taskStatusIcon";
@@ -164,20 +164,18 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
 function MessageTaskBadge({ task, spaceSlug }: { task: MessageTaskSummary; spaceSlug: string }) {
   const assignee = task.assignee_name ?? "Unassigned";
   const status = task.status.replace("_", " ");
-  const detail = `${task.title} · ${status} · ${assignee}`;
+  const detail = `!${task.seq} ${task.title} · ${status} · ${assignee}`;
   return (
     <Link
       className={`message-task-badge message-task-badge--${task.status}`}
       to="/s/$spaceSlug/tasks/$taskId"
       params={{ spaceSlug, taskId: task.id }}
       aria-label={`Task: ${detail}`}
-      data-tooltip={detail}
-      tabIndex={0}
+      title={detail}
     >
       <TaskStatusIcon status={task.status} />
+      <b>!{task.seq}</b>
       <span>{task.title}</span>
-      <b>{status.toUpperCase()}</b>
-      <small>{assignee}{task.working_elsewhere ? " · Working elsewhere" : ""}</small>
     </Link>
   );
 }
@@ -223,6 +221,7 @@ function MessageActions({ message, channelId, openThread }: { message: Message; 
           ...item,
           task: {
             id: task.id,
+            seq: task.seq,
             title: task.title,
             status: task.status,
             assignee_agent_member_id: task.assignee_agent_member_id,
@@ -274,7 +273,8 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
     const mentionedMemberIds = new Set(message.mentions);
     const mentionedNames = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.display_name.toLowerCase()));
     if (message.mention_all) mentionedNames.add("all");
-    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedNames={mentionedNames} />;
+    const taskRefs = new Map((message.task_refs ?? []).map((ref) => [ref.seq, ref]));
+    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedNames={mentionedNames} taskRefs={taskRefs} spaceSlug={spaceSlug} />;
   }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
@@ -282,7 +282,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
 
-export function ExpandableMessageText({ messageId, body, mentionedNames }: { messageId: string; body: string; mentionedNames: ReadonlySet<string> }) {
+export function ExpandableMessageText({ messageId, body, mentionedNames, taskRefs, spaceSlug }: { messageId: string; body: string; mentionedNames: ReadonlySet<string>; taskRefs: ReadonlyMap<number, MessageTaskRef>; spaceSlug: string }) {
   const paragraph = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -302,7 +302,7 @@ export function ExpandableMessageText({ messageId, body, mentionedNames }: { mes
   return (
     <div className="message-body-wrap">
       <div ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
-        {renderMessageBody(body, mentionedNames)}
+        {renderMessageBody(body, mentionedNames, taskRefs, spaceSlug)}
       </div>
       {overflowing || expanded ? (
         <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
@@ -343,6 +343,8 @@ function AttentionFailureNotice({ message, members }: { message: Message; member
 function highlightMentions(
   body: string,
   mentionedNames: ReadonlySet<string>,
+  taskRefs: ReadonlyMap<number, MessageTaskRef>,
+  spaceSlug: string,
   keyPrefix: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -353,7 +355,9 @@ function highlightMentions(
     const matchStart = match.index ?? 0;
     const token = match[2];
     const tokenStart = matchStart + match[1].length;
-    nodes.push(body.slice(cursor, tokenStart));
+    nodes.push(
+      ...highlightTaskRefs(body.slice(cursor, tokenStart), taskRefs, spaceSlug, `${keyPrefix}-r${cursor}`),
+    );
     nodes.push(
       mentionedNames.has(token.slice(1).toLowerCase())
         ? <mark className="message-mention" key={`${keyPrefix}-mention-${tokenStart}`}>{token}</mark>
@@ -362,7 +366,42 @@ function highlightMentions(
     cursor = tokenStart + token.length;
   }
 
-  nodes.push(body.slice(cursor));
+  nodes.push(...highlightTaskRefs(body.slice(cursor), taskRefs, spaceSlug, `${keyPrefix}-rend`));
+  return nodes;
+}
+
+function highlightTaskRefs(
+  text: string,
+  taskRefs: ReadonlyMap<number, MessageTaskRef>,
+  spaceSlug: string,
+  keyPrefix: string,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(^|\s)(!\d+)/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    const matchStart = match.index ?? 0;
+    const token = match[2];
+    const tokenStart = matchStart + match[1].length;
+    const ref = taskRefs.get(Number(token.slice(1)));
+    nodes.push(text.slice(cursor, tokenStart));
+    nodes.push(
+      ref ? (
+        <a
+          key={`${keyPrefix}-taskref-${tokenStart}`}
+          className="message-task-ref"
+          href={`/s/${spaceSlug}/tasks/${ref.task_id}`}
+          title={`Task !${ref.seq} · ${ref.title}`}
+        >
+          {token}
+        </a>
+      ) : (
+        token
+      ),
+    );
+    cursor = tokenStart + token.length;
+  }
+  nodes.push(text.slice(cursor));
   return nodes;
 }
 
@@ -377,9 +416,14 @@ type MessageBlock =
 const MAX_INLINE_DEPTH = 6;
 const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 
-function renderMessageBody(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
+function renderMessageBody(
+  body: string,
+  mentionedHandles: ReadonlySet<string>,
+  taskRefs: ReadonlyMap<number, MessageTaskRef>,
+  spaceSlug: string,
+): ReactNode[] {
   return splitMessageBlocks(body).map((block, index) =>
-    renderMessageBlock(block, mentionedHandles, index),
+    renderMessageBlock(block, mentionedHandles, taskRefs, spaceSlug, index),
   );
 }
 
@@ -466,6 +510,8 @@ function startsMessageBlock(line: string): boolean {
 function renderMessageBlock(
   block: MessageBlock,
   mentionedHandles: ReadonlySet<string>,
+  taskRefs: ReadonlyMap<number, MessageTaskRef>,
+  spaceSlug: string,
   blockIndex: number,
 ): ReactNode {
   const key = `message-block-${blockIndex}`;
@@ -474,7 +520,7 @@ function renderMessageBlock(
       const Heading = HEADING_TAGS[Math.min(block.level, HEADING_TAGS.length) - 1];
       return (
         <Heading key={key} className="message-heading">
-          {renderInline(block.line, mentionedHandles, `heading-${blockIndex}`)}
+          {renderInline(block.line, mentionedHandles, taskRefs, spaceSlug, `heading-${blockIndex}`)}
         </Heading>
       );
     }
@@ -483,7 +529,7 @@ function renderMessageBlock(
         <ol key={key}>
           {block.items.map((item, itemIndex) => (
             <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedHandles, `list-${blockIndex}-${itemIndex}`)}
+              {renderInline(item, mentionedHandles, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
             </li>
           ))}
         </ol>
@@ -491,7 +537,7 @@ function renderMessageBlock(
         <ul key={key}>
           {block.items.map((item, itemIndex) => (
             <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedHandles, `list-${blockIndex}-${itemIndex}`)}
+              {renderInline(item, mentionedHandles, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
             </li>
           ))}
         </ul>
@@ -501,7 +547,7 @@ function renderMessageBlock(
         <blockquote key={key}>
           {block.lines.map((line, lineIndex) => (
             <p key={`${key}-${lineIndex}`}>
-              {renderInline(line, mentionedHandles, `quote-${blockIndex}-${lineIndex}`)}
+              {renderInline(line, mentionedHandles, taskRefs, spaceSlug, `quote-${blockIndex}-${lineIndex}`)}
             </p>
           ))}
         </blockquote>
@@ -519,8 +565,8 @@ function renderMessageBlock(
         <p key={key}>
           {block.lines.map((line, lineIndex) =>
             lineIndex === 0
-              ? renderInline(line, mentionedHandles, `paragraph-${blockIndex}`)
-              : renderInline(`\n${line}`, mentionedHandles, `paragraph-${blockIndex}-${lineIndex}`),
+              ? renderInline(line, mentionedHandles, taskRefs, spaceSlug, `paragraph-${blockIndex}`)
+              : renderInline(`\n${line}`, mentionedHandles, taskRefs, spaceSlug, `paragraph-${blockIndex}-${lineIndex}`),
           )}
         </p>
       );
@@ -530,11 +576,13 @@ function renderMessageBlock(
 function renderInline(
   text: string,
   mentionedHandles: ReadonlySet<string>,
+  taskRefs: ReadonlyMap<number, MessageTaskRef>,
+  spaceSlug: string,
   keyPrefix: string,
   depth = 0,
 ): ReactNode[] {
   if (depth > MAX_INLINE_DEPTH) {
-    return highlightMentions(text, mentionedHandles, keyPrefix);
+    return highlightMentions(text, mentionedHandles, taskRefs, spaceSlug, keyPrefix);
   }
   const codeMatch = /`([^`\n]+)`/.exec(text);
   const boldMatch = /\*\*([^*\n]+)\*\*/.exec(text);
@@ -553,13 +601,15 @@ function renderInline(
     )
     .sort((left, right) => (left.match.index ?? 0) - (right.match.index ?? 0));
   if (candidates.length === 0) {
-    return highlightMentions(text, mentionedHandles, keyPrefix);
+    return highlightMentions(text, mentionedHandles, taskRefs, spaceSlug, keyPrefix);
   }
   const first = candidates[0];
   const match = first.match;
   const matchStart = match.index ?? 0;
   const nodes: ReactNode[] = [];
-  nodes.push(...highlightMentions(text.slice(0, matchStart), mentionedHandles, `${keyPrefix}-b`));
+  nodes.push(
+    ...highlightMentions(text.slice(0, matchStart), mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-b`),
+  );
   const innerKey = `${keyPrefix}-t`;
   switch (first.kind) {
     case "code":
@@ -572,21 +622,21 @@ function renderInline(
     case "bold":
       nodes.push(
         <strong key={innerKey}>
-          {renderInline(match[1], mentionedHandles, `${keyPrefix}-s`, depth + 1)}
+          {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-s`, depth + 1)}
         </strong>,
       );
       break;
     case "italic":
       nodes.push(
         <em key={innerKey}>
-          {renderInline(match[1] ?? match[2], mentionedHandles, `${keyPrefix}-e`, depth + 1)}
+          {renderInline(match[1] ?? match[2], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-e`, depth + 1)}
         </em>,
       );
       break;
     case "delete":
       nodes.push(
         <del key={innerKey}>
-          {renderInline(match[1], mentionedHandles, `${keyPrefix}-d`, depth + 1)}
+          {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-d`, depth + 1)}
         </del>,
       );
       break;
@@ -595,7 +645,7 @@ function renderInline(
       nodes.push(
         href ? (
           <a key={innerKey} href={href} rel="noreferrer" target="_blank">
-            {renderInline(match[1], mentionedHandles, `${keyPrefix}-l`, depth + 1)}
+            {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-l`, depth + 1)}
           </a>
         ) : (
           <span key={innerKey}>{match[0]}</span>
@@ -608,6 +658,8 @@ function renderInline(
     ...renderInline(
       text.slice(matchStart + match[0].length),
       mentionedHandles,
+      taskRefs,
+      spaceSlug,
       `${keyPrefix}-a`,
       depth + 1,
     ),

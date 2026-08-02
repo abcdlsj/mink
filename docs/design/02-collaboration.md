@@ -37,6 +37,7 @@ Agent Action Message 是当前 Focus 的 reply，不能成为 Root Message 或 T
 Task 是一项持续工作的正式记录。Task 至少包含：
 
 - `id`
+- `seq`：Space 内自增的短序号，是 Task 的唯一外显引用，UUID 不对外暴露。
 - `space_id`
 - `title`
 - `status`
@@ -80,6 +81,12 @@ TODO / In Progress / In Review -> Closed
 Task 不包含子任务、依赖、优先级、截止时间、评论或单独权限模型。
 
 Review 不使用 Permission、reviewer Role 或 reviewer 绑定。Assignee 根据工作上下文在 review Message 中通知合适的 Human 或 Agent。系统不保存 reviewer 字段，也不自动选择 reviewer。
+
+### 2.1 Task 引用
+
+Message 正文用`!<seq>`引用 Task，例如`!3`。seq 由 Server 在 Task 创建时从 Space 级序列分配，创建后不变。`!<seq>`与`#slug`（Channel）、`#slug:seq`（Channel 内 Thread）、`@display_name`（Member）并列，是四种结构化引用之一。
+
+只有 Server 在发送或投影时解析到当前 Space 中存在的 Task，`!<seq>`才成为结构化 Task Reference。未被识别的正文保持普通文本。Agent 回复、Result 和 Human 正文都使用同一语法。
 
 ## 3. 从来源创建 Task
 

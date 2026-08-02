@@ -246,6 +246,7 @@ pub(crate) enum SessionChangeReason {
 #[serde(deny_unknown_fields)]
 pub(crate) struct TaskSnapshot {
     pub(crate) task_id: TaskId,
+    pub(crate) seq: u64,
     pub(crate) title: String,
     pub(crate) status: TaskStatus,
     pub(crate) source_thread_id: ThreadId,

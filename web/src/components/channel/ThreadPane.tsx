@@ -111,7 +111,7 @@ export function ThreadPane({
         </div>
         {thread.data?.task && thread.data.task_relation ? (
           <Link className="thread-task-context" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: thread.data.task.id }} aria-label={`${thread.data.task.title} ${thread.data.task_relation.toUpperCase()}`}>
-            <strong>{thread.data.task.title}</strong>
+            <strong>!{thread.data.task.seq} {thread.data.task.title}</strong>
             <span>{thread.data.task_relation.toUpperCase()}</span>
           </Link>
         ) : null}

@@ -107,7 +107,7 @@ function TaskRow({ task, spaceSlug }: { task: Task; spaceSlug: string }) {
     <article className="task-row" role="listitem">
       <TaskStatusLabel status={task.status} />
       <Link className="task-row-main" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: task.id }}>
-        <strong>{task.title}</strong>
+        <strong>!{task.seq} {task.title}</strong>
       </Link>
       <span className="task-row-meta">
         {task.assignee_name ?? "Unassigned"}
@@ -169,7 +169,7 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
   return (
     <section className="task-detail" aria-labelledby="task-heading">
       <header className="task-detail-header">
-        <div className="page-title"><h1 id="task-heading">{value.title}</h1><p>#{value.source_thread.channel_slug} · message {value.source_thread.root_message_seq}</p></div>
+        <div className="page-title"><h1 id="task-heading">{value.title}</h1><p>!{value.seq} · #{value.source_thread.channel_slug} · message {value.source_thread.root_message_seq}</p></div>
         <TaskStatusLabel status={value.status} />
       </header>
       {value.runtime_issue_code ? <p className="inline-notice inline-notice--error" role="alert">Task cannot run: <code>{value.runtime_issue_code}</code>. Restore compatible Thread membership or remove the Related Thread.</p> : null}

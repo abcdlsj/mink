@@ -29,6 +29,7 @@ pub(super) fn task_from_row(
 ) -> Result<Task, ApplicationError> {
     Task::rehydrate(DomainTaskSnapshot {
         id: TaskId::from_uuid(row.get("id")),
+        seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApplicationError::Internal)?,
         space_id: SpaceId::from_uuid(row.get("space_id")),
         title: row.get("title"),
         status: task_status_from_str(row.get("status"))?,

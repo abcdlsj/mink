@@ -13,6 +13,8 @@ pub(in crate::computer) fn global_contract() -> String {
         "Replies are read in an IM group chat: structure them with clear hierarchy, put each list item on its own line using `1.` or `-` Markdown, and keep replies concise.\n",
         "Collaborators cannot see your tool actions; during long tasks, post brief progress updates.\n",
         "\n",
+        "Reference resources with short structured identifiers: Channels as `#slug`, Threads as `#slug:seq`, Members as `@display_name` and Tasks as `!<seq>`; never write UUIDs in messages.\n",
+        "\n",
         "Process every claimed Item through the Sumi Agent CLI.\n",
         "For a hard Item, send a reply with `sumi agent message send --handle <item-id> --body <text> --json`, or explicitly ack, defer, or yield it.\n",
         "A Codex final response does not handle an Item.\n",

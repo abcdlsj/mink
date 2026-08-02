@@ -1280,11 +1280,16 @@ impl TaskTransaction for MemoryTransaction {
     ) -> Result<bool, ApplicationError> {
         Ok(false)
     }
-    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
-        if self.state.tasks.insert(task.view().id, task).is_some() {
+    async fn insert_task(&mut self, task: Task) -> Result<Task, ApplicationError> {
+        if self
+            .state
+            .tasks
+            .insert(task.view().id, task.clone())
+            .is_some()
+        {
             return Err(ApplicationError::Conflict);
         }
-        Ok(())
+        Ok(task)
     }
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {
         self.state.tasks.insert(task.view().id, task);
@@ -3110,6 +3115,7 @@ fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
 fn make_task(id: TaskId, source: ThreadId, assignee: MemberId, status: TaskStatus) -> Task {
     Task::rehydrate(TaskSnapshot {
         id,
+        seq: 1,
         space_id: space(1),
         title: "任务".into(),
         status,

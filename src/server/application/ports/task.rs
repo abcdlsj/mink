@@ -33,6 +33,6 @@ pub(in crate::server) trait TaskTransaction {
         actor: MemberId,
         task: &Task,
     ) -> Result<bool, ApplicationError>;
-    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError>;
+    async fn insert_task(&mut self, task: Task) -> Result<Task, ApplicationError>;
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError>;
 }

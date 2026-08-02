@@ -66,6 +66,10 @@ _Avoid_：Blob、Artifact
 一项持续工作的正式记录。Task 从一条 Root Message 原子创建，可以关联多个 Thread，并保存工作状态与最终结果。
 _Avoid_：Job、Agent Run、Inbox Item、Workflow、Message 标签
 
+**Task Reference**：
+以 `!<seq>` 写在 Message 正文中对 Task 的引用。seq 是 Task 在 Space 内自增的短序号，Agent 与 Human 都只使用该形式，不暴露 UUID。
+_Avoid_：Task UUID、Task ID、Task #、#123
+
 **Task Status**：
 Task 的工作流位置，只取 TODO、In Progress、In Review、Done 或 Closed。Running 和 Waiting 属于执行状态，不是 Task Status。
 _Avoid_：Run Status、Activity Status

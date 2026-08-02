@@ -44,6 +44,7 @@ use uuid::Uuid;
         MessageAuthor,
         MessageContentResponse,
         MessageTaskSummary,
+        MessageTaskRefResponse,
         MessageResponse,
         MessagePageResponse,
         CreateMessageRequest,
@@ -441,11 +442,19 @@ pub(super) struct ActionAgentResponse {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct MessageTaskSummary {
     pub(super) id: Uuid,
+    pub(super) seq: u64,
     pub(super) title: String,
     pub(super) status: TaskStatus,
     pub(super) assignee_agent_member_id: Option<Uuid>,
     pub(super) assignee_name: Option<String>,
     pub(super) working_elsewhere: bool,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub(super) struct MessageTaskRefResponse {
+    pub(super) seq: u64,
+    pub(super) task_id: Uuid,
+    pub(super) title: String,
+    pub(super) status: TaskStatus,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct AttentionFailureResponse {
@@ -467,6 +476,7 @@ pub(super) struct MessageResponse {
     pub(super) attachments: Vec<AttachmentResponse>,
     pub(super) reply_count: u64,
     pub(super) task: Option<MessageTaskSummary>,
+    pub(super) task_refs: Vec<MessageTaskRefResponse>,
     pub(super) attention_failures: Vec<AttentionFailureResponse>,
     pub(super) created_at: String,
     pub(super) edited_at: Option<String>,
@@ -658,6 +668,7 @@ pub(super) struct SessionContinuityResponse {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct TaskResponse {
     pub(super) id: Uuid,
+    pub(super) seq: u64,
     pub(super) space_id: Uuid,
     pub(super) title: String,
     pub(super) status: TaskStatus,

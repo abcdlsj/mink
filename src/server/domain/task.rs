@@ -48,6 +48,7 @@ pub(in crate::server) struct RelatedThreadSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct Task {
     id: TaskId,
+    seq: u64,
     space_id: SpaceId,
     title: String,
     status: TaskStatus,
@@ -66,6 +67,7 @@ pub(in crate::server) struct Task {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct TaskView<'a> {
     pub(in crate::server) id: TaskId,
+    pub(in crate::server) seq: u64,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) title: &'a str,
     pub(in crate::server) status: TaskStatus,
@@ -83,6 +85,7 @@ pub(in crate::server) struct TaskView<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct TaskSnapshot {
     pub(in crate::server) id: TaskId,
+    pub(in crate::server) seq: u64,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) title: String,
     pub(in crate::server) status: TaskStatus,
@@ -102,6 +105,7 @@ impl Task {
     pub(in crate::server) fn view(&self) -> TaskView<'_> {
         TaskView {
             id: self.id,
+            seq: self.seq,
             space_id: self.space_id,
             title: &self.title,
             status: self.status,
@@ -133,6 +137,7 @@ impl Task {
         let view = self.view();
         TaskSnapshot {
             id: view.id,
+            seq: view.seq,
             space_id: view.space_id,
             title: view.title.to_owned(),
             status: view.status,
@@ -183,6 +188,7 @@ impl Task {
         }
         Ok(Self {
             id: snapshot.id,
+            seq: snapshot.seq,
             space_id: snapshot.space_id,
             title: snapshot.title,
             status: snapshot.status,
@@ -224,6 +230,7 @@ impl Task {
         }
         Ok(Self {
             id,
+            seq: 0,
             space_id: source.space_id,
             title,
             status: if created_by_running_agent {
@@ -242,6 +249,12 @@ impl Task {
             updated_at: now,
             finished_at: None,
         })
+    }
+
+    /// Attaches the persistence-assigned Space sequence to a freshly created Task.
+    pub(in crate::server) fn with_seq(mut self, seq: u64) -> Self {
+        self.seq = seq;
+        self
     }
 
     pub(in crate::server) fn linked_to(&self, thread_id: ThreadId) -> bool {
@@ -388,6 +401,7 @@ mod tests {
     fn snapshot() -> TaskSnapshot {
         TaskSnapshot {
             id: TaskId::from_uuid(uuid::Uuid::from_u128(1)),
+            seq: 1,
             space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
             title: "任务".into(),
             status: TaskStatus::InProgress,

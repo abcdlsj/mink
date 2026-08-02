@@ -44,6 +44,7 @@ pub(in crate::computer) struct WorkInput {
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct TaskInput {
     pub(in crate::computer) task_id: TaskId,
+    pub(in crate::computer) seq: u64,
     pub(in crate::computer) title: String,
     pub(in crate::computer) status: String,
 }
@@ -448,6 +449,7 @@ mod tests {
         let mut input = run_input(vec![message(1, "root")], Vec::new());
         input.work.task = Some(TaskInput {
             task_id: TaskId::from_uuid(Uuid::from_u128(9)),
+            seq: 0,
             title: "title".to_owned(),
             status: "in_progress".to_owned(),
         });

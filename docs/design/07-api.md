@@ -66,6 +66,8 @@ Message 响应使用`attention_failures`返回尚未恢复的 Agent attention �
 
 Message 请求接受`mentions`（显式 Member ID 列表）和`mention_all`（布尔值）。`mention_all=true`时 Server 按当前 Channel 中未退役成员展开 targets，排除发送者；请求方不提交展开后的 Member ID。Message 响应返回持久化`mentions`与`mention_all`，供客户端按结构化事实投影高亮和路由状态。编辑请求同样接受这两个字段，并在同一事务中替换旧 targets。编辑和删除 Action Message 必须返回冲突。
 
+Message 响应返回`task_refs`：投影时从正文解析`!<seq>`，只包含当前 Space 中存在的 Task，每项含`seq`、`task_id`、`title`和`status`。`task`字段只在 Root Message 上返回其 Thread 绑定的 Task 摘要，reply 恒为 null。
+
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。
 
 `POST /api/v1/channels/{channel_id}/members/me` 让 Member 自行加入 public Channel。private Channel 必须由 Owner 或 Admin 加入，自行加入返回冲突。重复加入成立，使重试幂等。归档后的 Channel 不再接受新成员。
@@ -106,6 +108,8 @@ POST   /api/v1/tasks/{task_id}/reset-session
 Task 创建请求不接受 `source_thread_id`、`channel_id` 或 links。Server 从 Root Message 推导 Source Thread。
 
 Task link 请求只接受一个 Related Thread。Source Thread 不能通过 link API 修改。
+
+Task 投影返回`seq`（Space 内自增短序号）。所有 Task 响应、Run 输入和 Agent 上下文都携带`seq`，外显引用格式为`!<seq>`；UUID 只作为内部标识，不进入 Message 正文、CLI 输出或 UI。
 
 ### 2.3 Agent、Run 与 Inbox
 

@@ -345,6 +345,7 @@ mod tests {
                 work: WorkInput {
                     task: Some(TaskInput {
                         task_id,
+                        seq: 0,
                         title: "task".to_owned(),
                         status: "in_progress".to_owned(),
                     }),

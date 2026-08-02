@@ -43,7 +43,7 @@ import type {
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, UpdateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, UpdateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;

@@ -1,13 +1,14 @@
 use super::*;
 
 impl PostgresTransaction {
-    pub(super) async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+    pub(super) async fn insert_task(&mut self, task: Task) -> Result<Task, ApplicationError> {
         let task_snapshot = task.snapshot();
-        sqlx::query(
+        let seq: i64 = sqlx::query_scalar(
             "INSERT INTO tasks (id, space_id, title, status, source_thread_id, creator_member_id, \
              assignee_agent_member_id, result_message_id, close_reason_code, close_reason_note, \
              created_at, updated_at, finished_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) \
+             RETURNING seq",
         )
         .bind(task_snapshot.id.into_uuid())
         .bind(task_snapshot.space_id.into_uuid())
@@ -26,10 +27,12 @@ impl PostgresTransaction {
         .bind(task_snapshot.created_at)
         .bind(task_snapshot.updated_at)
         .bind(task_snapshot.finished_at)
-        .execute(&mut *self.connection)
+        .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        self.replace_task_links(&task).await
+        let task = task.with_seq(u64::try_from(seq).map_err(|_| ApplicationError::Internal)?);
+        self.replace_task_links(&task).await?;
+        Ok(task)
     }
 
     pub(super) async fn record_task_audit(
@@ -287,7 +290,7 @@ impl PostgresTransaction {
         task_id: TaskId,
     ) -> Result<TaskSnapshot, ApplicationError> {
         let row = sqlx::query(
-            "SELECT title,status,source_thread_id,result_message_id FROM tasks WHERE id=$1",
+            "SELECT seq,title,status,source_thread_id,result_message_id FROM tasks WHERE id=$1",
         )
         .bind(task_id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -308,6 +311,7 @@ impl PostgresTransaction {
         );
         Ok(TaskSnapshot {
             task_id,
+            seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApplicationError::Internal)?,
             title: row.get("title"),
             status: wire_task_status(row.get("status"))?,
             source_thread_id,
@@ -365,7 +369,7 @@ impl TaskTransaction for PostgresTransaction {
     ) -> Result<bool, ApplicationError> {
         self.can_govern_task(actor, task).await
     }
-    async fn insert_task(&mut self, task: Task) -> Result<(), ApplicationError> {
+    async fn insert_task(&mut self, task: Task) -> Result<Task, ApplicationError> {
         self.insert_task(task).await
     }
     async fn save_task(&mut self, task: Task) -> Result<(), ApplicationError> {

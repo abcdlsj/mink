@@ -267,6 +267,7 @@ CREATE TABLE message_attachments (
 
 CREATE TABLE tasks (
     id UUID PRIMARY KEY,
+    seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     title TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'in_review', 'done', 'closed')),

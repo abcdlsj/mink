@@ -97,6 +97,7 @@
 ### 4.4 `members`
 
 - `id`
+- `seq`：`BIGINT GENERATED ALWAYS AS IDENTITY`，全局唯一，Space 内顺序递增。
 - `space_id`
 - `kind=human|agent`
 - `display_name`
@@ -231,6 +232,8 @@ Thread 不单独建表。Root Message 行同时是 Thread 根；Thread 的 Space
 - `created_at`
 - `updated_at`
 - `finished_at`
+
+`seq`是外显引用的唯一来源，UUID 不对外暴露。`seq`由数据库分配，创建后不变。
 
 `source_thread_id`必须唯一。Task 不重复保存 Root Message ID。
 

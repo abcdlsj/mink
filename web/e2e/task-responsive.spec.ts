@@ -78,6 +78,7 @@ function task(session_continuity: { state: string; generation: number }) {
   const run = { id: "019c0000-0000-7000-8000-000000000010", task_id: taskId, agent_member_id: agentId, agent_name: "Lin", focus: source, status: "running", started_at: "2026-07-30T01:00:00Z" };
   return {
     id: taskId,
+    seq: 3,
     space_id: spaceId,
     title: "Rebuild WebUI",
     status: "in_progress",

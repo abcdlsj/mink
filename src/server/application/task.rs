@@ -92,7 +92,7 @@ impl CreateTaskFromRootMessage {
                 running_agent.is_some(),
                 input.now,
             )?;
-            transaction.insert_task(task.clone()).await?;
+            let task = transaction.insert_task(task.clone()).await?;
 
             if let Some(mut run) = running_agent {
                 run.bind_task(&task)?;

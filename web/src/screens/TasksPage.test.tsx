@@ -30,15 +30,15 @@ describe("Task work index", () => {
     renderRoute("/s/sumi-lab/tasks");
 
     expect(await screen.findByRole("heading", { name: "Tasks", level: 1 })).toBeVisible();
-    expect(await screen.findByText("Review Web contract")).toBeVisible();
+    expect(await screen.findByText(/Review Web contract/)).toBeVisible();
     expect(screen.getByRole("link", { name: /Review Web contract/ })).toBeVisible();
     expect(screen.getByRole("link", { name: /Wire Agent CLI/ })).toBeVisible();
     expect(screen.getByRole("link", { name: /Design claim flow/ })).toBeVisible();
-    expect(screen.queryByText("Ship old slice")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ship old slice/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Source: #general @17" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-todo");
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    expect(await screen.findByText("Ship old slice")).toBeVisible();
-    expect(screen.queryByText("Design claim flow")).not.toBeInTheDocument();
+    expect(await screen.findByText(/Ship old slice/)).toBeVisible();
+    expect(screen.queryByText(/Design claim flow/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Closed" }));
     expect(await screen.findByText("No closed Tasks.")).toBeVisible();
   });
@@ -78,6 +78,7 @@ describe("Task work index", () => {
 function task(status: "todo" | "in_progress" | "in_review" | "done" | "closed", title: string, seq: number, assignee?: string): Task {
   return {
     id: `task-${status}`,
+    seq,
     space_id: spaceId,
     title,
     status,

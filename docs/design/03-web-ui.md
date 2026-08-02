@@ -107,20 +107,22 @@ Message 正文支持常见 Markdown：
 - 块级：`#`至`######`标题、无序列表（`-`/`*`）、有序列表（`1.`）、引用（`>`）、围栏代码块（```` ``` ````）和分隔线（`---`）。
 - 未闭合的反引号保持普通正文；正文行高为 1.4，消息内标题使用 14 至 16px、700 字重，块间距压缩为 0.25em。
 
-普通 Message 正文中的 `@display_name` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 display name 时才使用高亮。Browser 不得仅根据正文中的 `@` 文本推断 mention；未被 Server 识别的文本保持普通正文样式。Browser 不显示 member handle，成员身份只以 display name 呈现。
+普通 Message 正文中的 `@display_name` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 display name 时才使用高亮。`!<seq>`只有在 Message 返回的结构化 task refs 包含该序号时才渲染为 Task 引用。Browser 不得仅根据正文中的符号推断 mention 或 Task 引用；未被 Server 识别的文本保持普通正文样式。Browser 不显示 member handle，成员身份只以 display name 呈现。
 
 ### 5.1 Task 标识
 
 Root Message 上的 Task 标识保持紧凑，只显示：
 
-- Task title。
+- `!<seq>`引用和 Task title。
 - `TODO|In Progress|In Review|Done|Closed`状态。
 - assignee 或`Unassigned`。
 - 当前 Run 在其他 Linked Thread 时显示`Working elsewhere`。
 
-Task 标识不得把 Message 变成大型卡片。Hover、focus 或点击后才显示 Source、Linked Threads 和最近执行摘要。
+Task 标识与 AGENT 标识同一尺度：10px 元数据字号、单行、状态图形加短文字，不带大型卡片或 Tooltip。标识固定在 Message 行右上角，点击回跳 Task 详情页。只有 Root Message 显示 Task 标识；reply 即使属于绑定 Task 的 Thread 也不显示。Hover 出现的 Message 动作面板必须避开该标识。Thread pane 中的 root 使用同一标识。
 
 Thread pane 中的 root 使用同一 Task 标识。Related Thread 的 header 显示 Task title 和`Related`关系。
+
+正文中的 Task Reference 渲染为链接：文字保持`!<seq>`，点击回跳 Task 详情页，视觉与 mention 同尺度但使用 Task 状态色。引用只来自 Message 返回的结构化 task refs，不得从正文推断。
 
 Task 状态标签固定为：
 

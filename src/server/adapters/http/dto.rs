@@ -226,11 +226,124 @@ pub(super) async fn member_row(
     })
 }
 
+fn task_status_code(value: &str) -> Result<TaskStatus, ApiError> {
+    Ok(match value {
+        "todo" => TaskStatus::Todo,
+        "in_progress" => TaskStatus::InProgress,
+        "in_review" => TaskStatus::InReview,
+        "done" => TaskStatus::Done,
+        "closed" => TaskStatus::Closed,
+        _ => return Err(ApiError::internal()),
+    })
+}
+
+/// The one unfinished or finished Task bound to a Thread, preferring the Source Thread.
+pub(super) async fn message_task_summary(
+    pool: &PgPool,
+    thread_id: Uuid,
+) -> Result<Option<MessageTaskSummary>, ApiError> {
+    let row = sqlx::query(
+        "SELECT t.id, t.seq, t.title, t.status, t.assignee_agent_member_id, \
+                m.display_name AS assignee_name, \
+                (SELECT r.focus_thread_id FROM agent_runs r \
+                 WHERE r.task_id = t.id AND r.status IN ('starting','running','finalizing') \
+                 ORDER BY r.lease_expires_at DESC LIMIT 1) AS active_focus_thread_id \
+         FROM tasks t LEFT JOIN members m ON m.id = t.assignee_agent_member_id \
+         WHERE t.source_thread_id = $1 OR EXISTS (SELECT 1 FROM task_threads tt \
+             WHERE tt.task_id = t.id AND tt.thread_id = $1) \
+         ORDER BY (t.source_thread_id = $1) DESC, t.created_at DESC LIMIT 1",
+    )
+    .bind(thread_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(map_sqlx)?;
+    let Some(row) = row else { return Ok(None) };
+    let active_focus: Option<Uuid> = row.get("active_focus_thread_id");
+    Ok(Some(MessageTaskSummary {
+        id: row.get("id"),
+        seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
+        title: row.get("title"),
+        status: task_status_code(row.get("status"))?,
+        assignee_agent_member_id: row.get("assignee_agent_member_id"),
+        assignee_name: row.get("assignee_name"),
+        working_elsewhere: active_focus.is_some_and(|focus| focus != thread_id),
+    }))
+}
+
+/// Extracts `!<seq>` tokens at word boundaries from Message Markdown.
+fn parse_task_ref_seqs(body: &str) -> Vec<i64> {
+    let bytes = body.as_bytes();
+    let mut seqs = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let starts_token = bytes[index] == b'!'
+            && (index == 0
+                || !bytes[index - 1].is_ascii_alphanumeric() && bytes[index - 1] != b'_');
+        if starts_token {
+            let mut end = index + 1;
+            while end < bytes.len() && bytes[end].is_ascii_digit() {
+                end += 1;
+            }
+            let boundary_ok =
+                end == bytes.len() || !bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_';
+            if end > index + 1
+                && boundary_ok
+                && let Some(seq) = std::str::from_utf8(&bytes[index + 1..end])
+                    .ok()
+                    .and_then(|digits| digits.parse::<i64>().ok())
+            {
+                seqs.push(seq);
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    seqs
+}
+
+/// Resolves `!<seq>` tokens in a Message to Tasks of the same Space.
+pub(super) async fn task_refs_for_message(
+    pool: &PgPool,
+    space_id: Uuid,
+    body: Option<&str>,
+) -> Result<Vec<MessageTaskRefResponse>, ApiError> {
+    let Some(body) = body else {
+        return Ok(Vec::new());
+    };
+    let seqs = parse_task_ref_seqs(body);
+    if seqs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows =
+        sqlx::query("SELECT id, seq, title, status FROM tasks WHERE space_id=$1 AND seq = ANY($2)")
+            .bind(space_id)
+            .bind(&seqs)
+            .fetch_all(pool)
+            .await
+            .map_err(map_sqlx)?;
+    let mut refs = rows
+        .iter()
+        .map(|row| {
+            Ok(MessageTaskRefResponse {
+                seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
+                task_id: row.get("id"),
+                title: row.get("title"),
+                status: task_status_code(row.get("status"))?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    refs.sort_by_key(|task_ref| task_ref.seq);
+    Ok(refs)
+}
+
 pub(super) async fn message_row(
     pool: &PgPool,
     row: &sqlx::postgres::PgRow,
 ) -> Result<MessageResponse, ApiError> {
     let id: Uuid = row.get("id");
+    let space_id: Uuid = row.get("space_id");
+    let placement_root = matches!(row.get::<&str, _>("placement"), "root");
     let author = sqlx::query("SELECT id,kind,display_name FROM members WHERE id=$1")
         .bind(row.get::<Uuid, _>("author_member_id"))
         .fetch_one(pool)
@@ -270,6 +383,17 @@ pub(super) async fn message_row(
     .fetch_all(pool)
     .await
     .map_err(map_sqlx)?;
+    let task = if placement_root {
+        message_task_summary(pool, row.get::<Uuid, _>("thread_id")).await?
+    } else {
+        None
+    };
+    let task_refs = task_refs_for_message(
+        pool,
+        space_id,
+        row.get::<Option<String>, _>("body_markdown").as_deref(),
+    )
+    .await?;
     let content = match row.get::<&str, _>("content_kind") {
         "text" => MessageContentResponse::Text {
             body_markdown: row
@@ -343,7 +467,8 @@ pub(super) async fn message_row(
         mention_all: row.get("mention_all"),
         attachments: attachment_views,
         reply_count: u64::try_from(replies).map_err(|_| ApiError::internal())?,
-        task: None,
+        task,
+        task_refs,
         attention_failures,
         created_at: timestamp(row.get("created_at")),
         edited_at: optional_timestamp(row.get("edited_at")),
@@ -418,6 +543,7 @@ pub(super) async fn task_projection(
     let current_run = runs.iter().find(|run| run.outcome.is_none()).cloned();
     Ok(TaskResponse {
         id: task_id,
+        seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
         space_id: row.get("space_id"),
         title: row.get("title"),
         status: match row.get::<&str, _>("status") {

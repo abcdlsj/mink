@@ -364,9 +364,9 @@ describe("ChannelPage", () => {
     fireEvent.click(screen.getByText("2 system errors · Show details"));
     expect(systemErrors).toHaveAttribute("open");
     expect(within(systemErrors).getByText((_, element) => element?.tagName === "P" && element.textContent?.includes("Could not start Lin") === true)).toBeVisible();
-    const taskBadge = screen.getByLabelText("Task: Ship message metadata · in progress · Lin");
+    const taskBadge = screen.getByLabelText("Task: !7 Ship message metadata · in progress · Lin");
     expect(taskBadge).toHaveTextContent("Ship message metadata");
-    expect(taskBadge).toHaveAttribute("data-tooltip", "Ship message metadata · in progress · Lin");
+    expect(taskBadge).toHaveAttribute("title", "!7 Ship message metadata · in progress · Lin");
     const attachmentFile = new File(["pixel notes"], "notes.txt", { type: "text/plain" });
     Object.defineProperty(attachmentFile, "arrayBuffer", {
       value: async () => new TextEncoder().encode("pixel notes").buffer,
@@ -422,7 +422,7 @@ describe("ChannelPage", () => {
       expect.stringContaining("/root-messages/019c0000-0000-7000-8000-000000000102/task"),
       expect.objectContaining({ method: "POST" }),
     ));
-    expect(await screen.findByRole("link", { name: /Task: @lin Please review/ })).toBeVisible();
+    expect(await screen.findByRole("link", { name: /Task: !7 @lin Please review/ })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Add Agents to Channel" }));
     const addDialog = screen.getByRole("dialog", { name: "Add Agents" });
@@ -445,7 +445,7 @@ describe("ChannelPage", () => {
     expect(within(threadPane).getByRole("link", { name: "Ship message metadata RELATED" })).toHaveAttribute("href", "/s/sumi-lab/tasks/019c0000-0000-7000-8000-000000000090");
     expect(within(threadPane).getByRole("img", { name: "Reviewer avatar" })).toHaveAttribute("data-agent-identicon");
     expect(within(threadPane).queryByText(/member_id|lifecycle.*active/)).not.toBeInTheDocument();
-    expect(within(threadPane).getByLabelText("Task: Ship message metadata · in progress · Lin")).toBeVisible();
+    expect(within(threadPane).getByLabelText("Task: !7 Ship message metadata · in progress · Lin")).toBeVisible();
     const resizeHandle = within(threadPane).getByRole("separator", { name: "Resize Thread pane" });
     expect(resizeHandle).toHaveAttribute("aria-orientation", "vertical");
     expect(resizeHandle).toHaveAttribute("aria-valuemin", "360");
@@ -536,6 +536,7 @@ function message(channelId: string, seq: number, body: string) {
 function taskSummary() {
   return {
     id: "019c0000-0000-7000-8000-000000000090",
+    seq: 7,
     title: "Ship message metadata",
     status: "in_progress",
     assignee_agent_member_id: "019c0000-0000-7000-8000-000000000020",

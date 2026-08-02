@@ -1471,6 +1471,7 @@ fn test_input<const N: usize>(
         work: WorkInput {
             task: task_id.map(|task_id| TaskInput {
                 task_id,
+                seq: 0,
                 title: "task".to_owned(),
                 status: "in_progress".to_owned(),
             }),

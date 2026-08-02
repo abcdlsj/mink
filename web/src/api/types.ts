@@ -398,6 +398,7 @@ export interface components {
             /** Format: int64 */
             seq: number;
             task?: null | components["schemas"]["MessageTaskSummary"];
+            task_refs: components["schemas"]["MessageTaskRefResponse"][];
             /** Format: uuid */
             thread_id: string;
         };
@@ -407,9 +408,19 @@ export interface components {
             assignee_name?: string | null;
             /** Format: uuid */
             id: string;
+            /** Format: int64 */
+            seq: number;
             status: components["schemas"]["TaskStatus"];
             title: string;
             working_elsewhere: boolean;
+        };
+        MessageTaskRefResponse: {
+            /** Format: int64 */
+            seq: number;
+            /** Format: uuid */
+            task_id: string;
+            status: components["schemas"]["TaskStatus"];
+            title: string;
         };
         PairingDetailsResponse: {
             daemon_version: string;
@@ -494,6 +505,8 @@ export interface components {
             finished_at?: string | null;
             /** Format: uuid */
             id: string;
+            /** Format: int64 */
+            seq: number;
             recent_runs: components["schemas"]["RunResponse"][];
             related_threads: components["schemas"]["ThreadReferenceResponse"][];
             result_message?: null | components["schemas"]["MessageResponse"];
@@ -610,6 +623,7 @@ export type Message = components["schemas"]["MessageResponse"];
 export type MessageAuthor = components["schemas"]["MessageAuthor"];
 export type MessagePage = components["schemas"]["MessagePageResponse"];
 export type MessageTaskSummary = components["schemas"]["MessageTaskSummary"];
+export type MessageTaskRef = components["schemas"]["MessageTaskRefResponse"];
 export type PairingDetails = components["schemas"]["PairingDetailsResponse"];
 export type ReadAgentMemoryInput = components["schemas"]["ReadMemoryRequest"];
 export type RegisterInput = components["schemas"]["RegisterRequest"];

@@ -206,6 +206,7 @@ impl ServerConnectionAdapter {
                     work: WorkInput {
                         task: start.task.as_ref().map(|task| TaskInput {
                             task_id: task.task_id,
+                            seq: task.seq,
                             title: task.title.clone(),
                             status: task_status(task.status).to_owned(),
                         }),

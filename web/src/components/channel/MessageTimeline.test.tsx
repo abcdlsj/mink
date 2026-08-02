@@ -18,7 +18,7 @@ describe("ExpandableMessageText", () => {
       <ExpandableMessageText
         messageId="message-1"
         body={Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n")}
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -48,7 +48,7 @@ describe("highlightMentions", () => {
       <ExpandableMessageText
         messageId="message-mentions"
         body="@Lin please check email@lin, @lincoln, and (@Lin)."
-        mentionedNames={new Set(["lin"])}
+        mentionedNames={new Set(["lin"])} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -62,7 +62,7 @@ describe("highlightMentions", () => {
       <ExpandableMessageText
         messageId="message-unrecognized-mention"
         body="Please check @lin."
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -77,7 +77,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-inline-code"
         body="Run `sumi server --help`, then check @lin and `@lin` inside code."
-        mentionedNames={new Set(["lin"])}
+        mentionedNames={new Set(["lin"])} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -95,7 +95,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-unclosed-code"
         body="A lone `backtick stays plain"
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -110,7 +110,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-bold"
         body="Use **strong** and *emphasis* together."
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -124,7 +124,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-headings"
         body={"# One\n## Two\n### Three\nbody text"}
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -138,7 +138,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-lists"
         body={"- first\n- second\n\n1. one\n2. two"}
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -151,7 +151,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-links"
         body="See [docs](https://example.test/docs) and [bad](javascript:alert(1))."
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -166,7 +166,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-code-block"
         body={"```\nsumi server --help\n```"}
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -178,12 +178,30 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-nested"
         body="Run **`sumi server`** now."
-        mentionedNames={new Set()}
+        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
     const strong = container.querySelector("strong");
     expect(strong).not.toBeNull();
     expect(strong?.querySelector("code.message-inline-code")).toHaveTextContent("sumi server");
+  });
+
+  it("renders recognized task refs as links and leaves unknown refs plain", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-taskrefs"
+        body="Work on !3 and mention !99 later."
+        mentionedNames={new Set()}
+        taskRefs={new Map([[3, { seq: 3, task_id: "task-3", title: "Rebuild WebUI", status: "in_progress" }]])}
+        spaceSlug="sumi-lab"
+      />,
+    );
+
+    const link = container.querySelector("a.message-task-ref");
+    expect(link).toHaveAttribute("href", "/s/sumi-lab/tasks/task-3");
+    expect(link).toHaveTextContent("!3");
+    expect(container).toHaveTextContent("!99");
+    expect(container.querySelectorAll("a.message-task-ref")).toHaveLength(1);
   });
 });
