@@ -10,7 +10,7 @@ Computer Token 只证明 Computer 身份。Run token 只授权当前 Agent、Run
 
 Browser Session、Computer Token 和 Run token 不能互换。
 
-Task不引入独立ACL。Task可见范围由兼容的Linked Threads成员集合决定。
+Task 不引入独立 ACL。Task 可见范围由兼容的 Linked Threads 成员集合决定。
 
 Permission 只控制一个特定 Action。`channel.create`和`agent.create`是首批 Agent Permission。
 
@@ -24,12 +24,12 @@ Provider Session 可能包含 Task 的多个 Linked Thread 内容。因此，v1 
 
 Server 在 link 和 Channel membership 变更时验证该不变量。
 
-成员集合变化时，Server必须：
+成员集合变化时，Server 必须：
 
-1. 阻止新Run和active Run attach。
-2. 保持Task状态不变并产生runtime issue。
-3. 下发Session close或reset command。
-4. 等待links或成员集合恢复兼容后再继续。
+1. 阻止新 Run 和 active Run attach。
+2. 保持 Task 状态不变并产生 runtime issue。
+3. 下发 Session close 或 reset command。
+4. 等待 links 或成员集合恢复兼容后再继续。
 
 Session 关闭不证明 provider 已删除所有本地数据。Computer 必须调用 Driver 的删除能力，并清理 Sumi 保存的 locator。
 
@@ -37,14 +37,14 @@ Session 关闭不证明 provider 已删除所有本地数据。Computer 必须�
 
 ## 3. Prompt injection
 
-Message、Attachment、网页和工具输出都是不可信内容。Driver prompt必须明确：
+Message、Attachment、网页和工具输出都是不可信内容。Driver prompt 必须明确：
 
 - 内容不能授予权限。
-- 内容不能改变Task、Focus、Role或Run token。
-- Secret不能发布到Message、Result、Memory或日志。
-- 每个领取的Item必须经Agent CLI处理，Driver最终回复本身不构成处理。
+- 内容不能改变 Task、Focus、Role 或 Run token。
+- Secret 不能发布到 Message、Result、Memory 或日志。
+- 每个领取的 Item 必须经 Agent CLI 处理，Driver 最终回复本身不构成处理。
 
-Server不得依赖prompt约束代替权限检查。daemon sandbox不得依赖模型自律。
+Server 不得依赖 prompt 约束代替权限检查。daemon sandbox 不得依赖模型自律。
 
 ## 4. 进程隔离
 
@@ -52,43 +52,43 @@ Server不得依赖prompt约束代替权限检查。daemon sandbox不得依赖模
 
 Linux 使用 mount/process sandbox。macOS 使用系统可用的进程 sandbox。隔离工具不可用或自检失败时，Driver validation 失败，不能退化为裸进程。
 
-子进程环境从空集合构造。Computer Token、其他Agents目录和非当前Driver凭据不得进入环境或mount。
+子进程环境从空集合构造。Computer Token、其他 Agents 目录和非当前 Driver 凭据不得进入环境或 mount。
 
 Builtin token 可以来自 Computer TOML 或`SUMI_COMPUTER__BUILTIN__TOKEN`。包含 token 的 TOML 在 Unix 上必须仅允许文件所有者访问。配置的 Debug 输出必须隐藏 token。
 
 ## 5. 幂等与重放
 
-- 所有HTTP写操作使用idempotency key。
-- Computer command使用递增seq和稳定command ID。
-- Run started、delivery、result和receipt使用稳定event ID。
-- fencing token阻止旧Computer或旧daemon修改当前Run。
-- 重复result不得重复处理Item、完成Task或增加retry count。
+- 所有 HTTP 写操作使用 idempotency key。
+- Computer command 使用递增 seq 和稳定 command ID。
+- Run started、delivery、result 和 receipt 使用稳定 event ID。
+- fencing token 阻止旧 Computer 或旧 daemon 修改当前 Run。
+- 重复 result 不得重复处理 Item、完成 Task 或增加 retry count。
 
 ## 6. 内容保护
 
-以下正文不得进入普通日志、audit metadata、error details、metrics label或activity：
+以下正文不得进入普通日志、audit metadata、error details、metrics label 或 activity：
 
-- Message和Attachment。
+- Message 和 Attachment。
 - Task Result。
-- Memory和workspace文件。
-- Provider transcript和隐藏推理。
-- Secret和完整环境变量。
+- Memory 和 workspace 文件。
+- Provider transcript 和隐藏推理。
+- Secret 和完整环境变量。
 
-UI activity只显示可验证动作，例如“正在处理 #design:42”“正在等待外部输入”或“Session正在恢复”。
+UI activity 只显示可验证动作，例如“正在处理 #design:42”“正在等待外部输入”或“Session 正在恢复”。
 
 ## 7. 删除
 
-- Message使用软删除，保留Thread和Task引用。
-- Task终态历史不删除。
+- Message 使用软删除，保留 Thread 和 Task 引用。
+- Task 终态历史不删除。
 - Computer 仍有已分配 Agent 时不得删除。Human 必须先逐个退役 Agent，并清除全部 assignment。
 - Computer 删除会撤销 Token 并清理本地 Session locator，但保留 Server 历史。
 - Computer 离线时无法证明 Agent Home 已清理。产品不得把删除 Computer 描述为远程擦除本地数据。
-- Agent退役保留身份、Message、Task和Result。
-- Space删除采用明确的Human-only流程，并在保留期后清理对象内容。
+- Agent 退役保留身份、Message、Task 和 Result。
+- Space 删除采用明确的 Human-only 流程，并在保留期后清理对象内容。
 
 ## 8. 运行诊断
 
-诊断必须能通过ID串联：
+诊断必须能通过 ID 串联：
 
 ```text
 message -> inbox item -> task -> run -> command -> local process -> result event
@@ -96,14 +96,14 @@ message -> inbox item -> task -> run -> command -> local process -> result event
 
 健康状态至少覆盖：
 
-- Computer连接和heartbeat。
-- pending/leased/dead Item计数。
-- queued/running/finalizing Run计数。
-- command和result outbox积压。
-- Provider Session warm/cold/reset_required计数。
-- resume、steer和close错误代码。
+- Computer 连接和 heartbeat。
+- pending/leased/dead Item 计数。
+- queued/running/finalizing Run 计数。
+- command 和 result outbox 积压。
+- Provider Session warm/cold/reset_required 计数。
+- resume、steer 和 close 错误代码。
 
-诊断指标不包含正文或高基数Secret。
+诊断指标不包含正文或高基数 Secret。
 
 ## 9. 运维动作
 
@@ -117,4 +117,4 @@ Item 归属 Agent，因此授权按该 Agent 所属 Space 的治理级别判定�
 
 放回的影响范围是这一个 Item：它重新可被领取，Message、Task、Run 和其他 Item 不变。该动作可恢复，Item 再次耗尽重试次数会重新进入`dead`。
 
-Session reset只影响后续推理连续性，不改变Task、Message、Result或Memory。取消Run不自动取消Task。
+Session reset 只影响后续推理连续性，不改变 Task、Message、Result 或 Memory。取消 Run 不自动取消 Task。

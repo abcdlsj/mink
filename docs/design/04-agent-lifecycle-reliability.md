@@ -4,7 +4,7 @@
 
 ## 1. Run 定义
 
-Run 是 Agent 围绕一个 Focus 完成一次处理的有界执行。Run包含：
+Run 是 Agent 围绕一个 Focus 完成一次处理的有界执行。Run 包含：
 
 - 一个 `agent_id`。
 - 一个可空 `task_id`。
@@ -35,7 +35,7 @@ queued -> starting -> running -> finalizing -> completed
 - `stopping`：已请求停止，进程退出尚未确认。
 - `canceled`：停止已确认。
 
-所有 Runs必须到达一个终态。Run 终态不自动等于 Task 终态。
+所有 Runs 必须到达一个终态。Run 终态不自动等于 Task 终态。
 
 ## 3. 有界条件
 
@@ -59,7 +59,7 @@ Run 达到上限时可以 yield 或 failed。后续 Run 仍可 resume 同一 Ses
 
 ## 4. active Run 接收新 hard Item
 
-新 hard Item 到达时，Server按以下规则处理：
+新 hard Item 到达时，Server 按以下规则处理：
 
 ```text
 没有 active Run
@@ -80,7 +80,7 @@ Run 已 finalizing/stopping
 
 attention notice 只包含来源类型、Task/Thread 标识、优先级和到达时间。当前 Run 未获授权时不得包含正文或 private Channel 地址。
 
-Agent收到不同 Focus notice 后可以继续当前 Run，也可以 yield。系统不得自动切换 Focus、Task 或 Provider Session。
+Agent 收到不同 Focus notice 后可以继续当前 Run，也可以 yield。系统不得自动切换 Focus、Task 或 Provider Session。
 
 ## 5. 同 Focus attach 事务
 
@@ -88,13 +88,13 @@ Agent收到不同 Focus notice 后可以继续当前 Run，也可以 yield。系
 
 1. 锁定 Run 和 Item。
 2. 校验 Run 仍为 `running`。
-3. 校验Item的可选Task和Thread与Run scope相同。
+3. 校验 Item 的可选 Task 和 Thread 与 Run scope 相同。
 4. 将 Item 从 `pending` 改为 `leased`。
 5. 创建 `run_items` 关系。
 6. 分配递增 `run_items.delivery_seq`。
 7. 写入 Computer command 和 outbox。
 
-Computer按该 delivery sequence 幂等接收。重复交付不得重复 steer。Run在事务前进入 finalizing 时，Item保持 pending。
+Computer 按该 delivery sequence 幂等接收。重复交付不得重复 steer。Run 在事务前进入 finalizing 时，Item 保持 pending。
 
 普通 Run 的`task_id`为空。Agent 从当前 Focus 创建 Task 时，Server 在 Task 事务中填写 Run 和已领取 Item 的`task_id`。
 
@@ -113,20 +113,20 @@ observe(turn) -> events
 close(session, reason) -> outcome
 ```
 
-`too_late` 表示 Driver turn 已完成。Computer 将 Item delivery 保持未消费并报告 Server；Server把 Item释放回 pending，后续 Run处理。
+`too_late` 表示 Driver turn 已完成。Computer 将 Item delivery 保持未消费并报告 Server；Server 把 Item 释放回 pending，后续 Run 处理。
 
-Driver不支持 steer 时，Computer发送 attention notice并让 Item保持 pending。Driver能力差异不能改变 Server 的 Task 和 Run 事实。
+Driver 不支持 steer 时，Computer 发送 attention notice 并让 Item 保持 pending。Driver 能力差异不能改变 Server 的 Task 和 Run 事实。
 
 ## 7. yield
 
-Yield 用于释放当前 Focus，让 Agent转向另一个 waiting item。Agent提交 yield 时可以：
+Yield 用于释放当前 Focus，让 Agent 转向另一个 waiting item。Agent 提交 yield 时可以：
 
 - handle 已完成的 Items。
 - defer 尚不需要处理的 Items。
 - release 未完成的 Items。
 - 写入不含隐藏推理的简短 continuation note。
 
-Server原子提交Item状态和Run `yielded` 结果。Yield不改变Task状态；等待原因保存在Run outcome。Provider Session保持ready，供后续同scope Run resume。
+Server 原子提交 Item 状态和 Run `yielded` 结果。Yield 不改变 Task 状态；等待原因保存在 Run outcome。Provider Session 保持 ready，供后续同 scope Run resume。
 
 Yield 不是 Session reset，也不是 Task cancel。
 
@@ -142,13 +142,13 @@ Run 完成事务必须：
 6. 写入 audit 和 Server outbox。
 7. 返回 result receipt。
 
-Computer先在 SQLite 原子保存本地终态和 result outbox，再重试上报直到收到 receipt。WebSocket 断开不能丢失结果。
+Computer 先在 SQLite 原子保存本地终态和 result outbox，再重试上报直到收到 receipt。WebSocket 断开不能丢失结果。
 
 ## 9. 租约与 fencing
 
-Server为 Run生成 ownership lease 和 fencing token。`run_started`、renew、Item delivery receipt、activity 和 result 都必须携带 token。
+Server 为 Run 生成 ownership lease 和 fencing token。`run_started`、renew、Item delivery receipt、activity 和 result 都必须携带 token。
 
-lease 过期后，Server使 token 失效并释放 Items。旧 Computer 后续上报只能写诊断记录，不能改变 Task、Run 或 Inbox。
+lease 过期后，Server 使 token 失效并释放 Items。旧 Computer 后续上报只能写诊断记录，不能改变 Task、Run 或 Inbox。
 
 Server 周期性扫描 lease 已过期且未到终态的 Runs。每个 Run 单独一个事务，因此一个无法恢复的 Run 不阻塞其余 Run。事务内：
 
@@ -166,42 +166,42 @@ Command delivery 使用 at-least-once。所有 command、event 和 receipt 都�
 
 WebSocket 断开不改变本地 Driver、Run、Session 或 result outbox。重连时：
 
-1. daemon发送 command watermark 和 daemon session ID。
-2. Server重放未确认 commands。
-3. daemon重发 started 和 result events。
-4. 同一 fencing token 的 running Run保留现有进程。
-5. Session registry继续使用本地 locator。
+1. daemon 发送 command watermark 和 daemon session ID。
+2. Server 重放未确认 commands。
+3. daemon 重发 started 和 result events。
+4. 同一 fencing token 的 running Run 保留现有进程。
+5. Session registry 继续使用本地 locator。
 
-daemon重启时：
+daemon 重启时：
 
-- 有进程所有权证据的 Run可以重新接管。
-- 无法证明进程仍受控的 Run写入 `process_lost`。
+- 有进程所有权证据的 Run 可以重新接管。
+- 无法证明进程仍受控的 Run 写入 `process_lost`。
 - 已结束但未回执的结果继续上报。
-- ready Provider Session保留；resume失败时创建新 generation。
+- ready Provider Session 保留；resume 失败时创建新 generation。
 
 ## 11. 公平调度
 
-Computer scheduler按本机执行槽限制并发。一个 Agent最多占一个 active Run。不同 Agents按 round-robin 取得执行槽，hard Item优先于 ambient Item。
+Computer scheduler 按本机执行槽限制并发。一个 Agent 最多占一个 active Run。不同 Agents 按 round-robin 取得执行槽，hard Item 优先于 ambient Item。
 
-同一 Agent有多个 pending Focus 时，选择顺序为：
+同一 Agent 有多个 pending Focus 时，选择顺序为：
 
-1. Human明确要求切换的 Item。
+1. Human 明确要求切换的 Item。
 2. hard Item 的到达时间。
 3. 已有 Task 的连续性。
 4. ambient Item 的聚合时间。
 
-Server不根据正文、标题或模型判断优先级。
+Server 不根据正文、标题或模型判断优先级。
 
 ## 12. 必测故障
 
 - hard Item 与 Run finalizing 并发。
-- 同 Focus Item重复交付和重复 steer。
+- 同 Focus Item 重复交付和重复 steer。
 - 不同 Focus notice 到达后 Agent yield。
 - `run_started` 成功但 receipt 丢失。
-- result提交成功但 receipt 丢失。
-- WebSocket断线期间 Driver完成。
-- daemon重启后进程存在和进程丢失两种情况。
-- lease过期后旧 fencing token上报。
-- Provider Session resume失败后新 generation恢复 Task。
-- Task完成后 Session close失败。
-- 多 Agent竞争执行槽且无长期饥饿。
+- result 提交成功但 receipt 丢失。
+- WebSocket 断线期间 Driver 完成。
+- daemon 重启后进程存在和进程丢失两种情况。
+- lease 过期后旧 fencing token 上报。
+- Provider Session resume 失败后新 generation 恢复 Task。
+- Task 完成后 Session close 失败。
+- 多 Agent 竞争执行槽且无长期饥饿。

@@ -63,7 +63,7 @@ _Avoid_：Blob、Artifact
 _Avoid_：Job、Agent Run、Inbox Item、Workflow、Message 标签
 
 **Task Status**：
-Task的工作流位置，只取TODO、In Progress、In Review、Done或Closed。Running和Waiting属于执行状态，不是Task Status。
+Task 的工作流位置，只取 TODO、In Progress、In Review、Done 或 Closed。Running 和 Waiting 属于执行状态，不是 Task Status。
 _Avoid_：Run Status、Activity Status
 
 **Source Thread**：
@@ -79,7 +79,7 @@ _Avoid_：Related Conversation、Context Link
 _Avoid_：Scope、Current Task、Prompt Context
 
 **Result**：
-Task对协作者公开的正式工作结论。Result是一条由Task指定的Message，不是复制的第二份正文。
+Task 对协作者公开的正式工作结论。Result 是一条由 Task 指定的 Message，不是复制的第二份正文。
 _Avoid_：Run Output、Final Message、Driver Output
 
 ## 执行与注意力
@@ -117,7 +117,7 @@ _Avoid_：Job、Task、Trigger
 _Avoid_：Urgent Message、Interrupt
 
 **Ambient Item**：
-允许聚合并由 Agent判断是否处理的普通 Channel 活动。
+允许聚合并由 Agent 判断是否处理的普通 Channel 活动。
 _Avoid_：Background Message、Low-priority Message
 
 **Yield**：

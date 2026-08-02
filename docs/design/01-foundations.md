@@ -66,7 +66,7 @@ WebSocket、SSE、进程内 channel、Provider Session 和 Browser cache 都不�
 - 根据正文自动创建、合并或绑定 Task。
 - 一个 Run 同时执行多个 Focus。
 - Agent 并行运行多个 Runs。
-- Provider Session 跨 Agent、跨 Task或跨无关Threads复用。
+- Provider Session 跨 Agent、跨 Task 或跨无关 Threads 复用。
 - Server 保存 Provider Session 正文。
 - Browser 输入模型 API key。
 - 旧数据迁移和旧 API 兼容。
@@ -105,7 +105,7 @@ Computer 不决定 Task 关系，也不修改 Server 事实的含义。
 
 ### 5.3 Agent CLI
 
-Agent CLI 是 Run 内的受限能力接口。CLI 从当前 Run 获得 Agent、Focus和可选Task，不要求 Agent重复提交这些可推导字段。
+Agent CLI 是 Run 内的受限能力接口。CLI 从当前 Run 获得 Agent、Focus 和可选 Task，不要求 Agent 重复提交这些可推导字段。
 
 ### 5.4 Browser
 

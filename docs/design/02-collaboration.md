@@ -56,13 +56,13 @@ TODO -> In Progress -> In Review -> Done
 TODO / In Progress / In Review -> Closed
 ```
 
-- `todo`：Task已经成立，尚未开始处理。
-- `in_progress`：assignee正在推进Task。该状态不表示此刻一定存在active Run。
+- `todo`：Task 已经成立，尚未开始处理。
+- `in_progress`：assignee 正在推进 Task。该状态不表示此刻一定存在 active Run。
 - `in_review`：工作结果已经提交，正在等待另一位 Human 或 Agent Member 确认。该阶段可以跳过。
-- `done`：Result已经确认，Task正常完成。
-- `closed`：Task因错误、重复、无用或废弃而终止。
+- `done`：Result 已经确认，Task 正常完成。
+- `closed`：Task 因错误、重复、无用或废弃而终止。
 
-进入`in_progress`前必须有assignee。`in_progress`可以直接进入`done`，也可以先进入`in_review`。`done`和`closed`是终态。
+进入`in_progress`前必须有 assignee。`in_progress`可以直接进入`done`，也可以先进入`in_review`。`done`和`closed`是终态。
 
 `closed`必须保存结构化原因和可选说明。原因取`invalid|duplicate|not_needed|obsolete|other`。
 
@@ -70,12 +70,12 @@ TODO / In Progress / In Review -> Closed
 
 状态转换规则固定为：
 
-- Assigned Agent的首个Task Run进入`running`时，Server把`todo`改为`in_progress`。
-- assignee可以把`in_progress`改为`in_review`。
-- assignee可以在不需要复核时把`in_progress`直接改为`done`。
+- Assigned Agent 的首个 Task Run 进入`running`时，Server 把`todo`改为`in_progress`。
+- assignee 可以把`in_progress`改为`in_review`。
+- assignee 可以在不需要复核时把`in_progress`直接改为`done`。
 - 除 assignee 外，能读取 Task 的 Human 或 Agent Member 可以把`in_review`改为`done`或退回`in_progress`。
-- creator、assignee或有权治理且能读取Source Thread的Human可以把未结束Task改为`closed`。
-- `done`和`closed`在v1不可重新打开。需要继续工作时创建新的Root Message和Task。
+- creator、assignee 或有权治理且能读取 Source Thread 的 Human 可以把未结束 Task 改为`closed`。
+- `done`和`closed`在 v1 不可重新打开。需要继续工作时创建新的 Root Message 和 Task。
 
 Task 不包含子任务、依赖、优先级、截止时间、评论或单独权限模型。
 
@@ -85,27 +85,27 @@ Review 不使用 Permission、reviewer Role 或 reviewer 绑定。Assignee 根�
 
 只有 Root Message 可以成为 Task source。Thread reply、Attachment、Inbox Item 和 Run 都不能成为来源。
 
-Agent在Run中发起创建时只提交：
+Agent 在 Run 中发起创建时只提交：
 
 - 可选 `title`
 - 可选 `assignee_agent_member_id`
 - `idempotency_key`
 
-Server 从当前Run的Focus推导Root Message、`space_id`、`channel_id`、`source_thread_id` 和可见范围。Server 在一个事务中：
+Server 从当前 Run 的 Focus 推导 Root Message、`space_id`、`channel_id`、`source_thread_id` 和可见范围。Server 在一个事务中：
 
 1. 校验调用 Agent 可以读取 Root Message。
 2. 校验 Message 位于 Channel 主时间线。
-3. 锁定Root Message和Thread。
-4. 创建Task，并把推导出的Thread直接写入`source_thread_id`。
-5. 将当前Run和它领取的同Focus Items绑定到Task。
-6. 写入本地Session提升command、audit和outbox。
-7. 返回包含Source Thread的完整Task。
+3. 锁定 Root Message 和 Thread。
+4. 创建 Task，并把推导出的 Thread 直接写入`source_thread_id`。
+5. 将当前 Run 和它领取的同 Focus Items 绑定到 Task。
+6. 写入本地 Session 提升 command、audit 和 outbox。
+7. 返回包含 Source Thread 的完整 Task。
 
-事务中的任一步失败时，不得留下Task或半绑定Run。Agent不调用第二个bind命令，也不提交Message ID或Thread ID。
+事务中的任一步失败时，不得留下 Task 或半绑定 Run。Agent 不调用第二个 bind 命令，也不提交 Message ID 或 Thread ID。
 
-Human创建的Task初始为`todo`。Agent在普通Run中创建Task时，Server同时绑定当前Run和当前Agent；Run已经是`running`，所以Task直接进入`in_progress`。
+Human 创建的 Task 初始为`todo`。Agent 在普通 Run 中创建 Task 时，Server 同时绑定当前 Run 和当前 Agent；Run 已经是`running`，所以 Task 直接进入`in_progress`。
 
-同一Root Message最多创建一个Task。相同idempotency key重试必须返回同一Task。不同请求并发创建时，一个成功，另一个返回现有Task冲突。
+同一 Root Message 最多创建一个 Task。相同 idempotency key 重试必须返回同一 Task。不同请求并发创建时，一个成功，另一个返回现有 Task 冲突。
 
 Human WebUI 使用同一领域命令。Browser 的“一步创建”与 Agent CLI 不得实现两套事务。
 
@@ -113,14 +113,14 @@ Human WebUI 使用同一领域命令。Browser 的“一步创建”与 Agent CL
 
 Task 创建后可以关联额外 Thread。关联表达“该 Thread 正在讨论同一项工作”，不复制 Message，也不改变 Thread 权限。
 
-Source Thread直接保存在Task，不创建link行。每个Related link包含：
+Source Thread 直接保存在 Task，不创建 link 行。每个 Related link 包含：
 
 - `task_id`
 - `thread_id`
 - `linked_by_member_id`
 - `linked_at`
 
-Source Thread不可删除或更换。Related link可以由Task assignee或有权读取两个对象的Human添加和移除。
+Source Thread 不可删除或更换。Related link 可以由 Task assignee 或有权读取两个对象的 Human 添加和移除。
 
 一个 Thread 同时最多关联一个未结束 Task。Task 进入`done`或`closed`后，link 保留为历史。
 
@@ -137,8 +137,8 @@ v1 只允许 Task 关联可见范围兼容的 Threads。兼容表示各 Thread �
 该限制确保一个 Provider Session 中的 Task 内容可以安全用于任一 Linked Thread。Channel membership 变化导致集合不再相同时：
 
 1. Server 保留历史 link。
-2. Task状态保持不变，并记录可见的runtime issue。
-3. active Run停止接收新Item。
+2. Task 状态保持不变，并记录可见的 runtime issue。
+3. active Run 停止接收新 Item。
 4. Computer 关闭该 Task 的 Provider Session。
 5. assignee 或 Human 移除不兼容 link，或在统一成员集合后继续 Task。
 
@@ -146,28 +146,28 @@ v1 不通过隐藏部分 links 或按成员生成多个 Task 投影绕过该限�
 
 ## 5. Focus
 
-每个 Run 必须选择一个 Thread 作为 Focus。Run绑定Task后，该Focus必须是Task的Linked Thread。Focus决定：
+每个 Run 必须选择一个 Thread 作为 Focus。Run 绑定 Task 后，该 Focus 必须是 Task 的 Linked Thread。Focus 决定：
 
 - 本 Run 默认读取的消息窗口。
 - 新 hard Item 是否可以加入 active Run。
 - Agent 的普通回复默认发送到哪个 Thread。
 - UI 显示 Agent 正在处理的位置。
 
-Focus 不限制 Agent读取其他已授权 Channel。Agent读取其他位置不会自动改变 Focus，也不会创建 Task link。
+Focus 不限制 Agent 读取其他已授权 Channel。Agent 读取其他位置不会自动改变 Focus，也不会创建 Task link。
 
-Run 期间不得切换 Focus。Agent要处理另一个 Focus 时，必须 yield 或完成当前 Run，再由 Server 创建新 Run。
+Run 期间不得切换 Focus。Agent 要处理另一个 Focus 时，必须 yield 或完成当前 Run，再由 Server 创建新 Run。
 
 ## 6. Result 与协作输出
 
-普通Agent Message是对话输出。Task Result引用一条Message，不复制正文。进入`done`时，Server在一个事务中：
+普通 Agent Message 是对话输出。Task Result 引用一条 Message，不复制正文。进入`done`时，Server 在一个事务中：
 
 1. 在 Source Thread 或当前 Focus 发送结果 Message。
-2. 将该Message ID写入`result_message_id`。
-3. 将Task标记为`done`并写入`finished_at`。
+2. 将该 Message ID 写入`result_message_id`。
+3. 将 Task 标记为`done`并写入`finished_at`。
 4. 处理对应 Inbox Items。
 5. 写入 audit 和 outbox。
 
-Result Message必须保存在Server。Driver的final output、stdout或Provider Session内容不能自动成为Result。
+Result Message 必须保存在 Server。Driver 的 final output、stdout 或 Provider Session 内容不能自动成为 Result。
 
 Task 进入`in_review`时应该发送可审阅的 Message，但不填写`result_message_id`。
 
@@ -194,11 +194,11 @@ Computer 应关闭对应的 Provider Session。关闭失败不能回滚 Task 终
 
 ## 8. 删除与编辑
 
-Root Message成为Task source后不得硬删除。作者或Admin可以软删除正文，但必须保留来源占位、Message ID、Thread和Task。
+Root Message 成为 Task source 后不得硬删除。作者或 Admin 可以软删除正文，但必须保留来源占位、Message ID、Thread 和 Task。
 
 编辑 source Root Message 不修改 Task title。Task title 是独立事实，只能通过 Task update 修改。
 
-删除reply不改变Task link。归档Channel不删除Task，也不改写Task状态。系统阻止该Task的新Run，直到Channel恢复或Task进入`closed`。
+删除 reply 不改变 Task link。归档 Channel 不删除 Task，也不改写 Task 状态。系统阻止该 Task 的新 Run，直到 Channel 恢复或 Task 进入`closed`。
 
 ## 9. 典型流程
 
@@ -222,6 +222,6 @@ Human 或 assignee 显式关联 Related Thread
   -> Provider Session 仍按同一 Task 复用
 ```
 
-### 9.3 Agent在reply触发的Run中创建Task
+### 9.3 Agent 在 reply 触发的 Run 中创建 Task
 
-Agent显式调用`task create`后，Server使用Focus Thread的Root Message作为source。reply只触发Run，不成为Task source。Agent不提交或绑定reply ID。
+Agent 显式调用`task create`后，Server 使用 Focus Thread 的 Root Message 作为 source。reply 只触发 Run，不成为 Task source。Agent 不提交或绑定 reply ID。
