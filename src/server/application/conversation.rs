@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use time::OffsetDateTime;
 
-use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, MessageId, RunId, SpaceId};
+use crate::ids::{
+    ChannelId, ComputerId, IdempotencyKey, MemberId, MessageId, RunId, SpaceId, ThreadId,
+};
 use crate::server::domain::{
     conversation::{Channel, ChannelKind, Message, MessageContent},
     execution::RunStatus,
@@ -68,7 +70,7 @@ impl SetThreadSubscription {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         actor_member_id: MemberId,
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
         following: bool,
         now: OffsetDateTime,
     ) -> Result<bool, ApplicationError> {
@@ -576,7 +578,7 @@ impl AddChannelAgents {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         actor: MemberId,
-        channel_id: crate::ids::ChannelId,
+        channel_id: ChannelId,
         agent_ids: Vec<MemberId>,
         idempotency_key: IdempotencyKey,
         now: OffsetDateTime,

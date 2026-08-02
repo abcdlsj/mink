@@ -22,7 +22,7 @@ use crate::{
             supervisor::{FencingToken, LocalRun, NewRun},
         },
     },
-    ids::{AgentId, InboxItemId, RunId, ThreadId},
+    ids::{AgentId, InboxItemId, RunId, SpaceId, ThreadId},
 };
 
 struct FakeClient {
@@ -230,7 +230,7 @@ fn test_run(driver: DriverKind) -> LocalRun {
             global_contract: "contract".to_owned(),
             agent: AgentInput {
                 agent_id,
-                space_id: crate::ids::SpaceId::from_uuid(Uuid::nil()),
+                space_id: SpaceId::from_uuid(Uuid::nil()),
                 identity: "agent".to_owned(),
                 role_revision: 1,
                 role: "role".to_owned(),

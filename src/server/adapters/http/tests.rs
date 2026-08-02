@@ -7,7 +7,10 @@ use tempfile::TempDir;
 use url::Url;
 
 use super::*;
-use crate::ids::AgentId;
+use crate::ids::{AgentId, ChannelId, EventId, IdempotencyKey, SpaceId};
+use crate::protocol::computer::{
+    FencingToken, ItemDisposition, ItemOutcome, RunResult, RunTerminalStatus,
+};
 
 struct CapabilityFixture {
     state: RuntimeState,
@@ -106,7 +109,7 @@ impl CapabilityFixture {
             channel_id,
             context: capability::RunContext {
                 agent_id: AgentId::from_uuid(agent_id),
-                space_id: crate::ids::SpaceId::from_uuid(space_id),
+                space_id: SpaceId::from_uuid(space_id),
                 task_id: None,
                 focus_thread_id: ThreadId::from_uuid(focus_id),
                 run_id: RunId::from_uuid(run_id),
@@ -119,17 +122,14 @@ impl CapabilityFixture {
     }
 
     async fn execute(&self, action: capability::Action) -> Result<Value, capability::Error> {
-        self.execute_with_key(
-            action,
-            crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
-        )
-        .await
+        self.execute_with_key(action, IdempotencyKey::from_uuid(Uuid::now_v7()))
+            .await
     }
 
     async fn execute_with_key(
         &self,
         action: capability::Action,
-        idempotency_key: crate::ids::IdempotencyKey,
+        idempotency_key: IdempotencyKey,
     ) -> Result<Value, capability::Error> {
         execute_agent_action(
             &self.state,
@@ -368,7 +368,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         fixture.channel_id,
         fixture.owner_id,
         MessageWriteContext {
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: Some(focus_id),
             handled_item: None,
             expected_snapshot: None,
@@ -417,7 +417,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         fixture.channel_id,
         fixture.owner_id,
         MessageWriteContext {
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: None,
             handled_item: None,
             expected_snapshot: None,
@@ -455,7 +455,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
         fixture.channel_id,
         fixture.owner_id,
         MessageWriteContext {
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: Some(focus_id),
             handled_item: None,
             expected_snapshot: None,
@@ -524,7 +524,7 @@ async fn agent_retirement_cancels_run_before_computer_deletion_revokes_token() {
         &mut storage,
         MemberId::from_uuid(fixture.owner_id),
         MemberId::from_uuid(fixture.context.agent_id.into_uuid()),
-        crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+        IdempotencyKey::from_uuid(Uuid::now_v7()),
         OffsetDateTime::now_utc(),
     )
     .await
@@ -545,7 +545,7 @@ async fn agent_retirement_cancels_run_before_computer_deletion_revokes_token() {
         &mut storage,
         MemberId::from_uuid(fixture.owner_id),
         ComputerId::from_uuid(fixture.computer_id),
-        crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7()),
+        IdempotencyKey::from_uuid(Uuid::now_v7()),
         OffsetDateTime::now_utc(),
     )
     .await
@@ -658,21 +658,19 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
         super::super::http::ComputerPrincipal {
             computer_id: ComputerId::from_uuid(fixture.computer_id),
         },
-        crate::protocol::computer::RunResult {
-            event_id: crate::ids::EventId::from_uuid(Uuid::now_v7()),
+        RunResult {
+            event_id: EventId::from_uuid(Uuid::now_v7()),
             run_id: fixture.context.run_id,
-            fencing_token: crate::protocol::computer::FencingToken::new(
-                fixture.context.fencing_token.clone(),
-            ),
-            status: crate::protocol::computer::RunTerminalStatus::Yielded,
+            fencing_token: FencingToken::new(fixture.context.fencing_token.clone()),
+            status: RunTerminalStatus::Yielded,
             item_outcomes: vec![
-                crate::protocol::computer::ItemOutcome {
+                ItemOutcome {
                     item_id: fixture.handled_item_id,
-                    disposition: crate::protocol::computer::ItemDisposition::Handled,
+                    disposition: ItemDisposition::Handled,
                 },
-                crate::protocol::computer::ItemOutcome {
+                ItemOutcome {
                     item_id: fixture.deferred_item_id,
-                    disposition: crate::protocol::computer::ItemDisposition::Deferred,
+                    disposition: ItemDisposition::Deferred,
                 },
             ],
             continuation_note: Some("continue later".to_owned()),
@@ -710,7 +708,7 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
 async fn capability_task_done_commits_collaboration_facts_and_replays() {
     let mut fixture = CapabilityFixture::create().await;
     let task_id = fixture.bind_task().await;
-    let key = crate::ids::IdempotencyKey::from_uuid(Uuid::now_v7());
+    let key = IdempotencyKey::from_uuid(Uuid::now_v7());
     let action = capability::Action::TaskDone {
         result: "Task Result".into(),
         post_to: capability::PostTarget::Focus,
@@ -934,7 +932,7 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
         .unwrap();
     let read = fixture
         .execute(capability::Action::ChannelRead {
-            channel_id: crate::ids::ChannelId::from_uuid(channel_id),
+            channel_id: ChannelId::from_uuid(channel_id),
             around_message_id: None,
             limit: 20,
         })

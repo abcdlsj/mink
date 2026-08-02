@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::{
-    ids::IdempotencyKey,
+    ids::{AttachmentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, ThreadId},
     protocol::capability::{
         Action, CloseReason, DriverKind, MessageSend, MessageTarget, Page, PostTarget,
     },
@@ -57,11 +57,11 @@ struct MessageSendArgs {
     #[arg(long, conflicts_with = "body")]
     stdin: bool,
     #[arg(long, conflicts_with = "channel")]
-    thread: Option<crate::ids::ThreadId>,
+    thread: Option<ThreadId>,
     #[arg(long, conflicts_with = "thread")]
-    channel: Option<crate::ids::ChannelId>,
+    channel: Option<ChannelId>,
     #[arg(long)]
-    handle: Option<crate::ids::InboxItemId>,
+    handle: Option<InboxItemId>,
 }
 
 #[derive(Debug, Args)]
@@ -85,13 +85,13 @@ enum TaskCommand {
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
-        assign: Option<crate::ids::MemberId>,
+        assign: Option<MemberId>,
     },
     LinkThread {
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
     },
     UnlinkThread {
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
     },
     Update {
         #[arg(long)]
@@ -139,12 +139,12 @@ pub(crate) struct InboxArgs {
 enum InboxCommand {
     Current,
     Ack {
-        item_id: crate::ids::InboxItemId,
+        item_id: InboxItemId,
         #[arg(long)]
         reason: Option<String>,
     },
     Defer {
-        item_id: crate::ids::InboxItemId,
+        item_id: InboxItemId,
         #[arg(long)]
         until: String,
     },
@@ -163,9 +163,9 @@ enum ChannelCommand {
         private: bool,
     },
     Read {
-        channel_id: crate::ids::ChannelId,
+        channel_id: ChannelId,
         #[arg(long)]
-        around: Option<crate::ids::MessageId>,
+        around: Option<MessageId>,
         #[arg(long, default_value_t = 50)]
         limit: u16,
     },
@@ -198,7 +198,7 @@ enum AttachmentCommand {
         path: std::path::PathBuf,
     },
     Download {
-        attachment_id: crate::ids::AttachmentId,
+        attachment_id: AttachmentId,
         #[arg(long)]
         output: std::path::PathBuf,
     },
@@ -229,7 +229,7 @@ pub(crate) struct ThreadArgs {
 #[derive(Debug, Subcommand)]
 enum ThreadCommand {
     Read {
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
         #[arg(long)]
         after: Option<u64>,
         #[arg(long, default_value_t = 50)]

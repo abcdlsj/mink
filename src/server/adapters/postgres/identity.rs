@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::computer::{AgentSuspend, SuspendMode};
 
 impl PostgresTransaction {
     pub(super) async fn computer_has_assigned_agents(
@@ -54,12 +55,12 @@ impl PostgresTransaction {
         };
         self.queue_command(
             computer_id,
-            Command::AgentSuspend(crate::protocol::computer::AgentSuspend {
+            Command::AgentSuspend(AgentSuspend {
                 agent_id: AgentId::from_uuid(agent_id.into_uuid()),
                 mode: if cancel_current_run {
-                    crate::protocol::computer::SuspendMode::CancelCurrentRun
+                    SuspendMode::CancelCurrentRun
                 } else {
-                    crate::protocol::computer::SuspendMode::AfterCurrentRun
+                    SuspendMode::AfterCurrentRun
                 },
             }),
         )
@@ -1000,7 +1001,7 @@ impl IdentityTransaction for PostgresTransaction {
     async fn create_space(
         &mut self,
         actor_user_id: uuid::Uuid,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
         owner_id: MemberId,
         general_channel_id: ChannelId,
         name: &str,
@@ -1029,7 +1030,7 @@ impl IdentityTransaction for PostgresTransaction {
     async fn insert_human(
         &mut self,
         user_id: uuid::Uuid,
-        registration: &crate::server::domain::access::HumanRegistration,
+        registration: &HumanRegistration,
         password_hash: &str,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError> {
@@ -1066,26 +1067,26 @@ impl IdentityTransaction for PostgresTransaction {
     async fn space_access(
         &mut self,
         user_id: uuid::Uuid,
-        space_id: crate::ids::SpaceId,
-    ) -> Result<Option<crate::server::domain::access::SpaceAccess>, ApplicationError> {
+        space_id: SpaceId,
+    ) -> Result<Option<SpaceAccess>, ApplicationError> {
         self.space_access(user_id, space_id).await
     }
     async fn space_of_agent(
         &mut self,
         agent_id: MemberId,
-    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError> {
+    ) -> Result<Option<SpaceId>, ApplicationError> {
         self.space_of_agent(agent_id).await
     }
     async fn space_of_computer(
         &mut self,
         computer_id: ComputerId,
-    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError> {
+    ) -> Result<Option<SpaceId>, ApplicationError> {
         self.space_of_computer(computer_id).await
     }
     async fn insert_pairing(
         &mut self,
         pairing_id: uuid::Uuid,
-        pairing: &crate::server::domain::pairing::Pairing,
+        pairing: &Pairing,
         code_hash: &str,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError> {
@@ -1095,7 +1096,7 @@ impl IdentityTransaction for PostgresTransaction {
     async fn save_pairing(
         &mut self,
         pairing_id: uuid::Uuid,
-        pairing: &crate::server::domain::pairing::Pairing,
+        pairing: &Pairing,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError> {
         self.save_pairing(pairing_id, pairing, now).await
@@ -1104,27 +1105,27 @@ impl IdentityTransaction for PostgresTransaction {
         &mut self,
         pairing_id: uuid::Uuid,
         code_hash: &str,
-    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError> {
+    ) -> Result<Option<Pairing>, ApplicationError> {
         self.pairing_by_code(pairing_id, code_hash).await
     }
     async fn pairing_by_code_for_update(
         &mut self,
         pairing_id: uuid::Uuid,
         code_hash: &str,
-    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError> {
+    ) -> Result<Option<Pairing>, ApplicationError> {
         self.pairing_by_code_for_update(pairing_id, code_hash).await
     }
     async fn pairing_by_token(
         &mut self,
         pairing_id: uuid::Uuid,
         token_hash: &str,
-    ) -> Result<Option<crate::server::domain::pairing::Pairing>, ApplicationError> {
+    ) -> Result<Option<Pairing>, ApplicationError> {
         self.pairing_by_token(pairing_id, token_hash).await
     }
     async fn insert_invitation(
         &mut self,
         invitation_id: uuid::Uuid,
-        invitation: &crate::server::domain::invitation::Invitation,
+        invitation: &Invitation,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError> {
         self.insert_invitation(invitation_id, invitation, now).await
@@ -1132,27 +1133,25 @@ impl IdentityTransaction for PostgresTransaction {
     async fn save_invitation(
         &mut self,
         invitation_id: uuid::Uuid,
-        invitation: &crate::server::domain::invitation::Invitation,
+        invitation: &Invitation,
     ) -> Result<(), ApplicationError> {
         self.save_invitation(invitation_id, invitation).await
     }
     async fn invitation_by_token(
         &mut self,
         token_hash: &str,
-    ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>
-    {
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
         self.invitation_by_token(token_hash).await
     }
     async fn invitation_by_token_for_update(
         &mut self,
         token_hash: &str,
-    ) -> Result<Option<(uuid::Uuid, crate::server::domain::invitation::Invitation)>, ApplicationError>
-    {
+    ) -> Result<Option<(uuid::Uuid, Invitation)>, ApplicationError> {
         self.invitation_by_token_for_update(token_hash).await
     }
     async fn space_identity(
         &mut self,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Option<(String, String)>, ApplicationError> {
         self.space_identity(space_id).await
     }
@@ -1165,26 +1164,20 @@ impl IdentityTransaction for PostgresTransaction {
     async fn space_human_member(
         &mut self,
         user_id: uuid::Uuid,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
         self.space_human_member(user_id, space_id).await
     }
     async fn space_of_member(
         &mut self,
         member_id: MemberId,
-    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError> {
+    ) -> Result<Option<SpaceId>, ApplicationError> {
         self.space_of_member(member_id).await
     }
-    async fn member(
-        &mut self,
-        member_id: MemberId,
-    ) -> Result<crate::server::domain::identity::Member, ApplicationError> {
+    async fn member(&mut self, member_id: MemberId) -> Result<Member, ApplicationError> {
         self.member(member_id).await
     }
-    async fn save_member(
-        &mut self,
-        member: crate::server::domain::identity::Member,
-    ) -> Result<(), ApplicationError> {
+    async fn save_member(&mut self, member: Member) -> Result<(), ApplicationError> {
         self.save_member(member).await
     }
     async fn insert_computer(&mut self, record: &ComputerRecord) -> Result<(), ApplicationError> {
@@ -1198,7 +1191,7 @@ impl IdentityTransaction for PostgresTransaction {
     }
     async fn space_computers(
         &mut self,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Vec<PairedComputer>, ApplicationError> {
         self.space_computers(space_id).await
     }
@@ -1224,7 +1217,7 @@ impl IdentityTransaction for PostgresTransaction {
     async fn has_permission(
         &mut self,
         actor: MemberId,
-        action: crate::server::domain::identity::PermissionAction,
+        action: PermissionAction,
     ) -> Result<bool, ApplicationError> {
         self.has_permission(actor, action).await
     }
@@ -1245,21 +1238,21 @@ impl IdentityTransaction for PostgresTransaction {
     async fn member_access_level(
         &mut self,
         member_id: MemberId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<AccessLevel, ApplicationError> {
         self.member_access_level(member_id, space_id).await
     }
     async fn computer_accepts_agent(
         &mut self,
         computer_id: ComputerId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<bool, ApplicationError> {
         self.computer_accepts_agent(computer_id, space_id).await
     }
     async fn grant_permission(
         &mut self,
         target: MemberId,
-        action: crate::server::domain::identity::PermissionAction,
+        action: PermissionAction,
         granted_by: MemberId,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError> {
@@ -1268,7 +1261,7 @@ impl IdentityTransaction for PostgresTransaction {
     async fn revoke_permission(
         &mut self,
         target: MemberId,
-        action: crate::server::domain::identity::PermissionAction,
+        action: PermissionAction,
     ) -> Result<(), ApplicationError> {
         self.revoke_permission(target, action).await
     }

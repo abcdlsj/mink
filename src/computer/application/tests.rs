@@ -5,7 +5,8 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::ids::{
-    AgentId, CommandId, EventId, InboxItemId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
+    AgentId, CommandId, EventId, InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId,
+    TaskId, ThreadId,
 };
 
 use crate::computer::core::{
@@ -26,7 +27,7 @@ use crate::computer::core::{
 };
 
 use super::{
-    ApplicationError,
+    ApplicationError, MemoryFile,
     command::{Command, CommandService},
     ports::{
         AgentHomePort, CommandStatus, ComputerTransaction, DriverCompletion, DriverPort,
@@ -233,19 +234,17 @@ impl AgentHomePort for MemoryHome {
     async fn list_memory(
         &mut self,
         agent_id: AgentId,
-    ) -> Result<Vec<crate::computer::application::MemoryFile>, ApplicationError> {
+    ) -> Result<Vec<MemoryFile>, ApplicationError> {
         let mut files = self
             .memory
             .iter()
             .filter(|((owner, _), _)| *owner == agent_id)
-            .map(
-                |((_, path), content)| crate::computer::application::MemoryFile {
-                    path: path.to_string_lossy().into_owned(),
-                    size: content.len() as u64,
-                    sha256: hex::encode(<sha2::Sha256 as sha2::Digest>::digest(content)),
-                    updated_at: time::OffsetDateTime::UNIX_EPOCH,
-                },
-            )
+            .map(|((_, path), content)| MemoryFile {
+                path: path.to_string_lossy().into_owned(),
+                size: content.len() as u64,
+                sha256: hex::encode(<sha2::Sha256 as sha2::Digest>::digest(content)),
+                updated_at: time::OffsetDateTime::UNIX_EPOCH,
+            })
             .collect::<Vec<_>>();
         files.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(files)
@@ -1463,7 +1462,7 @@ fn test_input<const N: usize>(
         global_contract: "contract".to_owned(),
         agent: AgentInput {
             agent_id,
-            space_id: crate::ids::SpaceId::from_uuid(Uuid::nil()),
+            space_id: SpaceId::from_uuid(Uuid::nil()),
             identity: "agent".to_owned(),
             role_revision: 1,
             role: "role".to_owned(),
@@ -1482,8 +1481,8 @@ fn test_input<const N: usize>(
             focus_thread_id: thread_id,
             message_snapshot_sequence: 1,
             focus_messages: vec![ContextMessageInput {
-                message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
-                author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                message_id: MessageId::from_uuid(Uuid::now_v7()),
+                author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                 body: "message body".to_owned(),
             }],
             claimed_items: items

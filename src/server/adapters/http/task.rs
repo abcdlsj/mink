@@ -169,7 +169,7 @@ pub(super) async fn link_task_thread(
             task_id: TaskId::from_uuid(task_id),
             target_thread_id: ThreadId::from_uuid(body.thread_id),
             actor_member_id: MemberId::from_uuid(actor),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -192,7 +192,7 @@ pub(super) async fn unlink_task_thread(
             task_id: TaskId::from_uuid(task_id),
             target_thread_id: ThreadId::from_uuid(thread_id),
             actor_member_id: MemberId::from_uuid(actor),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -341,7 +341,7 @@ pub(super) async fn record_task_outcome(
                 task_id: TaskId::from_uuid(task_id),
             },
             actor_member_id: MemberId::from_uuid(actor),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(headers)?),
             outcome,
             now: OffsetDateTime::now_utc(),
         },
@@ -365,7 +365,7 @@ pub(super) async fn update_task_action(
         UpdateTaskInput {
             task_id: TaskId::from_uuid(task_id),
             actor_member_id: MemberId::from_uuid(actor),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(headers)?),
             action,
             now: OffsetDateTime::now_utc(),
         },

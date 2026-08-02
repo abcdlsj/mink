@@ -37,7 +37,7 @@ pub(super) async fn agent_create_upload(
             uploader_member_id: MemberId::from_uuid(agent_id),
             name: &body.original_name,
             media_type: &body.media_type,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -99,7 +99,7 @@ pub(super) async fn agent_complete_upload(
                 size: body.size,
                 sha256_hex: body.sha256,
             },
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -154,7 +154,7 @@ pub(super) async fn create_upload(
             uploader_member_id: MemberId::from_uuid(member),
             name: &body.original_name,
             media_type: &body.media_type,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -217,7 +217,7 @@ pub(super) async fn complete_upload(
                 size: body.size,
                 sha256_hex: body.sha256,
             },
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )

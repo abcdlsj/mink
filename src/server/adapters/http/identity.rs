@@ -159,7 +159,7 @@ pub(super) async fn confirm_pairing(
             space_id: SpaceId::from_uuid(body.space_id),
             code_hash: &RawPairingCode::new(body.code).sha256_hash(),
             name: &body.name,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -216,13 +216,13 @@ pub(super) async fn invite_human(
             space_id: SpaceId::from_uuid(space_id),
             actor_id: access.member_id,
             email: &body.email,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now: OffsetDateTime::now_utc(),
         },
     )
     .await
     .map_err(|error| match error {
-        crate::server::application::ports::ApplicationError::Conflict => ApiError {
+        ApplicationError::Conflict => ApiError {
             status: StatusCode::CONFLICT,
             code: "invitation_already_pending",
             message: "this email already has a pending invitation to the Space",
@@ -313,10 +313,7 @@ pub(super) fn invitation_response(invitation: &InvitationView) -> InvitationResp
     }
 }
 
-pub(super) fn invitation_error(
-    error: crate::server::application::ports::ApplicationError,
-) -> ApiError {
-    use crate::server::application::ports::ApplicationError;
+pub(super) fn invitation_error(error: ApplicationError) -> ApiError {
     use crate::server::domain::DomainError;
     match error {
         ApplicationError::NotFound | ApplicationError::Domain(DomainError::InvitationLapsed) => {
@@ -330,10 +327,7 @@ pub(super) fn invitation_error(
     }
 }
 
-pub(super) fn accept_invitation_error(
-    error: crate::server::application::ports::ApplicationError,
-) -> ApiError {
-    use crate::server::application::ports::ApplicationError;
+pub(super) fn accept_invitation_error(error: ApplicationError) -> ApiError {
     use crate::server::domain::DomainError;
     match error {
         ApplicationError::Domain(DomainError::InvitationEmailMismatch) => ApiError {
@@ -383,7 +377,7 @@ pub(super) async fn create_space(
             accent: &accent,
             owner_handle: &owner_handle,
             owner_display_name: &user.display_name,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(key),
+            idempotency_key: IdempotencyKey::from_uuid(key),
             now,
         },
     )
@@ -491,7 +485,7 @@ pub(super) async fn set_permission(
         MemberId::from_uuid(member_id),
         permission_action(action_code)?,
         enabled,
-        crate::ids::IdempotencyKey::from_uuid(idempotency_header(headers)?),
+        IdempotencyKey::from_uuid(idempotency_header(headers)?),
         OffsetDateTime::now_utc(),
     )
     .await

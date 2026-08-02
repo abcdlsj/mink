@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     computer::application::{
-        ApplicationError, LocalAgent, LocalAgentState, MemoryFile, ports::AgentHomePort,
+        ApplicationError, DriverKind, LocalAgent, LocalAgentState, MemoryFile, ports::AgentHomePort,
     },
     ids::AgentId,
 };
@@ -45,7 +45,7 @@ impl AgentHomeAdapter {
         ] {
             create_private_dir(&home.join(relative)).await?;
         }
-        if agent.driver == crate::computer::application::DriverKind::Codex {
+        if agent.driver == DriverKind::Codex {
             self.install_codex_sources(&home.join("drivers/codex"))
                 .await?;
         }

@@ -146,25 +146,19 @@ impl AttachmentTransaction for PostgresTransaction {
     async fn space_of_attachment(
         &mut self,
         attachment_id: AttachmentId,
-    ) -> Result<Option<crate::ids::SpaceId>, ApplicationError> {
+    ) -> Result<Option<SpaceId>, ApplicationError> {
         self.space_of_attachment(attachment_id).await
     }
     async fn attachment(
         &mut self,
         id: AttachmentId,
-    ) -> Result<Option<crate::server::domain::attachment::Attachment>, ApplicationError> {
+    ) -> Result<Option<Attachment>, ApplicationError> {
         self.attachment(id).await
     }
-    async fn insert_attachment(
-        &mut self,
-        attachment: &crate::server::domain::attachment::Attachment,
-    ) -> Result<(), ApplicationError> {
+    async fn insert_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
         self.insert_attachment(attachment).await
     }
-    async fn save_attachment(
-        &mut self,
-        attachment: &crate::server::domain::attachment::Attachment,
-    ) -> Result<(), ApplicationError> {
+    async fn save_attachment(&mut self, attachment: &Attachment) -> Result<(), ApplicationError> {
         self.save_attachment(attachment).await
     }
     async fn attachment_is_visible(
@@ -176,7 +170,7 @@ impl AttachmentTransaction for PostgresTransaction {
     }
     async fn record_attachment_write(
         &mut self,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
         actor: MemberId,
         action: &str,
         key: IdempotencyKey,

@@ -2,7 +2,10 @@ use time::OffsetDateTime;
 
 use crate::ids::{IdempotencyKey, MemberId, SpaceId};
 
-use crate::server::domain::invitation::{Invitation, InvitationDraft};
+use crate::server::domain::{
+    DomainError,
+    invitation::{Invitation, InvitationDraft},
+};
 
 use super::ports::{
     ApplicationError, EffectSink, HumanMemberRecord, IdentityTransaction, InvitationTokenPort,
@@ -121,7 +124,7 @@ impl AcceptInvitation {
         let token_hash = input.token.sha256_hash();
         let display_name = input.display_name.trim();
         if display_name.is_empty() || input.handle.is_empty() {
-            return Err(crate::server::domain::DomainError::InvalidInvitation.into());
+            return Err(DomainError::InvalidInvitation.into());
         }
         port.transact(async |transaction| {
             let (invitation_id, mut invitation) = transaction

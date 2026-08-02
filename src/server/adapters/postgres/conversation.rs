@@ -860,13 +860,13 @@ impl CollaborationTransaction for PostgresTransaction {
     async fn direct_messages_for_member(
         &mut self,
         member_id: MemberId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Vec<DirectMessageView>, ApplicationError> {
         self.direct_messages_for_member(member_id, space_id).await
     }
     async fn direct_message_between(
         &mut self,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
         first: MemberId,
         second: MemberId,
     ) -> Result<Option<DirectMessageView>, ApplicationError> {
@@ -875,7 +875,7 @@ impl CollaborationTransaction for PostgresTransaction {
     async fn space_member(
         &mut self,
         member_id: MemberId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Option<SpaceMemberView>, ApplicationError> {
         self.space_member(member_id, space_id).await
     }
@@ -892,15 +892,12 @@ impl CollaborationTransaction for PostgresTransaction {
     ) -> Result<InboxItemView, ApplicationError> {
         self.inbox_item_view(item_id).await
     }
-    async fn save_channel(
-        &mut self,
-        channel: crate::server::domain::conversation::Channel,
-    ) -> Result<(), ApplicationError> {
+    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError> {
         self.save_channel(channel).await
     }
     async fn set_thread_subscription(
         &mut self,
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
         member_id: MemberId,
         following: bool,
         now: time::OffsetDateTime,

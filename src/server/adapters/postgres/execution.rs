@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::computer::{AgentConfiguration, DriverKind, RoleSnapshot};
 
 pub(super) fn command_kind(command: &Command) -> &'static str {
     match command {
@@ -321,7 +322,7 @@ impl PostgresTransaction {
     pub(super) async fn agent_configuration(
         &mut self,
         agent_id: MemberId,
-    ) -> Result<crate::protocol::computer::AgentConfiguration, ApplicationError> {
+    ) -> Result<AgentConfiguration, ApplicationError> {
         let row = sqlx::query(
             "SELECT agents.space_id,agents.role_text,agents.role_revision,agents.driver_kind, \
              members.display_name,members.handle FROM agents JOIN members \
@@ -331,19 +332,19 @@ impl PostgresTransaction {
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        Ok(crate::protocol::computer::AgentConfiguration {
+        Ok(AgentConfiguration {
             agent_id: AgentId::from_uuid(agent_id.into_uuid()),
             space_id: SpaceId::from_uuid(row.get("space_id")),
             name: row.get("display_name"),
             handle: row.get("handle"),
-            role: crate::protocol::computer::RoleSnapshot {
+            role: RoleSnapshot {
                 revision: u64::try_from(row.get::<i64, _>("role_revision"))
                     .map_err(|_| ApplicationError::Internal)?,
                 text: row.get("role_text"),
             },
             driver: match row.get::<&str, _>("driver_kind") {
-                "codex" => crate::protocol::computer::DriverKind::Codex,
-                "builtin" => crate::protocol::computer::DriverKind::Builtin,
+                "codex" => DriverKind::Codex,
+                "builtin" => DriverKind::Builtin,
                 _ => return Err(ApplicationError::Internal),
             },
         })

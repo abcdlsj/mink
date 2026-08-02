@@ -5,7 +5,17 @@ mod drivers;
 
 use std::path::{Path, PathBuf};
 
+use adapters::{
+    AgentHomeAdapter, LocalIpcAdapter, SandboxAdapter, ServerConnectionAdapter, SqliteAdapter,
+};
 use anyhow::{Context, ensure};
+use application::{
+    ApplicationError,
+    ports::{AgentHomePort, DriverPort, TransactionPort},
+    recovery::RecoveryService,
+    run::RunService,
+    scheduler::SchedulerService,
+};
 use backon::{BackoffBuilder, ExponentialBuilder};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
@@ -16,7 +26,7 @@ use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoCl
 use uuid::Uuid;
 
 use crate::{
-    ids::DaemonSessionId,
+    ids::{AttachmentId, DaemonSessionId, IdempotencyKey, RunId},
     protocol::{
         capability,
         computer::{
@@ -60,7 +70,7 @@ struct PairingStatus {
 struct AgentActionRequest {
     context: capability::RunContext,
     action: capability::Action,
-    idempotency_key: Option<crate::ids::IdempotencyKey>,
+    idempotency_key: Option<IdempotencyKey>,
 }
 
 #[derive(Serialize)]
@@ -85,7 +95,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     };
     ensure_private_directory(&computer_home).await?;
     let database_path = computer_home.join("daemon.db");
-    let mut storage = adapters::sqlite::SqliteAdapter::open(&database_path)
+    let mut storage = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
     let runtime_dir = crate::config::runtime_dir_for(&computer_home);
@@ -98,11 +108,11 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         server = %config.server_url,
         "Computer local baseline is ready"
     );
-    adapters::sandbox::SandboxAdapter::validate().map_err(|error| anyhow::anyhow!(error))?;
-    let mut capability_store = adapters::sqlite::SqliteAdapter::open(&database_path)
+    SandboxAdapter::validate().map_err(|error| anyhow::anyhow!(error))?;
+    let mut capability_store = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
-    let ipc = adapters::local_ipc::LocalIpcAdapter::bind(&runtime_dir.join("daemon.sock"))
+    let ipc = LocalIpcAdapter::bind(&runtime_dir.join("daemon.sock"))
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
     let capability_endpoint = config.server_url.join(&format!(
@@ -114,7 +124,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     let capability_computer_home = computer_home.clone();
     let capability_token = secrets.token.clone();
     let capability_client = reqwest::Client::new();
-    let mut capability_homes = adapters::filesystem::AgentHomeAdapter::new(
+    let mut capability_homes = AgentHomeAdapter::new(
         computer_home.clone(),
         config.codex_config_source.clone(),
         config.codex_auth_source.clone(),
@@ -193,14 +203,14 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
             }
         }
     });
-    let mut homes = adapters::filesystem::AgentHomeAdapter::new(
+    let mut homes = AgentHomeAdapter::new(
         computer_home.clone(),
         config.codex_config_source.clone(),
         config.codex_auth_source.clone(),
     );
     let mut driver =
         drivers::runtime(&computer_home, &config).map_err(|error| anyhow::anyhow!(error))?;
-    application::recovery::RecoveryService::recover(
+    RecoveryService::recover(
         &mut storage,
         &mut driver,
         &mut homes,
@@ -247,7 +257,7 @@ async fn proxy_attachment_upload(
     computer_home: &Path,
     context: &capability::RunContext,
     path: &str,
-    idempotency_key: Option<crate::ids::IdempotencyKey>,
+    idempotency_key: Option<IdempotencyKey>,
 ) -> capability::Response<serde_json::Value> {
     let Some(idempotency_key) = idempotency_key else {
         return capability_error_response(
@@ -256,8 +266,7 @@ async fn proxy_attachment_upload(
             false,
         );
     };
-    let homes =
-        adapters::filesystem::AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
+    let homes = AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
     let (name, content) = match homes
         .read_attachment_source(context.agent_id, Path::new(path))
         .await
@@ -344,7 +353,7 @@ async fn proxy_attachment_download(
     token: &str,
     computer_home: &Path,
     context: &capability::RunContext,
-    attachment_id: crate::ids::AttachmentId,
+    attachment_id: AttachmentId,
     output: &str,
 ) -> capability::Response<serde_json::Value> {
     let endpoint = match server_url.join(&format!(
@@ -371,8 +380,7 @@ async fn proxy_attachment_download(
         Ok(content) => content,
         Err(_) => return capability_failure(),
     };
-    let homes =
-        adapters::filesystem::AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
+    let homes = AgentHomeAdapter::new(computer_home.to_path_buf(), None, None);
     if let Err(error) = homes
         .write_attachment_output(context.agent_id, Path::new(output), &content)
         .await
@@ -424,14 +432,10 @@ fn capability_error_code(code: &str) -> capability::ErrorCode {
     }
 }
 
-fn local_attachment_error(
-    error: application::ApplicationError,
-) -> capability::Response<serde_json::Value> {
+fn local_attachment_error(error: ApplicationError) -> capability::Response<serde_json::Value> {
     let code = match error {
-        application::ApplicationError::NotFound => capability::ErrorCode::NotFound,
-        application::ApplicationError::Conflict | application::ApplicationError::Core(_) => {
-            capability::ErrorCode::Conflict
-        }
+        ApplicationError::NotFound => capability::ErrorCode::NotFound,
+        ApplicationError::Conflict | ApplicationError::Core(_) => capability::ErrorCode::Conflict,
         _ => capability::ErrorCode::Internal,
     };
     capability_error_response(code, "Attachment file operation failed", false)
@@ -466,12 +470,12 @@ async fn connect<P, D, H>(
     driver: &mut D,
     homes: &mut H,
     max_concurrent_runs: usize,
-    yield_interrupts: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ids::RunId>,
+    yield_interrupts: &mut tokio::sync::mpsc::UnboundedReceiver<RunId>,
 ) -> anyhow::Result<()>
 where
-    P: application::ports::TransactionPort,
-    D: application::ports::DriverPort,
-    H: application::ports::AgentHomePort,
+    P: TransactionPort,
+    D: DriverPort,
+    H: AgentHomePort,
 {
     let mut endpoint = server.join(&format!("api/v1/computers/{}/connect", secrets.computer_id))?;
     endpoint
@@ -520,9 +524,7 @@ where
         }
     }
     send_pending_events(storage, &mut writer).await?;
-    let adapter = adapters::server_connection::ServerConnectionAdapter::new(
-        drivers::prompt::global_contract(),
-    );
+    let adapter = ServerConnectionAdapter::new(drivers::prompt::global_contract());
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
     let mut claim = tokio::time::interval(std::time::Duration::from_secs(2));
     let mut driver_observation = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -537,7 +539,7 @@ where
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             Some(run_id) = yield_interrupts.recv() => {
-                if let Err(error) = application::run::RunService::interrupt_terminal(storage, driver, run_id).await {
+                if let Err(error) = RunService::interrupt_terminal(storage, driver, run_id).await {
                     tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
                 }
                 send_pending_events(storage, &mut writer).await?;
@@ -573,7 +575,7 @@ where
             }
             _ = driver_observation.tick() => {
                 for completion in driver.poll_completions().await.map_err(|error| anyhow::anyhow!(error))? {
-                    application::run::RunService::finish_driver_turn(
+                    RunService::finish_driver_turn(
                         storage,
                         completion.run_id,
                         completion.outcome,
@@ -584,7 +586,7 @@ where
                 send_pending_events(storage, &mut writer).await?;
             }
             _ = lease_renewal.tick() => {
-                for (run_id, fencing_token) in application::run::RunService::active_leases(storage)
+                for (run_id, fencing_token) in RunService::active_leases(storage)
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?
                 {
@@ -603,7 +605,7 @@ where
                     match response {
                         Ok(response) if response.status().is_success() => {
                             let renewed: RenewRunResponse = response.json().await?;
-                            application::run::RunService::renew_lease(
+                            RunService::renew_lease(
                                 storage,
                                 run_id,
                                 renewed.lease_expires_at,
@@ -623,7 +625,7 @@ where
                         for frame in adapter.receive(storage,driver,homes,*envelope).await.map_err(|error|anyhow::anyhow!(error))?{
                             writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                         }
-                        application::scheduler::SchedulerService::dispatch(
+                        SchedulerService::dispatch(
                             storage,
                             driver,
                             max_concurrent_runs,
@@ -632,9 +634,9 @@ where
                         .map_err(|error| anyhow::anyhow!(error))?;
                         send_pending_events(storage,&mut writer).await?;
                     }
-                    ServerFrame::Receipt{receipt}=>application::recovery::RecoveryService::acknowledge(storage,receipt.event_id).await.map_err(|error|anyhow::anyhow!(error))?,
+                    ServerFrame::Receipt{receipt}=>RecoveryService::acknowledge(storage,receipt.event_id).await.map_err(|error|anyhow::anyhow!(error))?,
                     ServerFrame::Query{query}=>{
-                        let frame=adapters::server_connection::ServerConnectionAdapter::answer_query(storage,homes,query).await;
+                        let frame=ServerConnectionAdapter::answer_query(storage,homes,query).await;
                         writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                     }
                     ServerFrame::Shutdown{code}=>anyhow::bail!("Server stopped Computer connection: {code:?}"),
@@ -649,13 +651,13 @@ async fn send_pending_events<P>(
     writer: &mut (impl SinkExt<WebSocketMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
 ) -> anyhow::Result<()>
 where
-    P: application::ports::TransactionPort,
+    P: TransactionPort,
 {
-    for event in application::recovery::RecoveryService::pending_results(storage)
+    for event in RecoveryService::pending_results(storage)
         .await
         .map_err(|error| anyhow::anyhow!(error))?
     {
-        let frame = adapters::server_connection::ServerConnectionAdapter::event_frame(event);
+        let frame = ServerConnectionAdapter::event_frame(event);
         writer
             .send(WebSocketMessage::Text(
                 serde_json::to_string(&frame)?.into(),

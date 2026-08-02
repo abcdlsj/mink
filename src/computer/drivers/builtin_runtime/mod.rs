@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     computer::{
-        adapters::sandbox::SandboxAdapter,
+        adapters::SandboxAdapter,
         application::{
             ApplicationError,
             ports::{DriverCompletion, DriverTurnOutcome, ProcessEvidence, SteerOutcome},
@@ -521,7 +521,8 @@ mod tests {
     use super::*;
     use crate::{
         computer::core::input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
-        ids::{SpaceId, ThreadId},
+        config::{BuiltinOpenAiConfig, ConfigSecret},
+        ids::{InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
 
     #[tokio::test]
@@ -584,7 +585,7 @@ mod tests {
                 .steer(
                     &locator,
                     &ClaimedItemInput {
-                        item_id: crate::ids::InboxItemId::from_uuid(Uuid::now_v7()),
+                        item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id: input.context.focus_thread_id,
                         message_id: None,
@@ -643,9 +644,9 @@ mod tests {
 
     fn builtin_config(api_base: &str) -> ComputerConfig {
         ComputerConfig {
-            builtin: Some(crate::config::BuiltinOpenAiConfig {
+            builtin: Some(BuiltinOpenAiConfig {
                 api_base: url::Url::parse(api_base).unwrap(),
-                token: crate::config::ConfigSecret::from("provider-secret"),
+                token: ConfigSecret::from("provider-secret"),
                 model: "test-model".to_owned(),
             }),
             ..ComputerConfig::default()
@@ -673,8 +674,8 @@ mod tests {
                 focus_thread_id: thread_id,
                 message_snapshot_sequence: 1,
                 focus_messages: vec![ContextMessageInput {
-                    message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
-                    author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                    message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
                 claimed_items: Vec::new(),

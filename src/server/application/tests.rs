@@ -9,19 +9,20 @@ use crate::ids::{
     MessageId, RunId, SpaceId, TaskId, ThreadId,
 };
 use crate::server::domain::{
+    DomainError,
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attachment::{Attachment, AttachmentStatus, DeclaredContent},
     attention::{
         InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
-    execution::{Run, RunErrorCode, RunOutcome, RunSnapshot, RunStatus},
+    execution::{Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus},
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
     },
-    invitation::Invitation,
-    pairing::{Pairing, PairingStatus},
+    invitation::{Invitation, InvitationStatus},
+    pairing::{ComputerOs, Pairing, PairingStatus},
     task::{CloseReason, Task, TaskSnapshot, TaskStatus},
 };
 
@@ -400,7 +401,7 @@ impl IdentityTransaction for MemoryTransaction {
     async fn create_space(
         &mut self,
         _actor_user_id: uuid::Uuid,
-        _space_id: crate::ids::SpaceId,
+        _space_id: SpaceId,
         _owner_id: MemberId,
         _general_channel_id: ChannelId,
         _name: &str,
@@ -1211,8 +1212,7 @@ impl CollaborationTransaction for MemoryTransaction {
     ) -> Result<bool, ApplicationError> {
         Ok(self.state.items.values().any(|i| {
             let v = i.view();
-            v.member_id == agent_id
-                && v.status == crate::server::domain::attention::InboxItemStatus::Pending
+            v.member_id == agent_id && v.status == InboxItemStatus::Pending
         }))
     }
 }
@@ -1378,7 +1378,7 @@ impl ExecutionTransaction for MemoryTransaction {
             && view.space_id == proof.space_id
             && view.task_id == proof.task_id
             && view.focus_thread_id == proof.focus_thread_id
-            && view.status == crate::server::domain::execution::RunStatus::Running
+            && view.status == RunStatus::Running
             && view.fencing_token_hash == proof.fencing_token_hash
             && self
                 .state
@@ -1396,8 +1396,7 @@ impl ExecutionTransaction for MemoryTransaction {
             .values()
             .find(|r| {
                 let v = r.view();
-                v.agent_id == agent_id
-                    && v.status == crate::server::domain::execution::RunStatus::Running
+                v.agent_id == agent_id && v.status == RunStatus::Running
             })
             .map(|r| r.view().id))
     }
@@ -1691,7 +1690,7 @@ async fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
 
     assert!(matches!(
         error,
-        ApplicationError::Domain(crate::server::domain::DomainError::SourceIsNotRoot)
+        ApplicationError::Domain(DomainError::SourceIsNotRoot)
     ));
     assert!(port.state.tasks.is_empty());
     assert!(port.state.effects.is_empty());
@@ -1727,7 +1726,7 @@ async fn linking_rejects_incompatible_audience_and_another_unfinished_task() {
     .unwrap_err();
     assert!(matches!(
         incompatible_error,
-        ApplicationError::Domain(crate::server::domain::DomainError::IncompatibleAudience)
+        ApplicationError::Domain(DomainError::IncompatibleAudience)
     ));
 
     let occupied_error = LinkThreadToTask::execute(
@@ -1802,7 +1801,7 @@ async fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
     .unwrap_err();
     assert!(matches!(
         focus_error,
-        ApplicationError::Domain(crate::server::domain::DomainError::FocusOutsideTask)
+        ApplicationError::Domain(DomainError::FocusOutsideTask)
     ));
 }
 
@@ -1897,7 +1896,7 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
     .unwrap_err();
     assert!(matches!(
         stale,
-        ApplicationError::Domain(crate::server::domain::DomainError::StaleFencingToken)
+        ApplicationError::Domain(DomainError::StaleFencingToken)
     ));
 
     let error = StartRun::execute(
@@ -2180,9 +2179,7 @@ async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
             },
         )
         .await,
-        Err(ApplicationError::Domain(
-            crate::server::domain::DomainError::StaleFencingToken
-        ))
+        Err(ApplicationError::Domain(DomainError::StaleFencingToken))
     ));
 }
 
@@ -2380,7 +2377,7 @@ async fn run_completion_checks_fencing_and_does_not_complete_task() {
         .unwrap_err();
     assert!(matches!(
         stale,
-        ApplicationError::Domain(crate::server::domain::DomainError::StaleFencingToken)
+        ApplicationError::Domain(DomainError::StaleFencingToken)
     ));
 
     let completed = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
@@ -2585,7 +2582,7 @@ async fn computer_delete_requires_explicit_agent_retirement() {
     .unwrap_err();
     assert!(matches!(
         blocked,
-        ApplicationError::Domain(crate::server::domain::DomainError::ComputerHasAgents)
+        ApplicationError::Domain(DomainError::ComputerHasAgents)
     ));
     assert_eq!(
         port.state.computers[&computer_id].lifecycle,
@@ -2659,7 +2656,7 @@ async fn task_review_requires_another_visible_member_and_closed_is_terminal() {
     .unwrap_err();
     assert!(matches!(
         self_review,
-        ApplicationError::Domain(crate::server::domain::DomainError::InvalidReviewer)
+        ApplicationError::Domain(DomainError::InvalidReviewer)
     ));
     let returned = UpdateTask::execute(
         &mut port,
@@ -3044,13 +3041,11 @@ fn running_run(
         items: items
             .into_iter()
             .enumerate()
-            .map(
-                |(index, item_id)| crate::server::domain::execution::RunItemSnapshot {
-                    inbox_item_id: item_id,
-                    delivery_sequence: index as u64 + 1,
-                    disposition: None,
-                },
-            )
+            .map(|(index, item_id)| RunItemSnapshot {
+                inbox_item_id: item_id,
+                delivery_sequence: index as u64 + 1,
+                disposition: None,
+            })
             .collect(),
         outcome: None,
         error_code: None,
@@ -3275,9 +3270,7 @@ async fn registration_rejects_a_short_password_without_writing_the_account() {
     .await;
     assert_eq!(
         result.err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::InvalidCredential
-        ))
+        Some(ApplicationError::Domain(DomainError::InvalidCredential))
     );
     assert!(port.state.humans.is_empty());
     assert!(port.state.sessions.is_empty());
@@ -3449,9 +3442,7 @@ async fn space_authorization_separates_non_members_from_members_and_governors() 
         AuthorizeAgentGovernance::execute(&mut port, &plain_token, agent_id, now)
             .await
             .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::GovernorRequired
-        ))
+        Some(ApplicationError::Domain(DomainError::GovernorRequired))
     );
     let governed = AuthorizeAgentGovernance::execute(&mut port, &admin_token, agent_id, now)
         .await
@@ -3711,7 +3702,7 @@ async fn a_mismatched_declaration_keeps_the_upload_open_and_writes_no_content_tw
         .await
         .err(),
         Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::AttachmentContentMismatch
+            DomainError::AttachmentContentMismatch
         ))
     );
     assert_eq!(
@@ -3775,9 +3766,7 @@ async fn only_the_uploader_writes_content_and_an_oversized_body_is_rejected() {
         )
         .await
         .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::AttachmentNotOwned
-        ))
+        Some(ApplicationError::Domain(DomainError::AttachmentNotOwned))
     );
     assert_eq!(
         WriteUploadContent::execute(
@@ -3817,9 +3806,7 @@ async fn downloads_require_ready_content_and_a_linked_message_for_non_uploaders(
         ReadAttachment::for_member(&mut port, &objects, attachment_id, viewer)
             .await
             .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::AttachmentNotReady
-        ))
+        Some(ApplicationError::Domain(DomainError::AttachmentNotReady))
     );
 
     let content = b"report bytes".to_vec();
@@ -4041,9 +4028,7 @@ async fn a_wrong_code_and_a_second_confirmation_cannot_create_another_computer()
         )
         .await
         .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::PairingLapsed
-        ))
+        Some(ApplicationError::Domain(DomainError::PairingLapsed))
     );
     assert_eq!(port.state.paired_computers.len(), 1);
 }
@@ -4087,9 +4072,7 @@ async fn a_lapsed_pairing_is_recorded_as_expired_on_read_and_rejects_confirmatio
         )
         .await
         .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::PairingLapsed
-        ))
+        Some(ApplicationError::Domain(DomainError::PairingLapsed))
     );
     assert!(port.state.paired_computers.is_empty());
     assert_eq!(
@@ -4137,7 +4120,7 @@ async fn a_deleted_computer_authenticates_for_handshake_but_not_for_the_computer
         space_id: space(5041),
         name: "Workstation".into(),
         hostname: "workstation".into(),
-        os: crate::server::domain::pairing::ComputerOs::Linux,
+        os: ComputerOs::Linux,
         daemon_version: "0.1.0".into(),
         token_hash: DAEMON_TOKEN_HASH.into(),
         created_at: now,
@@ -4577,7 +4560,7 @@ async fn only_the_named_recipient_accepts_and_becomes_a_member() {
         .await
         .err(),
         Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::InvitationEmailMismatch
+            DomainError::InvitationEmailMismatch
         ))
     );
     assert!(port.state.human_members.is_empty());
@@ -4648,7 +4631,7 @@ async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
         .expect("reading a lapsed invitation still projects it");
     assert_eq!(
         port.state.invitations[&invitation_id].status,
-        crate::server::domain::invitation::InvitationStatus::Expired
+        InvitationStatus::Expired
     );
     assert_eq!(
         AcceptInvitation::execute(
@@ -4665,9 +4648,7 @@ async fn a_lapsed_invitation_is_persisted_as_expired_and_cannot_be_accepted() {
         )
         .await
         .err(),
-        Some(ApplicationError::Domain(
-            crate::server::domain::DomainError::InvitationLapsed
-        ))
+        Some(ApplicationError::Domain(DomainError::InvitationLapsed))
     );
     assert!(port.state.human_members.is_empty());
     assert_eq!(

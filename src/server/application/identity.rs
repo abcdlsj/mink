@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::ids::{ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
+use crate::ids::{AttachmentId, ChannelId, ComputerId, IdempotencyKey, MemberId, SpaceId};
 
 use crate::server::domain::{
     access::{HumanRegistration, SessionLifetime, SpaceAccess, normalize_email},
@@ -218,7 +218,7 @@ impl AuthorizeAttachmentAccess {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         token: &RawSessionToken,
-        attachment_id: crate::ids::AttachmentId,
+        attachment_id: AttachmentId,
         now: OffsetDateTime,
     ) -> Result<SpaceAccess, ApplicationError> {
         let token_hash = token.sha256_hash();

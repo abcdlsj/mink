@@ -8,10 +8,7 @@ pub(in crate::server) trait EffectSink {
         computer_id: Option<ComputerId>,
         cancel_current_run: bool,
     ) -> Result<(), ApplicationError>;
-    async fn queue_agent_configuration(
-        &mut self,
-        agent: &crate::server::domain::identity::Agent,
-    ) -> Result<(), ApplicationError>;
+    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError>;
     async fn lock_idempotency(
         &mut self,
         actor: MemberId,

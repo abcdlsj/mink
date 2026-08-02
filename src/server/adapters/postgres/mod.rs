@@ -716,10 +716,7 @@ impl EffectSink for PostgresTransaction {
         self.queue_agent_suspend(agent_id, computer_id, cancel_current_run)
             .await
     }
-    async fn queue_agent_configuration(
-        &mut self,
-        agent: &crate::server::domain::identity::Agent,
-    ) -> Result<(), ApplicationError> {
+    async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
         self.queue_agent_configuration(agent).await
     }
     async fn lock_idempotency(

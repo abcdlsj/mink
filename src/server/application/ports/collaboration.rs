@@ -10,18 +10,18 @@ pub(in crate::server) trait CollaborationTransaction {
     async fn direct_messages_for_member(
         &mut self,
         member_id: MemberId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Vec<DirectMessageView>, ApplicationError>;
     async fn direct_message_between(
         &mut self,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
         first: MemberId,
         second: MemberId,
     ) -> Result<Option<DirectMessageView>, ApplicationError>;
     async fn space_member(
         &mut self,
         member_id: MemberId,
-        space_id: crate::ids::SpaceId,
+        space_id: SpaceId,
     ) -> Result<Option<SpaceMemberView>, ApplicationError>;
     async fn inbox_for_member(
         &mut self,
@@ -32,13 +32,10 @@ pub(in crate::server) trait CollaborationTransaction {
         &mut self,
         item_id: InboxItemId,
     ) -> Result<InboxItemView, ApplicationError>;
-    async fn save_channel(
-        &mut self,
-        channel: crate::server::domain::conversation::Channel,
-    ) -> Result<(), ApplicationError>;
+    async fn save_channel(&mut self, channel: Channel) -> Result<(), ApplicationError>;
     async fn set_thread_subscription(
         &mut self,
-        thread_id: crate::ids::ThreadId,
+        thread_id: ThreadId,
         member_id: MemberId,
         following: bool,
         now: time::OffsetDateTime,

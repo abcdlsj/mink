@@ -1,7 +1,8 @@
 use crate::protocol::{
     computer::{
-        CommandAck, CommandEnvelope, CommandSequence, ComputerFrame, ComputerHello,
-        HandshakeErrorCode, ServerFrame, ServerHandshake,
+        CommandAck, CommandEnvelope, CommandOutcome, CommandResult, CommandSequence, ComputerFrame,
+        ComputerHello, DeliveryOutcome, HandshakeErrorCode, Receipt, ReceiptKind, ServerFrame,
+        ServerHandshake,
     },
     version::SUPPORTED,
 };
@@ -82,17 +83,14 @@ pub(super) async fn computer_socket(
     if send_json(&mut socket, &handshake).await.is_err() {
         return;
     }
-    if !matches!(
-        handshake,
-        crate::protocol::computer::ServerHandshake::Welcome { .. }
-    ) {
+    if !matches!(handshake, ServerHandshake::Welcome { .. }) {
         return;
     }
     let _=sqlx::query("UPDATE computers SET connection_status='online',daemon_version=$2,last_seen_at=$3 WHERE id=$1")
         .bind(computer_id).bind(&hello.daemon_version).bind(OffsetDateTime::now_utc()).execute(&pool).await;
     if let Ok(commands) = super::websocket::replay_commands(
         &storage,
-        crate::ids::ComputerId::from_uuid(computer_id),
+        ComputerId::from_uuid(computer_id),
         hello.command_watermark,
     )
     .await
@@ -143,7 +141,7 @@ pub(super) async fn computer_socket(
                 if let Ok(commands) = super::websocket::replay_commands(
                     &storage,
                     ComputerId::from_uuid(computer_id),
-                    crate::protocol::computer::CommandSequence(0),
+                    CommandSequence(0),
                 )
                 .await
                 {
@@ -168,7 +166,7 @@ pub(super) async fn computer_socket(
                 let response = super::http::submit_run_result(
                     &storage,
                     ComputerPrincipal {
-                        computer_id: crate::ids::ComputerId::from_uuid(computer_id),
+                        computer_id: ComputerId::from_uuid(computer_id),
                     },
                     result,
                 )
@@ -177,9 +175,9 @@ pub(super) async fn computer_socket(
                     let _ = send_json(
                         &mut socket,
                         &ServerFrame::Receipt {
-                            receipt: crate::protocol::computer::Receipt {
+                            receipt: Receipt {
                                 event_id,
-                                kind: crate::protocol::computer::ReceiptKind::RunResult,
+                                kind: ReceiptKind::RunResult,
                             },
                         },
                     )
@@ -202,9 +200,9 @@ pub(super) async fn computer_socket(
                     let _ = send_json(
                         &mut socket,
                         &ServerFrame::Receipt {
-                            receipt: crate::protocol::computer::Receipt {
+                            receipt: Receipt {
                                 event_id: started.event_id,
-                                kind: crate::protocol::computer::ReceiptKind::RunStarted,
+                                kind: ReceiptKind::RunStarted,
                             },
                         },
                     )
@@ -220,10 +218,7 @@ pub(super) async fn computer_socket(
                         computer_id: ComputerId::from_uuid(computer_id),
                         fencing_token_hash: token_hash(receipt.fencing_token.expose()),
                         delivery_sequence: receipt.delivery_sequence.0,
-                        accepted: matches!(
-                            receipt.outcome,
-                            crate::protocol::computer::DeliveryOutcome::Accepted
-                        ),
+                        accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
                         now: OffsetDateTime::now_utc(),
                     },
                 )
@@ -232,9 +227,9 @@ pub(super) async fn computer_socket(
                     let _ = send_json(
                         &mut socket,
                         &ServerFrame::Receipt {
-                            receipt: crate::protocol::computer::Receipt {
+                            receipt: Receipt {
                                 event_id: receipt.event_id,
-                                kind: crate::protocol::computer::ReceiptKind::Delivery,
+                                kind: ReceiptKind::Delivery,
                             },
                         },
                     )
@@ -246,7 +241,7 @@ pub(super) async fn computer_socket(
                     .await
                     .is_ok()
                 {
-                    let ack = crate::protocol::computer::CommandAck {
+                    let ack = CommandAck {
                         command_id: result.command_id,
                         sequence: result.sequence,
                     };
@@ -270,7 +265,7 @@ pub(super) async fn computer_socket(
 async fn apply_command_result(
     storage: &PostgresAdapter,
     computer_id: Uuid,
-    result: &crate::protocol::computer::CommandResult,
+    result: &CommandResult,
 ) -> Result<(), ApiError> {
     let mut storage = storage.clone();
     ApplyCommandResult::execute(
@@ -278,10 +273,7 @@ async fn apply_command_result(
         ComputerId::from_uuid(computer_id),
         result.command_id,
         result.sequence.0,
-        matches!(
-            result.outcome,
-            crate::protocol::computer::CommandOutcome::Applied
-        ),
+        matches!(result.outcome, CommandOutcome::Applied),
     )
     .await
     .map_err(|_| ApiError::internal())

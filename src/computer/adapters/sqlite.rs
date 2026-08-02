@@ -849,7 +849,7 @@ mod tests {
         command::Command,
         ports::{CommandStatus, LocalEvent, StoredCommand},
     };
-    use crate::ids::{CommandId, EventId, InboxItemId};
+    use crate::ids::{CommandId, EventId, InboxItemId, MemberId, MessageId, SpaceId};
 
     #[tokio::test]
     async fn empty_directory_creates_wal_schema_and_survives_reopen() {
@@ -1175,7 +1175,7 @@ mod tests {
                 global_contract: "contract".to_owned(),
                 agent: AgentInput {
                     agent_id,
-                    space_id: crate::ids::SpaceId::from_uuid(Uuid::nil()),
+                    space_id: SpaceId::from_uuid(Uuid::nil()),
                     identity: "agent".to_owned(),
                     role_revision: 1,
                     role: "role".to_owned(),
@@ -1190,8 +1190,8 @@ mod tests {
                     focus_thread_id: thread_id,
                     message_snapshot_sequence: 1,
                     focus_messages: vec![ContextMessageInput {
-                        message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
-                        author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                        message_id: MessageId::from_uuid(Uuid::now_v7()),
+                        author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                         body: "body".to_owned(),
                     }],
                     claimed_items,

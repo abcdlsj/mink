@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use time::OffsetDateTime;
 
-use crate::ids::{AgentId, InboxItemId, MessageId, NoticeId, SpaceId, TaskId, ThreadId};
+use crate::ids::{AgentId, InboxItemId, MemberId, MessageId, NoticeId, SpaceId, TaskId, ThreadId};
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunInput {
@@ -59,7 +59,7 @@ pub(in crate::computer) struct RunContextInput {
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct ContextMessageInput {
     pub(in crate::computer) message_id: MessageId,
-    pub(in crate::computer) author_member_id: crate::ids::MemberId,
+    pub(in crate::computer) author_member_id: MemberId,
     pub(in crate::computer) body: String,
 }
 

@@ -2,7 +2,10 @@ use time::OffsetDateTime;
 
 use crate::ids::{ComputerId, IdempotencyKey, MemberId, SpaceId};
 
-use crate::server::domain::pairing::{Pairing, PairingRequest, PairingStatus};
+use crate::server::domain::{
+    DomainError,
+    pairing::{Pairing, PairingRequest, PairingStatus},
+};
 
 use super::ports::{
     ApplicationError, ComputerRecord, EffectSink, IdentityTransaction, PairedComputer,
@@ -138,7 +141,7 @@ impl ConfirmPairing {
     ) -> Result<PairedComputer, ApplicationError> {
         let name = input.name.trim();
         if name.is_empty() {
-            return Err(crate::server::domain::DomainError::InvalidPairing.into());
+            return Err(DomainError::InvalidPairing.into());
         }
         port.transact(async |transaction| {
             transaction

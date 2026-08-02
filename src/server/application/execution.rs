@@ -1,8 +1,12 @@
 use time::OffsetDateTime;
 
-use crate::ids::{ComputerId, EventId, InboxItemId, MemberId, MessageId, RunId, TaskId, ThreadId};
+use crate::ids::{
+    ChannelId, CommandId, ComputerId, EventId, InboxItemId, MemberId, MessageId, RunId, TaskId,
+    ThreadId,
+};
 
 use crate::server::domain::{
+    DomainError,
     attention::{InboxItemDisposition, InboxItemStatus},
     execution::{Run, RunErrorCode, RunOutcome, RunStatus},
     task::TaskStatus,
@@ -29,8 +33,8 @@ impl ClaimNextRun {
     pub(in crate::server) async fn record_failure<P: TransactionPort>(
         port: &mut P,
         item_id: InboxItemId,
-        message_id: Option<crate::ids::MessageId>,
-        channel_id: crate::ids::ChannelId,
+        message_id: Option<MessageId>,
+        channel_id: ChannelId,
         error_code: &str,
     ) -> Result<bool, ApplicationError> {
         port.transact(async |transaction| {
@@ -58,7 +62,7 @@ pub(in crate::server) struct ReadAgentChannel;
 impl ReadAgentChannel {
     pub(in crate::server) async fn membership<P: TransactionPort>(
         port: &mut P,
-        channel_id: crate::ids::ChannelId,
+        channel_id: ChannelId,
         agent_id: MemberId,
     ) -> Result<bool, ApplicationError> {
         port.transact(async |transaction| {
@@ -71,7 +75,7 @@ impl ReadAgentChannel {
     pub(in crate::server) async fn around_sequence<P: TransactionPort>(
         port: &mut P,
         message_id: MessageId,
-        channel_id: crate::ids::ChannelId,
+        channel_id: ChannelId,
     ) -> Result<Option<u64>, ApplicationError> {
         port.transact(async |transaction| {
             transaction
@@ -82,7 +86,7 @@ impl ReadAgentChannel {
     }
     pub(in crate::server) async fn snapshot<P: TransactionPort>(
         port: &mut P,
-        channel_id: crate::ids::ChannelId,
+        channel_id: ChannelId,
     ) -> Result<u64, ApplicationError> {
         port.transact(async |transaction| transaction.channel_snapshot(channel_id).await)
             .await
@@ -113,7 +117,7 @@ impl ApplyCommandResult {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
         computer_id: ComputerId,
-        command_id: crate::ids::CommandId,
+        command_id: CommandId,
         sequence: u64,
         applied: bool,
     ) -> Result<(), ApplicationError> {
@@ -196,7 +200,7 @@ impl ClaimRun {
             if let Some(task_id) = input.task_id {
                 let task = transaction.task(task_id).await?;
                 if !task.linked_to(input.focus_thread_id) {
-                    return Err(crate::server::domain::DomainError::FocusOutsideTask.into());
+                    return Err(DomainError::FocusOutsideTask.into());
                 }
             }
             let mut run = Run::create(
@@ -217,7 +221,7 @@ impl ClaimRun {
                     || item_view.thread_id != run_view.focus_thread_id
                     || item_view.task_id != run_view.task_id
                 {
-                    return Err(crate::server::domain::DomainError::ItemScopeMismatch.into());
+                    return Err(DomainError::ItemScopeMismatch.into());
                 }
                 item.lease_for_run(run_view.id, run_view.lease_expires_at)?;
                 run.add_claimed_item(item_view.id, index as u64 + 1)?;

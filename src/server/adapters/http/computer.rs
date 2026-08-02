@@ -221,7 +221,7 @@ pub(super) async fn retire_agent(
     headers: HeaderMap,
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<AgentResponse>, ApiError> {
-    let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
+    let key = IdempotencyKey::from_uuid(idempotency_header(&headers)?);
     let actor_id = require_agent_governor(&state, &jar, agent_id).await?;
     let mut storage = state.storage.clone();
     RetireAgent::execute(
@@ -252,7 +252,7 @@ pub(super) async fn delete_computer(
     headers: HeaderMap,
     Path(computer_id): Path<Uuid>,
 ) -> Result<Json<ComputerResponse>, ApiError> {
-    let key = crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?);
+    let key = IdempotencyKey::from_uuid(idempotency_header(&headers)?);
     let actor_id = require_computer_governor(&state, &jar, computer_id).await?;
     let mut storage = state.storage.clone();
     DeleteComputer::execute(
@@ -328,7 +328,7 @@ pub(super) async fn create_agent(
                 DriverKind::Builtin
             },
             actor_member_id: MemberId::from_uuid(actor_id),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now,
         },
     )

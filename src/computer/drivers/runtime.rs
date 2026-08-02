@@ -558,7 +558,7 @@ mod tests {
             input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
             session::DriverKind,
         },
-        ids::{InboxItemId, SpaceId, ThreadId},
+        ids::{InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
 
     #[tokio::test]
@@ -632,8 +632,8 @@ done
                 focus_thread_id: thread_id,
                 message_snapshot_sequence: 1,
                 focus_messages: vec![ContextMessageInput {
-                    message_id: crate::ids::MessageId::from_uuid(Uuid::now_v7()),
-                    author_member_id: crate::ids::MemberId::from_uuid(Uuid::now_v7()),
+                    message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
                 claimed_items: Vec::new(),

@@ -4,10 +4,10 @@ use time::OffsetDateTime;
 use crate::{
     computer::application::{
         AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
-        ContinuityState, DriverKind, FencingToken, ItemDisposition, LocalAgent, LocalAgentState,
-        LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput, RunContextInput,
-        RunInput, RunPriority, SessionFingerprint, SessionScope, TaskInput, TerminalStatus,
-        WorkInput, WorkStrength,
+        ContinuityState, DeliveryState, DriverKind, FencingToken, ItemDisposition, LocalAgent,
+        LocalAgentState, LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput,
+        RunContextInput, RunInput, RunPriority, SessionFingerprint, SessionScope, TaskInput,
+        TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -15,6 +15,7 @@ use crate::{
         },
         query::QueryService,
     },
+    ids::{RunId, ThreadId},
     protocol::computer as wire,
 };
 
@@ -310,18 +311,10 @@ impl ServerConnectionAdapter {
                     delivery_sequence: wire::DeliverySequence(sequence),
                     fencing_token: wire::FencingToken::new(fencing_token.expose().to_owned()),
                     outcome: match outcome {
-                        crate::computer::application::DeliveryState::Accepted => {
-                            wire::DeliveryOutcome::Accepted
-                        }
-                        crate::computer::application::DeliveryState::TooLate => {
-                            wire::DeliveryOutcome::TooLate
-                        }
-                        crate::computer::application::DeliveryState::Unsupported => {
-                            wire::DeliveryOutcome::Unsupported
-                        }
-                        crate::computer::application::DeliveryState::Pending => {
-                            wire::DeliveryOutcome::TooLate
-                        }
+                        DeliveryState::Accepted => wire::DeliveryOutcome::Accepted,
+                        DeliveryState::TooLate => wire::DeliveryOutcome::TooLate,
+                        DeliveryState::Unsupported => wire::DeliveryOutcome::Unsupported,
+                        DeliveryState::Pending => wire::DeliveryOutcome::TooLate,
                     },
                 },
             },
@@ -356,7 +349,7 @@ impl ServerConnectionAdapter {
 
 async fn load_run<P: TransactionPort>(
     store: &mut P,
-    run_id: crate::ids::RunId,
+    run_id: RunId,
 ) -> Result<LocalRun, ApplicationError> {
     store
         .transact(async |transaction| transaction.run(run_id)?.ok_or(ApplicationError::NotFound))
@@ -379,17 +372,14 @@ fn local_agent(configuration: wire::AgentConfiguration) -> LocalAgent {
     }
 }
 
-fn task_threads(
-    task: Option<&wire::TaskSnapshot>,
-    focus: crate::ids::ThreadId,
-) -> Vec<crate::ids::ThreadId> {
+fn task_threads(task: Option<&wire::TaskSnapshot>, focus: ThreadId) -> Vec<ThreadId> {
     task.map_or_else(|| vec![focus], |task| task.linked_thread_ids.clone())
 }
 
 fn session_fingerprint(
     agent: &LocalAgent,
     workspace: String,
-    mut threads: Vec<crate::ids::ThreadId>,
+    mut threads: Vec<ThreadId>,
 ) -> SessionFingerprint {
     threads.sort_unstable();
     let mut digest = Sha256::new();

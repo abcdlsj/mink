@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) struct MessageWriteContext {
-    pub(in crate::server::adapters) idempotency_key: crate::ids::IdempotencyKey,
+    pub(in crate::server::adapters) idempotency_key: IdempotencyKey,
     pub(in crate::server::adapters) thread_id: Option<Uuid>,
     pub(in crate::server::adapters) handled_item: Option<(Uuid, Uuid)>,
     pub(in crate::server::adapters) expected_snapshot: Option<u64>,
@@ -64,7 +64,7 @@ pub(super) async fn create_channel(
             slug: Some(body.slug.trim().to_owned()),
             topic: body.topic.clone(),
             actor_member_id: MemberId::from_uuid(member_id),
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now,
         },
     )
@@ -173,7 +173,7 @@ pub(super) async fn create_root_message(
         channel_id,
         member_id,
         MessageWriteContext {
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             thread_id: None,
             handled_item: None,
             expected_snapshot: None,
@@ -260,7 +260,7 @@ pub(super) async fn create_thread_reply(
         channel_id,
         member_id,
         MessageWriteContext {
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             thread_id: Some(thread_id),
             handled_item: None,
             expected_snapshot: None,
@@ -302,7 +302,7 @@ pub(super) async fn update_message(
             body_markdown: body.body_markdown,
             mentions: body.mentions.into_iter().map(MemberId::from_uuid).collect(),
             mention_all: body.mention_all,
-            idempotency_key: crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+            idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -334,7 +334,7 @@ pub(super) async fn delete_message(
         &mut storage,
         MessageId::from_uuid(message_id),
         MemberId::from_uuid(actor),
-        crate::ids::IdempotencyKey::from_uuid(idempotency_header(&headers)?),
+        IdempotencyKey::from_uuid(idempotency_header(&headers)?),
         OffsetDateTime::now_utc(),
     )
     .await

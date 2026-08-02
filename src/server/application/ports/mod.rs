@@ -4,10 +4,15 @@ use crate::ids::{
 };
 
 use crate::server::domain::{
-    attention::InboxItem,
+    DomainError,
+    access::{HumanRegistration, SpaceAccess},
+    attachment::Attachment,
+    attention::{AttentionStrength, InboxItem, InboxItemKind, InboxItemStatus},
     conversation::{Channel, Message, Thread},
     execution::Run,
-    identity::{AccessLevel, Agent, Computer, Member},
+    identity::{AccessLevel, Agent, Computer, Member, PermissionAction},
+    invitation::Invitation,
+    pairing::{ComputerOs, Pairing, PairingStatus},
     task::Task,
 };
 
@@ -19,7 +24,7 @@ use std::fmt;
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub(in crate::server) enum ApplicationError {
     #[error(transparent)]
-    Domain(#[from] crate::server::domain::DomainError),
+    Domain(#[from] DomainError),
     #[error("resource was not found")]
     NotFound,
     #[error("credential is missing, expired, or does not match")]
@@ -128,10 +133,10 @@ impl fmt::Debug for RawPairingCode {
 
 pub(in crate::server) struct ComputerRecord {
     pub(in crate::server) id: ComputerId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) name: String,
     pub(in crate::server) hostname: String,
-    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) os: ComputerOs,
     pub(in crate::server) daemon_version: String,
     pub(in crate::server) token_hash: String,
     pub(in crate::server) created_at: time::OffsetDateTime,
@@ -140,10 +145,10 @@ pub(in crate::server) struct ComputerRecord {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct PairedComputer {
     pub(in crate::server) id: ComputerId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) name: String,
     pub(in crate::server) hostname: String,
-    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) os: ComputerOs,
     pub(in crate::server) daemon_version: Option<String>,
     pub(in crate::server) connected: bool,
     pub(in crate::server) deleted: bool,
@@ -180,7 +185,7 @@ impl fmt::Debug for RawInvitationToken {
 
 pub(in crate::server) struct InvitationView {
     pub(in crate::server) id: uuid::Uuid,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) space_name: String,
     pub(in crate::server) space_slug: String,
     pub(in crate::server) email: String,
@@ -191,7 +196,7 @@ pub(in crate::server) struct InvitationView {
 
 pub(in crate::server) struct HumanMemberRecord {
     pub(in crate::server) member_id: MemberId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) user_id: uuid::Uuid,
     pub(in crate::server) display_name: String,
     pub(in crate::server) handle: String,
@@ -201,7 +206,7 @@ pub(in crate::server) struct HumanMemberRecord {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct DirectMessageView {
     pub(in crate::server) channel_id: ChannelId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) other_member: SpaceMemberView,
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
@@ -209,12 +214,12 @@ pub(in crate::server) struct DirectMessageView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceMemberView {
     pub(in crate::server) id: MemberId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) kind: MemberKind,
     pub(in crate::server) display_name: String,
     pub(in crate::server) handle: String,
-    pub(in crate::server) access_level: crate::server::domain::identity::AccessLevel,
-    pub(in crate::server) permissions: Vec<crate::server::domain::identity::PermissionAction>,
+    pub(in crate::server) access_level: AccessLevel,
+    pub(in crate::server) permissions: Vec<PermissionAction>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -235,12 +240,12 @@ pub(in crate::server) enum InboxScope {
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
     pub(in crate::server) member_id: MemberId,
-    pub(in crate::server) kind: crate::server::domain::attention::InboxItemKind,
-    pub(in crate::server) strength: crate::server::domain::attention::AttentionStrength,
-    pub(in crate::server) status: crate::server::domain::attention::InboxItemStatus,
+    pub(in crate::server) kind: InboxItemKind,
+    pub(in crate::server) strength: AttentionStrength,
+    pub(in crate::server) status: InboxItemStatus,
     pub(in crate::server) channel_id: Option<ChannelId>,
     pub(in crate::server) channel_slug: Option<String>,
-    pub(in crate::server) thread_id: Option<crate::ids::ThreadId>,
+    pub(in crate::server) thread_id: Option<ThreadId>,
     pub(in crate::server) message_id: Option<MessageId>,
     pub(in crate::server) sender_member_id: Option<MemberId>,
     pub(in crate::server) sender_display_name: Option<String>,
@@ -253,7 +258,7 @@ pub(in crate::server) struct InboxItemView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct SpaceHumanMember {
     pub(in crate::server) member_id: MemberId,
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) display_name: String,
     pub(in crate::server) handle: String,
 }
@@ -261,10 +266,10 @@ pub(in crate::server) struct SpaceHumanMember {
 pub(in crate::server) struct PairingView {
     pub(in crate::server) pairing_id: uuid::Uuid,
     pub(in crate::server) hostname: String,
-    pub(in crate::server) os: crate::server::domain::pairing::ComputerOs,
+    pub(in crate::server) os: ComputerOs,
     pub(in crate::server) daemon_version: String,
     pub(in crate::server) token_fingerprint: String,
-    pub(in crate::server) status: crate::server::domain::pairing::PairingStatus,
+    pub(in crate::server) status: PairingStatus,
     pub(in crate::server) expires_at: time::OffsetDateTime,
 }
 
@@ -359,7 +364,7 @@ pub(in crate::server) struct PublishedMessage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct CreatedSpace {
-    pub(in crate::server) space_id: crate::ids::SpaceId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) owner_id: MemberId,
     pub(in crate::server) general_channel_id: ChannelId,
 }

@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fmt};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{
-    AgentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId, SpaceId, TaskId,
-    ThreadId,
+    AgentId, AttachmentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId,
+    SpaceId, TaskId, ThreadId,
 };
 
 pub(crate) const SCHEMA_VERSION: u16 = 1;
@@ -91,7 +91,7 @@ pub(crate) enum Action {
         path: String,
     },
     AttachmentDownload {
-        attachment_id: crate::ids::AttachmentId,
+        attachment_id: AttachmentId,
         output: String,
     },
     MemoryRead {

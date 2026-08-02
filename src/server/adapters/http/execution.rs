@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::computer::{ComputerErrorCode, DeliveryOutcome, DeliveryReceipt, RunStarted};
 use crate::server::domain::{
     attention::InboxItemDisposition,
     execution::{RunErrorCode, RunOutcome},
@@ -13,7 +14,7 @@ pub(super) async fn run_started(
     State(state): State<RuntimeState>,
     headers: HeaderMap,
     Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
-    Json(started): Json<crate::protocol::computer::RunStarted>,
+    Json(started): Json<RunStarted>,
 ) -> Result<StatusCode, ApiError> {
     authenticate_computer(&state, &headers, computer_id).await?;
     if started.run_id.into_uuid() != run_id {
@@ -38,7 +39,7 @@ pub(super) async fn delivery_receipt(
     State(state): State<RuntimeState>,
     headers: HeaderMap,
     Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
-    Json(receipt): Json<crate::protocol::computer::DeliveryReceipt>,
+    Json(receipt): Json<DeliveryReceipt>,
 ) -> Result<StatusCode, ApiError> {
     authenticate_computer(&state, &headers, computer_id).await?;
     if receipt.run_id.into_uuid() != run_id {
@@ -52,10 +53,7 @@ pub(super) async fn delivery_receipt(
             computer_id: ComputerId::from_uuid(computer_id),
             fencing_token_hash: token_hash(receipt.fencing_token.expose()),
             delivery_sequence: receipt.delivery_sequence.0,
-            accepted: matches!(
-                receipt.outcome,
-                crate::protocol::computer::DeliveryOutcome::Accepted
-            ),
+            accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -67,9 +65,8 @@ pub(super) async fn delivery_receipt(
 pub(super) async fn apply_run_result(
     state: &RuntimeState,
     computer_id: Uuid,
-    result: crate::protocol::computer::RunResult,
+    result: RunResult,
 ) -> Result<(), ApiError> {
-    use crate::protocol::computer::{ItemDisposition, RunTerminalStatus};
     let error_code = result.error_code.map(super::run_error_code);
     let outcome = match result.status {
         RunTerminalStatus::Completed => RunOutcome::Completed,
@@ -113,7 +110,7 @@ pub(super) async fn run_result(
     State(state): State<RuntimeState>,
     headers: HeaderMap,
     Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
-    Json(result): Json<crate::protocol::computer::RunResult>,
+    Json(result): Json<RunResult>,
 ) -> Result<StatusCode, ApiError> {
     authenticate_computer(&state, &headers, computer_id).await?;
     if result.run_id.into_uuid() != run_id {
@@ -637,7 +634,7 @@ pub(super) async fn execute_agent_action(
             .await
         }
         capability::Action::ChannelCreate { name, private } => {
-            let channel_id = crate::ids::ChannelId::from_uuid(Uuid::now_v7());
+            let channel_id = ChannelId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let channel = CreateChannelAction::execute(
                 &mut storage,
@@ -749,7 +746,7 @@ pub(super) async fn finish_agent_task(
     state: &RuntimeState,
     computer_id: Uuid,
     context: &capability::RunContext,
-    idempotency_key: Option<crate::ids::IdempotencyKey>,
+    idempotency_key: Option<IdempotencyKey>,
     outcome: TaskOutcome,
 ) -> Result<Value, capability::Error> {
     let task_id = context.task_id.ok_or_else(|| {
@@ -1041,8 +1038,7 @@ pub(in crate::server::adapters) async fn submit_run_result<P: TransactionPort + 
     Ok(StatusCode::OK)
 }
 
-pub(super) fn run_error_code(code: crate::protocol::computer::ComputerErrorCode) -> RunErrorCode {
-    use crate::protocol::computer::ComputerErrorCode;
+pub(super) fn run_error_code(code: ComputerErrorCode) -> RunErrorCode {
     use RunErrorCode;
     match code {
         ComputerErrorCode::InvalidCommand => RunErrorCode::InvalidCommand,

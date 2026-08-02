@@ -132,7 +132,7 @@ pub(super) struct UpdateMemberBody {
 pub(super) struct AgentActionRequest {
     pub(super) context: capability::RunContext,
     pub(super) action: capability::Action,
-    pub(super) idempotency_key: Option<crate::ids::IdempotencyKey>,
+    pub(super) idempotency_key: Option<IdempotencyKey>,
 }
 
 #[derive(Deserialize)]

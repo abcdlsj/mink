@@ -9,7 +9,9 @@ use crate::{
         ApplicationError,
         capability::{CapabilityService, ScopeRequirement},
         ports::{AgentHomePort, TransactionPort},
+        run::RunService,
     },
+    ids::{IdempotencyKey, RunId},
     protocol::capability as wire,
 };
 
@@ -90,11 +92,11 @@ impl LocalIpcAdapter {
         &self,
         store: &mut P,
         homes: &mut H,
-        on_yield: impl FnOnce(crate::ids::RunId),
+        on_yield: impl FnOnce(RunId),
         forward: impl AsyncFnOnce(
             wire::RunContext,
             wire::Action,
-            Option<crate::ids::IdempotencyKey>,
+            Option<IdempotencyKey>,
         ) -> wire::Response<serde_json::Value>,
     ) -> Result<(), ApplicationError> {
         self.serve_one(|request: wire::Request| async move {
@@ -167,13 +169,7 @@ impl LocalIpcAdapter {
                 _ => {}
             }
             if let wire::Action::RunYield { note } = action {
-                return match crate::computer::application::run::RunService::yield_run(
-                    store,
-                    context.run_id,
-                    note,
-                )
-                .await
-                {
+                return match RunService::yield_run(store, context.run_id, note).await {
                     Ok(_) => {
                         on_yield(context.run_id);
                         wire::Response::success(serde_json::json!({
@@ -279,7 +275,7 @@ mod tests {
             },
         },
         ids::{AgentId, RunId, SpaceId, TaskId, ThreadId},
-        protocol::capability::{Action, Response},
+        protocol::capability::{Action, Response, RunContext},
     };
     use time::{Duration, OffsetDateTime};
     use uuid::Uuid;
@@ -385,24 +381,21 @@ mod tests {
             .await
             .unwrap();
 
-        let server =
-            adapter.serve_capability(
-                &mut store,
-                &mut homes,
-                |_| {},
-                |context: crate::protocol::capability::RunContext,
-                 action: Action,
-                 _idempotency_key| async move {
-                    assert_eq!(context.agent_id, agent_id);
-                    assert_eq!(context.space_id, space_id);
-                    assert_eq!(context.task_id, Some(task_id));
-                    assert_eq!(context.focus_thread_id, thread_id);
-                    assert_eq!(context.run_id, run_id);
-                    assert_eq!(context.message_snapshot_sequence, 9);
-                    assert!(matches!(action, Action::TaskUpdate { .. }));
-                    Response::success(serde_json::json!({ "forwarded": true }))
-                },
-            );
+        let server = adapter.serve_capability(
+            &mut store,
+            &mut homes,
+            |_| {},
+            |context: RunContext, action: Action, _idempotency_key| async move {
+                assert_eq!(context.agent_id, agent_id);
+                assert_eq!(context.space_id, space_id);
+                assert_eq!(context.task_id, Some(task_id));
+                assert_eq!(context.focus_thread_id, thread_id);
+                assert_eq!(context.run_id, run_id);
+                assert_eq!(context.message_snapshot_sequence, 9);
+                assert!(matches!(action, Action::TaskUpdate { .. }));
+                Response::success(serde_json::json!({ "forwarded": true }))
+            },
+        );
         let client = client::call_with(
             &socket_path,
             "run-secret".to_owned(),
@@ -421,7 +414,7 @@ mod tests {
             &mut store,
             &mut homes,
             |_| {},
-            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+            |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("unauthenticated capability must not be forwarded")
             },
         );
@@ -444,7 +437,7 @@ mod tests {
             &mut store,
             &mut homes,
             |_| {},
-            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+            |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("unsafe local path must not be forwarded")
             },
         );
@@ -468,7 +461,7 @@ mod tests {
             &mut store,
             &mut homes,
             |_| {},
-            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+            |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("Memory writes must stay on the Computer")
             },
         );
@@ -491,7 +484,7 @@ mod tests {
             &mut store,
             &mut homes,
             |_| {},
-            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+            |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("Memory reads must stay on the Computer")
             },
         );
@@ -526,7 +519,7 @@ mod tests {
             &mut store,
             &mut homes,
             |yielded_run_id| interrupted.set(Some(yielded_run_id)),
-            |_: crate::protocol::capability::RunContext, _: Action, _idempotency_key| async move {
+            |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("run yield must be committed locally before Server result delivery")
             },
         );
