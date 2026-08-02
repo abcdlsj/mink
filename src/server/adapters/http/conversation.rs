@@ -5,10 +5,6 @@ pub(super) struct MessageWriteContext {
     pub(in crate::server::adapters) thread_id: Option<Uuid>,
     pub(in crate::server::adapters) handled_item: Option<(Uuid, Uuid)>,
     pub(in crate::server::adapters) expected_snapshot: Option<u64>,
-    pub(in crate::server::adapters) citations:
-        Vec<crate::server::application::ports::MessageCitationDraft>,
-    pub(in crate::server::adapters) citation_context:
-        Option<crate::server::application::ports::CitationContext>,
 }
 
 pub(super) async fn list_channels(
@@ -181,8 +177,6 @@ pub(super) async fn create_root_message(
             thread_id: None,
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
         },
         body,
     )
@@ -194,7 +188,7 @@ pub(super) async fn create_root_message(
         .map_err(map_sqlx)?;
     Ok((
         StatusCode::CREATED,
-        Json(message_row(&state.pool, &row, member_id).await?),
+        Json(message_row(&state.pool, &row).await?),
     ))
 }
 
@@ -218,7 +212,7 @@ pub(super) async fn read_thread(
         .map_err(map_sqlx)?;
     let mut projected = Vec::with_capacity(rows.len());
     for row in &rows {
-        projected.push(message_row(&state.pool, row, member_id).await?);
+        projected.push(message_row(&state.pool, row).await?);
     }
     let root = projected.first().cloned().ok_or_else(ApiError::not_found)?;
     let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
@@ -270,8 +264,6 @@ pub(super) async fn create_thread_reply(
             thread_id: Some(thread_id),
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
         },
         body,
     )
@@ -283,7 +275,7 @@ pub(super) async fn create_thread_reply(
         .map_err(map_sqlx)?;
     Ok((
         StatusCode::CREATED,
-        Json(message_row(&state.pool, &row, member_id).await?),
+        Json(message_row(&state.pool, &row).await?),
     ))
 }
 
@@ -321,7 +313,7 @@ pub(super) async fn update_message(
         .fetch_one(&state.pool)
         .await
         .map_err(map_sqlx)?;
-    Ok(Json(message_row(&state.pool, &row, actor).await?))
+    Ok(Json(message_row(&state.pool, &row).await?))
 }
 
 pub(super) async fn delete_message(
@@ -352,7 +344,7 @@ pub(super) async fn delete_message(
         .fetch_one(&state.pool)
         .await
         .map_err(map_sqlx)?;
-    Ok(Json(message_row(&state.pool, &row, actor).await?))
+    Ok(Json(message_row(&state.pool, &row).await?))
 }
 
 pub(super) async fn insert_message(
@@ -388,8 +380,6 @@ pub(super) async fn insert_message(
                 (RunId::from_uuid(run_id), InboxItemId::from_uuid(item_id))
             }),
             expected_snapshot: context.expected_snapshot,
-            citations: context.citations,
-            citation_context: context.citation_context,
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -778,7 +768,7 @@ pub(super) async fn list_messages(
     jar: CookieJar,
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<MessagePageResponse>, ApiError> {
-    let member_id = channel_member(&state, &jar, channel_id).await?;
+    channel_member(&state, &jar, channel_id).await?;
     let rows = sqlx::query(
         "SELECT * FROM messages WHERE channel_id=$1 AND placement='root' ORDER BY channel_seq",
     )
@@ -788,7 +778,7 @@ pub(super) async fn list_messages(
     .map_err(map_sqlx)?;
     let mut messages = Vec::with_capacity(rows.len());
     for row in rows {
-        messages.push(message_row(&state.pool, &row, member_id).await?);
+        messages.push(message_row(&state.pool, &row).await?);
     }
     let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
         .bind(channel_id)

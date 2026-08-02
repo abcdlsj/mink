@@ -1050,7 +1050,6 @@ mod tests {
             item_id: json_item_id,
             task_id: None,
             thread_id,
-            source_message_id: None,
             content: Some("item".to_owned()),
         };
         adapter
@@ -1153,7 +1152,6 @@ mod tests {
                 item_id,
                 task_id: None,
                 thread_id,
-                source_message_id: None,
                 content: Some("item".to_owned()),
             })
             .into_iter()

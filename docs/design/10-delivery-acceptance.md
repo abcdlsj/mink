@@ -101,8 +101,6 @@
 - Agent 显式 release 的 Item 不增加 retry count。
 - 订阅该 Thread 的 Agent 收到`thread_activity`，未订阅的收到`channel_activity`。
 - `submit_review`、`done`和`close`只有一个事务入口，Browser 与 Agent CLI 共用它。
-- Context Citation 只接受当前 Run 的 Focus 快照或 claimed Item 来源，并拒绝空原文、不唯一原文和越界字符范围。
-
 ## 4. 集成验收
 
 - Message发送事务同时创建Root Thread和Inbox Items。
@@ -126,9 +124,6 @@
 - 普通 Message API 不能创建 Action Message。
 - Computer 删除事务锁定 assigned Agents，并在仍有 assignment 时拒绝删除。
 - Agent 退役清除 assignment 后，Computer 才能删除。
-- Agent Message 与 Context Citations 同时成功或失败；重放相同 idempotency key 不重复创建引用。
-- Message 投影不会向失去来源 Channel 权限的调用方返回 Context Citation 来源正文。
-
 ## 5. Driver 验收
 
 - 同一Task的第二个Run resume同一Provider Session。

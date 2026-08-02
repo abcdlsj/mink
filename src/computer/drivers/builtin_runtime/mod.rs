@@ -593,7 +593,6 @@ mod tests {
                         item_id: crate::ids::InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id: input.context.focus_thread_id,
-                        source_message_id: None,
                         content: Some("new item".to_owned()),
                     },
                 )

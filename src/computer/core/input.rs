@@ -70,7 +70,6 @@ pub(in crate::computer) struct ClaimedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) thread_id: ThreadId,
-    pub(in crate::computer) source_message_id: Option<MessageId>,
     pub(in crate::computer) content: Option<String>,
 }
 
@@ -98,9 +97,6 @@ impl ClaimedItemInput {
         digest.update(self.item_id.to_string().as_bytes());
         digest.update(format!("{:?}", self.task_id).as_bytes());
         digest.update(self.thread_id.to_string().as_bytes());
-        if let Some(message_id) = self.source_message_id {
-            digest.update(message_id.to_string().as_bytes());
-        }
         if let Some(content) = &self.content {
             digest.update(content.as_bytes());
         }
@@ -115,7 +111,6 @@ impl fmt::Debug for ClaimedItemInput {
             .field("item_id", &self.item_id)
             .field("task_id", &self.task_id)
             .field("thread_id", &self.thread_id)
-            .field("source_message_id", &self.source_message_id)
             .field("has_content", &self.content.is_some())
             .finish()
     }

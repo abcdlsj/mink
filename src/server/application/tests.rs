@@ -2012,8 +2012,6 @@ async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
             attachment_ids: Vec::new(),
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )

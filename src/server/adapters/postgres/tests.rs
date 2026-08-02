@@ -181,8 +181,6 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
                         attachment_ids: Vec::new(),
                         handled_item: None,
                         expected_snapshot: None,
-                        citations: Vec::new(),
-                        citation_context: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await
@@ -328,8 +326,6 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                             attachment_ids: Vec::new(),
                             handled_item: None,
                             expected_snapshot: None,
-                            citations: Vec::new(),
-                            citation_context: None,
                             now: OffsetDateTime::now_utc(),
                         })
                         .await
@@ -505,8 +501,6 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                                         attachment_ids: Vec::new(),
                                         handled_item: None,
                                         expected_snapshot: None,
-                                        citations: Vec::new(),
-                                        citation_context: None,
                                         now: OffsetDateTime::now_utc(),
                                     })
                                     .await

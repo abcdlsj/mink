@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Bell, BellOff, X } from "lucide-react";
-import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 
 import {
   createThreadReply,
@@ -30,7 +30,6 @@ export function ThreadPane({
   resizeWithKeyboard,
   close,
   showLatestChannelMessages,
-  openSourceThread,
   activityByMemberId,
 }: {
   channelId: string;
@@ -47,13 +46,10 @@ export function ThreadPane({
   resizeWithKeyboard: (event: KeyboardEvent<HTMLDivElement>) => void;
   close: () => void;
   showLatestChannelMessages: () => void;
-  openSourceThread: (threadId: string) => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
 }) {
   const queryClient = useQueryClient();
   const closeButton = useRef<HTMLButtonElement>(null);
-  const threadMessagesRef = useRef<HTMLDivElement>(null);
-  const [highlightedSourceIds, setHighlightedSourceIds] = useState<ReadonlySet<string>>(() => new Set());
   const channelHasNewMessages = latestMainMessageSeq > openedAtMainSeq;
   const thread = useQuery({
     queryKey: ["thread", threadId],
@@ -92,17 +88,6 @@ export function ThreadPane({
       current ? { ...current, snapshot_channel_seq: message.seq, replies: [...current.replies, message] } : current,
     );
     void queryClient.invalidateQueries({ queryKey: ["messages", channelId] });
-  }
-
-  function navigateToSource(sourceMessageId: string, sourceThreadId: string) {
-    const source = threadMessagesRef.current?.querySelector<HTMLElement>(`[data-message-id="${sourceMessageId}"]`);
-    if (!source) {
-      openSourceThread(sourceThreadId);
-      return;
-    }
-    const reducedMotion = typeof globalThis.matchMedia === "function" && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    source.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
-    source.focus({ preventScroll: true });
   }
 
   return (
@@ -148,7 +133,7 @@ export function ThreadPane({
           <span>Channel</span>
         </button>
       </header>
-      <div ref={threadMessagesRef} className="thread-messages">
+      <div className="thread-messages">
         {channelHasNewMessages ? (
           <button className="thread-context-update" type="button" onClick={showLatestChannelMessages}>
             <span>New messages in #{channelSlug}</span>
@@ -160,9 +145,9 @@ export function ThreadPane({
         {thread.data ? (
           <>
             <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} highlighted={highlightedSourceIds.has(thread.data.root.id)} onCitationFocus={(sourceIds) => setHighlightedSourceIds(sourceIds ? new Set(sourceIds) : new Set())} onCitationNavigate={navigateToSource} />
+            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} />
             <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} highlighted={highlightedSourceIds.has(message.id)} onCitationFocus={(sourceIds) => setHighlightedSourceIds(sourceIds ? new Set(sourceIds) : new Set())} onCitationNavigate={navigateToSource} />)}
+            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} />)}
           </>
         ) : null}
       </div>

@@ -1503,7 +1503,6 @@ fn claimed_item(
         item_id,
         task_id,
         thread_id,
-        source_message_id: None,
         content: Some("steering body".to_owned()),
     }
 }

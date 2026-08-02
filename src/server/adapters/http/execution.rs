@@ -429,22 +429,6 @@ pub(super) async fn execute_agent_action(
                         .handle_item_id
                         .map(|item_id| (context.run_id.into_uuid(), item_id.into_uuid())),
                     expected_snapshot,
-                    citations: send
-                        .citations
-                        .into_iter()
-                        .map(
-                            |citation| crate::server::application::ports::MessageCitationDraft {
-                                response_text: citation.response_text,
-                                source_message_id: citation.source_message_id,
-                                source_text: citation.source_text,
-                            },
-                        )
-                        .collect(),
-                    citation_context: Some(crate::server::application::ports::CitationContext {
-                        run_id: context.run_id,
-                        focus_thread_id: context.focus_thread_id,
-                        message_snapshot_sequence: context.message_snapshot_sequence,
-                    }),
                 },
                 CreateMessageBody {
                     body_markdown: send.body,
@@ -918,7 +902,7 @@ pub(super) async fn agent_read_channel(
     let mut messages = Vec::with_capacity(rows.len());
     for row in &rows {
         messages.push(
-            message_row(&state.pool, row, agent_id)
+            message_row(&state.pool, row)
                 .await
                 .map_err(api_to_capability)?,
         );

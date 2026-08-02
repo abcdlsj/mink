@@ -37,4 +37,3 @@
 - [Task 是持续工作边界](./adr/0001-task-is-the-continuity-boundary.md)
 - [Provider Session 是 Computer 本地缓存](./adr/0002-provider-session-is-local-cache.md)
 - [新版本采用断代 schema](./adr/0003-clean-break-schema.md)
-- [Context Citation 只记录 Agent 声明的公开证据](./adr/0004-context-citation-is-declared-evidence.md)

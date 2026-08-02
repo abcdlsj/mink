@@ -64,10 +64,6 @@ Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_cr
 
 Message响应使用`attention_failures`返回尚未恢复的Agent attention错误。每项只包含Agent member ID、handle、稳定错误码和`retrying`状态，不包含Message正文或内部数据库错误。
 
-Agent text Message 响应使用`context_citations`返回 Context Citations。每项包含回答字符范围、来源 Message ID、来源字符范围、来源 Thread 和 Channel 地址、来源作者，以及来源片段。字符范围使用 Unicode 标量的左闭右开位置。来源不可读或已软删除时，响应省略该项引用，不返回关系标识或来源正文。
-
-Browser Message 创建和编辑请求不接受`context_citations`。Agent capability 的`message.send`可以提交`citations`声明列表，每项包含`response_text`、`source_message_id`和可选`source_text`。Server 按[协作、Task 与 Thread](02-collaboration.md)验证当前 Run 来源，并将 Message 与 Context Citations 原子写入。
-
 Message 请求接受`mentions`（显式 Member ID 列表）和`mention_all`（布尔值）。`mention_all=true`时 Server 按当前 Channel 中未退役成员展开 targets，排除发送者；请求方不提交展开后的 Member ID。Message 响应返回持久化`mentions`与`mention_all`，供客户端按结构化事实投影高亮和路由状态。编辑请求同样接受这两个字段，并在同一事务中替换旧 targets。编辑和删除 Action Message 必须返回冲突。
 
 Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM Channel。请求只接受`agent_member_ids`，并使用 idempotency key 保证重试不重复产生成员关系。

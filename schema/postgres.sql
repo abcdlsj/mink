@@ -222,26 +222,6 @@ CREATE TABLE message_mentions (
     FOREIGN KEY (member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
 );
 
--- Context citations connect a generated answer span with the exact scalar-index span
--- in a Message that was available to the Run.  They are written in the Message transaction.
-CREATE TABLE message_context_citations (
-    id UUID PRIMARY KEY,
-    space_id UUID NOT NULL,
-    run_id UUID NOT NULL,
-    answer_message_id UUID NOT NULL,
-    source_message_id UUID NOT NULL,
-    answer_start BIGINT NOT NULL CHECK (answer_start >= 0),
-    answer_end BIGINT NOT NULL CHECK (answer_end > answer_start),
-    source_start BIGINT NOT NULL CHECK (source_start >= 0),
-    source_end BIGINT NOT NULL CHECK (source_end > source_start),
-    created_at TIMESTAMPTZ NOT NULL,
-    FOREIGN KEY (answer_message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (source_message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
-    UNIQUE (answer_message_id, source_message_id, answer_start, answer_end, source_start, source_end)
-);
-CREATE INDEX message_context_citations_answer ON message_context_citations(answer_message_id);
-CREATE INDEX message_context_citations_source ON message_context_citations(source_message_id);
-
 CREATE TABLE threads (
     id UUID PRIMARY KEY,
     space_id UUID NOT NULL,
@@ -376,10 +356,6 @@ CREATE TABLE agent_runs (
 );
 CREATE UNIQUE INDEX agent_runs_one_active_per_agent
     ON agent_runs(agent_id) WHERE status NOT IN ('completed', 'yielded', 'failed', 'canceled');
-ALTER TABLE message_context_citations
-    ADD CONSTRAINT message_context_citations_run_fk
-    FOREIGN KEY (run_id, space_id) REFERENCES agent_runs(id, space_id) ON DELETE RESTRICT;
-
 CREATE TABLE inbox_items (
     id UUID PRIMARY KEY,
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,

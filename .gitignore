@@ -4,6 +4,7 @@
 /web/test-results/
 /web/playwright-report/
 /.sumi/
+/.claude/
 .env
 .env.*
 !.env.example

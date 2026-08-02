@@ -344,21 +344,7 @@ pub(in crate::server) struct MessageDraft {
     pub(in crate::server) attachment_ids: Vec<AttachmentId>,
     pub(in crate::server) handled_item: Option<(RunId, InboxItemId)>,
     pub(in crate::server) expected_snapshot: Option<u64>,
-    pub(in crate::server) citations: Vec<MessageCitationDraft>,
-    pub(in crate::server) citation_context: Option<CitationContext>,
     pub(in crate::server) now: time::OffsetDateTime,
-}
-
-pub(in crate::server) struct MessageCitationDraft {
-    pub(in crate::server) response_text: String,
-    pub(in crate::server) source_message_id: MessageId,
-    pub(in crate::server) source_text: Option<String>,
-}
-
-pub(in crate::server) struct CitationContext {
-    pub(in crate::server) run_id: RunId,
-    pub(in crate::server) focus_thread_id: ThreadId,
-    pub(in crate::server) message_snapshot_sequence: u64,
 }
 
 pub(in crate::server) struct PublishedMessage {

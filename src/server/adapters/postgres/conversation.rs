@@ -327,60 +327,6 @@ impl PostgresTransaction {
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        if !draft.citations.is_empty() {
-            let Some(citation_context) = draft.citation_context.as_ref() else {
-                return Err(ApplicationError::Conflict);
-            };
-            for citation in draft.citations {
-                let (answer_start, answer_end) =
-                    unique_scalar_span(&draft.body_markdown, &citation.response_text)
-                        .ok_or(ApplicationError::Conflict)?;
-                let source = sqlx::query(
-                    "SELECT m.body_markdown,m.thread_id,m.channel_seq,m.space_id \
-                     FROM messages m JOIN channel_members cm ON cm.channel_id=m.channel_id AND cm.member_id=$2 \
-                     WHERE m.id=$1 AND m.content_kind='text' AND m.body_markdown IS NOT NULL AND m.body_markdown <> '' AND m.deleted_at IS NULL",
-                )
-                .bind(citation.source_message_id.into_uuid())
-                .bind(draft.author_member_id.into_uuid())
-                .fetch_optional(&mut *self.connection)
-                .await
-                .map_err(map_sqlx)?
-                .ok_or(ApplicationError::NotFound)?;
-                let source_body: String = source.get("body_markdown");
-                let source_allowed: bool = sqlx::query_scalar(
-                    "SELECT ($1=$2 AND $3 <= $4) OR EXISTS(SELECT 1 FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id WHERE ri.run_id=$5 AND i.message_id=$6)",
-                )
-                .bind(source.get::<Uuid, _>("thread_id"))
-                .bind(citation_context.focus_thread_id.into_uuid())
-                .bind(source.get::<i64, _>("channel_seq"))
-                .bind(i64::try_from(citation_context.message_snapshot_sequence).map_err(|_| ApplicationError::Conflict)?)
-                .bind(citation_context.run_id.into_uuid())
-                .bind(citation.source_message_id.into_uuid())
-                .fetch_one(&mut *self.connection)
-                .await
-                .map_err(map_sqlx)?;
-                if !source_allowed || source.get::<Uuid, _>("space_id") != space_id {
-                    return Err(ApplicationError::NotFound);
-                }
-                let source_text = citation.source_text.as_deref().unwrap_or(&source_body);
-                let (source_start, source_end) = unique_scalar_span(&source_body, source_text)
-                    .ok_or(ApplicationError::Conflict)?;
-                sqlx::query("INSERT INTO message_context_citations (id,space_id,run_id,answer_message_id,source_message_id,answer_start,answer_end,source_start,source_end,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                    .bind(Uuid::now_v7())
-                    .bind(space_id)
-                    .bind(citation_context.run_id.into_uuid())
-                    .bind(draft.message_id.into_uuid())
-                    .bind(citation.source_message_id.into_uuid())
-                    .bind(i64::try_from(answer_start).map_err(|_| ApplicationError::Conflict)?)
-                    .bind(i64::try_from(answer_end).map_err(|_| ApplicationError::Conflict)?)
-                    .bind(i64::try_from(source_start).map_err(|_| ApplicationError::Conflict)?)
-                    .bind(i64::try_from(source_end).map_err(|_| ApplicationError::Conflict)?)
-                    .bind(draft.now)
-                    .execute(&mut *self.connection)
-                    .await
-                    .map_err(map_sqlx)?;
-            }
-        }
         // Mention targets are persisted as structured relations so projections and consumers do not
         // need to infer recipients from Message Markdown. Ignore IDs that are not Channel members;
         // routing below still validates the Agent subset through the Channel membership query.
@@ -778,16 +724,6 @@ impl PostgresTransaction {
         let MessageContent::Text(body) = message.content else {
             return Err(ApplicationError::Conflict);
         };
-        if message.edited_at.is_some() && message.deleted_at.is_none() {
-            sqlx::query(
-                "DELETE FROM message_context_citations \
-                 WHERE answer_message_id=$1 OR source_message_id=$1",
-            )
-            .bind(message.id.into_uuid())
-            .execute(&mut *self.connection)
-            .await
-            .map_err(map_sqlx)?;
-        }
         let changed = sqlx::query(
             "UPDATE messages SET body_markdown=$2,edited_at=$3,deleted_at=$4 \
              WHERE id=$1 AND content_kind='text'",
@@ -910,23 +846,6 @@ impl PostgresTransaction {
         .map(|ids| ids.into_iter().map(MemberId::from_uuid).collect())
         .map_err(map_sqlx)
     }
-}
-
-fn unique_scalar_span(haystack: &str, needle: &str) -> Option<(usize, usize)> {
-    if needle.is_empty() {
-        return None;
-    }
-    let byte_start = haystack.find(needle)?;
-    let next_offset = haystack[byte_start..]
-        .chars()
-        .next()
-        .map(char::len_utf8)
-        .unwrap_or(needle.len());
-    if haystack[byte_start + next_offset..].find(needle).is_some() {
-        return None;
-    }
-    let start = haystack[..byte_start].chars().count();
-    Some((start, start + needle.chars().count()))
 }
 
 #[async_trait]
@@ -1091,18 +1010,5 @@ impl CollaborationTransaction for PostgresTransaction {
         agent_id: MemberId,
     ) -> Result<bool, ApplicationError> {
         self.pending_item_for_agent(agent_id).await
-    }
-}
-
-#[cfg(test)]
-mod citation_tests {
-    use super::unique_scalar_span;
-
-    #[test]
-    fn citation_offsets_use_unicode_scalar_indices_and_require_uniqueness() {
-        assert_eq!(unique_scalar_span("前言🙂答案", "答案"), Some((3, 5)));
-        assert_eq!(unique_scalar_span("重复 重复", "重复"), None);
-        assert_eq!(unique_scalar_span("aaa", "aa"), None);
-        assert_eq!(unique_scalar_span("abc", ""), None);
     }
 }

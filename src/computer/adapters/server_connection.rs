@@ -397,7 +397,6 @@ fn claimed_item(item: &wire::InboxItemSnapshot) -> ClaimedItemInput {
         item_id: item.item_id,
         task_id: item.task_id,
         thread_id: item.thread_id,
-        source_message_id: item.message.as_ref().map(|message| message.message_id),
         content: item.message.as_ref().map(message_content),
     }
 }

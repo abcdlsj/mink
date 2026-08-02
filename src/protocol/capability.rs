@@ -174,27 +174,6 @@ pub(crate) struct MessageSend {
     pub(crate) body: String,
     pub(crate) handle_item_id: Option<InboxItemId>,
     pub(crate) snapshot_sequence: Option<u64>,
-    #[serde(default)]
-    pub(crate) citations: Vec<MessageCitation>,
-}
-
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct MessageCitation {
-    pub(crate) response_text: String,
-    pub(crate) source_message_id: MessageId,
-    pub(crate) source_text: Option<String>,
-}
-
-impl fmt::Debug for MessageCitation {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("MessageCitation")
-            .field("source_message_id", &self.source_message_id)
-            .field("has_source_text", &self.source_text.is_some())
-            .field("response_text", &"[REDACTED]")
-            .finish()
-    }
 }
 
 impl fmt::Debug for MessageSend {
@@ -340,11 +319,6 @@ mod tests {
 
     #[test]
     fn request_debug_excludes_token_and_content() {
-        let citation = super::MessageCitation {
-            response_text: "private response".to_owned(),
-            source_message_id: crate::ids::MessageId::from_uuid(uuid::Uuid::now_v7()),
-            source_text: Some("private source".to_owned()),
-        };
         let request = Request {
             schema_version: SCHEMA_VERSION,
             run_token: "secret-token".to_owned(),
@@ -354,15 +328,11 @@ mod tests {
                 body: "private body".to_owned(),
                 handle_item_id: None,
                 snapshot_sequence: None,
-                citations: vec![citation.clone()],
             }),
         };
         let debug = format!("{request:?}");
         assert!(!debug.contains("secret-token"));
         assert!(!debug.contains("private body"));
         assert!(debug.contains("message.send"));
-        let citation_debug = format!("{citation:?}");
-        assert!(!citation_debug.contains("private response"));
-        assert!(!citation_debug.contains("private source"));
     }
 }

@@ -170,72 +170,6 @@ impl CapabilityFixture {
 }
 
 #[tokio::test]
-async fn agent_message_citations_commit_and_project_unicode_ranges() {
-    let fixture = CapabilityFixture::create().await;
-    let response = fixture
-        .execute(capability::Action::MessageSend(capability::MessageSend {
-            target: capability::MessageTarget::Focus,
-            body: "前🙂答案".to_owned(),
-            handle_item_id: None,
-            snapshot_sequence: None,
-            citations: vec![capability::MessageCitation {
-                response_text: "答案".to_owned(),
-                source_message_id: MessageId::from_uuid(
-                    fixture.context.focus_thread_id.into_uuid(),
-                ),
-                source_text: Some("our".to_owned()),
-            }],
-        }))
-        .await
-        .unwrap();
-    let message_id = Uuid::parse_str(response["message_id"].as_str().unwrap()).unwrap();
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&fixture.state.pool)
-        .await
-        .unwrap();
-    let projection = message_row(&fixture.state.pool, &row, fixture.owner_id)
-        .await
-        .unwrap();
-
-    assert_eq!(projection.context_citations.len(), 1);
-    let citation = &projection.context_citations[0];
-    assert_eq!((citation.answer_start, citation.answer_end), (2, 4));
-    assert_eq!((citation.source_start, citation.source_end), (1, 4));
-    assert_eq!(citation.source_excerpt, "our");
-    assert_eq!(
-        citation.source_message_id,
-        fixture.context.focus_thread_id.into_uuid()
-    );
-
-    let mut storage = fixture.state.storage.clone();
-    EditMessage::execute(
-        &mut storage,
-        EditMessageInput {
-            message_id: MessageId::from_uuid(fixture.context.focus_thread_id.into_uuid()),
-            actor_member_id: MemberId::from_uuid(fixture.owner_id),
-            body_markdown: "edited source".to_owned(),
-            mentions: Vec::new(),
-            mention_all: false,
-            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
-            now: OffsetDateTime::now_utc(),
-        },
-    )
-    .await
-    .unwrap();
-    let citation_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM message_context_citations WHERE answer_message_id=$1",
-    )
-    .bind(message_id)
-    .fetch_one(&fixture.state.pool)
-    .await
-    .unwrap();
-    assert_eq!(citation_count, 0);
-
-    fixture.destroy().await;
-}
-
-#[tokio::test]
 async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
     let fixture = CapabilityFixture::create().await;
     let agent_id = fixture.context.agent_id.into_uuid();
@@ -327,9 +261,7 @@ async fn message_projection_returns_persisted_mentions_and_mention_all() {
         .fetch_one(&fixture.state.pool)
         .await
         .unwrap();
-    let projected = message_row(&fixture.state.pool, &row, fixture.owner_id)
-        .await
-        .unwrap();
+    let projected = message_row(&fixture.state.pool, &row).await.unwrap();
     assert_eq!(
         projected.mentions,
         vec![fixture.context.agent_id.into_uuid()]
@@ -400,9 +332,7 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
         .fetch_one(&fixture.state.pool)
         .await
         .unwrap();
-    let projected = message_row(&fixture.state.pool, &row, fixture.owner_id)
-        .await
-        .unwrap();
+    let projected = message_row(&fixture.state.pool, &row).await.unwrap();
     let failures = &projected.attention_failures;
     assert_eq!(failures.len(), 1);
     assert_eq!(
@@ -442,8 +372,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             thread_id: Some(focus_id),
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
         },
         CreateMessageBody {
             body_markdown: "same Focus".into(),
@@ -493,8 +421,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             thread_id: None,
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
         },
         CreateMessageBody {
             body_markdown: "different Focus".into(),
@@ -533,8 +459,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             thread_id: Some(focus_id),
             handled_item: None,
             expected_snapshot: None,
-            citations: Vec::new(),
-            citation_context: None,
         },
         CreateMessageBody {
             body_markdown: "finalizing race".into(),
@@ -656,7 +580,6 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
             body: "must roll back".to_owned(),
             handle_item_id: Some(fixture.handled_item_id),
             snapshot_sequence: None,
-            citations: Vec::new(),
         }))
         .await
         .unwrap_err();
@@ -1043,7 +966,6 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
             body: "must not commit".into(),
             handle_item_id: None,
             snapshot_sequence: None,
-            citations: Vec::new(),
         }))
         .await
         .unwrap_err();
