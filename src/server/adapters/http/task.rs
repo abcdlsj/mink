@@ -390,7 +390,7 @@ pub(super) async fn task_actor(
     let can_read: bool = sqlx::query_scalar(
         "SELECT EXISTS(\
            SELECT 1 FROM tasks task \
-           JOIN threads source ON source.id=task.source_thread_id \
+           JOIN messages source ON source.id=task.source_thread_id AND source.placement='root' \
            JOIN channel_members membership ON membership.channel_id=source.channel_id \
            WHERE task.id=$1 AND membership.member_id=$2\
          )",

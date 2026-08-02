@@ -138,7 +138,8 @@ impl PostgresTransaction {
     ) -> Result<BTreeSet<MemberId>, ApplicationError> {
         let ids = if private {
             sqlx::query_scalar::<_, Uuid>(
-                "SELECT member_id FROM channel_members WHERE channel_id=(SELECT channel_id FROM threads WHERE id=$1)",
+                "SELECT member_id FROM channel_members \
+                 WHERE channel_id=(SELECT channel_id FROM messages WHERE id=$1 AND placement='root')",
             )
             .bind(focus_thread_id.into_uuid())
             .fetch_all(&mut *self.connection)
@@ -160,14 +161,14 @@ impl PostgresTransaction {
         &mut self,
         thread_id: ThreadId,
     ) -> Result<Option<ChannelId>, ApplicationError> {
-        Ok(
-            sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM threads WHERE id=$1")
-                .bind(thread_id.into_uuid())
-                .fetch_optional(&mut *self.connection)
-                .await
-                .map_err(map_sqlx)?
-                .map(ChannelId::from_uuid),
+        Ok(sqlx::query_scalar::<_, Uuid>(
+            "SELECT channel_id FROM messages WHERE id=$1 AND placement='root'",
         )
+        .bind(thread_id.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .map(ChannelId::from_uuid))
     }
     pub(super) async fn direct_messages_for_member(
         &mut self,
@@ -219,7 +220,8 @@ impl PostgresTransaction {
         if following {
             sqlx::query(
                 "INSERT INTO thread_subscriptions(thread_id,space_id,member_id,created_at) \
-                 SELECT $1,t.space_id,$2,$3 FROM threads t WHERE t.id=$1 \
+                 SELECT $1,t.space_id,$2,$3 FROM messages t \
+                 WHERE t.id=$1 AND t.placement='root' \
                  ON CONFLICT (thread_id,member_id) DO NOTHING",
             )
             .bind(thread_id.into_uuid())
@@ -273,10 +275,6 @@ impl PostgresTransaction {
         &mut self,
         draft: MessageDraft,
     ) -> Result<PublishedMessage, ApplicationError> {
-        sqlx::query("SET CONSTRAINTS ALL DEFERRED")
-            .execute(&mut *self.connection)
-            .await
-            .map_err(map_sqlx)?;
         let channel = sqlx::query(
             "SELECT space_id,kind,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE",
         )
@@ -360,19 +358,6 @@ impl PostgresTransaction {
             .bind(draft.now)
             .bind(draft.channel_id.into_uuid())
             .bind(draft.author_member_id.into_uuid())
-            .execute(&mut *self.connection)
-            .await
-            .map_err(map_sqlx)?;
-        }
-        if draft.thread_id.is_none() {
-            sqlx::query(
-                "INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) \
-                 VALUES($1,$2,$3,$1,$4)",
-            )
-            .bind(thread_id.into_uuid())
-            .bind(space_id)
-            .bind(draft.channel_id.into_uuid())
-            .bind(draft.now)
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
@@ -549,11 +534,13 @@ impl PostgresTransaction {
         &mut self,
         message: Message,
     ) -> Result<(), ApplicationError> {
-        let location = sqlx::query("SELECT channel_id,space_id FROM threads WHERE id=$1")
-            .bind(message.thread_id.into_uuid())
-            .fetch_one(&mut *self.connection)
-            .await
-            .map_err(map_sqlx)?;
+        let location = sqlx::query(
+            "SELECT channel_id,space_id FROM messages WHERE id=$1 AND placement='root'",
+        )
+        .bind(message.thread_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
         let channel_id: Uuid = location.get("channel_id");
         let space_id: Uuid = location.get("space_id");
         let channel_seq: i64 = sqlx::query_scalar(
@@ -647,9 +634,10 @@ impl PostgresTransaction {
         thread_id: ThreadId,
     ) -> Result<bool, ApplicationError> {
         sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM threads \
-             JOIN channel_members ON channel_members.channel_id = threads.channel_id \
-             WHERE threads.id = $1 AND channel_members.member_id = $2)",
+            "SELECT EXISTS(SELECT 1 FROM messages \
+             JOIN channel_members ON channel_members.channel_id = messages.channel_id \
+             WHERE messages.id = $1 AND messages.placement = 'root' \
+               AND channel_members.member_id = $2)",
         )
         .bind(thread_id.into_uuid())
         .bind(actor.into_uuid())
@@ -660,7 +648,8 @@ impl PostgresTransaction {
 
     pub(super) async fn thread(&mut self, id: ThreadId) -> Result<Thread, ApplicationError> {
         let row = sqlx::query(
-            "SELECT id, space_id, channel_id, root_message_id FROM threads WHERE id = $1 FOR UPDATE",
+            "SELECT id, space_id, channel_id FROM messages \
+             WHERE id = $1 AND placement = 'root' FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -671,7 +660,6 @@ impl PostgresTransaction {
             id: ThreadId::from_uuid(row.get("id")),
             space_id: SpaceId::from_uuid(row.get("space_id")),
             channel_id: ChannelId::from_uuid(row.get("channel_id")),
-            root_message_id: MessageId::from_uuid(row.get("root_message_id")),
             audience,
         })
     }
@@ -709,9 +697,9 @@ impl PostgresTransaction {
         thread_id: ThreadId,
     ) -> Result<u64, ApplicationError> {
         let sequence = sqlx::query_scalar::<_, i64>(
-            "SELECT channels.next_seq-1 FROM threads \
-             JOIN channels ON channels.id=threads.channel_id \
-             WHERE threads.id=$1 FOR UPDATE OF channels",
+            "SELECT channels.next_seq-1 FROM messages \
+             JOIN channels ON channels.id=messages.channel_id \
+             WHERE messages.id=$1 AND messages.placement='root' FOR UPDATE OF channels",
         )
         .bind(thread_id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -837,8 +825,9 @@ impl PostgresTransaction {
         thread_id: ThreadId,
     ) -> Result<BTreeSet<MemberId>, ApplicationError> {
         sqlx::query_scalar::<_, Uuid>(
-            "SELECT channel_members.member_id FROM threads JOIN channel_members \
-             ON channel_members.channel_id=threads.channel_id WHERE threads.id=$1 ORDER BY member_id",
+            "SELECT channel_members.member_id FROM messages JOIN channel_members \
+             ON channel_members.channel_id=messages.channel_id \
+             WHERE messages.id=$1 AND messages.placement='root' ORDER BY member_id",
         )
         .bind(thread_id.into_uuid())
         .fetch_all(&mut *self.connection)

@@ -129,9 +129,18 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let deferred_thread_cycle: bool = sqlx::query_scalar(
-            "SELECT condeferrable AND condeferred FROM pg_constraint \
-                 WHERE conname='messages_thread_in_space'",
+        let no_threads_table: bool = sqlx::query_scalar(
+            "SELECT NOT EXISTS(SELECT 1 FROM information_schema.tables \
+                 WHERE table_schema='public' AND table_name='threads')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let messages_self_fk: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_constraint c \
+                 JOIN pg_class r ON r.oid=c.conrelid \
+                 JOIN pg_class f ON f.oid=c.confrelid \
+                 WHERE r.relname='messages' AND f.relname='messages' AND c.contype='f')",
         )
         .fetch_one(&pool)
         .await
@@ -145,7 +154,8 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .unwrap();
 
         assert!(active_index);
-        assert!(deferred_thread_cycle);
+        assert!(no_threads_table);
+        assert!(messages_self_fk);
         assert!(!legacy_session_table);
         pool.close().await;
     }
@@ -198,7 +208,6 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
              INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES
                ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0),('{channel}','{space}','{second_agent}',now(),0);
              INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
-             INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
              COMMIT;"
         ))
         .execute(&pool)
@@ -297,7 +306,6 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                  INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
                  INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0),('{channel}','{space}','{subscriber}',now(),0);
                  INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
-                 INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
                  INSERT INTO thread_subscriptions (thread_id,space_id,member_id,created_at) VALUES ('{root}','{space}','{subscriber}',now());
                  INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','running','hash',now()-interval '5 minutes',now(),now());
                  INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','leased',now(),'{stale_run}',now()-interval '5 minutes',0,now());
@@ -510,7 +518,6 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                  INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
                  INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0);
                  INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
-                 INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
                  COMMIT;"
             ))
             .execute(&pool)
@@ -687,7 +694,6 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
              INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{member}',now(),0);
              INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{actor_agent}',now(),0);
              INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{member}','source',now());
-             INSERT INTO threads (id,space_id,channel_id,root_message_id,created_at) VALUES ('{root}','{space}','{channel}','{root}',now());
              INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space}','{actor_agent}','{root}','running','hash',now()+interval '1 hour',now(),now());
              COMMIT;"
         ))
@@ -859,7 +865,6 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
              INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel_id}','{space_id}','public','general',2,now());
              INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0),('{channel_id}','{space_id}','{agent_id}',now(),0);
              INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',1,'root','text','{owner_id}','mention',now());
-             INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{message_id}','{space_id}','{channel_id}','{message_id}',now());
              INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,last_error_code,created_at) VALUES ('{item_id}','{space_id}','{agent_id}','{message_id}','{message_id}','mention','hard','pending',now(),'run_claim_unavailable',now());
              COMMIT;"
         ))

@@ -63,7 +63,7 @@ impl PostgresTransaction {
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
              FROM inbox_items i \
-             JOIN threads t ON t.id=i.thread_id \
+             JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              JOIN channels c ON c.id=t.channel_id \
              LEFT JOIN messages m ON m.id=i.message_id \
              LEFT JOIN members sender ON sender.id=m.author_member_id \
@@ -132,7 +132,7 @@ impl PostgresTransaction {
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
              FROM inbox_items i \
-             JOIN threads t ON t.id=i.thread_id \
+             JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              JOIN channels c ON c.id=t.channel_id \
              LEFT JOIN messages m ON m.id=i.message_id \
              LEFT JOIN members sender ON sender.id=m.author_member_id \

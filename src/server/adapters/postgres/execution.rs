@@ -48,7 +48,7 @@ impl PostgresTransaction {
         agent_id: MemberId,
         viewer_id: MemberId,
     ) -> Result<Option<RunId>, ApplicationError> {
-        let id: Option<Uuid> = sqlx::query_scalar("SELECT r.id FROM agent_runs r JOIN threads t ON t.id=r.focus_thread_id JOIN channel_members cm ON cm.channel_id=t.channel_id AND cm.member_id=$2 WHERE r.agent_id=$1 AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1")
+        let id: Option<Uuid> = sqlx::query_scalar("SELECT r.id FROM agent_runs r JOIN messages t ON t.id=r.focus_thread_id AND t.placement='root' JOIN channel_members cm ON cm.channel_id=t.channel_id AND cm.member_id=$2 WHERE r.agent_id=$1 AND r.status NOT IN ('completed','yielded','failed','canceled') ORDER BY r.created_at DESC LIMIT 1")
             .bind(agent_id.into_uuid()).bind(viewer_id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(map_sqlx)?;
         Ok(id.map(RunId::from_uuid))
     }
@@ -91,7 +91,8 @@ impl PostgresTransaction {
     ) -> Result<Option<ClaimCandidate>, ApplicationError> {
         let row = sqlx::query(
             "SELECT i.id,i.member_id,i.task_id,i.thread_id,i.message_id,t.channel_id FROM inbox_items i \
-             JOIN agents a ON a.member_id=i.member_id JOIN threads t ON t.id=i.thread_id \
+             JOIN agents a ON a.member_id=i.member_id \
+             JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              WHERE a.computer_id=$1 AND a.lifecycle='active' AND i.status='pending' \
                AND i.available_at<=now() \
                AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.member_id \
@@ -408,13 +409,14 @@ impl PostgresTransaction {
         &mut self,
         thread_id: ThreadId,
     ) -> Result<FocusSnapshot, ApplicationError> {
-        let channel_id =
-            sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM threads WHERE id=$1")
-                .bind(thread_id.into_uuid())
-                .fetch_one(&mut *self.connection)
-                .await
-                .map(ChannelId::from_uuid)
-                .map_err(map_sqlx)?;
+        let channel_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT channel_id FROM messages WHERE id=$1 AND placement='root'",
+        )
+        .bind(thread_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map(ChannelId::from_uuid)
+        .map_err(map_sqlx)?;
         let rows = sqlx::query(
             "SELECT id,author_member_id,channel_seq,content_kind,body_markdown,action_channel_id, \
              action_agent_member_id,created_at,placement FROM messages \

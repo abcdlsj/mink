@@ -874,6 +874,19 @@ impl PostgresTransaction {
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        if row.is_some() {
+            sqlx::query(
+                "UPDATE browser_sessions SET last_seen_at=$3 \
+                 WHERE token_hash=$1 AND expires_at>$2 \
+                   AND last_seen_at < $3 - interval '5 minutes'",
+            )
+            .bind(token_hash)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
         Ok(row.map(|row| AuthenticatedHuman {
             user_id: row.get("id"),
             display_name: row.get("display_name"),

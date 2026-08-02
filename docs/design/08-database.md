@@ -23,7 +23,7 @@
 
 以下数据不单独保存：
 
-- Thread 的 Root Message 映射以 `threads.root_message_id` 为准。
+- Thread 由 Root Message 表达：`messages.placement='root'`且`thread_id=id`的行即 Thread，没有独立 threads 表。
 - Task 的 Source 关系以 `tasks.source_thread_id` 为准。
 - Result 正文以 `tasks.result_message_id` 指向的 Message 为准。
 - Task 的运行中和等待状态从 Run 与 outcome 推导。
@@ -78,6 +78,8 @@
 - `created_at`
 
 只保存 token hash。`token_hash`必须唯一。
+
+每次会话认证成功时刷新`last_seen_at`。刷新节流由 Server 实现，默认五分钟内不重复写入。
 
 ### 4.3 `spaces`
 
@@ -192,7 +194,7 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 - `edited_at`
 - `deleted_at`
 
-`(channel_id, channel_seq)`必须唯一。Root Message 的`thread_id`等于自身 ID。Reply 必须与目标 Message 属于同一 Thread。
+`(channel_id, channel_seq)`必须唯一。Root Message 的`thread_id`等于自身 ID。Reply 必须与目标 Message 属于同一 Thread。`thread_id`引用`messages.id`，触发器保证目标必须是`placement='root'`的行。
 
 `text`具有`body_markdown`，且不具有 action target。Action Message 的`body_markdown`为空。`channel_created`只具有`action_channel_id`。`agent_created`只具有`action_agent_member_id`。CHECK 必须拒绝其他组合。
 
@@ -200,17 +202,11 @@ Action Message 的`placement`只能是`reply`。该约束避免 Action Message �
 
 Action Message 与目标资源在同一领域事务中创建。普通 Message 写入入口只能创建`text`。
 
-### 5.4 `threads`
+### 5.4 Thread 由 Root Message 表达
 
-- `id`
-- `space_id`
-- `channel_id`
-- `root_message_id`
-- `created_at`
+Thread 不单独建表。Root Message 行同时是 Thread 根；Thread 的 Space、Channel 和创建时间都取自该 Message 行。
 
-`id`等于`root_message_id`。`root_message_id`必须唯一。
-
-Message 与 Thread 之间的循环外键使用`DEFERRABLE INITIALLY DEFERRED`。Root Message 和 Thread 因此可以在一个事务中创建。
+`tasks.source_thread_id`、`task_threads.thread_id`、`inbox_items.thread_id`、`agent_runs.focus_thread_id`和`thread_subscriptions.thread_id`都引用`messages(id, space_id)`，触发器保证目标必须是 Root Message。`messages.thread_id`是自引用外键，不产生循环约束，创建 Root Message 不需要 DEFERRABLE。
 
 ### 5.5 Attachment
 
@@ -350,7 +346,7 @@ Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Hu
 
 订阅不改变 Channel membership，也不授予读取权限。没有 Channel 成员身份的 Member 即使有订阅行也读不到 Thread，因此权限判定不查该表。
 
-两个外键都使用`(id, space_id)`复合形式，保证 Thread 与 Member 属于同一 Space。
+Thread 外键引用 Root Message 的`(id, space_id)`，Member 外键引用`members(id, space_id)`，保证 Thread 与 Member 属于同一 Space。
 
 该结构由 PostgreSQL 基线 schema 创建。
 
@@ -414,9 +410,8 @@ Run 结果上报的幂等记录。`event_id`是主键，`run_id`唯一，因此�
 - `kind`
 - `payload_json`
 - `created_at`
-- `published_at`
 
-业务写入和 outbox 写入属于同一事务。
+业务写入和 outbox 写入属于同一事务。outbox 同时作为浏览器事件流的读取源，见 [API 与事件](07-api.md)。
 
 ### 8.6 `idempotency_records`
 
@@ -448,13 +443,13 @@ SQLite 不得保存 Computer Token 或模型凭据。
 ### 10.1 发送 Message
 
 1. 锁定 Channel sequence。
-2. 创建 Message；Root Message 同时创建同 ID 的 Thread。
+2. 创建 Message；Root Message 同时定义同 ID 的 Thread。
 3. 创建 mention、Attachment 关系和 Inbox Item。
 4. 写入 audit 和 outbox。
 
 ### 10.2 创建 Task
 
-1. 锁定 Root Message 和 Thread。
+1. 锁定 Root Message，即锁定 Thread。
 2. 验证 Source 和权限。
 3. 创建 Task，并写入`source_thread_id`。
 4. Agent Run 发起时，绑定 Run 和已领取 Item。

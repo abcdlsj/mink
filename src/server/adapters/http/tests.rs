@@ -67,7 +67,6 @@ impl CapabilityFixture {
                  INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0);
                  INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{agent_id}',now(),0);
                  INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',1,'root','text','{owner_id}','source',now());
-                 INSERT INTO threads(id,space_id,channel_id,root_message_id,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',now());
                  INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space_id}','{agent_id}','{focus_id}','running','{}',now()+interval '1 hour',now(),now());
                  INSERT INTO inbox_items(id,space_id,member_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,created_at) VALUES
                    ('{handled_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now()),
@@ -1034,11 +1033,12 @@ async fn capability_message_send_mounts_ready_attachments_from_uploader() {
 #[tokio::test]
 async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
     let mut fixture = CapabilityFixture::create().await;
-    let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM threads WHERE id=$1")
-        .bind(fixture.context.focus_thread_id.into_uuid())
-        .fetch_one(&fixture.state.pool)
-        .await
-        .unwrap();
+    let channel_id: Uuid =
+        sqlx::query_scalar("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
+            .bind(fixture.context.focus_thread_id.into_uuid())
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
     let read = fixture
         .execute(capability::Action::ChannelRead {
             channel_id: ChannelId::from_uuid(channel_id),
