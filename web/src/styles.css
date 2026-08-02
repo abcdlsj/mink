@@ -4746,10 +4746,10 @@ h1 {
 .space-badge {
   width: 40px;
   height: 40px;
-  border-color: var(--paper);
-  background: var(--ink);
-  color: var(--paper);
-  box-shadow: 3px 3px 0 var(--paper);
+  border-color: var(--ink);
+  background: var(--accent-core);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
   transform: rotate(-2deg);
 }
 
