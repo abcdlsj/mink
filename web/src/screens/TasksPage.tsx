@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { CircleCheck, CircleDot, Clock, Link2, ListTodo, RotateCcw, Search, Unlink, XCircle } from "lucide-react";
+import { Clock, Link2, RotateCcw, Unlink, XCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -22,6 +22,7 @@ import {
   type ThreadReference,
 } from "../api/client";
 import { SpaceShell } from "../components/SpaceShell";
+import { TaskStatusIcon } from "../components/taskStatusIcon";
 
 type TaskFilter = "all_open" | TaskStatus | "assigned_to_me";
 
@@ -41,6 +42,16 @@ const openOrder: Record<TaskStatus, number> = {
   todo: 2,
   done: 3,
   closed: 4,
+};
+
+const emptyFacts: Record<TaskFilter, string> = {
+  all_open: "No open Tasks.",
+  todo: "No TODO Tasks.",
+  in_progress: "No Tasks in progress.",
+  in_review: "No Tasks in review.",
+  done: "No completed Tasks.",
+  closed: "No closed Tasks.",
+  assigned_to_me: "No Tasks assigned to you.",
 };
 
 export function TasksPage() {
@@ -80,7 +91,12 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
       </nav>
       {tasks.isPending ? <div className="route-status">Loading Tasks…</div> : null}
       {tasks.error ? <div className="route-status route-status--error" role="alert">Tasks unavailable. Retry from this page.</div> : null}
-      {!tasks.isPending && !tasks.error && visible.length === 0 ? <div className="tasks-empty"><ListTodo /><h2>No matching Tasks</h2><p>Create a Task from a Root Message in Conversation.</p></div> : null}
+      {!tasks.isPending && !tasks.error && visible.length === 0 ? (
+        <div className="tasks-empty" role="status">
+          <p>{emptyFacts[filter]}</p>
+          {filter === "all_open" ? <p>Create a Task from a Root Message in Conversation.</p> : null}
+        </div>
+      ) : null}
       {visible.length ? <div className="task-list" role="list">{visible.map((task) => <TaskRow key={task.id} task={task} spaceSlug={spaceSlug} />)}</div> : null}
     </section>
   );
@@ -174,8 +190,7 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
 }
 
 function TaskStatusLabel({ status }: { status: TaskStatus }) {
-  const Icon = status === "done" ? CircleCheck : status === "closed" ? XCircle : status === "in_review" ? Search : status === "in_progress" ? CircleDot : ListTodo;
-  return <span className={`task-status task-status--${status}`}><Icon aria-hidden="true" />{status.replace("_", " ").toUpperCase()}</span>;
+  return <span className={`task-status task-status--${status}`}><TaskStatusIcon status={status} />{status.replace("_", " ").toUpperCase()}</span>;
 }
 function ThreadLink({ thread, spaceSlug, label }: { thread: ThreadReference; spaceSlug: string; label: string }) { return <Link className="task-source-link" to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: thread.channel_slug }} hash={`message-${thread.root_message_id}`} aria-label={`${label}: #${thread.channel_slug} @${thread.root_message_seq}`}>#{thread.channel_slug} @{thread.root_message_seq}</Link>; }
 function ThreadReferenceRow({ thread, spaceSlug }: { thread: ThreadReference; spaceSlug: string }) { return <div className="thread-reference"><span>{thread.relation === "source" ? "SOURCE" : "RELATED"}</span><ThreadLink thread={thread} spaceSlug={spaceSlug} label={thread.relation} /><code>{thread.id}</code></div>; }

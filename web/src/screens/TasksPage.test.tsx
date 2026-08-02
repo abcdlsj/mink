@@ -39,6 +39,8 @@ describe("Task work index", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(await screen.findByText("Ship old slice")).toBeVisible();
     expect(screen.queryByText("Design claim flow")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Closed" }));
+    expect(await screen.findByText("No closed Tasks.")).toBeVisible();
   });
 
   it("shows Source, Related Threads, Run, Result continuity and reset action", async () => {

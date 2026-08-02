@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CircleCheck, CircleDot, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip, Search, XCircle } from "lucide-react";
+import { Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskSummary, type TaskStatus } from "../../api/client";
+import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskSummary } from "../../api/client";
 import { formatBytes } from "../../format";
 import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
+import { TaskStatusIcon } from "../taskStatusIcon";
 
 export function MessageTimeline({
   timelineRef,
@@ -638,14 +639,6 @@ function messagePreview(message: Message): string {
   if (message.content.type === "text") return message.content.body_markdown;
   if (message.content.type === "channel_created") return `Created channel #${message.content.channel.name}`;
   return `Created agent ${message.content.agent.name} · ${message.content.agent.lifecycle}`;
-}
-
-function TaskStatusIcon({ status }: { status: TaskStatus }) {
-  if (status === "done") return <CircleCheck aria-hidden="true" />;
-  if (status === "closed") return <XCircle aria-hidden="true" />;
-  if (status === "in_review") return <Search aria-hidden="true" />;
-  if (status === "in_progress") return <CircleDot aria-hidden="true" />;
-  return <ListTodo aria-hidden="true" />;
 }
 
 function AttachmentList({ attachments }: { attachments: Attachment[] }) {
