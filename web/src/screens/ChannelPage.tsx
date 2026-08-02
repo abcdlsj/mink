@@ -30,7 +30,7 @@ export function ChannelPage() {
   });
   return (
     <SpaceShell spaceSlug={spaceSlug} active="channel">
-      {({ user, space, channels, currentMember, openNavigation }) => {
+      {({ space, channels, currentMember, openNavigation }) => {
         const channel = channels.find(
           (candidate) => candidate.slug === channelSlug && candidate.joined,
         );
@@ -42,7 +42,6 @@ export function ChannelPage() {
             key={channel.id}
             channel={channel}
             spaceId={space.id}
-            currentDisplayName={user.display_name}
             openNavigation={openNavigation}
             title={`#${channel.slug}`}
             subtitle={channel.topic ?? (channel.kind === "private" ? "Private Channel" : "Public Channel")}
@@ -69,7 +68,6 @@ export function ChannelPage() {
 export function MessageWorkspace({
   channel,
   spaceId,
-  currentDisplayName,
   openNavigation,
   title,
   subtitle,
@@ -82,7 +80,6 @@ export function MessageWorkspace({
 }: {
   channel: Channel;
   spaceId: string;
-  currentDisplayName: string;
   openNavigation: () => void;
   title: string;
   subtitle: string;
@@ -290,15 +287,6 @@ export function MessageWorkspace({
           <h1 id="channel-heading" tabIndex={-1} aria-label={title}>{title.replace(/^#/, "")}</h1>
           <p>{subtitle}</p>
         </div>
-        <div className="member-strip" aria-label="Current Member">
-          {(channelMembers.data?.members ?? []).slice(0, 4).map((member) => (
-            <PresenceIdentity key={member.id} name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
-          ))}
-          <span>{channelMembers.data ? `${channelMembers.data.members.length} Members` : currentDisplayName}</span>
-        </div>
-        {channelMembers.data?.can_manage ? (
-          <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
-        ) : null}
         {canArchive ? (
           <button
             className="icon-button"
@@ -312,6 +300,19 @@ export function MessageWorkspace({
           </button>
         ) : null}
       </header>
+      {channelMembers.data && !direct ? (
+        <div className="channel-member-strip" aria-label="Channel Members">
+          <span className="channel-member-avatars">
+            {(channelMembers.data.members ?? []).slice(0, 6).map((member) => (
+              <PresenceIdentity key={member.id} name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
+            ))}
+          </span>
+          <span className="channel-member-count">{channelMembers.data.members.length} Members</span>
+          {channelMembers.data.can_manage ? (
+            <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
+          ) : null}
+        </div>
+      ) : null}
       <MessageTimeline
         timelineRef={timeline}
         header={setup && spaceSlug ? (

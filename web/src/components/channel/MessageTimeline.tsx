@@ -85,6 +85,7 @@ export function MessageTimeline({
               <Hash />
             </span>
             <h2>{emptyTitle}</h2>
+            <p>Messages you send in this conversation will appear here.</p>
           </div>
         ) : null}
         {page?.messages.map((message, index, all) => {
