@@ -1026,7 +1026,7 @@ async fn capability_message_send_mounts_ready_attachments_from_uploader() {
         }))
         .await
         .unwrap_err();
-    assert_eq!(rejected.code, capability::ErrorCode::NotFound);
+    assert_eq!(rejected.code, capability::ErrorCode::Conflict);
     fixture.destroy().await;
 }
 

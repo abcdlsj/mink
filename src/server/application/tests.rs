@@ -2227,7 +2227,7 @@ async fn publishing_a_message_requires_ready_attachments_from_the_same_space() {
         .unwrap();
     assert!(matches!(
         PublishMessage::execute(&mut port, draft(vec![uploading.view().id], 602)).await,
-        Err(ApplicationError::Domain(DomainError::AttachmentNotReady))
+        Err(ApplicationError::Conflict)
     ));
     assert!(matches!(
         PublishMessage::execute(&mut port, draft(vec![other_space.view().id], 603)).await,

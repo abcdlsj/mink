@@ -6,7 +6,6 @@ use crate::ids::{
     ChannelId, ComputerId, IdempotencyKey, MemberId, MessageId, RunId, SpaceId, ThreadId,
 };
 use crate::server::domain::{
-    DomainError,
     conversation::{Channel, ChannelKind, Message, MessageContent},
     execution::RunStatus,
     identity::{AccessLevel, Agent, AgentLifecycle, DriverKind, Member, PermissionAction},
@@ -214,7 +213,7 @@ impl PublishMessage {
                     }
                     attachment
                         .require_ready()
-                        .map_err(|_| ApplicationError::Domain(DomainError::AttachmentNotReady))?;
+                        .map_err(|_| ApplicationError::Conflict)?;
                 }
             }
             let actor = draft.author_member_id;
