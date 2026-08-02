@@ -94,7 +94,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
         ))}
       </nav>
       <div className="agent-detail-scroll">
-        {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
+        {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <div className="agent-overview-grid">
             <DetailSection className="agent-work" title="Current work">

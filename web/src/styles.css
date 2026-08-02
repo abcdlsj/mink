@@ -1502,21 +1502,6 @@ h1 {
   background: var(--green);
 }
 
-.member-strip > span:last-child {
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.channel-member-count {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-system);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 .channel-member-avatars {
   display: inline-flex;
   min-width: 0;
@@ -2627,7 +2612,6 @@ h1 {
     flex-basis: 36px;
   }
 
-  .member-strip > span:last-child,
   .composer-shortcut {
     display: none;
   }
@@ -3290,8 +3274,7 @@ h1 {
     padding: 0 10px;
   }
 
-  .channel-title p,
-  .member-strip > span:last-child {
+  .channel-title p {
     display: none;
   }
 
@@ -4633,8 +4616,7 @@ h1 {
   }
 
   .member-strip .pixel-identity:nth-child(n + 3),
-  .member-strip .presence-identity:nth-child(n + 3),
-  .member-strip > span:last-child {
+  .member-strip .presence-identity:nth-child(n + 3) {
     display: none;
   }
 
@@ -8183,12 +8165,6 @@ summary.system-event-heading {
   background: #ffe9e7;
 }
 
-.agent-error {
-  border: 0;
-  background: #fbe5e3;
-  color: #8f2d26;
-}
-
 @media (max-width: 700px) {
   .channel-header {
     height: 56px;
@@ -8418,9 +8394,12 @@ summary.system-event-heading {
 .member-strip > .icon-button,
 .thread-header > .icon-button,
 .thread-header .thread-close {
+  display: grid;
   width: 26px;
   height: 26px;
+  min-width: 26px;
   flex-basis: 26px;
+  padding: 0;
   box-shadow: 2px 2px 0 var(--ink);
 }
 
@@ -8439,12 +8418,52 @@ summary.system-event-heading {
   box-shadow: 4px 4px 0 var(--ink);
 }
 
-/* The narrow-screen close control is a labelled "Channel" button, not a
-   bare icon; keep its labelled layout. */
+/* Close stays a bare icon at every width; the labelled "Channel" layout is
+   only used by the wider composer actions. */
 @media (min-width: 700px) and (max-width: 1099px) {
-  .thread-header .thread-close {
-    width: auto;
-    min-width: 88px;
-    height: 38px;
+  .thread-header .thread-close span,
+  .thread-header .thread-close .thread-close-back {
+    display: none;
   }
+  .thread-header .thread-close .thread-close-x {
+    display: block;
+  }
+}
+
+/* ==================================================================
+   Notice system: error, warning and info notices share one layout —
+   tinted row, accent edge bar, bold system text, monospace codes.
+   Agent last_error_code and Task runtime_issue_code both use this.
+   ================================================================== */
+
+.inline-notice,
+.permission-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 0;
+  border-left: 4px solid var(--orange);
+  background: #fff7d6;
+  color: var(--ink);
+  font-size: var(--text-system);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.inline-notice--error,
+.permission-notice {
+  border-left-color: var(--red);
+  background: #ffe9e7;
+}
+
+.inline-notice code {
+  font-family: var(--font-mono);
+  font-size: 1em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-work .inline-notice {
+  margin-top: 16px;
 }
