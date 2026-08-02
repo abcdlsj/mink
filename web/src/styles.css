@@ -7359,7 +7359,6 @@ summary.system-event-heading {
 
 .agent-overview-grid > .agent-work {
   grid-row: span 3;
-  border-left: 4px solid var(--space-accent);
   background: var(--paper);
 }
 
@@ -8264,11 +8263,6 @@ summary.system-event-heading {
   color: var(--ink);
   font-weight: 700;
   letter-spacing: .1em;
-}
-
-/* Current work keeps an accent edge instead of a card box. */
-.agent-overview-grid > .agent-work {
-  border-left: 4px solid var(--space-accent);
 }
 
 /* Fact band: count values lead, metadata values stay compact. */
