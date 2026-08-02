@@ -11,7 +11,7 @@ use crate::ids::{
 use crate::server::domain::{
     DomainError,
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
-    attachment::{Attachment, AttachmentStatus, DeclaredContent},
+    attachment::{Attachment, AttachmentStatus, ContentDigest, DeclaredContent},
     attention::{
         InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
     },
@@ -2128,6 +2128,120 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
     .unwrap();
     assert_eq!(repeated, ReclaimedLeases::default());
     assert_eq!(port.state.items[&retryable].view().retry_count, 1);
+}
+
+#[tokio::test]
+async fn publishing_a_message_requires_ready_attachments_from_the_same_space() {
+    let author = member(250);
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let mut port = MemoryPort::default();
+    port.state.channels.insert(
+        channel(1),
+        Channel::create(
+            channel(1),
+            space(1),
+            [author].into_iter().collect(),
+            ChannelKind::Private,
+            Some("general".into()),
+            None,
+            now,
+        )
+        .unwrap(),
+    );
+    let mut ready = Attachment::open(
+        attachment(500),
+        space(1),
+        author,
+        "ready.txt",
+        "text/plain",
+        now,
+    )
+    .unwrap();
+    ready
+        .complete(
+            &DeclaredContent {
+                size: 4,
+                sha256_hex: hex::encode([0u8; 32]),
+            },
+            ContentDigest {
+                length: 4,
+                sha256: [0u8; 32],
+            },
+            now,
+        )
+        .unwrap();
+    let uploading = Attachment::open(
+        attachment(501),
+        space(1),
+        author,
+        "pending.txt",
+        "text/plain",
+        now,
+    )
+    .unwrap();
+    let mut other_space = Attachment::open(
+        attachment(502),
+        space(2),
+        author,
+        "foreign.txt",
+        "text/plain",
+        now,
+    )
+    .unwrap();
+    other_space
+        .complete(
+            &DeclaredContent {
+                size: 4,
+                sha256_hex: hex::encode([0u8; 32]),
+            },
+            ContentDigest {
+                length: 4,
+                sha256: [0u8; 32],
+            },
+            now,
+        )
+        .unwrap();
+    port.state
+        .attachments
+        .insert(ready.view().id, ready.clone());
+    port.state
+        .attachments
+        .insert(uploading.view().id, uploading.clone());
+    port.state
+        .attachments
+        .insert(other_space.view().id, other_space.clone());
+
+    let draft = |attachment_ids: Vec<AttachmentId>, key: u128| MessageDraft {
+        message_id: message(600),
+        channel_id: channel(1),
+        author_member_id: author,
+        idempotency_key: idempotency(key),
+        thread_id: None,
+        reply_to_message_id: None,
+        body_markdown: "正文".into(),
+        mentions: Vec::new(),
+        mention_all: false,
+        attachment_ids,
+        handled_item: None,
+        expected_snapshot: None,
+        now,
+    };
+
+    PublishMessage::execute(&mut port, draft(vec![ready.view().id], 601))
+        .await
+        .unwrap();
+    assert!(matches!(
+        PublishMessage::execute(&mut port, draft(vec![uploading.view().id], 602)).await,
+        Err(ApplicationError::Domain(DomainError::AttachmentNotReady))
+    ));
+    assert!(matches!(
+        PublishMessage::execute(&mut port, draft(vec![other_space.view().id], 603)).await,
+        Err(ApplicationError::NotFound)
+    ));
+    assert!(matches!(
+        PublishMessage::execute(&mut port, draft(vec![attachment(999)], 604)).await,
+        Err(ApplicationError::NotFound)
+    ));
 }
 
 #[tokio::test]
@@ -4678,3 +4792,4 @@ id_fn!(task, TaskId);
 id_fn!(run, RunId);
 id_fn!(item, InboxItemId);
 id_fn!(idempotency, IdempotencyKey);
+id_fn!(attachment, AttachmentId);

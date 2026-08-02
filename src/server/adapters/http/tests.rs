@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use url::Url;
 
 use super::*;
-use crate::ids::{AgentId, ChannelId, EventId, IdempotencyKey, SpaceId};
+use crate::ids::{AgentId, AttachmentId, ChannelId, EventId, IdempotencyKey, SpaceId};
 use crate::protocol::computer::{
     FencingToken, ItemDisposition, ItemOutcome, RunResult, RunTerminalStatus,
 };
@@ -578,6 +578,7 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
         .execute(capability::Action::MessageSend(capability::MessageSend {
             target: capability::MessageTarget::Focus,
             body: "must roll back".to_owned(),
+            attachment_ids: Vec::new(),
             handle_item_id: Some(fixture.handled_item_id),
             snapshot_sequence: None,
         }))
@@ -923,6 +924,115 @@ async fn agent_attachment_stream_uses_active_run_and_commits_metadata() {
 }
 
 #[tokio::test]
+async fn capability_message_send_mounts_ready_attachments_from_uploader() {
+    let fixture = CapabilityFixture::create().await;
+    let mut headers = fixture.headers.clone();
+    headers.insert(
+        "x-sumi-fencing-token",
+        HeaderValue::from_str(&fixture.context.fencing_token).unwrap(),
+    );
+    let key = Uuid::now_v7();
+    headers.insert(
+        "idempotency-key",
+        HeaderValue::from_str(&key.to_string()).unwrap(),
+    );
+    let path = (
+        fixture.computer_id,
+        fixture.context.agent_id.into_uuid(),
+        fixture.context.run_id.into_uuid(),
+    );
+    let created = agent_create_upload(
+        State(fixture.state.clone()),
+        headers.clone(),
+        Path(path),
+        Json(AgentCreateUploadBody {
+            original_name: "result.txt".into(),
+            media_type: "text/plain".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    let attachment_id = created.1.0.id;
+    let content = Bytes::from_static(b"agent attachment payload");
+    let attachment_path = (path.0, path.1, path.2, attachment_id);
+    agent_upload_content(
+        State(fixture.state.clone()),
+        headers.clone(),
+        Path(attachment_path),
+        content.clone(),
+    )
+    .await
+    .unwrap();
+    let _ = agent_complete_upload(
+        State(fixture.state.clone()),
+        headers.clone(),
+        Path(attachment_path),
+        Json(CompleteUploadBody {
+            size: content.len() as u64,
+            sha256: hex::encode(Sha256::digest(&content)),
+        }),
+    )
+    .await
+    .unwrap();
+
+    let sent = fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: "with attachment".into(),
+            attachment_ids: vec![AttachmentId::from_uuid(attachment_id)],
+            handle_item_id: None,
+            snapshot_sequence: None,
+        }))
+        .await
+        .unwrap();
+    let message_id = Uuid::parse_str(sent["message_id"].as_str().unwrap()).unwrap();
+    let linked: (i64, String) = sqlx::query_as(
+        "SELECT count(*), body_markdown FROM messages m \
+         JOIN message_attachments ma ON ma.message_id=m.id \
+         WHERE m.id=$1 AND ma.attachment_id=$2 GROUP BY m.id",
+    )
+    .bind(message_id)
+    .bind(attachment_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(linked, (1, "with attachment".into()));
+    let downloaded =
+        agent_download_attachment(State(fixture.state.clone()), headers, Path(attachment_path))
+            .await
+            .unwrap();
+    assert_eq!(downloaded, content);
+
+    let pending_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO attachments(id,space_id,uploader_member_id,name,media_type,object_key,status,created_at) \
+         VALUES($1,$2,$3,'pending.txt','text/plain',$4,'uploading',now())",
+    )
+    .bind(pending_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.context.agent_id.into_uuid())
+    .bind(format!(
+        "spaces/{}/attachments/{pending_id}",
+        fixture.context.space_id.into_uuid()
+    ))
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    let rejected = fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: "pending attachment".into(),
+            attachment_ids: vec![AttachmentId::from_uuid(pending_id)],
+            handle_item_id: None,
+            snapshot_sequence: None,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(rejected.code, capability::ErrorCode::NotFound);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
     let mut fixture = CapabilityFixture::create().await;
     let channel_id: Uuid = sqlx::query_scalar("SELECT channel_id FROM threads WHERE id=$1")
@@ -962,6 +1072,7 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
         .execute(capability::Action::MessageSend(capability::MessageSend {
             target: capability::MessageTarget::Focus,
             body: "must not commit".into(),
+            attachment_ids: Vec::new(),
             handle_item_id: None,
             snapshot_sequence: None,
         }))
