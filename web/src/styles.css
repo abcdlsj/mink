@@ -8467,3 +8467,288 @@ summary.system-event-heading {
 .agent-work .inline-notice {
   margin-top: 16px;
 }
+
+/* ==================================================================
+   Members directory: flat rows replace the table chrome — no black
+   header row, no zebra stripes, bare checkbox permissions.
+   ================================================================== */
+
+.member-list-heading {
+  display: none;
+}
+
+.member-filter {
+  padding: 12px 20px;
+}
+
+.member-list {
+  padding: 0 20px 40px;
+}
+
+.member-group {
+  margin-top: 28px;
+  border-bottom: 0;
+}
+
+.member-group-heading {
+  min-height: 40px;
+  padding: 0 4px;
+  border-bottom: 2px solid var(--ink);
+  background: transparent;
+}
+
+.member-group-heading h2 {
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--text-section-title);
+  letter-spacing: .12em;
+}
+
+.member-group-heading span {
+  display: grid;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.member-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px minmax(320px, 1.5fr);
+  gap: 20px;
+  align-items: center;
+  min-height: 76px;
+  padding: 14px 4px;
+  border-bottom: 1px solid rgb(20 17 17 / 12%);
+  background: transparent;
+}
+
+.member-row:nth-child(even) {
+  background: transparent;
+}
+
+.member-row:hover {
+  background: rgb(20 17 17 / 3%);
+}
+
+.member-row > div {
+  padding: 0;
+}
+
+.member-group .member-row:last-child {
+  border-bottom: 0;
+}
+
+.member-identity {
+  gap: 14px;
+}
+
+.member-identity .pixel-identity {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  box-shadow: none;
+}
+
+.member-identity strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.member-identity > div span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kind-label {
+  display: none;
+}
+
+.agent-detail-link {
+  margin-inline-start: auto;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.access-control strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.access-control select {
+  width: 118px;
+  height: 36px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Permissions are bare checkboxes on the shared baseline. */
+.permission-controls {
+  justify-content: flex-end;
+  gap: 8px 22px;
+}
+
+.permission-controls .permission-toggle {
+  position: static;
+  display: inline-flex;
+  min-height: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.permission-controls .permission-toggle::before {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  content: "";
+  font-size: 12px;
+  line-height: 1;
+}
+
+.permission-controls .permission-toggle:has(input:checked) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.permission-controls .permission-toggle:has(input:checked)::before {
+  background: var(--accent);
+  color: var(--paper);
+  content: "✓";
+}
+
+.permission-controls .permission-toggle:has(input:disabled) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.permission-controls input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.permission-controls .permission-switch {
+  display: none;
+}
+
+.permission-copy small {
+  display: none;
+}
+
+.permission-copy strong {
+  font: 600 12px/1.2 var(--font-mono);
+}
+
+.permission-inherited {
+  padding: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-system);
+}
+
+/* ==================================================================
+   Agent detail: content aligns with the header/tabs left edge instead
+   of centring, and type gains hierarchy — 10px labels, 16px values,
+   13px section titles, 18px page title.
+   ================================================================== */
+
+.agent-detail-scroll {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0;
+  padding: 32px 28px 64px 20px;
+}
+
+.agent-detail-scroll .detail-section,
+.agent-detail-scroll .agent-memory,
+.agent-detail-scroll .agent-settings,
+.agent-detail-scroll .agent-lifecycle {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.agent-detail-scroll .detail-section > h2,
+.agent-detail-scroll .agent-memory > div:first-child h2,
+.agent-detail-scroll .agent-lifecycle h2 {
+  font-size: 13px;
+  letter-spacing: .12em;
+}
+
+.agent-detail-scroll .detail-grid dd,
+.agent-work-facts p {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.agent-detail-scroll .detail-grid dt,
+.agent-work-facts span {
+  font-size: var(--text-meta);
+}
+
+.agent-detail-scroll .detail-grid dd.tabular {
+  font-size: 13px;
+}
+
+@media (max-width: 700px) {
+  .member-list {
+    padding: 0 0 32px;
+  }
+
+  .member-group {
+    margin-top: 20px;
+  }
+
+  .member-group-heading {
+    padding-inline: 14px;
+  }
+
+  .member-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .member-row > div {
+    padding: 0;
+  }
+
+  .permission-controls {
+    justify-content: flex-start;
+  }
+
+.permission-controls label {
+  flex: none;
+}
+
+.permission-controls .permission-toggle {
+  flex: 1 1 150px;
+}
+
+  .agent-detail-scroll {
+    padding: 24px 14px 40px;
+  }
+}
