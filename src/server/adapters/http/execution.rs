@@ -19,6 +19,57 @@ fn channel_slug(name: &str, id: Uuid) -> String {
     )
 }
 
+/// Resolve `@display_name` tokens in an Agent message body against the target
+/// Channel Members. The Server never parses message bodies for consumers, but
+/// the Agent CLI sends plain Markdown, so the Server resolves mentions from the
+/// body at the single write entry point.
+async fn agent_mention_ids(
+    pool: &PgPool,
+    channel_id: Uuid,
+    body: &str,
+) -> Result<Vec<Uuid>, ApiError> {
+    let members: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT m.id, m.display_name FROM channel_members cm \
+         JOIN members m ON m.id = cm.member_id \
+         WHERE cm.channel_id = $1 AND m.retired_at IS NULL",
+    )
+    .bind(channel_id)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx)?;
+    let names: Vec<(String, Uuid)> = members
+        .iter()
+        .map(|(id, name)| (name.to_lowercase(), *id))
+        .collect();
+    let chars: Vec<(usize, char)> = body.char_indices().collect();
+    let mut ids: Vec<Uuid> = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let (offset, character) = chars[index];
+        if character == '@' && (index == 0 || chars[index - 1].1.is_whitespace()) {
+            let mut end = index + 1;
+            while end < chars.len() && (chars[end].1.is_alphabetic() || chars[end].1 == '_') {
+                end += 1;
+            }
+            let name_end = if end < chars.len() {
+                chars[end].0
+            } else {
+                body.len()
+            };
+            let candidate = &body[offset + 1..name_end].to_lowercase();
+            if let Some((_, id)) = names.iter().find(|(name, _)| name == candidate)
+                && !ids.contains(id)
+            {
+                ids.push(*id);
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(ids)
+}
+
 #[derive(Deserialize)]
 pub(super) struct RenewRunBody {
     fencing_token: String,
@@ -437,6 +488,9 @@ pub(super) async fn execute_agent_action(
                 }
                 capability::MessageTarget::Channel(channel_id) => (channel_id.into_uuid(), None),
             };
+            let mentions = agent_mention_ids(&state.pool, channel_id, &send.body)
+                .await
+                .map_err(api_to_capability)?;
             let message_id = insert_message(
                 state,
                 channel_id,
@@ -457,7 +511,7 @@ pub(super) async fn execute_agent_action(
                 },
                 CreateMessageBody {
                     body_markdown: send.body,
-                    mentions: Vec::new(),
+                    mentions,
                     mention_all: false,
                     attachment_ids: send
                         .attachment_ids

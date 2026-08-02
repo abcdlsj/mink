@@ -357,6 +357,7 @@ mod tests {
                     focus_messages: Vec::new(),
                     claimed_items: Vec::<ClaimedItemInput>::new(),
                 },
+                space_members: Vec::new(),
             },
         })
         .unwrap();

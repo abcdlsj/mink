@@ -680,6 +680,7 @@ mod tests {
                 }],
                 claimed_items: Vec::new(),
             },
+            space_members: Vec::new(),
         }
     }
 }

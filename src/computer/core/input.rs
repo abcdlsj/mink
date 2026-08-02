@@ -13,6 +13,13 @@ pub(in crate::computer) struct RunInput {
     pub(in crate::computer) agent: AgentInput,
     pub(in crate::computer) work: WorkInput,
     pub(in crate::computer) context: RunContextInput,
+    pub(in crate::computer) space_members: Vec<SpaceMemberInput>,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::computer) struct SpaceMemberInput {
+    pub(in crate::computer) member_id: MemberId,
+    pub(in crate::computer) display_name: String,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -165,6 +172,10 @@ impl RunInput {
         for item in &self.context.claimed_items {
             digest.update(item.content_hash().as_bytes());
         }
+        for member in &self.space_members {
+            digest.update(member.member_id.to_string().as_bytes());
+            digest.update(member.display_name.as_bytes());
+        }
         hex::encode(digest.finalize())
     }
 
@@ -268,6 +279,7 @@ impl RunInput {
             },
             "work": work,
             "run_context": context,
+            "space_members": self.space_members,
             "reference": {
                 "agent_id": self.agent.agent_id,
                 "space_id": self.agent.space_id,
@@ -339,6 +351,7 @@ mod tests {
                 focus_messages,
                 claimed_items,
             },
+            space_members: Vec::new(),
         }
     }
 
@@ -377,6 +390,24 @@ mod tests {
                 .is_none()
         );
         assert_eq!(view["run_context"]["claimed_items"], serde_json::json!([]));
+        assert_eq!(view["space_members"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn model_view_includes_space_member_display_names() {
+        let mut input = run_input(vec![message(1, "root")], Vec::new());
+        input.space_members = vec![SpaceMemberInput {
+            member_id: MemberId::from_uuid(Uuid::from_u128(9)),
+            display_name: "Lin".to_owned(),
+        }];
+
+        let view = input.model_view();
+
+        assert_eq!(view["space_members"][0]["display_name"], "Lin");
+        assert_eq!(
+            view["space_members"][0]["member_id"],
+            serde_json::to_value(MemberId::from_uuid(Uuid::from_u128(9))).unwrap()
+        );
     }
 
     #[test]

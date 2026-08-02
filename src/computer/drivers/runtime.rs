@@ -637,6 +637,7 @@ done
                 }],
                 claimed_items: Vec::new(),
             },
+            space_members: Vec::new(),
         };
         let run_id = RunId::from_uuid(Uuid::now_v7());
         client

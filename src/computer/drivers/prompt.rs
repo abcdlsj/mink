@@ -12,6 +12,7 @@ pub(in crate::computer) fn global_contract() -> String {
         "\n",
         "Replies are read in an IM group chat: structure them with clear hierarchy, put each list item on its own line using `1.` or `-` Markdown, and keep replies concise.\n",
         "Collaborators cannot see your tool actions; during long tasks, post brief progress updates.\n",
+        "You can mention a collaborator by writing `@display_name` in a message body. Use the exact display_name from the `space_members` list in the run context; a mention routes attention to that member.\n",
         "\n",
         "Process every claimed Item through the Sumi Agent CLI.\n",
         "For a hard Item, send a reply with `sumi agent message send --handle <item-id> --body <text> --json`, or explicitly ack, defer, or yield it.\n",

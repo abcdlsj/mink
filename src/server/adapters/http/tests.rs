@@ -704,6 +704,51 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
 }
 
 #[tokio::test]
+async fn agent_message_send_resolves_display_name_mentions_in_the_target_channel() {
+    let fixture = CapabilityFixture::create().await;
+    fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: "@Owner hello and @Nobody ignored".to_owned(),
+            attachment_ids: Vec::new(),
+            handle_item_id: None,
+            snapshot_sequence: None,
+        }))
+        .await
+        .unwrap();
+    let mentions: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT member_id FROM message_mentions mm \
+         JOIN messages m ON m.id = mm.message_id \
+         WHERE m.body_markdown = '@Owner hello and @Nobody ignored'",
+    )
+    .fetch_all(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(mentions, vec![fixture.owner_id]);
+
+    fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: "no mention here".to_owned(),
+            attachment_ids: Vec::new(),
+            handle_item_id: None,
+            snapshot_sequence: Some(2),
+        }))
+        .await
+        .unwrap();
+    let none: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM message_mentions mm \
+         JOIN messages m ON m.id = mm.message_id \
+         WHERE m.body_markdown = 'no mention here'",
+    )
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(none, 0);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn capability_task_done_commits_collaboration_facts_and_replays() {
     let mut fixture = CapabilityFixture::create().await;
     let task_id = fixture.bind_task().await;

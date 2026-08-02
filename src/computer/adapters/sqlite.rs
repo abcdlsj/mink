@@ -1196,6 +1196,7 @@ mod tests {
                     }],
                     claimed_items,
                 },
+                space_members: Vec::new(),
             },
         })
         .unwrap()
