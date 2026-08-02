@@ -7257,3 +7257,250 @@ summary.system-event-heading {
     padding-left: 14px;
   }
 }
+
+/* ==================================================================
+   Computer & Agent detail — redesigned fact layout.
+   Identity in the header, one dense fact band, then a focused main
+   panel; Agent overview leads with Current work and defers metadata.
+   ================================================================== */
+
+.computer-detail .entity-detail-header,
+.agent-workspace .entity-detail-header {
+  background: var(--paper);
+  border-bottom-color: rgb(20 17 17 / 14%);
+}
+
+.fact-band {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-bottom: 1px solid rgb(20 17 17 / 14%);
+  background: var(--panel);
+}
+
+.fact-band > div {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 18px 22px;
+  border-right: 1px solid rgb(20 17 17 / 10%);
+}
+
+.fact-band > div:last-child {
+  border-right: 0;
+}
+
+.fact-band span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fact-band strong {
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-panel {
+  flex: 1;
+  padding: 22px 28px;
+}
+
+.detail-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.detail-panel-heading h3 {
+  margin: 0;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.hosted-agent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid rgb(20 17 17 / 12%);
+  background: var(--paper);
+}
+
+.hosted-agent-list li + li {
+  border-top: 1px solid rgb(20 17 17 / 10%);
+}
+
+.hosted-agent-list a {
+  display: grid;
+  min-height: 60px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.hosted-agent-list a:hover {
+  background: var(--space-accent);
+}
+
+.hosted-agent-list a strong,
+.hosted-agent-list a small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hosted-agent-list a small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.agent-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 14px;
+}
+
+.agent-overview-grid > .detail-section {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid rgb(20 17 17 / 12%);
+  border-bottom: 1px solid rgb(20 17 17 / 12%);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.agent-overview-grid > .detail-section > h2 {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.agent-overview-grid > .agent-work {
+  grid-row: span 3;
+  border-left: 4px solid var(--space-accent);
+  background: var(--paper);
+}
+
+.agent-overview-grid > .agent-work > h2 + * {
+  margin-top: 4px;
+}
+
+.agent-overview-grid > .detail-section:nth-child(3),
+.agent-overview-grid > .detail-section:nth-child(4) {
+  grid-column: auto;
+  border-right: 0;
+}
+
+.agent-work-facts {
+  display: grid;
+}
+
+.agent-work-facts > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgb(20 17 17 / 10%);
+  align-items: baseline;
+}
+
+.agent-work-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.agent-work-facts span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.agent-work-facts p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agent-work .inline-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-color: rgb(20 17 17 / 12%);
+  background: #fff7d6;
+}
+
+.agent-overview-grid > .detail-section .permission-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.detail-tabs {
+  background: var(--paper);
+  border-bottom-color: rgb(20 17 17 / 14%);
+}
+
+.detail-tabs button[aria-current="page"] {
+  border-bottom: 2px solid var(--space-accent);
+}
+
+@media (max-width: 900px) {
+  .fact-band {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .fact-band > div:nth-child(3) {
+    border-right: 0;
+  }
+  .fact-band > div:nth-child(n + 4) {
+    border-top: 1px solid rgb(20 17 17 / 10%);
+  }
+  .agent-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agent-overview-grid > .agent-work {
+    grid-row: auto;
+  }
+  .agent-overview-grid > .detail-section .permission-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .fact-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fact-band > div:nth-child(2) {
+    border-right: 0;
+  }
+  .detail-panel {
+    padding: 18px 14px;
+  }
+  .agent-overview-grid {
+    gap: 10px;
+  }
+  .agent-overview-grid > .detail-section {
+    padding: 16px 14px;
+  }
+}

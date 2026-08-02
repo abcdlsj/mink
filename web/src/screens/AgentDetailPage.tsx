@@ -97,8 +97,21 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
         {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <div className="agent-overview-grid">
+            <DetailSection className="agent-work" title="Current work">
+              {runtime.isPending ? <p>Loading current Run…</p> : null}
+              {runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}
+              {runtime.data ? (
+                <div className="agent-work-facts">
+                  <div><span>Task</span><p>{runtime.data.current_task ? <Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link> : "None"}</p></div>
+                  <div><span>Focus</span><p>{runtime.data.focus ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link> : "None"}</p></div>
+                  <div><span>Run</span><p>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p></div>
+                  <div><span>Session</span><p>{runtime.data.session_continuity.state.replace("_", " ")}</p></div>
+                </div>
+              ) : null}
+              {runtime.data?.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}
+            </DetailSection>
             <DetailSection title="Identity"><dl className="detail-grid"><Field label="Handle" value={`@${value.handle}`} tabular /><Field label="Role" value={value.role_text} /><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Created" value={new Date(value.created_at).toLocaleDateString()} tabular /></dl></DetailSection>
-            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Computer" value={value.computer_id} tabular /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl>{runtime.isPending ? <p>Loading current Run…</p> : null}{runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}{runtime.data ? <div className="agent-runtime-facts">{runtime.data.current_task ? <p><strong>Task</strong><Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link></p> : <p><strong>Task</strong>None</p>}{runtime.data.focus ? <p><strong>Focus</strong><Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link></p> : <p><strong>Focus</strong>None</p>}<p><strong>Run</strong>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p><p><strong>Session continuity</strong>{runtime.data.session_continuity.state.replace("_", " ")}</p>{runtime.data.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}</div> : null}</DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Driver" value={capitalize(value.driver_kind)} chip="runtime" /><Field label="Computer" value={value.computer_id} tabular /><Field label="Lifecycle" value={capitalize(value.desired_lifecycle)} /><Field label="Provision" value={capitalize(value.provision_status)} /><Field label="Role revision" value={String(value.role_revision)} tabular /></dl></DetailSection>
             <DetailSection title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
@@ -152,7 +165,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
   );
 }
 
-function DetailSection({ title, children }: { title: string; children: ReactNode }) { return <section className="detail-section"><h2>{title}</h2>{children}</section>; }
+function DetailSection({ title, className, children }: { title: string; className?: string; children: ReactNode }) { return <section className={className ? `detail-section ${className}` : "detail-section"}><h2>{title}</h2>{children}</section>; }
 function Field({ label, value, tabular = false, chip }: { label: string; value?: string | null; tabular?: boolean; chip?: "runtime" | "model" | "reasoning" | "mode" }) {
   const displayedValue = value ?? "Unassigned";
   const body = chip ? <dd><span className={`chip chip--${chip}`}>{displayedValue}</span></dd> : <dd className={tabular ? "tabular" : undefined}>{displayedValue}</dd>;

@@ -248,28 +248,27 @@ function ComputerDetail({
         <Status value={computer.status} />
       </header>
       {computer.status !== "online" ? <p className="inline-notice">Computer is offline. Runtime actions are unavailable until it reconnects.</p> : null}
-      <section className="computer-overview" aria-label="Computer overview">
-        <OverviewMetric label="Hosted Agents" value={String(agents.length)} />
-        <OverviewMetric label="Busy Agents" value={String(busyAgents)} />
-        <OverviewMetric label="Platform" value={computer.os === "macos" ? "macOS" : "Linux"} />
-        <OverviewMetric label="Daemon" value={`v${computer.daemon_version}`} tabular />
-        <OverviewMetric label="Last seen" value={computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"} tabular />
-      </section>
-      <section className="detail-section computer-agents">
-        <div className="section-title-row">
+      <div className="fact-band" aria-label="Computer overview">
+        <div><span>Hosted Agents</span><strong>{String(agents.length)}</strong></div>
+        <div><span>Busy Agents</span><strong>{String(busyAgents)}</strong></div>
+        <div><span>Platform</span><strong>{computer.os === "macos" ? "macOS" : "Linux"}</strong></div>
+        <div><span>Daemon</span><strong className="tabular">v{computer.daemon_version}</strong></div>
+        <div><span>Last seen</span><strong className="tabular">{computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"}</strong></div>
+      </div>
+      <section className="detail-panel computer-agents">
+        <header className="detail-panel-heading">
           <h3>Agents on this Computer</h3>
           <div className="section-actions">
-            <span>{agents.length}</span>
             {canCreateAgent && computer.status === "online" ? <button className="compact-action" type="button" onClick={onCreate}><Plus />Create</button> : null}
           </div>
-        </div>
-        {agents.length ? <div className="hosted-agent-list">{agents.map((agent) => (
-          <Link key={agent.member_id} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
+        </header>
+        {agents.length ? <ul className="hosted-agent-list">{agents.map((agent) => (
+          <li key={agent.member_id}><Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
             <span><strong>{agent.name}</strong><small>{agent.driver_kind === "builtin" ? "Builtin" : "Codex"} Driver</small></span>
             <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${agent.activity_status}`} title={`Activity: ${agent.activity_status}`}><i aria-hidden="true" />{agent.activity_status}</span>
-          </Link>
-        ))}</div> : <div className="computer-agents-empty"><p>No Agents are hosted on this Computer.</p>{canCreateAgent && computer.status === "online" ? <button className="command-button" type="button" onClick={onCreate}><Plus />Create first Agent</button> : null}</div>}
+          </Link></li>
+        ))}</ul> : <div className="computer-agents-empty"><p>No Agents are hosted on this Computer.</p>{canCreateAgent && computer.status === "online" ? <button className="command-button" type="button" onClick={onCreate}><Plus />Create first Agent</button> : null}</div>}
       </section>
       {canManage ? <div className="computer-actions"><p>Retire every hosted Agent before deleting this Computer.</p><button className="danger-button" type="button" onClick={onDelete}><Trash2 />Delete</button></div> : null}
     </article>
@@ -309,4 +308,3 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
 }
 
 function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`} title={`Status: ${value}`}><i aria-hidden="true" />{value}</span>; }
-function OverviewMetric({ label, value, tabular = false }: { label: string; value: string; tabular?: boolean }) { return <div><span>{label}</span><strong className={tabular ? "tabular" : undefined}>{value}</strong></div>; }
