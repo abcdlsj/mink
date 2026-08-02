@@ -377,7 +377,7 @@ pub async fn register_human(client: &Client, server: &Url) -> Result<String> {
         .post(server.join("/api/v1/auth/register")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .json(&serde_json::json!({
-            "display_name": "Process Test Owner",
+            "display_name": "Process_Test_Owner",
             "email": format!("process-{}@example.test", Uuid::now_v7()),
             "password": "correct horse battery staple"
         }))

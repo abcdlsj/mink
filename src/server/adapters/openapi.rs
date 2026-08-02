@@ -196,7 +196,6 @@ pub(super) struct AttentionConfig {
 pub(super) struct CreateAgentRequest {
     computer_id: Uuid,
     name: String,
-    handle: Option<String>,
     role_text: String,
     driver_kind: DriverKind,
     access_level: AgentAccessLevel,
@@ -225,7 +224,6 @@ pub(super) struct AgentResponse {
     pub(super) space_id: Uuid,
     pub(super) computer_id: Option<Uuid>,
     pub(super) name: String,
-    pub(super) handle: String,
     pub(super) access_level: AgentAccessLevel,
     pub(super) role_text: String,
     pub(super) role_revision: u64,
@@ -312,7 +310,6 @@ pub(super) struct MemberResponse {
     pub(super) id: Uuid,
     pub(super) kind: MemberKind,
     pub(super) display_name: String,
-    pub(super) handle: String,
     pub(super) access_level: AccessLevel,
     pub(super) permissions: Vec<String>,
 }
@@ -419,7 +416,6 @@ pub(super) struct MessageAuthor {
     pub(super) id: Uuid,
     pub(super) kind: MemberKind,
     pub(super) display_name: String,
-    pub(super) handle: String,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -454,7 +450,6 @@ pub(super) struct MessageTaskSummary {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct AttentionFailureResponse {
     pub(super) agent_member_id: Uuid,
-    pub(super) agent_handle: String,
     pub(super) error_code: String,
     pub(super) retrying: bool,
 }

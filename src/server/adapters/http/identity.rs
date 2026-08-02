@@ -281,7 +281,6 @@ pub(super) async fn accept_invitation(
             user_id: human.user_id,
             user_email: &human.email_normalized,
             display_name: &human.display_name,
-            handle: &unique_handle(&human.display_name, member_id),
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -293,7 +292,6 @@ pub(super) async fn accept_invitation(
             id: member.member_id.into_uuid(),
             kind: MemberKindCode::Human,
             display_name: member.display_name,
-            handle: member.handle,
             access_level: AccessLevelCode::Member,
             permissions: Vec::new(),
         }),
@@ -363,7 +361,6 @@ pub(super) async fn create_space(
     let owner_id = Uuid::now_v7();
     let general_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
-    let owner_handle = unique_handle(&user.display_name, owner_id);
     let mut storage = state.storage.clone();
     let created = CreateSpace::execute(
         &mut storage,
@@ -375,7 +372,6 @@ pub(super) async fn create_space(
             name,
             slug: &slug,
             accent: &accent,
-            owner_handle: &owner_handle,
             owner_display_name: &user.display_name,
             idempotency_key: IdempotencyKey::from_uuid(key),
             now,
@@ -446,7 +442,7 @@ pub(super) async fn list_members(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<Vec<MemberResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
-    let rows = sqlx::query("SELECT id,kind,display_name,handle,access_level FROM members WHERE space_id=$1 AND retired_at IS NULL ORDER BY created_at")
+    let rows = sqlx::query("SELECT id,kind,display_name,access_level FROM members WHERE space_id=$1 AND retired_at IS NULL ORDER BY created_at")
         .bind(space_id).fetch_all(&state.pool).await.map_err(map_sqlx)?;
     let mut values = Vec::with_capacity(rows.len());
     for row in rows {
@@ -490,12 +486,11 @@ pub(super) async fn set_permission(
     )
     .await
     .map_err(application_error)?;
-    let row =
-        sqlx::query("SELECT id,kind,display_name,handle,access_level FROM members WHERE id=$1")
-            .bind(member_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(map_sqlx)?;
+    let row = sqlx::query("SELECT id,kind,display_name,access_level FROM members WHERE id=$1")
+        .bind(member_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
     Ok(Json(member_row(&state.pool, &row).await?))
 }
 
@@ -572,19 +567,6 @@ pub(super) fn user_response(human: &AuthenticatedHuman) -> UserResponse {
     }
 }
 
-pub(super) fn unique_handle(name: &str, id: Uuid) -> String {
-    let base = name
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect::<String>()
-        .to_lowercase();
-    format!(
-        "{}-{}",
-        if base.is_empty() { "member" } else { &base },
-        &id.simple().to_string()[..8]
-    )
-}
-
 pub(super) async fn update_space_member(
     State(state): State<RuntimeState>,
     jar: CookieJar,
@@ -611,7 +593,7 @@ pub(super) async fn update_space_member(
     .await
     .map_err(application_error)?;
     let row = sqlx::query(
-        "SELECT id,kind,display_name,handle,access_level FROM members WHERE id=$1 AND space_id=$2",
+        "SELECT id,kind,display_name,access_level FROM members WHERE id=$1 AND space_id=$2",
     )
     .bind(member_id)
     .bind(space_id)

@@ -372,7 +372,6 @@ mod tests {
                 agent_id,
                 space_id,
                 name: "Agent".into(),
-                handle: "agent".into(),
                 role_revision: 1,
                 role: "role".into(),
                 driver: DriverKind::Codex,

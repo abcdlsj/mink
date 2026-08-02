@@ -60,7 +60,7 @@ export function MessageComposer({
     submission.mutate({
       body_markdown: trimmed,
       mentions: mentionIds(trimmed, members),
-      mention_all: /(?:^|\s)@all(?![a-z0-9-])/i.test(trimmed),
+      mention_all: /(?:^|\s)@all(?![_\p{L}])/iu.test(trimmed),
       attachment_ids: attachments.map((attachment) => attachment.id),
     });
   }
@@ -144,7 +144,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
   const match = mentionMatch(value, cursor);
   const suggestions = match ? members.filter((member) => {
     const query = match.query.toLowerCase();
-    return member.handle.toLowerCase().includes(query) || member.display_name.toLowerCase().includes(query);
+    return member.display_name.toLowerCase().includes(query);
   }).slice(0, 6) : [];
   const allSuggestion = Boolean(match && "all".startsWith(match.query.toLowerCase()));
   const listboxId = "mention-suggestions";
@@ -172,7 +172,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
 
   function choose(member: Member) {
     if (!match) return;
-    const inserted = `@${member.handle} `;
+    const inserted = `@${member.display_name} `;
     const next = `${value.slice(0, match.start)}${inserted}${value.slice(cursor)}`;
     const nextCursor = match.start + inserted.length;
     onChange(next);
@@ -232,7 +232,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
           {suggestions.map((member, index) => (
             <button key={member.id} id={`mention-option-${member.id}`} type="button" role="option" tabIndex={-1} aria-selected={index + (allSuggestion ? 1 : 0) === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
               <PixelIdentity name={member.display_name} kind={member.kind} seed={member.id} />
-              <span><strong>{member.display_name}</strong><small>@{member.handle}</small></span>
+              <span><strong>{member.display_name}</strong></span>
               {member.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
             </button>
           ))}
@@ -263,17 +263,17 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
 function mentionMatch(value: string, cursor: number): { start: number; query: string } | undefined {
   if (cursor < 0) return undefined;
   const prefix = value.slice(0, cursor);
-  const match = prefix.match(/(?:^|\s)@([a-z0-9-]*)$/i);
+  const match = prefix.match(/(?:^|\s)@([\p{L}_]*)$/iu);
   if (!match) return undefined;
   return { start: cursor - match[1].length - 1, query: match[1] };
 }
 
 
 function mentionIds(body: string, members: Member[]): string[] {
-  const byHandle = new Map(members.map((member) => [member.handle.toLowerCase(), member.id]));
+  const byName = new Map(members.map((member) => [member.display_name.toLowerCase(), member.id]));
   const ids = new Set<string>();
-  for (const match of body.matchAll(/(^|\s)@([a-z0-9]+(?:-[a-z0-9]+)*)/gi)) {
-    const id = byHandle.get(match[2].toLowerCase());
+  for (const match of body.matchAll(/(^|\s)@([\p{L}_]+)/giu)) {
+    const id = byName.get(match[2].toLowerCase());
     if (id) ids.add(id);
   }
   return [...ids];

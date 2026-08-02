@@ -580,7 +580,7 @@ function MemberNavigationGroup({ label, members, activityByMemberId, roleByMembe
       ) : (
         <div className="context-entity-row context-entity-row--static" key={member.id}>
           <PixelIdentity name={member.display_name} kind="human" seed={member.id} />
-          <span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle}</small></span>
+          <span><strong title={member.display_name}>{member.display_name}</strong></span>
         </div>
       )) : <p className="nav-empty">No {label.toLowerCase()}</p>}
     </section>
@@ -739,8 +739,7 @@ function DirectMessageDialog({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredMembers = members.filter((member) =>
     !normalizedQuery ||
-    member.display_name.toLocaleLowerCase().includes(normalizedQuery) ||
-    member.handle.toLocaleLowerCase().includes(normalizedQuery),
+    member.display_name.toLocaleLowerCase().includes(normalizedQuery),
   );
 
   return (
@@ -750,7 +749,7 @@ function DirectMessageDialog({
         <button className="icon-button" type="button" aria-label="Close Start DM" onClick={close}><X /></button>
       </header>
       <div className="dm-picker">
-        <label className="dm-search">Find a Member<input data-dialog-initial-focus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or @handle" /></label>
+        <label className="dm-search">Find a Member<input data-dialog-initial-focus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name" /></label>
         <ul className="dm-member-list" aria-label="Members available for DM">
           {filteredMembers.length ? filteredMembers.map((member) => {
             const pending = pendingMemberId === member.id;
@@ -759,7 +758,7 @@ function DirectMessageDialog({
               <li key={member.id}>
                 <button type="button" disabled={Boolean(pendingMemberId)} onClick={() => onSelect(member.id)}>
                   <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
-                  <span><strong>{member.display_name}</strong><small>{member.kind === "agent" ? activityLabel(activityStatus) : `@${member.handle}`}</small></span>
+                  <span><strong>{member.display_name}</strong><small>{member.kind === "agent" ? activityLabel(activityStatus) : "Human"}</small></span>
                   <b>{pending ? "Opening…" : existingMemberIds.has(member.id) ? "Open" : "Start"}</b>
                 </button>
               </li>
@@ -808,7 +807,7 @@ function DirectMessageNavigationItem({ member, activityStatus, active, href, unr
       <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityStatus} />
       <span>
         <strong title={member.display_name}>{member.display_name}</strong>
-        <small>{member.kind === "agent" ? activityLabel(activityStatus) : `@${member.handle}`}</small>
+        <small>{member.kind === "agent" ? activityLabel(activityStatus) : "Human"}</small>
       </span>
       {unread ? <span className="nav-unread-dot" aria-label="Unread messages" /> : null}
     </Link>

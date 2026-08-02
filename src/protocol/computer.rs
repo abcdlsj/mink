@@ -120,7 +120,6 @@ pub(crate) struct AgentConfiguration {
     pub(crate) agent_id: AgentId,
     pub(crate) space_id: SpaceId,
     pub(crate) name: String,
-    pub(crate) handle: String,
     pub(crate) role: RoleSnapshot,
     pub(crate) driver: DriverKind,
 }

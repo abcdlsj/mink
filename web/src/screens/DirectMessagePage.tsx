@@ -28,7 +28,7 @@ export function DirectMessagePage() {
           space_id: dm.space_id,
           kind: "private",
           name: dm.other_member.display_name,
-          slug: dm.other_member.handle,
+          slug: dm.other_member.display_name,
           created_by_member_id: "",
           joined: true,
         };
@@ -37,8 +37,8 @@ export function DirectMessagePage() {
             channel={channel}
             spaceId={space.id}
             title={dm.other_member.display_name}
-            subtitle={`@${dm.other_member.handle} · Direct Message`}
-            placeholder={`Message @${dm.other_member.handle}`}
+            subtitle={`${dm.other_member.display_name} · Direct Message`}
+            placeholder={`Message ${dm.other_member.display_name}`}
             emptyTitle={`Your DM with ${dm.other_member.display_name} starts here.`}
             spaceSlug={space.slug}
             direct

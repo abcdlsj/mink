@@ -452,7 +452,6 @@ async fn workspace_loss_and_locator_corruption(database: &TestDatabase) -> Resul
         .json(&serde_json::json!({
             "computer_id": paired.id,
             "name": "Nia",
-            "handle": format!("nia{}", &Uuid::now_v7().simple().to_string()[..6]),
             "role_text": "Investigate failures",
             "access_level": "member",
             "driver_kind": "codex",
@@ -780,15 +779,13 @@ async fn insert_agent(
     channel_id: Uuid,
 ) -> Result<Uuid> {
     let agent_id = Uuid::now_v7();
-    let handle = format!("lin{}", &Uuid::now_v7().simple().to_string()[..6]);
     pool.execute(
         sqlx::query(
-            "INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) \
-             VALUES ($1,$2,'agent','Lin',$3,'member',now())",
+            "INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) \
+             VALUES ($1,$2,'agent','Lin','member',now())",
         )
         .bind(agent_id)
-        .bind(space_id)
-        .bind(&handle),
+        .bind(space_id),
     )
     .await?;
     pool.execute(

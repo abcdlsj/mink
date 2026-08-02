@@ -68,7 +68,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         .post(server_url.join("/api/v1/auth/register")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .json(&serde_json::json!({
-            "display_name": "Ada Lovelace",
+            "display_name": "Ada_Lovelace",
             "email": "ADA@EXAMPLE.TEST",
             "password": "correct horse battery staple"
         }))
@@ -77,7 +77,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     ensure!(registration.status() == StatusCode::CREATED);
     let cookie = session_cookie(&registration)?;
     let registration: RegistrationResponse = registration.json().await?;
-    ensure!(registration.user.display_name == "Ada Lovelace");
+    ensure!(registration.user.display_name == "Ada_Lovelace");
     ensure!(registration.user.email == "ada@example.test");
     ensure!(registration.next == "create_space");
 
@@ -357,7 +357,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
         .bind(created.id)
         .execute(&pool)
         .await?;
-    sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'agent','Lin','lin','member',now())")
+    sqlx::query("INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES($1,$2,'agent','Lin','member',now())")
         .bind(agent_id)
         .bind(created.id)
         .execute(&pool)
@@ -492,7 +492,7 @@ async fn register_second_human(client: &Client, server: &Url) -> Result<String> 
         .post(server.join("/api/v1/auth/register")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .json(&serde_json::json!({
-            "display_name": "Grace Hopper",
+            "display_name": "Grace_Hopper",
             "email": "grace@example.test",
             "password": "another correct horse battery staple"
         }))

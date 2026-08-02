@@ -2,7 +2,7 @@ use time::OffsetDateTime;
 
 use crate::ids::{MemberId, SpaceId};
 
-use super::{DomainError, identity::AccessLevel};
+use super::{DomainError, identity::AccessLevel, identity::valid_display_name};
 
 const MINIMUM_PASSWORD_LENGTH: usize = 12;
 
@@ -24,7 +24,7 @@ impl HumanRegistration {
     ) -> Result<Self, DomainError> {
         let display_name = display_name.trim();
         let email_normalized = normalize_email(email);
-        if display_name.is_empty()
+        if !valid_display_name(display_name)
             || email_normalized.is_empty()
             || password_length < MINIMUM_PASSWORD_LENGTH
         {

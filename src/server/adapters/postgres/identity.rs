@@ -201,7 +201,7 @@ impl PostgresTransaction {
         space_id: SpaceId,
     ) -> Result<Option<SpaceHumanMember>, ApplicationError> {
         let row = sqlx::query(
-            "SELECT m.id,m.display_name,m.handle FROM human_members hm \
+            "SELECT m.id,m.display_name FROM human_members hm \
              JOIN members m ON m.id=hm.member_id \
              WHERE hm.user_id=$1 AND hm.space_id=$2",
         )
@@ -214,13 +214,12 @@ impl PostgresTransaction {
             member_id: MemberId::from_uuid(row.get("id")),
             space_id,
             display_name: row.get("display_name"),
-            handle: row.get("handle"),
         }))
     }
 
     pub(super) async fn member(&mut self, id: MemberId) -> Result<Member, ApplicationError> {
         let row = sqlx::query(
-            "SELECT id,space_id,display_name,handle,access_level,created_at FROM members \
+            "SELECT id,space_id,display_name,access_level,created_at FROM members \
              WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
         )
         .bind(id.into_uuid())
@@ -231,7 +230,6 @@ impl PostgresTransaction {
             id,
             space_id: SpaceId::from_uuid(row.get("space_id")),
             display_name: row.get("display_name"),
-            handle: row.get("handle"),
             access_level: access_level_from_str(row.get("access_level"))?,
             created_at: row.get("created_at"),
         })
@@ -255,13 +253,12 @@ impl PostgresTransaction {
         agent: Agent,
     ) -> Result<(), ApplicationError> {
         sqlx::query(
-            "INSERT INTO members (id,space_id,kind,display_name,handle,access_level,created_at) \
-             VALUES ($1,$2,'agent',$3,$4,$5,$6)",
+            "INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) \
+             VALUES ($1,$2,'agent',$3,$4,$5)",
         )
         .bind(member.id.into_uuid())
         .bind(member.space_id.into_uuid())
         .bind(&member.display_name)
-        .bind(&member.handle)
         .bind(access_level_str(member.access_level))
         .bind(member.created_at)
         .execute(&mut *self.connection)
@@ -332,7 +329,6 @@ impl PostgresTransaction {
         name: &str,
         slug: &str,
         accent: &str,
-        owner_handle: &str,
         owner_display_name: &str,
         idempotency_key: IdempotencyKey,
         now: OffsetDateTime,
@@ -382,11 +378,10 @@ impl PostgresTransaction {
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        sqlx::query("INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) VALUES($1,$2,'human',$3,$4,'owner',$5)")
+        sqlx::query("INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES($1,$2,'human',$3,'owner',$4)")
             .bind(owner_id.into_uuid())
             .bind(space_id.into_uuid())
             .bind(owner_display_name)
-            .bind(owner_handle)
             .bind(now)
             .execute(&mut *self.connection)
             .await
@@ -598,13 +593,12 @@ impl PostgresTransaction {
         record: &HumanMemberRecord,
     ) -> Result<(), ApplicationError> {
         sqlx::query(
-            "INSERT INTO members(id,space_id,kind,display_name,handle,access_level,created_at) \
-             VALUES($1,$2,'human',$3,$4,'member',$5)",
+            "INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) \
+             VALUES($1,$2,'human',$3,'member',$4)",
         )
         .bind(record.member_id.into_uuid())
         .bind(record.space_id.into_uuid())
         .bind(&record.display_name)
-        .bind(&record.handle)
         .bind(record.created_at)
         .execute(&mut *self.connection)
         .await
@@ -979,7 +973,7 @@ impl PostgresTransaction {
         space_id: SpaceId,
     ) -> Result<Option<SpaceMemberView>, ApplicationError> {
         let row = sqlx::query(
-            "SELECT id,kind,display_name,handle,access_level FROM members \
+            "SELECT id,kind,display_name,access_level FROM members \
              WHERE id=$1 AND space_id=$2 AND retired_at IS NULL",
         )
         .bind(member_id.into_uuid())
@@ -1007,7 +1001,6 @@ impl IdentityTransaction for PostgresTransaction {
         name: &str,
         slug: &str,
         accent: &str,
-        owner_handle: &str,
         owner_display_name: &str,
         idempotency_key: IdempotencyKey,
         now: time::OffsetDateTime,
@@ -1020,7 +1013,6 @@ impl IdentityTransaction for PostgresTransaction {
             name,
             slug,
             accent,
-            owner_handle,
             owner_display_name,
             idempotency_key,
             now,

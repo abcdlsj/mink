@@ -3,7 +3,21 @@ use crate::protocol::computer::{ComputerErrorCode, DeliveryOutcome, DeliveryRece
 use crate::server::domain::{
     attention::InboxItemDisposition,
     execution::{RunErrorCode, RunOutcome},
+    identity::valid_display_name,
 };
+
+fn channel_slug(name: &str, id: Uuid) -> String {
+    let base = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_lowercase();
+    format!(
+        "{}-{}",
+        if base.is_empty() { "channel" } else { &base },
+        &id.simple().to_string()[24..]
+    )
+}
 
 #[derive(Deserialize)]
 pub(super) struct RenewRunBody {
@@ -650,7 +664,7 @@ pub(super) async fn execute_agent_action(
                     } else {
                         ChannelKind::Public
                     },
-                    slug: Some(unique_handle(&name, channel_id.into_uuid())),
+                    slug: Some(channel_slug(&name, channel_id.into_uuid())),
                     topic: Some(name),
                     action_message_id: MessageId::from_uuid(Uuid::now_v7()),
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
@@ -670,6 +684,13 @@ pub(super) async fn execute_agent_action(
             Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
         }
         capability::Action::AgentCreate { name, role, driver } => {
+            if !valid_display_name(&name) || name.chars().count() > 40 || role.trim().is_empty() {
+                return Err(capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Agent display name or role is invalid",
+                    false,
+                ));
+            }
             let agent_id = MemberId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let agent = CreateAgentAction::execute(
@@ -677,7 +698,6 @@ pub(super) async fn execute_agent_action(
                 CreateAgentActionInput {
                     agent_member_id: agent_id,
                     display_name: name.clone(),
-                    handle: unique_handle(&name, agent_id.into_uuid()),
                     role_text: role,
                     computer_id: ComputerId::from_uuid(computer_id),
                     driver_kind: match driver {

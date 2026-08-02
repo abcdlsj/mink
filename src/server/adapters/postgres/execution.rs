@@ -325,7 +325,7 @@ impl PostgresTransaction {
     ) -> Result<AgentConfiguration, ApplicationError> {
         let row = sqlx::query(
             "SELECT agents.space_id,agents.role_text,agents.role_revision,agents.driver_kind, \
-             members.display_name,members.handle FROM agents JOIN members \
+             members.display_name FROM agents JOIN members \
              ON members.id=agents.member_id WHERE agents.member_id=$1",
         )
         .bind(agent_id.into_uuid())
@@ -336,7 +336,6 @@ impl PostgresTransaction {
             agent_id: AgentId::from_uuid(agent_id.into_uuid()),
             space_id: SpaceId::from_uuid(row.get("space_id")),
             name: row.get("display_name"),
-            handle: row.get("handle"),
             role: RoleSnapshot {
                 revision: u64::try_from(row.get::<i64, _>("role_revision"))
                     .map_err(|_| ApplicationError::Internal)?,

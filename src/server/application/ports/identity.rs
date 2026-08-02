@@ -12,7 +12,6 @@ pub(in crate::server) trait IdentityTransaction {
         name: &str,
         slug: &str,
         accent: &str,
-        owner_handle: &str,
         owner_display_name: &str,
         idempotency_key: IdempotencyKey,
         now: time::OffsetDateTime,

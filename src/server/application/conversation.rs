@@ -357,7 +357,6 @@ pub(in crate::server) struct CreateChannelActionInput {
 pub(in crate::server) struct CreateAgentActionInput {
     pub(in crate::server) agent_member_id: MemberId,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
     pub(in crate::server) role_text: String,
     pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) driver_kind: DriverKind,
@@ -384,7 +383,6 @@ pub(in crate::server) struct CreateAgentInput {
     pub(in crate::server) agent_member_id: MemberId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
     pub(in crate::server) access_level: AccessLevel,
     pub(in crate::server) role_text: String,
     pub(in crate::server) computer_id: ComputerId,
@@ -477,7 +475,6 @@ impl CreateAgent {
                 id: input.agent_member_id,
                 space_id: input.space_id,
                 display_name: input.display_name,
-                handle: input.handle,
                 access_level: input.access_level,
                 created_at: input.now,
             };
@@ -546,7 +543,6 @@ impl CreateAgentAction {
                 id: input.agent_member_id,
                 space_id: run_view.space_id,
                 display_name: input.display_name,
-                handle: input.handle,
                 access_level: AccessLevel::Member,
                 created_at: input.now,
             };

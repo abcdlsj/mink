@@ -29,7 +29,7 @@ describe("ChannelPage", () => {
         return json({ id: "019c0000-0000-7000-8000-000000000030", space_id: spaceId, kind: "private", name: "Design", slug: "design", topic: "Decisions", created_by_member_id: ownerId, joined: true }, 201);
       }
       if (path.endsWith("/dms") && !init?.method) {
-        return json([{ channel_id: "dm", space_id: spaceId, other_member: { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] }, created_at: "2026-07-25T00:00:00Z" }]);
+        return json([{ channel_id: "dm", space_id: spaceId, other_member: { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] }, created_at: "2026-07-25T00:00:00Z" }]);
       }
       if (path.endsWith("/agents") && !init?.method) {
         return json([{ member_id: linId, activity_status: "running" }]);
@@ -38,16 +38,16 @@ describe("ChannelPage", () => {
       if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) {
         return json({
           members: [
-            { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] },
-            { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] },
+            { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
+            { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
           ],
           can_manage: true,
         });
       }
       if (path.endsWith("/members") && !init?.method) {
         return json([
-          { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] },
-          { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] },
+          { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
+          { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
         ]);
       }
       if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) {
@@ -117,9 +117,9 @@ describe("ChannelPage", () => {
     const graceId = "019c0000-0000-7000-8000-000000000104";
     const linId = "019c0000-0000-7000-8000-000000000105";
     const dmChannelId = "019c0000-0000-7000-8000-000000000106";
-    const owner = { id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] };
-    const grace = { id: graceId, kind: "human", display_name: "Grace Hopper", handle: "grace-hopper", access_level: "member", permissions: [] };
-    const lin = { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] };
+    const owner = { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] };
+    const grace = { id: graceId, kind: "human", display_name: "Grace Hopper", access_level: "member", permissions: [] };
+    const lin = { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] };
     const createdDirectMessage = { channel_id: dmChannelId, space_id: spaceId, other_member: grace, created_at: "2026-07-28T00:00:00Z" };
     let directMessageCreated = false;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -150,7 +150,7 @@ describe("ChannelPage", () => {
     expect(within(dialog).queryByText("@ada")).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("Find a Member"), { target: { value: "grace" } });
     expect(within(dialog).queryByText("@lin")).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: /Grace Hopper.*@grace-hopper.*Start/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /Grace Hopper.*Start/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -159,7 +159,7 @@ describe("ChannelPage", () => {
       );
     });
     await waitFor(() => expect(screen.getByRole("heading", { name: "Grace Hopper" })).toBeVisible());
-    expect(screen.getByRole("combobox", { name: "Message" })).toHaveAttribute("placeholder", "Message @grace-hopper");
+    expect(screen.getByRole("combobox", { name: "Message" })).toHaveAttribute("placeholder", "Message Grace Hopper");
   });
 
   it("renders API Messages and sends structured mentions", async () => {
@@ -211,7 +211,6 @@ describe("ChannelPage", () => {
               id: "019c0000-0000-7000-8000-000000000002",
               kind: "human",
               display_name: "Ada Lovelace",
-              handle: "ada-lovelace",
               access_level: "owner",
               permissions: [],
             },
@@ -219,7 +218,6 @@ describe("ChannelPage", () => {
               id: linId,
               kind: "agent",
               display_name: "Lin",
-              handle: "lin",
               access_level: "member",
               permissions: [],
             },
@@ -230,9 +228,9 @@ describe("ChannelPage", () => {
       if (path.endsWith(`/channels/${channelId}/members`) && init?.method === "POST") {
         return json({
           members: [
-            { id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", handle: "ada-lovelace", access_level: "owner", permissions: [] },
-            { id: linId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] },
-            { id: reviewerId, kind: "agent", display_name: "Reviewer", handle: "reviewer", access_level: "member", permissions: [] },
+            { id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] },
+            { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
+            { id: reviewerId, kind: "agent", display_name: "Reviewer", access_level: "member", permissions: [] },
           ],
           can_manage: true,
         });
@@ -243,7 +241,6 @@ describe("ChannelPage", () => {
             id: "019c0000-0000-7000-8000-000000000002",
             kind: "human",
             display_name: "Ada Lovelace",
-            handle: "ada-lovelace",
             access_level: "owner",
             permissions: [],
           },
@@ -251,7 +248,6 @@ describe("ChannelPage", () => {
             id: linId,
             kind: "agent",
             display_name: "Lin",
-            handle: "lin",
             access_level: "member",
             permissions: [],
           },
@@ -259,7 +255,6 @@ describe("ChannelPage", () => {
             id: reviewerId,
             kind: "agent",
             display_name: "Reviewer",
-            handle: "reviewer",
             access_level: "member",
             permissions: [],
           },
@@ -277,8 +272,8 @@ describe("ChannelPage", () => {
             reply_count: 1,
             task: taskSummary(),
             attention_failures: [
-              { agent_member_id: linId, agent_handle: "lin", error_code: "run_claim_unavailable", retrying: true },
-              { agent_member_id: reviewerId, agent_handle: "reviewer", error_code: "computer_offline", retrying: false },
+              { agent_member_id: linId, error_code: "run_claim_unavailable", retrying: true },
+              { agent_member_id: reviewerId, error_code: "computer_offline", retrying: false },
             ],
           }],
         });
@@ -368,7 +363,7 @@ describe("ChannelPage", () => {
     expect(systemErrors).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("2 system errors · Show details"));
     expect(systemErrors).toHaveAttribute("open");
-    expect(within(systemErrors).getByText((_, element) => element?.tagName === "P" && element.textContent?.includes("Could not start @lin") === true)).toBeVisible();
+    expect(within(systemErrors).getByText((_, element) => element?.tagName === "P" && element.textContent?.includes("Could not start Lin") === true)).toBeVisible();
     const taskBadge = screen.getByLabelText("Task: Ship message metadata · in progress · Lin");
     expect(taskBadge).toHaveTextContent("Ship message metadata");
     expect(taskBadge).toHaveAttribute("data-tooltip", "Ship message metadata · in progress · Lin");
@@ -390,7 +385,7 @@ describe("ChannelPage", () => {
     const suggestions = await screen.findByRole("listbox", { name: "Mention suggestions" });
     expect(within(suggestions).getByText("Lin")).toBeVisible();
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(input).toHaveValue("@lin ");
+    expect(input).toHaveValue("@Lin ");
     fireEvent.change(input, { target: { value: "@lin Please review", selectionStart: 18 } });
     fireEvent.submit(input.closest("form")!);
 
@@ -521,10 +516,10 @@ describe("ChannelPage", () => {
         return json({ id: "user", display_name: "Ada Lovelace", email: "ada@example.test" });
       }
       if (path.endsWith(`/channels/${designId}/members`) && !init?.method) {
-        return json({ members: [{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", handle: "ada", access_level: "owner", permissions: [] }], can_manage: true });
+        return json({ members: [{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] }], can_manage: true });
       }
       if (path.endsWith("/members")) {
-        return json([{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", handle: "ada", access_level: "owner", permissions: [] }]);
+        return json([{ id: "019c0000-0000-7000-8000-000000000002", kind: "human", display_name: "Ada Lovelace", access_level: "owner", permissions: [] }]);
       }
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/channels") && !init?.method) {
@@ -573,7 +568,6 @@ function message(channelId: string, seq: number, body: string) {
       id: "019c0000-0000-7000-8000-000000000002",
       kind: "human",
       display_name: "Ada Lovelace",
-      handle: "ada-lovelace",
     },
     thread_id: "1",
     placement: "root",

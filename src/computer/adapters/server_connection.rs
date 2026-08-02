@@ -198,7 +198,7 @@ impl ServerConnectionAdapter {
                     agent: AgentInput {
                         agent_id: agent.agent_id,
                         space_id: agent.space_id,
-                        identity: format!("{} (@{})", agent.name, agent.handle),
+                        identity: agent.name.clone(),
                         role_revision: agent.role_revision,
                         role: agent.role.clone(),
                         memory,
@@ -361,7 +361,6 @@ fn local_agent(configuration: wire::AgentConfiguration) -> LocalAgent {
         agent_id: configuration.agent_id,
         space_id: configuration.space_id,
         name: configuration.name,
-        handle: configuration.handle,
         role_revision: configuration.role.revision,
         role: configuration.role.text,
         driver: match configuration.driver {
@@ -606,7 +605,6 @@ mod tests {
                         agent_id,
                         space_id,
                         name: "Sumi".to_owned(),
-                        handle: "sumi".to_owned(),
                         role: RoleSnapshot {
                             revision: 3,
                             text: "role".to_owned(),

@@ -111,7 +111,7 @@ function shellResponse(path: string): Response | undefined {
   if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
   if (path.endsWith("/channels")) return json({ can_create: true, channels: [] });
   if (path.endsWith("/dms")) return json([]);
-  if (path.endsWith("/members")) return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+  if (path.endsWith("/members")) return json([{ id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }]);
   return undefined;
 }
 

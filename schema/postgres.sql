@@ -39,14 +39,13 @@ CREATE TABLE members (
     space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     kind TEXT NOT NULL CHECK (kind IN ('human', 'agent')),
     display_name TEXT NOT NULL,
-    handle TEXT NOT NULL,
     access_level TEXT NOT NULL CHECK (access_level IN ('owner', 'admin', 'member')),
     created_at TIMESTAMPTZ NOT NULL,
     retired_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
-    CHECK (lower(handle) <> 'all')
+    CHECK (lower(display_name) <> 'all')
 );
-CREATE UNIQUE INDEX members_space_handle_unique ON members (space_id, lower(handle));
+CREATE UNIQUE INDEX members_space_display_name_unique ON members (space_id, lower(display_name));
 CREATE UNIQUE INDEX members_one_owner_per_space ON members (space_id) WHERE access_level = 'owner';
 ALTER TABLE spaces ADD CONSTRAINT spaces_owner_member_in_space
     FOREIGN KEY (owner_member_id, id) REFERENCES members(id, space_id)

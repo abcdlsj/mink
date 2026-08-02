@@ -27,7 +27,7 @@ describe("Agent detail", () => {
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") && !init?.method) return json([]);
-      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }, { id: agentId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: ["channel.create"] }]);
+      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }, { id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: ["channel.create"] }]);
       if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
         current_task: { id: "task", title: "Rebuild WebUI" },
         focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" },
@@ -57,7 +57,7 @@ describe("Agent detail", () => {
         return json({ ...current.memory_files[0], content: "# Memory\n\nKeep the boundary explicit.\n" });
       }
       if (path.includes(`/members/${agentId}/permissions/channel.create`) && init?.method === "DELETE") {
-        return json({ id: agentId, kind: "agent", display_name: "Lin", handle: "lin", access_level: "member", permissions: [] });
+        return json({ id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] });
       }
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -115,7 +115,6 @@ function agent(
     space_id: space.id,
     computer_id: desiredLifecycle === "retired" ? null : "computer",
     name: "Lin",
-    handle: "lin",
     access_level: "member",
     role_text: "Review boundaries.",
     role_revision: 1,

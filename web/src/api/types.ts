@@ -43,7 +43,6 @@ export interface components {
             created_at: string;
             desired_lifecycle: components["schemas"]["AgentLifecycle"];
             driver_kind: components["schemas"]["DriverKind"];
-            handle: string;
             last_error_code?: string | null;
             /** Format: uuid */
             member_id: string;
@@ -96,7 +95,6 @@ export interface components {
             mention_immediate: boolean;
         };
         AttentionFailureResponse: {
-            agent_handle: string;
             /** Format: uuid */
             agent_member_id: string;
             error_code: string;
@@ -170,7 +168,6 @@ export interface components {
             /** Format: uuid */
             computer_id: string;
             driver_kind: components["schemas"]["DriverKind"];
-            handle?: string | null;
             name: string;
             role_text: string;
         };
@@ -331,7 +328,6 @@ export interface components {
         MemberResponse: {
             access_level: components["schemas"]["AccessLevel"];
             display_name: string;
-            handle: string;
             /** Format: uuid */
             id: string;
             kind: components["schemas"]["MemberKind"];
@@ -354,7 +350,6 @@ export interface components {
         };
         MessageAuthor: {
             display_name: string;
-            handle: string;
             /** Format: uuid */
             id: string;
             kind: components["schemas"]["MemberKind"];

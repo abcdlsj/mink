@@ -199,7 +199,6 @@ pub(in crate::server) struct HumanMemberRecord {
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) user_id: uuid::Uuid,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
     pub(in crate::server) created_at: time::OffsetDateTime,
 }
 
@@ -217,7 +216,6 @@ pub(in crate::server) struct SpaceMemberView {
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) kind: MemberKind,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
     pub(in crate::server) access_level: AccessLevel,
     pub(in crate::server) permissions: Vec<PermissionAction>,
 }
@@ -260,7 +258,6 @@ pub(in crate::server) struct SpaceHumanMember {
     pub(in crate::server) member_id: MemberId,
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) display_name: String,
-    pub(in crate::server) handle: String,
 }
 
 pub(in crate::server) struct PairingView {
