@@ -1276,7 +1276,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-body { font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-inline-code {
   font-family: var(--font-mono);
-  font-size: .9em;
+  font-size: 1em;
   background: var(--code-bg);
   color: var(--ink);
   padding: 1px 5px;
@@ -1809,12 +1809,12 @@ pre {
 .message-body h3 { font-size: 14px; }
 .message-body h4,
 .message-body h5,
-.message-body h6 { font-size: 13px; }
+.message-body h6 { font-size: 14px; }
 .message-body ul,
 .message-body ol { padding-left: 1.4em; }
 .message-body li { margin: .15em 0; }
 .message-body blockquote { padding-left: .8em; border-left: 2px solid var(--ink); color: var(--muted); }
 .message-body pre { padding: 8px 10px; background: var(--code-bg); overflow-x: auto; }
-.message-body pre code { background: transparent; padding: 0; font-size: .9em; }
+.message-body pre code { background: transparent; padding: 0; font-size: 1em; }
 .message-body hr { margin: .6em 0; border: 0; border-top: 2px solid var(--ink); }
 .message-body a { color: var(--accent-core); text-decoration: underline; text-underline-offset: 2px; }
