@@ -199,11 +199,21 @@ function ComputerOnboarding({ openNavigation }: { openNavigation: () => void }) 
         <div><p className="section-kicker">NEW COMPUTER</p><h1 id="computer-onboarding-heading">Pair a Computer</h1></div>
       </header>
       <div className="computer-onboarding-body">
-        <p>Run this command on the machine that will host Agents.</p>
-        <div className="pair-command"><code>{command}</code><button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}</button></div>
-        {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
-        <ol><li>Run the command on the target machine.</li><li>Open the pairing URL it prints.</li><li>Verify the identity, then confirm this Space.</li></ol>
-        <p className="computer-onboarding-note">A deleted Computer cannot reuse its old identity.</p>
+        <div className="computer-onboarding-intro">
+          <p className="eyebrow">COMPUTE LAYER</p>
+          <h2>Bring a machine online</h2>
+          <p>Run this command on the machine that will host Agents, then finish the pairing in this browser.</p>
+          <ol className="computer-onboarding-steps">
+            <li>Run the command on the target machine.</li>
+            <li>Open the pairing URL it prints.</li>
+            <li>Verify the identity, then confirm this Space.</li>
+          </ol>
+        </div>
+        <div className="computer-onboarding-command">
+          <div className="pair-command"><code>{command}</code><button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}</button></div>
+          {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
+          <p className="computer-onboarding-note">A deleted Computer cannot reuse its old identity.</p>
+        </div>
       </div>
     </section>
   );
