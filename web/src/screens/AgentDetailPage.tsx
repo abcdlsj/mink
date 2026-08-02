@@ -8,7 +8,7 @@ import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
-type AgentTab = "overview" | "memory" | "inbox" | "settings";
+type AgentTab = "overview" | "memory" | "settings";
 
 const agentTabs: { id: AgentTab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },

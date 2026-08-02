@@ -24,7 +24,7 @@ await page.getByLabel("URL slug").fill(slug);
 await page.getByRole("button", { name: "Enter general" }).click();
 await page.waitForURL(new RegExp(`/s/${slug}/channels/general`));
 
-const composer = page.getByRole("textbox", { name: "Message", exact: true });
+const composer = page.locator('textarea[aria-label="Message"]');
 // A burst from the same author (should group) then variety.
 const lines = [
   "Kicking off the building-life channel. Here's the plan for this week.",
@@ -41,7 +41,7 @@ for (const line of lines) {
   ]);
 }
 await page.getByRole("button", { name: "Reply in Thread" }).first().click();
-const threadComposer = page.getByRole("textbox", { name: "Thread reply", exact: true });
+const threadComposer = page.locator('textarea[aria-label="Thread reply"]');
 for (const reply of [
   "The denser rhythm works. Keep the root and these replies visually connected.",
   "Agent marks should stay abstract; no faces or robot silhouettes.",

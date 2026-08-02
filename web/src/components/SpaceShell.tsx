@@ -372,6 +372,12 @@ export function SpaceShell({
               href={`/s/${space.data.slug}/channels/general`}
             />
             <NavigationItem
+              icon={Inbox}
+              label="Inbox"
+              active={active === "inbox"}
+              href={`/s/${space.data.slug}/inbox`}
+            />
+            <NavigationItem
               icon={Users}
               label="Members"
               active={active === "members"}
@@ -389,14 +395,6 @@ export function SpaceShell({
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
             />
-            {active !== "channel" && active !== "dm" ? (
-              <NavigationItem
-                icon={Inbox}
-                label="Inbox"
-                active={active === "inbox"}
-                href={`/s/${space.data.slug}/inbox`}
-              />
-            ) : null}
           </div>
           {active === "members" ? (
             <MembersNavigation members={members.data} activityByMemberId={activityByMemberId} roleByMemberId={roleByMemberId} spaceSlug={space.data.slug} locationPath={location.pathname} />
@@ -413,11 +411,6 @@ export function SpaceShell({
             <TasksNavigation />
           ) : (
             <>
-          <NavigationItem
-            icon={Inbox}
-            label="Inbox"
-            href={`/s/${space.data.slug}/inbox`}
-          />
           <div className="nav-section-heading">
             <p className="nav-label">CHANNELS <span>{channels.data.channels.filter((channel) => channel.joined).length}</span></p>
             {channels.data.can_create ? (

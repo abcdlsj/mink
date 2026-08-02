@@ -56,7 +56,7 @@ await page.locator(".channel-workspace").waitFor();
 
 if (await page.locator(".inline-thread-preview").count() === 0) {
   await page.getByRole("button", { name: "Reply in Thread" }).first().click();
-  const composer = page.getByRole("textbox", { name: "Thread reply", exact: true });
+  const composer = page.locator('textarea[aria-label="Thread reply"]');
   for (const reply of ["Thread layout evidence one.", "Thread layout evidence two.", "Thread layout evidence three."]) {
     await composer.fill(reply);
     await Promise.all([
@@ -149,14 +149,14 @@ await dialog.getByLabel("Visibility").selectOption("private");
 await dialog.getByRole("button", { name: "Create Channel", exact: true }).click();
 await page.waitForURL(new RegExp(`/channels/${channelSlug}$`));
 
-const channelComposer = page.getByRole("textbox", { name: "Message", exact: true });
+const channelComposer = page.locator('textarea[aria-label="Message"]');
 await channelComposer.fill("Thread context root.");
 await Promise.all([
   page.waitForResponse((response) => response.request().method() === "POST" && /\/channels\/[^/]+\/messages$/.test(response.url())),
   page.getByRole("button", { name: "Send message", exact: true }).click(),
 ]);
 await page.getByRole("button", { name: "Reply in Thread" }).click();
-const threadComposer = page.getByRole("textbox", { name: "Thread reply", exact: true });
+const threadComposer = page.locator('textarea[aria-label="Thread reply"]');
 await threadComposer.fill("Thread context reply.");
 await Promise.all([
   page.waitForResponse((response) => response.request().method() === "POST" && /\/threads\/\d+\/messages$/.test(response.url())),

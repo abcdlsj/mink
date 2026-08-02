@@ -51,7 +51,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await closeResponsiveNavigation();
   await expect(page.getByLabel("Attach file")).toBeEnabled();
   const longMessage = `A long Message remains readable at ${testInfo.project.name}. https://example.test/${"boundary/".repeat(24)}`;
-  const composer = page.getByRole("textbox", { name: "Message", exact: true });
+  const composer = page.locator('textarea[aria-label="Message"]');
   await composer.fill(longMessage);
   const [messageResponse] = await Promise.all([
     page.waitForResponse((response) => response.request().method() === "POST" && /\/channels\/[^/]+\/messages$/.test(response.url())),
@@ -69,7 +69,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   await rootMessage.hover();
   await rootMessage.getByRole("button", { name: "Reply in Thread" }).click();
   await expect(page.getByRole("complementary", { name: /Thread #general:1/ })).toBeVisible();
-  await page.getByRole("textbox", { name: "Thread reply", exact: true }).fill("Thread reply keeps the root visible and uses the same Message layout.");
+  await page.locator('textarea[aria-label="Thread reply"]').fill("Thread reply keeps the root visible and uses the same Message layout.");
   await page.getByRole("button", { name: "Send Thread reply", exact: true }).click();
   await expect(page.getByRole("complementary", { name: /Thread #general:1/ }).getByText("Thread reply keeps the root visible and uses the same Message layout.")).toBeVisible();
   await page.getByRole("button", { name: "Close Thread" }).click();

@@ -62,7 +62,7 @@ for (const [width, height, label] of viewports) {
   await pm.click();
   await page.waitForURL(/\/s\/sumi-dev\/dm\//);
   await page.getByRole("heading", { name: "PM", exact: true }).waitFor();
-  const placeholder = await page.getByRole("textbox", { name: "Message", exact: true }).getAttribute("placeholder");
+  const placeholder = await page.locator('textarea[aria-label="Message"]').getAttribute("placeholder");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   if (overflow) throw new Error(`${label} DM page has horizontal overflow`);
   await page.screenshot({ path: `${output}/${label}-dm.png`, fullPage: true });
