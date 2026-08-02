@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
@@ -9,7 +9,10 @@ import type { Run, Task, ThreadReference } from "../api/client";
 const ownerId = "019c0000-0000-7000-8000-000000000002";
 const spaceId = "019c0000-0000-7000-8000-000000000001";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("Task work index", () => {
   it("orders open statuses, filters history, and links to the Source Thread", async () => {
@@ -70,6 +73,28 @@ describe("Task work index", () => {
     fireEvent.click(screen.getByRole("button", { name: /Reset continuity/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/reset-session"), expect.objectContaining({ method: "POST" })));
     expect((await screen.findByText("COLD")).closest("p")).toHaveTextContent("COLD · generation 3");
+  });
+
+  it("labels a DM Source Thread without a channel link", async () => {
+    const value = task("in_progress", "DM Task", 21, "Lin");
+    value.source_thread = { ...thread("source", 21), channel_slug: null };
+    value.current_run = run("running", value.source_thread);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const shell = shellResponse(path);
+      if (shell) return shell;
+      if (path.endsWith("/agents")) return json([{ member_id: "agent", name: "Lin", desired_lifecycle: "active" }]);
+      if (path.endsWith(`/tasks/${value.id}`) && !init?.method) return json(value);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderRoute(`/s/sumi-lab/tasks/${value.id}`);
+
+    expect(await screen.findByRole("heading", { name: "DM Task" })).toBeVisible();
+    expect(screen.getByText("DM · message 21")).toBeVisible();
+    expect(screen.getByLabelText("source: DM @21")).toBeVisible();
+    expect(screen.getByLabelText("Focus: DM @21")).toBeVisible();
+    expect(screen.queryAllByRole("link", { name: /#.*@21/ })).toHaveLength(0);
   });
 });
 

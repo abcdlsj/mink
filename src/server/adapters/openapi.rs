@@ -616,7 +616,7 @@ pub(super) enum SessionContinuityState {
 pub(super) struct ThreadReferenceResponse {
     pub(super) id: Uuid,
     pub(super) channel_id: Uuid,
-    pub(super) channel_slug: String,
+    pub(super) channel_slug: Option<String>,
     pub(super) root_message_id: Uuid,
     pub(super) root_message_seq: u64,
     pub(super) relation: ThreadRelation,

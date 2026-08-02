@@ -122,7 +122,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
               {runtime.data ? (
                 <div className="agent-work-facts">
                   <div><span>Task</span><p>{runtime.data.current_task ? <Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link> : "None"}</p></div>
-                  <div><span>Focus</span><p>{runtime.data.focus ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link> : "None"}</p></div>
+                  <div><span>Focus</span><p>{runtime.data.focus ? runtime.data.focus.channel_slug ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link> : <span>DM @{runtime.data.focus.root_message_seq}</span> : "None"}</p></div>
                   <div><span>Run</span><p>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p></div>
                   <div><span>Session</span><p>{runtime.data.session_continuity.state.replace("_", " ")}</p></div>
                 </div>

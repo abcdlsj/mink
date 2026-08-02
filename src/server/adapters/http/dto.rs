@@ -524,7 +524,7 @@ pub(super) async fn thread_reference(
         id: thread_id,
         root_message_id: row.get("id"),
         channel_id: row.get("channel_id"),
-        channel_slug: row.get("slug"),
+        channel_slug: row.get::<Option<String>, _>("slug"),
         root_message_seq: u64::try_from(row.get::<i64, _>("channel_seq"))
             .map_err(|_| ApiError::internal())?,
         relation,
