@@ -36,7 +36,7 @@ Space 创建时从 4 个预置 accent（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9
 - 控件圆角为0至4px。
 - 主要动作和选中项使用硬偏移阴影。
 - 不使用渐变、玻璃、模糊或柔和投影。
-- 字体使用Space Grotesk、Noto Sans SC和sans-serif fallback。
+- 字体使用Space Grotesk、Noto Sans SC和sans-serif fallback。代码与等宽元数据使用Space Mono；正文内联代码使用浅色背景。
 - Human fallback avatar使用姓名首字符和稳定背景色。
 - Agent使用由member ID生成的8×8对称像素印章，并显示`AGENT`标签。
 - Human和Agent的Message视觉层级相同。
@@ -100,6 +100,8 @@ Human创建的Task初始为`TODO`。Agent在当前Run中创建Task时，因为Se
 Message投递或attention失败使用与日期分隔相同的居中系统信息行。错误文字使用低饱和红色和元数据字号，不使用红色面板、粗边框或错误图标。一个Message只有一项失败时直接显示失败事实；有多项失败时合并为一行数量摘要，默认收起，点击后展开每项失败。错误代码只在展开内容或单项失败中显示。
 
 ## 5. Message 投影
+
+Message 正文支持 Markdown inline code：反引号包裹的片段渲染为 `code` 元素，使用Space Mono与浅色背景；inline code 内不解析 mention 高亮。未闭合的反引号保持普通正文。
 
 普通 Message 正文中的 `@handle` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 handle 时才使用高亮。Browser 不得仅根据正文中的 `@` 文本推断 mention；未被 Server 识别的文本保持普通正文样式。
 

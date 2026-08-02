@@ -55,3 +55,36 @@ describe("highlightMentions", () => {
     expect(container).toHaveTextContent("Please check @lin.");
   });
 });
+
+describe("inline code", () => {
+  it("renders backtick spans as code and keeps mentions inside them unhighlighted", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-inline-code"
+        body="Run `sumi server --help`, then check @lin and `@lin` inside code."
+        mentionedHandles={new Set(["lin"])}
+      />,
+    );
+
+    const codeNodes = container.querySelectorAll("code.message-inline-code");
+    expect(codeNodes).toHaveLength(2);
+    expect(codeNodes[0]).toHaveTextContent("sumi server --help");
+    expect(codeNodes[1]).toHaveTextContent("@lin");
+    expect(container.querySelectorAll("mark.message-mention")).toHaveLength(1);
+    expect(container.querySelector("mark.message-mention")).toHaveTextContent("@lin");
+    expect(container).toHaveTextContent("Run sumi server --help, then check @lin and @lin inside code.");
+  });
+
+  it("keeps unmatched backticks as plain text", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-unclosed-code"
+        body="A lone `backtick stays plain"
+        mentionedHandles={new Set()}
+      />,
+    );
+
+    expect(container.querySelector("code.message-inline-code")).not.toBeInTheDocument();
+    expect(container).toHaveTextContent("A lone `backtick stays plain");
+  });
+});

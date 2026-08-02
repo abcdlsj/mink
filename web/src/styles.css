@@ -100,7 +100,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 /* Tasks remain a secondary work index beside Conversation. */.tasks-workspace { min-width: 0; overflow: auto; background: var(--paper); }
 .tasks-header h1 { margin: 0; font-size: var(--text-page-title); line-height: 1.2; }
 .tasks-header p { margin: 3px 0 0; color: var(--muted); font-size: var(--text-system); }
-.tasks-header code, .tasks-empty code { font-family: var(--font-sans); font-size: .9em; }
+.tasks-header code, .tasks-empty code { font-family: var(--font-mono); font-size: .9em; }
 .task-source-link { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font: 700 12px var(--font-sans); }
 .task-source-link svg { width: 16px; }
 .tasks-empty { margin: 48px auto; max-width: 520px; padding: 28px; border: 2px solid var(--ink); background: var(--panel); box-shadow: 4px 4px 0 var(--ink); text-align: center; }
@@ -220,7 +220,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .task-actions textarea { min-height: 84px; border: 2px solid var(--ink); background: var(--paper); min-width: min(440px, 80vw); }
 .thread-reference { display: grid; grid-template-columns: 90px 150px minmax(180px, 1fr); align-items: center; gap: 10px; }
 .thread-reference > span { font: 800 10px var(--font-sans); }
-.thread-reference code { overflow: hidden; text-overflow: ellipsis; }
+.thread-reference code { overflow: hidden; font-family: var(--font-mono); text-overflow: ellipsis; }
 .linked-thread-list,
 .run-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .linked-thread-list > li { display: flex; align-items: center; gap: 10px; }
@@ -568,7 +568,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .agent-memory > div { display: flex; align-items: center; gap: 8px; }
 .memory-file-button svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .memory-file-button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.memory-reader pre { max-height: 360px; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-sans); }
+.memory-reader pre { max-height: 360px; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-mono); }
 @media (max-width: 900px) {
   .agent-overview,
   .agent-settings fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -586,7 +586,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .computer-status--revoked { color: #a11c18; }
 .computer-empty > svg { width: 48px; height: 48px; }
 .computer-empty p { margin: 0; line-height: 1.6; }
-.computer-empty code { font-family: inherit; font-weight: 700; }
+.computer-empty code { font-family: var(--font-mono); font-weight: 700; }
 .pairing-machine dl { display: grid; gap: 14px; margin: 0; }
 .pairing-machine dl div { display: grid; gap: 4px; }
 .pairing-machine dt { font-family: inherit; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -1197,7 +1197,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .computer-empty > .section-kicker { margin: 18px 0 0; }
 .computer-empty > p:not(.section-kicker) { max-width: 50ch; color: var(--muted); }
 .computer-empty > .command-button { margin-top: 22px; color: var(--ink); text-decoration: none; }
-.pair-command code { overflow-wrap: anywhere; font: 700 13px/1.45 inherit; color: var(--green); font-family: var(--font-sans); font-size: 12px; }
+.pair-command code { overflow-wrap: anywhere; font: 700 12px/1.45 var(--font-mono); color: var(--green); }
 .pair-command .compact-action { background: var(--paper); }
 @media (max-width: 900px) {
 }
@@ -1272,6 +1272,14 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-mention { padding: 0 2px; background: var(--accent-soft); color: var(--ink); font-weight: 700; text-decoration: none; }
 .message-body-wrap { min-width: 0; }
 .message-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-inline-code {
+  font-family: var(--font-mono);
+  font-size: .9em;
+  background: var(--code-bg);
+  color: var(--ink);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
 .message-body--collapsed { display: -webkit-box; overflow: hidden; }
 .message-expand { margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .message-expand:hover { color: var(--ink); }
@@ -1284,7 +1292,7 @@ summary.system-event-heading { cursor: pointer; }
 .system-event-heading::after { height: 1px; flex: 1; background: color-mix(in srgb, var(--red) 18%, transparent); content: ""; }
 .system-event-heading > span { max-width: min(72ch, 80%); }
 .system-event-heading code,
-.system-event-details code { color: inherit; font-size: inherit; }
+.system-event-details code { color: inherit; font-family: var(--font-mono); font-size: inherit; }
 .system-event-heading button { padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .system-event-details { width: min(680px, calc(100% - 32px)); margin: 6px auto 0; padding-left: 18px; border-left: 1px solid color-mix(in srgb, var(--red) 22%, transparent); }
 .system-event-details p,
@@ -1672,7 +1680,7 @@ summary.system-event-heading { cursor: pointer; }
 .permission-notice { border-left-color: var(--red); background: #ffe9e7; }
 .permission-notice { margin: 0; padding: 11px 14px; border: 0; background: #ffe9e7; line-height: 1.45; color: var(--ink); font-size: var(--text-system); display: flex; align-items: flex-start; gap: 10px; border-left: 4px solid var(--orange); font-weight: 600; border-left-color: var(--red); }
 .inline-notice--error { background: #ffe9e7; border-left-color: var(--red); }
-.inline-notice code { font-family: var(--font-sans); font-size: 1em; font-weight: 700; white-space: nowrap; }
+.inline-notice code { font-family: var(--font-mono); font-size: 1em; font-weight: 700; white-space: nowrap; }
 .agent-work .inline-notice { margin-top: 16px; padding: 10px 14px; border-color: rgb(20 17 17 / 12%); background: #fff7d6; border: 0; }
 /* ==================================================================
    Members directory: flat rows replace the table chrome — no black
@@ -1755,4 +1763,11 @@ summary.system-event-heading { cursor: pointer; }
 @media (max-width: 700px) {
   .member-row { grid-template-columns: minmax(0, 1fr); }
   .member-actions { justify-content: flex-start; }
+}
+
+/* Code and command surfaces use the mono stack by default. */
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
 }

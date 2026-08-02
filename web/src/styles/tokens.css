@@ -5,6 +5,8 @@
   font-synthesis: none;
   letter-spacing: 0;
   --font-sans: "Space Grotesk Variable", "Space Grotesk", "Noto Sans SC", sans-serif;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+  --code-bg: color-mix(in srgb, var(--ink) 6%, var(--paper));
   --ink: #141111;
   --paper: #ffffff;
   --panel: #fffaef;

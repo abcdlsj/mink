@@ -338,7 +338,11 @@ function AttentionFailureNotice({ message }: { message: Message }) {
   );
 }
 
-function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
+function highlightMentions(
+  body: string,
+  mentionedHandles: ReadonlySet<string>,
+  keyPrefix: string,
+): ReactNode[] {
   const nodes: ReactNode[] = [];
   const mentionPattern = /(^|\s)(@[a-z0-9]+(?:-[a-z0-9]+)*)/gi;
   let cursor = 0;
@@ -350,7 +354,7 @@ function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>):
     nodes.push(body.slice(cursor, tokenStart));
     nodes.push(
       mentionedHandles.has(token.slice(1).toLowerCase())
-        ? <mark className="message-mention" key={`mention-${tokenStart}`}>{token}</mark>
+        ? <mark className="message-mention" key={`${keyPrefix}-mention-${tokenStart}`}>{token}</mark>
         : token,
     );
     cursor = tokenStart + token.length;
@@ -361,7 +365,25 @@ function highlightMentions(body: string, mentionedHandles: ReadonlySet<string>):
 }
 
 function renderMessageBody(body: string, mentionedHandles: ReadonlySet<string>): ReactNode[] {
-  return highlightMentions(body, mentionedHandles);
+  const nodes: ReactNode[] = [];
+  const inlineCodePattern = /`([^`\n]+)`/g;
+  let cursor = 0;
+  let segment = 0;
+  for (const match of body.matchAll(inlineCodePattern)) {
+    const matchStart = match.index ?? 0;
+    nodes.push(
+      ...highlightMentions(body.slice(cursor, matchStart), mentionedHandles, `text-${segment}`),
+    );
+    nodes.push(
+      <code className="message-inline-code" key={`code-${matchStart}`}>
+        {match[1]}
+      </code>,
+    );
+    segment += 1;
+    cursor = matchStart + match[0].length;
+  }
+  nodes.push(...highlightMentions(body.slice(cursor), mentionedHandles, `text-${segment}`));
+  return nodes;
 }
 
 function textBody(message: Message): string {
