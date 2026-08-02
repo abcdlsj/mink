@@ -6,8 +6,8 @@ use crate::{
         AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
         ContinuityState, DeliveryState, DriverKind, FencingToken, ItemDisposition, LocalAgent,
         LocalAgentState, LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput,
-        RunContextInput, RunInput, RunPriority, SessionFingerprint, SessionScope, TaskInput,
-        TerminalStatus, WorkInput, WorkStrength,
+        RunContextInput, RunInput, RunPriority, SessionFingerprint, SessionScope, SpaceMemberInput,
+        TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -225,6 +225,14 @@ impl ServerConnectionAdapter {
                             .collect(),
                         claimed_items,
                     },
+                    space_members: start
+                        .space_members
+                        .iter()
+                        .map(|member| SpaceMemberInput {
+                            member_id: member.member_id,
+                            display_name: member.display_name.clone(),
+                        })
+                        .collect(),
                 };
                 let run = LocalRun::new(NewRun {
                     id: start.run_id,
@@ -648,6 +656,7 @@ mod tests {
                             message_sequence: 1,
                         },
                         claimed_items: Vec::new(),
+                        space_members: Vec::new(),
                         fencing_token: WireFencingToken::new("raw-token".to_owned()),
                         ownership_lease_expires_at: OffsetDateTime::now_utc()
                             + Duration::minutes(5),

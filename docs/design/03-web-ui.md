@@ -251,7 +251,7 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - 持久阻断使用 inline notice，短期结果使用 toast。
 - 空态只写事实和至多一个下一步动作，不使用大插画。
 - 空态和`No DMs yet`等系统信息使用辅助信息字号。
-- Composer 只包含 Markdown、Attachment、mention 和 Send，不包含 Task 或 Session 控制。Channel 与 Thread 复用同一 Composer 结构和高度；Composer 外框是唯一输入边框，Attachment 位于左下角，Send 位于右下角，宽度随所在区域变化。
+- Composer 只包含 Markdown、Attachment、mention 和 Send，不包含 Task 或 Session 控制。DM 的 Composer 不提供 mention，因为 DM 恰好只有两个 Member。Channel 与 Thread 复用同一 Composer 结构和高度；Composer 外框是唯一输入边框，Attachment 位于左下角，Send 位于右下角，宽度随所在区域变化。
 
 ## 11. 响应式与无障碍
 

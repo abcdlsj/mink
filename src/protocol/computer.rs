@@ -166,9 +166,17 @@ pub(crate) struct RunStart {
     pub(crate) task: Option<TaskSnapshot>,
     pub(crate) focus: FocusSnapshot,
     pub(crate) claimed_items: Vec<InboxItemSnapshot>,
+    pub(crate) space_members: Vec<SpaceMemberSnapshot>,
     pub(crate) fencing_token: FencingToken,
     #[serde(with = "time::serde::rfc3339")]
     pub(crate) ownership_lease_expires_at: OffsetDateTime,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SpaceMemberSnapshot {
+    pub(crate) member_id: MemberId,
+    pub(crate) display_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

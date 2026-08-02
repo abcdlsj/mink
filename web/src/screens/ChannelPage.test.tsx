@@ -138,6 +138,12 @@ describe("ChannelPage", () => {
       if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) return json({ channel_id: channelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
       if (path.endsWith(`/channels/${dmChannelId}/members`) && !init?.method) return json({ members: [owner, grace], can_manage: false });
       if (path.endsWith(`/channels/${dmChannelId}/messages`) && !init?.method) return json({ channel_id: dmChannelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      if (path.endsWith(`/channels/${dmChannelId}/messages`) && init?.method === "POST") {
+        const input = JSON.parse(String(init.body)) as { body_markdown: string; mentions?: string[]; mention_all?: boolean };
+        expect(input.mentions).toEqual([]);
+        expect(input.mention_all).toBe(false);
+        return json(message(dmChannelId, 1, input.body_markdown), 201);
+      }
       if (path.endsWith("/members") && !init?.method) return json([owner, grace, lin]);
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -159,7 +165,16 @@ describe("ChannelPage", () => {
       );
     });
     await waitFor(() => expect(screen.getByRole("heading", { name: "Grace Hopper" })).toBeVisible());
-    expect(screen.getByRole("combobox", { name: "Message" })).toHaveAttribute("placeholder", "Message Grace Hopper");
+    const dmComposer = screen.getByRole("textbox", { name: "Message" });
+    expect(dmComposer).toHaveAttribute("placeholder", "Message Grace Hopper");
+    fireEvent.change(dmComposer, { target: { value: "@gra" } });
+    expect(screen.queryByRole("listbox", { name: "Mention suggestions" })).not.toBeInTheDocument();
+    fireEvent.change(dmComposer, { target: { value: "hello @grace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/channels/${dmChannelId}/messages`),
+      expect.objectContaining({ method: "POST" }),
+    ));
   });
 
   it("renders API Messages and sends structured mentions", async () => {

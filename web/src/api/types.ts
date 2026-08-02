@@ -537,7 +537,7 @@ export interface components {
         ThreadReferenceResponse: {
             /** Format: uuid */
             channel_id: string;
-            channel_slug: string;
+            channel_slug?: string | null;
             /** Format: uuid */
             id: string;
             relation: components["schemas"]["ThreadRelation"];

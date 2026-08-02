@@ -1,5 +1,7 @@
 use super::*;
-use crate::protocol::computer::{AgentConfiguration, DriverKind, RoleSnapshot};
+use crate::protocol::computer::{
+    AgentConfiguration, DriverKind, RoleSnapshot, SpaceMemberSnapshot,
+};
 
 pub(super) fn command_kind(command: &Command) -> &'static str {
     match command {
@@ -371,15 +373,30 @@ impl PostgresTransaction {
         fencing_token: &str,
     ) -> Result<RunStart, ApplicationError> {
         let row = sqlx::query(
-            "SELECT agent_id,task_id,focus_thread_id,lease_expires_at FROM agent_runs WHERE id=$1",
+            "SELECT agent_id,task_id,focus_thread_id,lease_expires_at,space_id FROM agent_runs WHERE id=$1",
         )
         .bind(run_id.into_uuid())
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
         let agent_id = MemberId::from_uuid(row.get("agent_id"));
+        let space_id: Uuid = row.get("space_id");
         let task_id = row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid);
         let focus_thread_id = ThreadId::from_uuid(row.get("focus_thread_id"));
+        let space_members = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT id, display_name FROM members \
+             WHERE space_id=$1 AND retired_at IS NULL ORDER BY display_name",
+        )
+        .bind(space_id)
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .into_iter()
+        .map(|(member_id, display_name)| SpaceMemberSnapshot {
+            member_id: MemberId::from_uuid(member_id),
+            display_name,
+        })
+        .collect();
         let item_ids = sqlx::query_scalar::<_, Uuid>(
             "SELECT inbox_item_id FROM run_items WHERE run_id=$1 ORDER BY delivery_seq",
         )
@@ -400,6 +417,7 @@ impl PostgresTransaction {
             },
             focus: self.focus_snapshot(focus_thread_id).await?,
             claimed_items,
+            space_members,
             fencing_token: FencingToken::new(fencing_token.to_owned()),
             ownership_lease_expires_at: row.get("lease_expires_at"),
         })

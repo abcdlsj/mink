@@ -137,7 +137,7 @@ Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得
 
 `PATCH /api/v1/spaces/{space_id}/members/{member_id}` 改写 Access Level，只接受`admin`和`member`。Owner 由创建 Space 确定，不能通过该端点授予；现任 Owner 的级别也不可改写，否则 Space 会失去治理者。Admin 只能授予`member`，授予`admin`需要 Owner。
 
-Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`label`用 Focus 地址`#slug:seq`和绑定 Task 标题描述正在进行的动作。没有非终态 Run 时`activity`为空。该字段不含 Message 正文、命令参数或隐藏推理，见 [安全与运维](09-security-operations.md)。
+Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`label`用 Focus 地址`#slug:seq`和绑定 Task 标题描述正在进行的动作。`ThreadReferenceResponse.channel_slug`在 DM 中为 null，此时 Focus 地址的 slug 部分以`DM`代替。没有非终态 Run 时`activity`为空。该字段不含 Message 正文、命令参数或隐藏推理，见 [安全与运维](09-security-operations.md)。
 
 `last_error_code`先取该 Agent 最近一次失败 Run 上报的`error_code`，没有失败 Run 时退回其 pending Item 记录的`last_error_code`。两者都是已落库事实，不由 lifecycle 推测。
 

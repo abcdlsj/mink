@@ -143,7 +143,7 @@ CLI 不得要求 Agent 重复传入这些字段。Agent 也不能通过参数切
 
 ## 6. 启动读取
 
-Run prompt 已经包含当前 Focus 和可选 Task，因此 Agent 不需要先调用 whoami、task show 和 thread read 才能理解基本上下文。以下命令用于按需扩展：
+Run prompt 已经包含当前 Focus、可选 Task 和空间成员 display name 名单，因此 Agent 不需要先调用 whoami、task show 和 thread read 才能理解基本上下文。以下命令用于按需扩展：
 
 ```text
 sumi agent context current --json
@@ -167,6 +167,8 @@ sumi agent message send --channel {channel-id} --stdin --json
 ```
 
 省略目标时发送到当前 Focus。发送到其他 Thread 要求该 Thread 已链接到当前 Task。发送到普通 Channel 主时间线必须显式提供目标。`--attachment`可重复，只接受当前 Space 中状态为 ready 的 Attachment，挂载关系与 Message 在同一事务写入。
+
+正文中的`@display_name`会被解析为结构化 mention，目标必须是目标 Channel 的 Member。mention 与 Browser 提交的 mention 使用同一投影和注意力路由，Agent 不需要理解内部 member ID。
 
 ### 7.2 Task
 

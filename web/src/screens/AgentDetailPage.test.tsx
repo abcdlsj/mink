@@ -161,6 +161,31 @@ describe("Agent detail", () => {
     expect(screen.getByText("Sent a message")).toBeVisible();
     expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
   });
+
+  it("renders a DM Focus without a channel link", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }, { id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] }]);
+      if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
+        current_task: null,
+        focus: { id: "thread", channel_id: "dm-channel", channel_slug: null, root_message_id: "message", root_message_seq: 7, relation: "source" },
+        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: "dm-channel", channel_slug: null, root_message_id: "message", root_message_seq: 7, relation: "source" }, status: "running" },
+        another_item_waiting: false,
+        session_continuity: { state: "warm", generation: 1 },
+      });
+      if (path.endsWith(`/agents/${agentId}`) && !init?.method) return json(agent("active", "ready"));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute(`/s/sumi-lab/agents/${agentId}`);
+
+    expect(await screen.findByText("DM @7")).toBeVisible();
+    expect(screen.queryByRole("link", { name: /#.* @7/ })).not.toBeInTheDocument();
+  });
 });
 
 function agent(

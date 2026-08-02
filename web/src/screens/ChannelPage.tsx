@@ -292,6 +292,7 @@ export function MessageWorkspace({
       <MessageComposer
         spaceId={spaceId}
         members={channelMembers.data?.members ?? []}
+        direct={direct}
         placeholder={placeholder}
         ariaLabel="Message"
         attachmentAriaLabel="Choose Attachment"

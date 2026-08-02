@@ -247,6 +247,7 @@ fn test_run(driver: DriverKind) -> LocalRun {
                 focus_messages: Vec::new(),
                 claimed_items: Vec::new(),
             },
+            space_members: Vec::new(),
         },
     })
     .unwrap();
