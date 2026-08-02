@@ -84,7 +84,6 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
     <section className="tasks-workspace" aria-labelledby="tasks-heading">
       <header className="tasks-header">
         <div className="page-title"><h1 id="tasks-heading">Tasks</h1><p>Formal work stays connected to its Threads and Result.</p></div>
-        <span className="task-total">{visible.length} SHOWN</span>
       </header>
       <nav className="task-filters" aria-label="Task filters">
         {filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
@@ -175,10 +174,34 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
       {value.runtime_issue_code ? <p className="inline-notice inline-notice--error" role="alert">Task cannot run: <code>{value.runtime_issue_code}</code>. Restore compatible Thread membership or remove the Related Thread.</p> : null}
       {change.error ? <p className="inline-notice inline-notice--error" role="alert">The Task change failed. The current Server state is unchanged.</p> : null}
       <div className="task-detail-scroll">
-        <section className="task-detail-section"><h2>Task</h2><form className="task-title-form" onSubmit={rename}><label>Title<input name="title" defaultValue={value.title} required /></label><button className="command-button" type="submit" disabled={change.isPending}>Save title</button></form><dl className="detail-grid"><Field label="Assignee" value={value.assignee_name ?? "Unassigned"} /><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
-        {!value.finished_at ? <section className="task-detail-section"><h2>Actions</h2><div className="task-actions">{value.status === "todo" ? <label>Assignee<select defaultValue="" onChange={(event) => event.target.value && change.mutate(() => startTask(value.id, event.target.value))}><option value="" disabled>Start with Agent…</option>{(agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active").map((agent) => <option key={agent.member_id} value={agent.member_id}>{agent.name}</option>)}</select></label> : null}{value.status === "in_progress" ? <button className="command-button" type="button" onClick={() => change.mutate(() => submitTaskReview(value.id))}>Submit review</button> : null}{value.status === "in_review" ? <button className="command-button" type="button" onClick={() => change.mutate(() => requestTaskChanges(value.id))}>Request changes</button> : null}{["in_progress", "in_review"].includes(value.status) ? <form onSubmit={finish}><label>Result Message<textarea name="result" required /></label><button className="command-button command-button--accent" type="submit">Mark Done</button></form> : null}<form onSubmit={close}><label>Close reason<select name="reason" defaultValue="invalid"><option value="invalid">Invalid</option><option value="duplicate">Duplicate</option><option value="not_needed">Not needed</option><option value="obsolete">Obsolete</option><option value="other">Other</option></select></label><label>Note<input name="note" /></label><button className="danger-button" type="submit"><XCircle /> Close Task</button></form></div></section> : null}
+        <section className="task-detail-section"><h2>Task</h2><form className="task-title-form" onSubmit={rename}><label htmlFor="task-title">Title</label><input id="task-title" name="title" defaultValue={value.title} required /><button className="command-button" type="submit" disabled={change.isPending}>Save title</button></form><dl className="detail-grid"><Field label="Assignee" value={value.assignee_name ?? "Unassigned"} /><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
+        {!value.finished_at ? (
+          <section className="task-detail-section">
+            <h2>Actions</h2>
+            <div className="task-actions">
+              <div className="task-action-block">
+                {value.status === "todo" ? (
+                  <label className="task-field">Assignee<select defaultValue="" onChange={(event) => event.target.value && change.mutate(() => startTask(value.id, event.target.value))}><option value="" disabled>Start with Agent…</option>{(agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active").map((agent) => <option key={agent.member_id} value={agent.member_id}>{agent.name}</option>)}</select></label>
+                ) : null}
+                {value.status === "in_progress" ? <button className="command-button" type="button" onClick={() => change.mutate(() => submitTaskReview(value.id))}>Submit review</button> : null}
+                {value.status === "in_review" ? <button className="command-button" type="button" onClick={() => change.mutate(() => requestTaskChanges(value.id))}>Request changes</button> : null}
+              </div>
+              {["in_progress", "in_review"].includes(value.status) ? (
+                <form className="task-action-block task-result-form" onSubmit={finish}>
+                  <label className="task-field">Result Message<textarea name="result" required /></label>
+                  <button className="command-button command-button--accent" type="submit">Mark Done</button>
+                </form>
+              ) : null}
+              <form className="task-action-block task-close-form" onSubmit={close}>
+                <label className="task-field">Close reason<select name="reason" defaultValue="invalid"><option value="invalid">Invalid</option><option value="duplicate">Duplicate</option><option value="not_needed">Not needed</option><option value="obsolete">Obsolete</option><option value="other">Other</option></select></label>
+                <label className="task-field">Note<input name="note" /></label>
+                <button className="danger-button" type="submit"><XCircle /> Close Task</button>
+              </form>
+            </div>
+          </section>
+        ) : null}
         <section className="task-detail-section"><h2>Source Thread</h2><ThreadReferenceRow thread={value.source_thread} spaceSlug={spaceSlug} /></section>
-        <section className="task-detail-section"><h2>Related Threads</h2>{value.related_threads.length ? <ul className="linked-thread-list">{value.related_threads.map((thread) => <li key={thread.id}><ThreadReferenceRow thread={thread} spaceSlug={spaceSlug} /><button className="icon-button" type="button" aria-label={`Unlink ${threadAddressLabel(thread)} Thread`} onClick={() => change.mutate(() => unlinkTaskThread(value.id, thread.id))}><Unlink /></button></li>)}</ul> : <p>No Related Threads.</p>} {!value.finished_at ? <form className="link-thread-form" onSubmit={linkThread}><label>Related Thread ID<input name="thread_id" required /></label><button className="command-button" type="submit" disabled={change.isPending}><Link2 /> Link Thread</button></form> : null}</section>
+        <section className="task-detail-section"><h2>Related Threads</h2>{value.related_threads.length ? <ul className="linked-thread-list">{value.related_threads.map((thread) => <li key={thread.id}><ThreadReferenceRow thread={thread} spaceSlug={spaceSlug} /><button className="icon-button" type="button" aria-label={`Unlink ${threadAddressLabel(thread)} Thread`} onClick={() => change.mutate(() => unlinkTaskThread(value.id, thread.id))}><Unlink /></button></li>)}</ul> : <p>No Related Threads.</p>} {!value.finished_at ? <form className="link-thread-form" onSubmit={linkThread}><label htmlFor="related-thread-id">Related Thread ID</label><input id="related-thread-id" name="thread_id" required /><button className="command-button" type="submit" disabled={change.isPending}><Link2 /> Link Thread</button></form> : null}</section>
         <section className="task-detail-section"><h2>Current Run and Focus</h2>{value.current_run ? <RunSummary run={value.current_run} spaceSlug={spaceSlug} /> : <p>No active Run. Task status does not imply an active Run.</p>}</section>
         <section className="task-detail-section"><h2>Recent Run outcomes</h2>{value.recent_runs.length ? <ul className="run-history">{value.recent_runs.map((run) => <li key={run.id}><RunSummary run={run} spaceSlug={spaceSlug} /></li>)}</ul> : <p>No completed Runs.</p>}</section>
         {value.status === "done" ? <section className="task-detail-section"><h2>Result</h2>{value.result_message?.content.type === "text" ? <p className="task-result">{value.result_message.content.body_markdown}</p> : <p>Result Message is unavailable.</p>}</section> : null}
