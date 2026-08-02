@@ -15,6 +15,7 @@ export interface ComposerInput {
 export function MessageComposer({
   spaceId,
   members,
+  direct = false,
   placeholder,
   ariaLabel,
   attachmentAriaLabel,
@@ -27,6 +28,7 @@ export function MessageComposer({
 }: {
   spaceId: string;
   members: Member[];
+  direct?: boolean;
   placeholder: string;
   ariaLabel: string;
   attachmentAriaLabel: string;
@@ -59,8 +61,8 @@ export function MessageComposer({
     if (!trimmed) return;
     submission.mutate({
       body_markdown: trimmed,
-      mentions: mentionIds(trimmed, members),
-      mention_all: /(?:^|\s)@all(?![_\p{L}])/iu.test(trimmed),
+      mentions: direct ? [] : mentionIds(trimmed, members),
+      mention_all: direct ? false : /(?:^|\s)@all(?![_\p{L}])/iu.test(trimmed),
       attachment_ids: attachments.map((attachment) => attachment.id),
     });
   }
@@ -96,6 +98,7 @@ export function MessageComposer({
         rows={1}
         value={body}
         members={members}
+        direct={direct}
         onChange={setBody}
       />
       <button
@@ -137,16 +140,16 @@ export function MessageComposer({
   );
 }
 
-function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }: { ariaLabel: string; placeholder: string; rows: number; value: string; members: Member[]; onChange: (value: string) => void }) {
+function MentionInput({ ariaLabel, placeholder, rows, value, members, direct, onChange }: { ariaLabel: string; placeholder: string; rows: number; value: string; members: Member[]; direct: boolean; onChange: (value: string) => void }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
-  const match = mentionMatch(value, cursor);
-  const suggestions = match ? members.filter((member) => {
+  const match = direct ? undefined : mentionMatch(value, cursor);
+  const suggestions = !direct && match ? members.filter((member) => {
     const query = match.query.toLowerCase();
     return member.display_name.toLowerCase().includes(query);
   }).slice(0, 6) : [];
-  const allSuggestion = Boolean(match && "all".startsWith(match.query.toLowerCase()));
+  const allSuggestion = !direct && Boolean(match && "all".startsWith(match.query.toLowerCase()));
   const listboxId = "mention-suggestions";
   const allOptionId = "mention-option-all";
   const listboxOpen = suggestions.length > 0 || allSuggestion;
@@ -202,6 +205,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
       event.currentTarget.form?.requestSubmit();
       return;
     }
+    if (direct) return;
     if (!suggestions.length && !allSuggestion) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -222,7 +226,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
 
   return (
     <div className="mention-input">
-      {suggestions.length || allSuggestion ? (
+      {!direct && (suggestions.length || allSuggestion) ? (
         <div className="mention-suggestions" id={listboxId} role="listbox" aria-label="Mention suggestions">
           {allSuggestion ? (
             <button className="mention-suggestion-all" id={allOptionId} type="button" role="option" tabIndex={-1} aria-selected={activeIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={chooseAll}>
@@ -241,12 +245,12 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, onChange }
       <textarea
         ref={textarea}
         aria-label={ariaLabel}
-        role="combobox"
-        aria-expanded={listboxOpen}
-        aria-controls={listboxOpen ? listboxId : undefined}
-        aria-activedescendant={listboxOpen ? activeDescendant : undefined}
-        aria-autocomplete="list"
-        aria-haspopup="listbox"
+        role={direct ? undefined : "combobox"}
+        aria-expanded={direct ? undefined : listboxOpen}
+        aria-controls={!direct && listboxOpen ? listboxId : undefined}
+        aria-activedescendant={!direct && listboxOpen ? activeDescendant : undefined}
+        aria-autocomplete={direct ? undefined : "list"}
+        aria-haspopup={direct ? undefined : "listbox"}
         placeholder={placeholder}
         rows={rows}
         value={value}
