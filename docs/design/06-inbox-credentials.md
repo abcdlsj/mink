@@ -4,15 +4,15 @@
 
 ## 1. Inbox 保证
 
-Inbox是注意力事实，不是Message历史。Sumi保证：
+Inbox 是注意力事实，不是 Message 历史。Sumi 保证：
 
-- 有资格的信息会持久生成Inbox Item。
-- Item在明确处理前不会因进程退出而消失。
+- 有资格的信息会持久生成 Inbox Item。
+- Item 在明确处理前不会因进程退出而消失。
 - 领取、附加、释放和完成操作可以幂等重试。
-- Agent能知道active Run之外还有新的hard attention。
+- Agent 能知道 active Run 之外还有新的 hard attention。
 - Human 能直接看到与自己相关的 hard attention，不必逐群检查 Channel。
 
-Sumi不保证模型一定判断正确，也不通过另一个模型替Agent决定相关性。
+Sumi 不保证模型一定判断正确，也不通过另一个模型替 Agent 决定相关性。
 
 ## 2. Item 类型
 
@@ -22,29 +22,29 @@ Agent 路由：
 
 | 来源 | 类型 | 强度 |
 | --- | --- | --- |
-| DM新Message | direct | hard |
+| DM 新 Message | direct | hard |
 | mention Agent | mention | hard |
 | `@all` in a Channel | mention | hard |
-| reply指向Agent Message | reply | hard |
-| Linked Thread新Message | task_activity | hard |
-| Agent订阅的普通Thread更新 | thread_activity | ambient |
-| Agent所在Channel普通Message | channel_activity | ambient |
+| reply 指向 Agent Message | reply | hard |
+| Linked Thread 新 Message | task_activity | hard |
+| Agent 订阅的普通 Thread 更新 | thread_activity | ambient |
+| Agent 所在 Channel 普通 Message | channel_activity | ambient |
 | 系统或执行错误 | system | hard |
 
 Human 路由：
 
 | 来源 | 类型 | 强度 |
 | --- | --- | --- |
-| DM新Message | direct | hard |
+| DM 新 Message | direct | hard |
 | mention Human | mention | hard |
 | `@all` in a Channel | mention | hard |
-| reply指向Human Message | reply | hard |
-| Linked Thread新Message | task_activity | hard |
-| Human订阅的Thread更新 | thread_activity | ambient |
+| reply 指向 Human Message | reply | hard |
+| Linked Thread 新 Message | task_activity | hard |
+| Human 订阅的 Thread 更新 | thread_activity | ambient |
 
 Human 不生成`channel_activity`：普通 Channel Message 已在 Channel 时间线可见，不构成额外注意力。
 
-同一Message对同一Member只生成一个最高强度Item。发送者不为自己生成Message Item。
+同一 Message 对同一 Member 只生成一个最高强度 Item。发送者不为自己生成 Message Item。
 
 Message 的 mention targets 是结构化事实。显式 mention 保存为 Message 与 Member 的关系；`mention_all=true` 时，Server 在发送事务中把当前 Channel 中未退役的 Member（发送者除外）保存为 targets，并把其中的 Agent 与 Human 路由为 hard `mention` Item。消费端不得从 Message 正文推断 targets。Task、DM、mention 和 reply 的既有选择顺序保持为 Task > DM > mention > reply；同一 Member 只保留一个最高强度 Item。
 
@@ -65,11 +65,11 @@ pending -> handled
 
 Human Item 不进 lease：没有 Human Run 领取它。Human 打开来源 Message 时，Server 把该 Item 标记为 handled；重复读取已经 handled 的 Item 幂等。Human Item 不进入 deferred 或 dead。
 
-Item保存来源Message、Thread、可选Task、强度、available time、lease、retry count和处理结果。Item不复制Message正文。
+Item 保存来源 Message、Thread、可选 Task、强度、available time、lease、retry count 和处理结果。Item 不复制 Message 正文。
 
 ## 4. Task 路由
 
-Message位于未完成Task的Linked Thread时，Server在发送事务中把`task_id`写入Item。该关系来自显式link，不来自正文判断。
+Message 位于未完成 Task 的 Linked Thread 时，Server 在发送事务中把`task_id`写入 Item。该关系来自显式 link，不来自正文判断。
 
 未关联 Thread 中的 Item 没有 Task。Server 可以用该 Thread 创建普通 Run。
 
@@ -77,18 +77,18 @@ Agent 决定开始持续工作时，可以在 Run 中调用无来源参数的`ta
 
 Server 从 Focus 找到 Root Message。Server 原子创建 Task、绑定当前 Run，并更新已领取 Item。
 
-Thread reply不能成为Task source。reply触发的Run调用`task create`时，Server仍使用Focus Thread的Root Message。
+Thread reply 不能成为 Task source。reply 触发的 Run 调用`task create`时，Server 仍使用 Focus Thread 的 Root Message。
 
 ## 5. active Run 路由
 
-hard Item生成后，attention模块只做结构化判断：
+hard Item 生成后，attention 模块只做结构化判断：
 
-- 与active Run的Agent、可选Task scope和Focus一致时，尝试attach。
-- Task或Focus不同，Item保持pending并生成notice。
-- active Run不是running时，Item保持pending。
-- ambient Item只聚合，不attach active Run。
+- 与 active Run 的 Agent、可选 Task scope 和 Focus 一致时，尝试 attach。
+- Task 或 Focus 不同，Item 保持 pending 并生成 notice。
+- active Run 不是 running 时，Item 保持 pending。
+- ambient Item 只聚合，不 attach active Run。
 
-daemon和Server不得读取正文决定attach或notice。
+daemon 和 Server 不得读取正文决定 attach 或 notice。
 
 ## 6. Ambient 聚合
 
@@ -104,52 +104,52 @@ hard Item 优先于 ambient Item。ambient Item 在 Agent 有执行容量时才�
 
 ## 7. notice
 
-不同Focus hard Item到达时，Server向active Run发送notice。notice用于让Agent决定是否yield，不授予该Item lease。
+不同 Focus hard Item 到达时，Server 向 active Run 发送 notice。notice 用于让 Agent 决定是否 yield，不授予该 Item lease。
 
-notice包含：
+notice 包含：
 
 - `notice_id`
-- Item类型和强度
-- 可公开的Task ID和Thread ID
+- Item 类型和强度
+- 可公开的 Task ID 和 Thread ID
 - 到达时间
-- 是否来自Human明确转向请求
+- 是否来自 Human 明确转向请求
 
-Agent当前无权读取来源时，notice只显示“另一个受限位置有待处理事项”。Agent不能通过notice读取Message正文或Attachment。
+Agent 当前无权读取来源时，notice 只显示“另一个受限位置有待处理事项”。Agent 不能通过 notice 读取 Message 正文或 Attachment。
 
-## 8. 重试和dead
+## 8. 重试和 dead
 
-lease过期时，Server把该Run未处理的Items返回pending并增加retry count，同时把Run置为`failed`并记录`process_lost`。retry count超过`max_retry_count`后Item进入dead，并在同一事务创建不含正文的system Item。
+lease 过期时，Server 把该 Run 未处理的 Items 返回 pending 并增加 retry count，同时把 Run 置为`failed`并记录`process_lost`。retry count 超过`max_retry_count`后 Item 进入 dead，并在同一事务创建不含正文的 system Item。
 
-该system Item只面向 Agent 执行错误，归属该Agent。Space治理者通过读取Agent Inbox看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
+该 system Item 只面向 Agent 执行错误，归属该 Agent。Space 治理者通过读取 Agent Inbox 看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
 
-只有lease过期计入retry count。Agent显式release一个Item是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt丢失和重复command同样不得重复增加retry count。
+只有 lease 过期计入 retry count。Agent 显式 release 一个 Item 是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt 丢失和重复 command 同样不得重复增加 retry count。
 
-Run终态由回收事务写入，因此该Agent的非终态Run被释放，后续Run不再被 partial unique index 阻止，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
+Run 终态由回收事务写入，因此该 Agent 的非终态 Run 被释放，后续 Run 不再被 partial unique index 阻止，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
 
-Server领取Item或创建Run失败时，Item保持`pending`并记录稳定的`last_error_code`。来源Message的可见投影必须向有权读取该Message的Human显示对应Agent、错误码和自动重试状态。该提示是运行状态，不创建Message，也不冒充Member发言。
+Server 领取 Item 或创建 Run 失败时，Item 保持`pending`并记录稳定的`last_error_code`。来源 Message 的可见投影必须向有权读取该 Message 的 Human 显示对应 Agent、错误码和自动重试状态。该提示是运行状态，不创建 Message，也不冒充 Member 发言。
 
-后续领取成功时，Server必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源Message投影刷新。
+后续领取成功时，Server 必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源 Message 投影刷新。
 
 ## 9. 本地凭据
 
-Server不接收、不保存模型API key。以下Secret只存在于Computer受限文件和必要进程内存：
+Server 不接收、不保存模型 API key。以下 Secret 只存在于 Computer 受限文件和必要进程内存：
 
 - raw Computer Token。
-- Codex本地认证。
-- Builtin provider认证。
+- Codex 本地认证。
+- Builtin provider 认证。
 
-Server只保存Computer Token hash。Browser不提供模型Secret表单。Agent CLI和Driver工具进程不能读取Computer Token。Builtin工具进程不能读取模型API key。
+Server 只保存 Computer Token hash。Browser 不提供模型 Secret 表单。Agent CLI 和 Driver 工具进程不能读取 Computer Token。Builtin 工具进程不能读取模型 API key。
 
-本地文件权限和sandbox只能降低误读风险，不能防御root、同一OS用户下的恶意进程或已失陷Computer。产品文案必须说明该边界。
+本地文件权限和 sandbox 只能降低误读风险，不能防御 root、同一 OS 用户下的恶意进程或已失陷 Computer。产品文案必须说明该边界。
 
 ## 10. 日志
 
 日志和错误不得包含：
 
-- Message、Attachment或Memory正文。
+- Message、Attachment 或 Memory 正文。
 - Provider transcript。
-- Task Result正文。
-- Computer Token或模型凭据。
+- Task Result 正文。
+- Computer Token 或模型凭据。
 - 完整命令参数和环境变量。
 
-诊断使用稳定ID、状态、错误代码、计数、时间和hash。
+诊断使用稳定 ID、状态、错误代码、计数、时间和 hash。

@@ -4,7 +4,7 @@
 
 ## 1. Driver 契约
 
-Driver adapter 只负责将 Sumi 的 Run 和 Session 语义映射到 provider。所有 Drivers实现统一接口：
+Driver adapter 只负责将 Sumi 的 Run 和 Session 语义映射到 provider。所有 Drivers 实现统一接口：
 
 ```text
 validate(agent_home, config) -> capabilities
@@ -18,22 +18,22 @@ close(session, reason) -> outcome
 
 规范事件包括 `session_opened`、`session_resumed`、`turn_started`、`activity`、`turn_completed`、`turn_failed`、`turn_interrupted` 和 `session_closed`。
 
-Driver stdout、final response 和 tool output 都不能自动创建 Message、Task Result 或 Memory。只有 Agent通过 Sumi capability 提交协作事实。
+Driver stdout、final response 和 tool output 都不能自动创建 Message、Task Result 或 Memory。只有 Agent 通过 Sumi capability 提交协作事实。
 
 ## 2. Run 输入
 
-Computer传给 Driver 的输入分为四块：
+Computer 传给 Driver 的输入分为四块：
 
-1. `global_contract`：安全规则、Sumi能力和沟通约束。
+1. `global_contract`：安全规则、Sumi 能力和沟通约束。
 2. `agent_profile`：Agent identity、Role 和 Memory 投影，见 [Computer 与 Agent](04-computer-agent.md) 的 Memory 定义。
-3. `work_context`：可选Task、Linked Threads、Session scope和已有公开结果。
+3. `work_context`：可选 Task、Linked Threads、Session scope 和已有公开结果。
 4. `run_context`：Run、Focus、claimed Items 和当前消息窗口。
 
 注入内容采用固定结构并标注读取优先级：除 reference 标识外的块必须读取；Agent ID、Space ID 等身份标识只作为 reference 提供。`message_snapshot_sequence`、`role_revision` 等内部同步字段和空值字段不注入。claimed Item 正文与窗口内 focus 消息重复时不重复注入。
 
-稳定内容和动态内容必须保持结构化边界。Driver可以按 provider协议映射缓存，但不能修改产品语义。
+稳定内容和动态内容必须保持结构化边界。Driver 可以按 provider 协议映射缓存，但不能修改产品语义。
 
-Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历史不能替代Server的最新可选Task、Message、权限和Inbox事实。
+Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session 历史不能替代 Server 的最新可选 Task、Message、权限和 Inbox 事实。
 
 `run_context`中的 focus 消息包含稳定 Message ID、作者 ID 和正文。注入采用有界窗口：Root 与最近 5 条 reply 注入全文，更早消息不注入；Agent 需要更早消息时用 `thread.read` 按需读取。claimed Item 的来源正文只在来源消息不在窗口内时注入，来源消息在窗口内时只注入 Item 标识与引用关系。
 
@@ -41,7 +41,7 @@ Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session历
 
 ## 3. Codex Driver
 
-Codex Driver使用 Codex app-server 或等价的结构化本地协议，以支持：
+Codex Driver 使用 Codex app-server 或等价的结构化本地协议，以支持：
 
 - 创建 thread。
 - 使用本地 thread/session ID resume。
@@ -50,7 +50,7 @@ Codex Driver使用 Codex app-server 或等价的结构化本地协议，以支�
 - interrupt turn。
 - 读取结构化状态和最终结果。
 
-Codex thread/session ID 只保存在 Computer Session registry。Server、Message和Task API不得出现该 ID。
+Codex thread/session ID 只保存在 Computer Session registry。Server、Message 和 Task API 不得出现该 ID。
 
 普通 Thread 首次运行时创建 Codex thread。Agent 在该 Run 创建 Task 时，Computer 把 Codex thread 提升为 Task Session。
 
@@ -64,13 +64,13 @@ Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-san
 
 Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式进入 Agent 环境。
 
-如果当前 Codex接口不支持 active turn steer，adapter返回 `unsupported`。Sumi保留 Item pending，不得通过启动第二个并行 Codex进程伪造 steer。
+如果当前 Codex 接口不支持 active turn steer，adapter 返回 `unsupported`。Sumi 保留 Item pending，不得通过启动第二个并行 Codex 进程伪造 steer。
 
 ## 4. Builtin Driver
 
-Builtin Driver实现与 Codex相同的 Session和Run契约。它可以在本地保存 provider conversation state，但该状态仍属于 Provider Session缓存。
+Builtin Driver 实现与 Codex 相同的 Session 和 Run 契约。它可以在本地保存 provider conversation state，但该状态仍属于 Provider Session 缓存。
 
-Builtin 只接入 OpenAI Chat Completions 兼容协议。Computer 配置使用`api_base`、`token`和`model`三个字段；`api_base`是 API 根路径，Driver请求其`/chat/completions`端点。三个字段必须同时存在，不读取其他工具的 settings、models 或 auth 文件。
+Builtin 只接入 OpenAI Chat Completions 兼容协议。Computer 配置使用`api_base`、`token`和`model`三个字段；`api_base`是 API 根路径，Driver 请求其`/chat/completions`端点。三个字段必须同时存在，不读取其他工具的 settings、models 或 auth 文件。
 
 ```toml
 [computer.builtin]
@@ -85,24 +85,24 @@ Builtin 的模型凭据只存在于 Computer。文件和 shell tool 只能访问
 
 工具子进程不能获得 Computer Token 或模型 API key。
 
-Builtin不支持某项能力时必须报告 capability。daemon不能静默回退到 Codex，也不能改变 Run语义。
+Builtin 不支持某项能力时必须报告 capability。daemon 不能静默回退到 Codex，也不能改变 Run 语义。
 
 ## 5. Agent capability
 
-`sumi agent` 是Run内唯一Sumi操作入口。daemon注入：
+`sumi agent` 是 Run 内唯一 Sumi 操作入口。daemon 注入：
 
 - `SUMI_SOCKET`
 - `SUMI_RUN_TOKEN`
 
-Run token隐式确定：
+Run token 隐式确定：
 
-- Agent身份。
+- Agent 身份。
 - Space。
-- 可选Task。
+- 可选 Task。
 - Focus Thread。
-- Run和fencing token。
+- Run 和 fencing token。
 
-CLI不得要求Agent重复传入这些字段。Agent也不能通过参数切换身份、Task或Focus。
+CLI 不得要求 Agent 重复传入这些字段。Agent 也不能通过参数切换身份、Task 或 Focus。
 
 所有自动化调用使用 `--json`。输出 envelope：
 
@@ -143,7 +143,7 @@ CLI不得要求Agent重复传入这些字段。Agent也不能通过参数切换�
 
 ## 6. 启动读取
 
-Run prompt已经包含当前Focus和可选Task，因此Agent不需要先调用whoami、task show和thread read才能理解基本上下文。以下命令用于按需扩展：
+Run prompt 已经包含当前 Focus 和可选 Task，因此 Agent 不需要先调用 whoami、task show 和 thread read 才能理解基本上下文。以下命令用于按需扩展：
 
 ```text
 sumi agent context current --json
@@ -153,7 +153,7 @@ sumi agent channel read {channel-id} [--around message-id] [--limit 50] --json
 sumi agent memory read {path} --json
 ```
 
-`context current` 一次返回Agent、Task、Focus、Run、claimed Items和Session continuity摘要。它不返回Provider transcript。
+`context current` 一次返回 Agent、Task、Focus、Run、claimed Items 和 Session continuity 摘要。它不返回 Provider transcript。
 
 ## 7. 最小协作命令
 
@@ -165,7 +165,7 @@ sumi agent message send --thread {linked-thread-id} --stdin [--handle item-id] -
 sumi agent message send --channel {channel-id} --stdin --json
 ```
 
-省略目标时发送到当前Focus。发送到其他Thread要求该Thread已链接到当前Task。发送到普通Channel主时间线必须显式提供目标。
+省略目标时发送到当前 Focus。发送到其他 Thread 要求该 Thread 已链接到当前 Task。发送到普通 Channel 主时间线必须显式提供目标。
 
 ### 7.2 Task
 
@@ -196,7 +196,7 @@ sumi agent inbox ack {item-id} [--reason text] --json
 sumi agent inbox defer {item-id} --until timestamp --json
 ```
 
-`inbox current` 只显示当前Run已经领取的Items和不同Focus notices。不同Focus Item正文必须在后续Run取得lease后读取。
+`inbox current` 只显示当前 Run 已经领取的 Items 和不同 Focus notices。不同 Focus Item 正文必须在后续 Run 取得 lease 后读取。
 
 ### 7.4 Attachment 与 Memory
 
@@ -217,16 +217,16 @@ Agent 必须分别具有`channel.create`或`agent.create`Permission。Review 不
 
 ## 8. 原子操作
 
-以下操作必须各自使用一个Server事务：
+以下操作必须各自使用一个 Server 事务：
 
-- `task create`：Task及其Source Thread、当前Run绑定、Session提升command、audit和outbox。
-- `message send --handle`：Message和Item handled。
-- `task submit-review`：review Message、Task状态和Items。
-- `task done`：Result Message、Task状态和Items。
-- `task close`：Task状态、close reason和Items。
-- `run yield`：Run终态和Items release/defer。
+- `task create`：Task 及其 Source Thread、当前 Run 绑定、Session 提升 command、audit 和 outbox。
+- `message send --handle`：Message 和 Item handled。
+- `task submit-review`：review Message、Task 状态和 Items。
+- `task done`：Result Message、Task 状态和 Items。
+- `task close`：Task 状态、close reason 和 Items。
+- `run yield`：Run 终态和 Items release/defer。
 
-Agent不通过多条CLI命令拼接这些不变量。
+Agent 不通过多条 CLI 命令拼接这些不变量。
 
 ## 9. 上下文变化
 
@@ -234,16 +234,16 @@ Agent不通过多条CLI命令拼接这些不变量。
 
 hard Item 相关输出发现新消息时，Server 返回`context_changed`，不创建部分结果。
 
-错误只返回变化Message的ID、seq、author和地址。Agent需要正文时显式读取。错误、日志和activity不得复制Message正文。
+错误只返回变化 Message 的 ID、seq、author 和地址。Agent 需要正文时显式读取。错误、日志和 activity 不得复制 Message 正文。
 
 ## 10. 退出规则
 
-Driver turn正常结束后，daemon自动进入Run finalizing。Agent不调用 settle、finish-run或ack-all。
+Driver turn 正常结束后，daemon 自动进入 Run finalizing。Agent 不调用 settle、finish-run 或 ack-all。
 
-存在未处理Items时：
+存在未处理 Items 时：
 
-- Agent已显式yield时，按yield事务处理。
-- Agent已defer或ack时，按已提交状态处理。
-- 其余Items释放并增加失败计数，Run标记failed。
+- Agent 已显式 yield 时，按 yield 事务处理。
+- Agent 已 defer 或 ack 时，按已提交状态处理。
+- 其余 Items 释放并增加失败计数，Run 标记 failed。
 
-该规则迫使执行结果明确，同时不增加Agent必须记忆的系统操作。
+该规则迫使执行结果明确，同时不增加 Agent 必须记忆的系统操作。

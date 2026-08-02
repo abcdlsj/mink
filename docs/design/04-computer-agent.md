@@ -108,7 +108,7 @@ Computer 为每个 Session 保存：
 - `state=ready|in_use|closing|closed|lost`
 - `created_at`、`last_resumed_at`、`closed_at`
 
-唯一复用键是 `(agent_id, scope_kind, scope_id, generation)`。Thread Session只服务一个Thread；Task Session只服务一个Task。
+唯一复用键是 `(agent_id, scope_kind, scope_id, generation)`。Thread Session 只服务一个 Thread；Task Session 只服务一个 Task。
 
 `provider_session_locator`只存在于 Computer。Server 不保存 locator、会话正文、provider transcript 或 continuity 投影。
 
@@ -120,20 +120,20 @@ Computer 按 scope 下最高 generation 的 Session 状态回答：`ready`和`in
 
 Run 启动时，Computer 的 Session resolver 按以下顺序执行：
 
-1. Run有Task时查找Task Session，否则查找Focus Thread Session。
+1. Run 有 Task 时查找 Task Session，否则查找 Focus Thread Session。
 2. 比较 Driver、workspace、Role 和 audience fingerprint。
 3. 条件兼容时 resume 现有 Session。
 4. Session 不存在或无法恢复时创建新 generation。
-5. 将Run事实、可选Task摘要、Focus和未处理Items注入新turn。
+5. 将 Run 事实、可选 Task 摘要、Focus 和未处理 Items 注入新 turn。
 
 Session resume 的收益是保留同一项工作的推理线索、工具上下文和 provider cache。以下场景最适合复用：
 
 - 同一 Task 因新 reply 启动后续 Run。
 - Agent yield 后继续同一 Task。
-- Task等待外部结果后重新收到相关Message。
+- Task 等待外部结果后重新收到相关 Message。
 - Run 因网络或 Computer 调度结束，但工作边界未改变。
 
-同一Task的多个Runs或同一普通Thread的多个Runs可以复用一个Session。一个Run不能同时使用多个Sessions。
+同一 Task 的多个 Runs 或同一普通 Thread 的多个 Runs 可以复用一个 Session。一个 Run 不能同时使用多个 Sessions。
 
 ## 7. Thread Session 提升
 
@@ -149,7 +149,7 @@ Computer 将当前 Thread Session 的 scope 改为 Task。generation 保持不�
 
 以下事件必须关闭当前 generation，并在需要继续 Task 时创建新 generation：
 
-- Task进入`done`或`closed`。
+- Task 进入`done`或`closed`。
 - Linked Threads 的有效成员集合发生不兼容变化。
 - Agent 更换 Driver。
 - Role 变化会改变安全或授权边界。
@@ -163,7 +163,7 @@ Computer 将当前 Thread Session 的 scope 改为 Task。generation 保持不�
 - Run 数达到阈值。
 - 固定时间经过。
 - Server 或 daemon 单次重启。
-- Task当前Run因等待外部输入而yield。
+- Task 当前 Run 因等待外部输入而 yield。
 
 Provider 压缩上下文时，Computer 记录诊断事件，但不自动创建新的 Sumi Session generation。
 
@@ -208,7 +208,7 @@ v1 不支持 active Agent 热迁移。迁移需要：
 5. 在目标 Computer 通过 Driver 和 sandbox 校验。
 6. 恢复 Agent。
 
-如果 Agent Home 不可恢复，Message、Task 和 Result 仍保留。Memory、workspace 和 warm Session continuity 可能丢失，UI必须明确显示该限制。
+如果 Agent Home 不可恢复，Message、Task 和 Result 仍保留。Memory、workspace 和 warm Session continuity 可能丢失，UI 必须明确显示该限制。
 
 Agent 退役事务必须结束 active Run、关闭 Sessions，并清除 Computer assignment。Computer 在线时，daemon 同时清理 Agent Home；Computer 离线时，Server 记录本地清理未确认。
 

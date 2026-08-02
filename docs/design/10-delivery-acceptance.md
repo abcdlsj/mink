@@ -13,7 +13,7 @@
 3. 只保留与新接口一致的通用代码。
 4. 增加覆盖新不变量的测试。
 
-不得为了减少diff加入兼容层。更少改动不是验收目标。
+不得为了减少 diff 加入兼容层。更少改动不是验收目标。
 
 ## 2. 实施顺序
 
@@ -25,44 +25,44 @@
 
 ### 阶段一：领域层
 
-- 建立Root Message、Thread、Task、TaskThread、Run和Inbox Item类型。
-- 实现Task状态和Run状态转换。
+- 建立 Root Message、Thread、Task、TaskThread、Run 和 Inbox Item 类型。
+- 实现 Task 状态和 Run 状态转换。
 - 实现领域错误和事务命令。
-- 使用内存repository验证不变量。
+- 使用内存 repository 验证不变量。
 
-### 阶段二：新schema
+### 阶段二：新 schema
 
-- 从空库创建PostgreSQL最终schema。
-- 从空目录创建Computer SQLite最终schema。
-- 实现Task来源、Thread关联、active Run和fencing约束。
+- 从空库创建 PostgreSQL 最终 schema。
+- 从空目录创建 Computer SQLite 最终 schema。
+- 实现 Task 来源、Thread 关联、active Run 和 fencing 约束。
 - 不创建从旧版本进入新基线的 migration。
 - 新基线进入共享环境后，按数据库设计使用前向 migration。
 
 ### 阶段三：Server
 
-- 实现conversation、task、attention和execution模块。
-- 实现Root Message创建Task的单一领域入口。
-- 实现same-Focus attach和different-Focus notice。
-- 实现outbox、command和result receipt。
+- 实现 conversation、task、attention 和 execution 模块。
+- 实现 Root Message 创建 Task 的单一领域入口。
+- 实现 same-Focus attach 和 different-Focus notice。
+- 实现 outbox、command 和 result receipt。
 
 ### 阶段四：Computer
 
-- 实现Session registry和fingerprint。
-- 实现Run supervisor、steer、yield、finalizing和恢复。
-- 实现Codex resume和Builtin Session adapter。
-- 实现sandbox和本地Secret边界。
+- 实现 Session registry 和 fingerprint。
+- 实现 Run supervisor、steer、yield、finalizing 和恢复。
+- 实现 Codex resume 和 Builtin Session adapter。
+- 实现 sandbox 和本地 Secret 边界。
 
 ### 阶段五：Agent capability
 
-- 注入Run token中的Focus和可选Task。
-- 实现一步Task创建、默认Focus发送、Task完成和yield。
-- 删除bind、settle和重复上下文参数。
+- 注入 Run token 中的 Focus 和可选 Task。
+- 实现一步 Task 创建、默认 Focus 发送、Task 完成和 yield。
+- 删除 bind、settle 和重复上下文参数。
 
 ### 阶段六：WebUI
 
-- 实现Conversation中的Task marker和一步创建。
-- 实现Task列表、Task详情和Linked Threads。
-- 实现Agent current Focus、Run和Session continuity。
+- 实现 Conversation 中的 Task marker 和一步创建。
+- 实现 Task 列表、Task 详情和 Linked Threads。
+- 实现 Agent current Focus、Run 和 Session continuity。
 - 完成桌面、移动端、空态、错误和无障碍。
 
 ## 3. 单元验收
@@ -79,21 +79,21 @@
 
 数据转换涉及协议必填字段、授权范围、安全过滤或稳定错误码时，使用 adapter contract test 或集成测试验证边界结果。测试不能逐字段复述实现。
 
-- reply不能创建Task。
-- Root Message创建Task时Source Thread和Task同一行成功或失败。
-- 并发创建只产生一个Task。
-- Source Thread不可删除或更换。
-- Thread同时最多关联一个未结束Task。
-- 不兼容成员集合不能link。
-- Run有Task时，Focus必须属于Task。
-- 普通Run创建Task后，Run、Items和Source Thread必须同事务绑定。
-- 一个Agent同时最多一个active Run。
-- Done Task必须有Result Message。
-- Closed Task必须有close reason。
-- In Progress可以直接进入Done，也可以经过In Review。
+- reply 不能创建 Task。
+- Root Message 创建 Task 时 Source Thread 和 Task 同一行成功或失败。
+- 并发创建只产生一个 Task。
+- Source Thread 不可删除或更换。
+- Thread 同时最多关联一个未结束 Task。
+- 不兼容成员集合不能 link。
+- Run 有 Task 时，Focus 必须属于 Task。
+- 普通 Run 创建 Task 后，Run、Items 和 Source Thread 必须同事务绑定。
+- 一个 Agent 同时最多一个 active Run。
+- Done Task 必须有 Result Message。
+- Closed Task 必须有 close reason。
+- In Progress 可以直接进入 Done，也可以经过 In Review。
 - In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
 - Review 不检查 Permission，也不保存 reviewer 字段。
-- Run终态不自动完成Task。
+- Run 终态不自动完成 Task。
 - assignee 的首个 Task Run 进入`running`时把`todo`推进为`in_progress`；其他 Agent 的 Run 和重复上报都不改变状态。
 - lease 过期回收释放 Items 并增加 retry count，把 Run 置为`failed`，且该 Agent 随后可以创建新 Run。
 - 回收保留 Agent 已上报的 disposition，重复扫描不重复计数。
@@ -103,15 +103,15 @@
 - `submit_review`、`done`和`close`只有一个事务入口，Browser 与 Agent CLI 共用它。
 ## 4. 集成验收
 
-- Message发送事务同时创建Root Thread和Inbox Items。
-- same-Focus hard Item与finalizing并发时不会丢失或重复处理。
-- different-Focus Item保持pending，notice不泄露正文。
-- 重复command、started、delivery和result只应用一次。
-- lease过期后旧fencing token不能修改状态。
-- Task完成事务失败时Message和Result都不产生部分写入。
-- Session close失败不回滚已完成Task。
-- Task表不重复保存Root Message、Result正文或Source link。
-- different-Focus notice和Session continuity不在Server建立事实表。
+- Message 发送事务同时创建 Root Thread 和 Inbox Items。
+- same-Focus hard Item 与 finalizing 并发时不会丢失或重复处理。
+- different-Focus Item 保持 pending，notice 不泄露正文。
+- 重复 command、started、delivery 和 result 只应用一次。
+- lease 过期后旧 fencing token 不能修改状态。
+- Task 完成事务失败时 Message 和 Result 都不产生部分写入。
+- Session close 失败不回滚已完成 Task。
+- Task 表不重复保存 Root Message、Result 正文或 Source link。
+- different-Focus notice 和 Session continuity 不在 Server 建立事实表。
 - 发送 Message 的事务同时产生`inbox.changed`；reply 另外产生`thread.updated`。
 - SSE 不向读不到该 Channel 的调用方投递事件，也不把一个 Member 的`inbox.changed`投递给他人。
 - 空 PostgreSQL 可以直接建立完整基线。
@@ -126,29 +126,29 @@
 - Agent 退役清除 assignment 后，Computer 才能删除。
 ## 5. Driver 验收
 
-- 同一Task的第二个Run resume同一Provider Session。
-- 不同Task不会复用Session。
-- 同一Run只使用一个Session和一个Focus。
-- Session resume失败会创建新generation并恢复Task事实。
-- token量、Run数量和经过时间不会单独换新Session。
-- Role、Driver、workspace或audience不兼容变化会换新Session。
-- Codex steer unsupported时Item保持pending。
-- Driver output不会自动创建Message或Result。
+- 同一 Task 的第二个 Run resume 同一 Provider Session。
+- 不同 Task 不会复用 Session。
+- 同一 Run 只使用一个 Session 和一个 Focus。
+- Session resume 失败会创建新 generation 并恢复 Task 事实。
+- token 量、Run 数量和经过时间不会单独换新 Session。
+- Role、Driver、workspace 或 audience 不兼容变化会换新 Session。
+- Codex steer unsupported 时 Item 保持 pending。
+- Driver output 不会自动创建 Message 或 Result。
 - Agent CLI 的参数、权限、冲突、IPC 和 Server 错误都返回统一 JSON error envelope。
 - JSON error stdout 只包含一个文档，且不泄露正文或 Secret。
 
 ## 6. 故障验收
 
-- Server在Run期间重启。
-- WebSocket在start ACK前后断开。
-- daemon在Driver运行和result上报期间重启。
-- receipt丢失并重复上报。
-- Computer离线直到lease过期。
-- Task完成后Computer离线，Session稍后关闭。
-- workspace丢失和Provider locator损坏。
-- active Run收到Human明确转向并yield。
+- Server 在 Run 期间重启。
+- WebSocket 在 start ACK 前后断开。
+- daemon 在 Driver 运行和 result 上报期间重启。
+- receipt 丢失并重复上报。
+- Computer 离线直到 lease 过期。
+- Task 完成后 Computer 离线，Session 稍后关闭。
+- workspace 丢失和 Provider locator 损坏。
+- active Run 收到 Human 明确转向并 yield。
 
-每个场景必须证明Message、Task、Inbox和Run事实一致。
+每个场景必须证明 Message、Task、Inbox 和 Run 事实一致。
 
 需要真实进程与数据库的场景在`tests/failure_recovery.rs`验证：Server 重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。daemon 重启、重复上报和 yield 是 Computer 内部的状态转换，在`src/computer/application/tests.rs`验证，见 [代码组织与依赖边界](11-code-organization.md) 的测试组织。
 
@@ -158,33 +158,33 @@ workspace 丢失后 Computer 当前无法重新完成握手：重连会重放 pr
 
 ## 7. UI 验收
 
-- Root Message的一步创建不显示bind或Source Thread字段。
-- reply上的Task动作解释只能从Root Message创建。
-- Task详情显示Source、Linked Threads、assignee、status、Result和Runs。
-- Agent详情区分Task、Focus、Run状态和Session continuity。
-- different-Focus notice不会显示成当前Task的新Message。
-- UI不展示Provider transcript、隐藏推理或Secret。
-- hover和键盘focus回答引用时显示来源，并高亮当前视图中的来源Message。
+- Root Message 的一步创建不显示 bind 或 Source Thread 字段。
+- reply 上的 Task 动作解释只能从 Root Message 创建。
+- Task 详情显示 Source、Linked Threads、assignee、status、Result 和 Runs。
+- Agent 详情区分 Task、Focus、Run 状态和 Session continuity。
+- different-Focus notice 不会显示成当前 Task 的新 Message。
+- UI 不展示 Provider transcript、隐藏推理或 Secret。
+- hover 和键盘 focus 回答引用时显示来源，并高亮当前视图中的来源 Message。
 - 一个回答片段的多条来源和移动端底部浮层都可操作。
 - Channel 和 Agent 创建 Action Message 使用专用 UI，不显示原始 JSON 或命令参数。
-- 390px和1440px视口能完成核心流程。
+- 390px 和 1440px 视口能完成核心流程。
 - 所有状态使用文字和图形，不只使用颜色。
 
 ## 8. 代码质量验收
 
-- 领域模块不引用HTTP DTO、WebSocket frame或Driver SDK。
-- Server领域模块不能被Computer、Driver或Agent CLI引用。
-- Computer core不能引用Server领域模块、wire frame或Driver SDK。
-- Server与Computer只能通过`protocol`中的版本化wire类型通信。
-- `protocol`不能包含领域行为、SQL row或运行时实现。
-- Adapter只能依赖application公开用例，不能复制领域判断。
+- 领域模块不引用 HTTP DTO、WebSocket frame 或 Driver SDK。
+- Server 领域模块不能被 Computer、Driver 或 Agent CLI 引用。
+- Computer core 不能引用 Server 领域模块、wire frame 或 Driver SDK。
+- Server 与 Computer 只能通过`protocol`中的版本化 wire 类型通信。
+- `protocol`不能包含领域行为、SQL row 或运行时实现。
+- Adapter 只能依赖 application 公开用例，不能复制领域判断。
 - 架构依赖检查拒绝设计文件列出的禁止依赖。
 - 每个模块有单一公开职责和领域命名接口。
-- Task创建只有一个transaction service。
-- Session lifecycle只存在于Computer session模块。
+- Task 创建只有一个 transaction service。
+- Session lifecycle 只存在于 Computer session 模块。
 - 注释只说明不变量、并发和安全原因。
-- 日志测试证明正文和Secret被排除。
-- 仓库搜索不到旧schema兼容、双写、deprecated入口和Agent bind步骤。
+- 日志测试证明正文和 Secret 被排除。
+- 仓库搜索不到旧 schema 兼容、双写、deprecated 入口和 Agent bind 步骤。
 
 ## 9. 提交前验证
 
