@@ -728,7 +728,7 @@ async fn pair(root: &Path, server: &url::Url) -> anyhow::Result<(PathBuf, Comput
         .await
         .context("invalid Computer pairing response")?;
     let pairing_url = server.join(&format!(
-        "computers/pair/{}/?code={}",
+        "pair-computer/{}/?code={}",
         started.pairing_id, started.code
     ))?;
     tracing::info!(url=%pairing_url, expires_at=%started.expires_at, "Confirm this Computer in Sumi");

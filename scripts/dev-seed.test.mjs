@@ -36,7 +36,7 @@ test("development seed copies local Computer configuration with isolated runtime
 });
 
 test("development seed extracts the Computer pairing URL without depending on log prose", () => {
-  const pairingUrl = "http://127.0.0.1:3000/computers/pair/019fa900-0000-7000-8000-000000000001/?code=test-code";
+  const pairingUrl = "http://127.0.0.1:3000/pair-computer/019fa900-0000-7000-8000-000000000001/?code=test-code";
 
   assert.equal(
     extractComputerPairingUrl(`INFO Confirm this Computer in Sumi url=${pairingUrl} expires_at=2026-07-30T06:00:00Z`),

@@ -91,7 +91,7 @@ const pairComputerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/pair-computer/$pairingId",
   validateSearch: (search: Record<string, unknown>) => ({
-    code: typeof search.code === "string" ? search.code : "",
+    code: typeof search.code === "string" ? search.code : typeof search.code === "number" ? String(search.code) : "",
   }),
   component: PairComputerPage,
 });
@@ -124,7 +124,11 @@ const routeTree = rootRoute.addChildren([
 ]);
 
 export function createAppRouter(history?: RouterHistory) {
-  return createRouter({ routeTree, history });
+  return createRouter({
+    routeTree,
+    history,
+    parseSearch: (searchStr) => Object.fromEntries(new URLSearchParams(searchStr)),
+  });
 }
 
 export const router = createAppRouter();

@@ -421,7 +421,7 @@ pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result
 
 pub async fn pairing_url_from_daemon(daemon: &mut SumiProcess) -> Result<Url> {
     let line = daemon
-        .wait_for_stderr("/computers/pair/", std::time::Duration::from_secs(15))
+        .wait_for_stderr("/pair-computer/", std::time::Duration::from_secs(15))
         .await?;
     // The daemon writes styled logs to a pipe, so the field name and separator carry ANSI escapes.
     // Match the URL itself rather than the `url=` label.

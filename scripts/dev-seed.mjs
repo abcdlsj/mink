@@ -130,7 +130,7 @@ export function extractComputerPairingUrl(line) {
   try {
     const candidate = new URL(raw);
     if (!["http:", "https:"].includes(candidate.protocol)) return undefined;
-    if (!candidate.pathname.startsWith("/computers/pair/")) return undefined;
+    if (!candidate.pathname.startsWith("/pair-computer/")) return undefined;
     return raw;
   } catch {
     return undefined;

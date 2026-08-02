@@ -6,8 +6,10 @@ import type { FormEvent } from "react";
 import { confirmPairing, getPairingDetails, listSpaces } from "../api/client";
 
 export function PairComputerPage() {
-  const { pairingId } = useParams({ from: "/pair-computer/$pairingId" });
-  const { code } = useSearch({ from: "/pair-computer/$pairingId" });
+  const params = useParams({ strict: false });
+  const pairingId = String(params.pairingId);
+  const search = useSearch({ strict: false });
+  const code = typeof search.code === "string" ? search.code : typeof search.code === "number" ? String(search.code) : "";
   const navigate = useNavigate();
   const details = useQuery({ queryKey: ["computer-pairing", pairingId, code], queryFn: () => getPairingDetails(pairingId, code), retry: false, enabled: Boolean(code) });
   const spaces = useQuery({ queryKey: ["spaces"], queryFn: listSpaces, retry: false });

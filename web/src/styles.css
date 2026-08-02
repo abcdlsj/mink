@@ -7504,3 +7504,87 @@ summary.system-event-heading {
     padding: 16px 14px;
   }
 }
+
+/* ==================================================================
+   Remaining Computer and Member surfaces share the same soft fact
+   language: no hard card shadows, thin separators, panel tones.
+   ================================================================== */
+
+.pairing-stage {
+  border-color: rgb(20 17 17 / 14%);
+  box-shadow: none;
+}
+
+.pairing-machine {
+  border-right-color: rgb(20 17 17 / 10%);
+  background: var(--panel);
+}
+
+.pairing-machine > svg {
+  width: 46px;
+  height: 46px;
+  padding: 9px;
+  border: 1px solid rgb(20 17 17 / 14%);
+  background: var(--paper);
+}
+
+.pairing-machine h1 {
+  margin-bottom: 24px;
+  font-size: clamp(28px, 4vw, 44px);
+}
+
+.pairing-form input,
+.pairing-form select {
+  border-width: 1px;
+  border-color: rgb(20 17 17 / 22%);
+}
+
+.members-header,
+.member-filter {
+  border-bottom-color: rgb(20 17 17 / 14%);
+}
+
+.member-list-heading {
+  border-bottom: 1px solid rgb(20 17 17 / 12%);
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.member-row {
+  min-height: 68px;
+  border-bottom-color: rgb(20 17 17 / 10%);
+}
+
+.member-row:hover {
+  background: var(--space-accent);
+}
+
+.member-row:nth-child(even) {
+  background: transparent;
+}
+
+.member-row:nth-child(even):hover {
+  background: var(--space-accent);
+}
+
+.member-identity .pixel-identity {
+  box-shadow: none;
+}
+
+.access-control select {
+  border-width: 1px;
+  border-color: rgb(20 17 17 / 22%);
+}
+
+.permission-controls label {
+  border-width: 1px;
+  border-color: rgb(20 17 17 / 18%);
+}
+
+@media (max-width: 700px) {
+  .pairing-machine {
+    border-bottom-color: rgb(20 17 17 / 10%);
+  }
+}
