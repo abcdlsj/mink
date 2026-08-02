@@ -155,7 +155,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, canManage, openNavigation
         {tab === "memory" ? (
           <section className="agent-memory" aria-labelledby="memory-heading">
             <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
-            <p className="inline-notice">Memory lives only on this Computer. If the Computer is lost, Sumi v1 cannot recover it.</p>
+            <p className="inline-notice">Memory lives only on this Computer. If the Computer is lost, Sumi cannot recover it.</p>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can inspect Agent Memory metadata.</p> : null}
             {value.memory_files.length === 0 ? <div className="memory-empty" role="status"><Brain aria-hidden="true" /><span><strong>Memory is ready</strong><small>No Memory files have been written yet.</small></span></div> : <ul>{value.memory_files.map((file) => (
               <li key={file.path}><button className="memory-file-button" type="button" aria-label={`Read ${file.path}`} disabled={!canManage || memory.isPending} onClick={() => memory.mutate(file.path)}><Eye /><strong>{file.path}</strong></button><span>{formatBytes(file.size)}</span><time dateTime={file.updated_at}>{new Date(file.updated_at).toLocaleDateString()}</time></li>
