@@ -151,7 +151,11 @@ Action Message 从目标资源读取当前名称。目标已退役或删除时�
 
 Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message composer 不能选择 action kind。
 
-Channel 成员加入或离开时，Server 在该 Channel 时间线写入 `system_notice`。Browser 将其渲染为居中的系统信息行，不显示作者、回复或 Task 操作；SSE 的 `message.created` 事件按普通 Channel 活动设置导航未读红点。
+Channel 成员加入或离开时，Server 在该 Channel 时间线写入 `system_notice`。Browser 将单条 System Notice 渲染为居中的系统信息行。该行只显示正文，不显示分割线、图标、作者、回复或 Task 操作。
+
+同一日期内连续出现多条 System Notice 时，Browser 将其合并为一组并默认折叠。折叠行显示组内数量，并允许展开或收起全部正文。普通 Message 或日期变化会结束当前分组。
+
+SSE 的 `message.created` 事件按普通 Channel 活动设置导航未读红点。
 
 ### 5.3 Agent 启动失败提示
 

@@ -56,6 +56,8 @@ export function MessageTimeline({
     }
   }, [page]);
 
+  const timelineGroups = groupTimelineMessages(page?.messages ?? []);
+
   return (
       <div ref={timelineRef} className="message-timeline">
         <div className="visually-hidden" role="status">{newMessageAnnouncement}</div>
@@ -78,12 +80,25 @@ export function MessageTimeline({
             <p>Messages you send in this conversation will appear here.</p>
           </div>
         ) : null}
-        {page?.messages.map((message, index, all) => {
-          const previous = index > 0 ? all[index - 1] : undefined;
+        {timelineGroups.map((messages, index, all) => {
+          const message = messages[0];
+          const previousGroup = index > 0 ? all[index - 1] : undefined;
+          const previous = previousGroup?.[previousGroup.length - 1];
           const showDivider = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
           const systemNotice = message.content.type === "system_notice";
+          if (systemNotice) {
+            return (
+              <SystemNoticeGroup
+                key={message.id}
+                messages={messages}
+                showDivider={showDivider}
+                spaceSlug={spaceSlug}
+                members={members}
+              />
+            );
+          }
           // A day divider always restarts the visual grouping.
-          const grouped = !systemNotice && !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
+          const grouped = !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
             <div className="message-block" id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1} key={message.id}>
               {showDivider ? (
@@ -92,18 +107,14 @@ export function MessageTimeline({
                 </div>
               ) : null}
               <article className={`message-row${grouped ? " message-row--grouped" : ""}${message.reply_count > 0 ? " message-row--has-thread" : ""}`}>
-                {systemNotice ? (
-                  <div className="message-system-content">
-                    <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
-                  </div>
-                ) : grouped ? (
+                {grouped ? (
                   <time className="message-gutter-time" dateTime={message.created_at}>
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
                   <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityByMemberId.get(message.author.id)} />
                 )}
-                {!systemNotice ? <div className="message-content">
+                <div className="message-content">
                   {grouped ? null : (
                     <header>
                       <strong>{message.author.display_name}</strong>
@@ -129,8 +140,8 @@ export function MessageTimeline({
                       open={(trigger) => openThread(message.thread_id!, trigger)}
                     />
                   ) : null}
-                </div> : null}
-                {!systemNotice && !message.deleted_at ? (
+                </div>
+                {!message.deleted_at ? (
                   <MessageActions
                     message={message}
                     channelId={channelId}
@@ -142,6 +153,54 @@ export function MessageTimeline({
           );
         })}
       </div>
+  );
+}
+
+function SystemNoticeGroup({
+  messages,
+  showDivider,
+  spaceSlug,
+  members,
+}: {
+  messages: Message[];
+  showDivider: boolean;
+  spaceSlug: string;
+  members: Member[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = `system-notices-${messages[0].id}`;
+  const grouped = messages.length > 1;
+
+  return (
+    <div className="system-notice-group" data-system-notice-count={messages.length}>
+      {showDivider ? (
+        <div className="day-divider" role="separator">
+          <time dateTime={messages[0].created_at}>{formatDayDivider(messages[0].created_at)}</time>
+        </div>
+      ) : null}
+      {grouped ? (
+        <button
+          className="system-notice-toggle"
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? `Hide ${messages.length} system notices` : `Show ${messages.length} system notices`}
+        </button>
+      ) : null}
+      <div id={listId} className="system-notice-list" hidden={grouped && !expanded}>
+        {messages.map((message) => (
+          <div className="message-block" id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1} key={message.id}>
+            <article className="message-row message-row--system">
+              <div className="message-system-content">
+                <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+              </div>
+            </article>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -289,7 +348,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
   }
   if (message.content.type === "system_notice") {
-    return <div className="system-event system-event--message" role="status"><div className="system-event-heading"><span>{message.content.body_markdown}</span></div></div>;
+    return <p className="system-event system-event--message">{message.content.body_markdown}</p>;
   }
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
@@ -748,6 +807,24 @@ function formatMessageTime(value: string): string {
 }
 
 const MESSAGE_GROUP_GAP_MS = 5 * 60 * 1000;
+
+function groupTimelineMessages(messages: Message[]): Message[][] {
+  const groups: Message[][] = [];
+  for (const message of messages) {
+    const current = groups[groups.length - 1];
+    const previous = current?.[current.length - 1];
+    if (
+      message.content.type === "system_notice" &&
+      previous?.content.type === "system_notice" &&
+      dayKey(previous.created_at) === dayKey(message.created_at)
+    ) {
+      current.push(message);
+    } else {
+      groups.push([message]);
+    }
+  }
+  return groups;
+}
 
 // Merge a message into the block above it when the same author posted within a
 // short window, so a burst reads as one turn instead of repeating the identity.

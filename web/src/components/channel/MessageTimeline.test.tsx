@@ -3,11 +3,56 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ExpandableMessageText } from "./MessageTimeline";
+import type { Message, MessagePage } from "../../api/client";
+import { ExpandableMessageText, MessageTimeline } from "./MessageTimeline";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+describe("System Notice timeline", () => {
+  it("renders one notice as body copy without a separator", () => {
+    const { container } = renderSystemNotices([
+      systemNotice(1, "Lin joined the channel", "2026-07-25T12:00:00Z"),
+    ]);
+
+    const copy = screen.getByText("Lin joined the channel");
+    expect(copy.tagName).toBe("P");
+    expect(copy).toHaveClass("system-event--message");
+    expect(container.querySelector(".system-event-heading")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /system notices/i })).not.toBeInTheDocument();
+  });
+
+  it("folds consecutive notices from the same day and exposes the expanded state", () => {
+    renderSystemNotices([
+      systemNotice(1, "Lin joined the channel", "2026-07-25T12:00:00Z"),
+      systemNotice(2, "Reviewer joined the channel", "2026-07-25T12:01:00Z"),
+    ]);
+
+    const toggle = screen.getByRole("button", { name: "Show 2 system notices" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Lin joined the channel")).not.toBeVisible();
+    expect(screen.getByText("Reviewer joined the channel")).not.toBeVisible();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole("button", { name: "Hide 2 system notices" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Lin joined the channel")).toBeVisible();
+    expect(screen.getByText("Reviewer joined the channel")).toBeVisible();
+  });
+
+  it("keeps notices from different days in separate visible rows", () => {
+    renderSystemNotices([
+      systemNotice(1, "Lin joined the channel", "2026-07-25T12:00:00Z"),
+      systemNotice(2, "Reviewer joined the channel", "2026-07-26T12:00:00Z"),
+    ]);
+
+    expect(screen.queryByRole("button", { name: /system notices/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Lin joined the channel")).toBeVisible();
+    expect(screen.getByText("Reviewer joined the channel")).toBeVisible();
+  });
+});
 
 describe("ExpandableMessageText", () => {
   it("expands and collapses text that exceeds eight rendered lines", () => {
@@ -30,6 +75,50 @@ describe("ExpandableMessageText", () => {
     expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+function renderSystemNotices(messages: Message[]) {
+  const page: MessagePage = {
+    channel_id: "channel-1",
+    snapshot_channel_seq: messages.length,
+    messages,
+    has_more_before: false,
+    has_more_after: false,
+  };
+  return render(
+    <MessageTimeline
+      timelineRef={createRef<HTMLDivElement>()}
+      page={page}
+      pending={false}
+      error={null}
+      retry={vi.fn()}
+      emptyTitle="No messages"
+      channelId="channel-1"
+      spaceSlug="sumi-lab"
+      openThread={vi.fn()}
+      activityByMemberId={new Map()}
+      members={[]}
+    />,
+  );
+}
+
+function systemNotice(seq: number, body: string, createdAt: string): Message {
+  return {
+    id: `notice-${seq}`,
+    channel_id: "channel-1",
+    seq,
+    author: { id: "system", kind: "human", display_name: "Sumi" },
+    placement: "root",
+    content: { type: "system_notice", body_markdown: body },
+    mentions: [],
+    mention_all: false,
+    attachments: [],
+    attention_failures: [],
+    task_refs: [],
+    thread_id: `thread-${seq}`,
+    created_at: createdAt,
+    reply_count: 0,
+  };
+}
 
 describe("collapsed message body style", () => {
   it("clamps by height so overflow detection can show the toggle", () => {

@@ -1312,7 +1312,11 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-expand { margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .message-expand:hover { color: var(--ink); }
 .system-event { margin: 8px 0 2px; color: color-mix(in srgb, var(--red) 58%, var(--muted)); font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 500; }
-.system-event--message { margin: 6px 0; }
+.system-event--message { margin: 6px 20px; border: 0; background: transparent; color: var(--muted); font-size: var(--text-system); font-weight: 400; line-height: 1.45; text-align: center; }
+.system-notice-toggle { display: block; min-height: 24px; margin: 5px auto; padding: 2px 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.system-notice-toggle:hover { color: var(--ink); }
+.message-row--system { display: block; padding: 0; }
+.message-row--system:hover { background: transparent; }
 .message-system-content { grid-column: 1 / -1; min-width: 0; }
 .system-event--standalone { margin: 14px 20px 6px; }
 .system-event-heading { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: default; list-style: none; text-align: center; }
