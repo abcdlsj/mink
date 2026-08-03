@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
@@ -24,6 +26,13 @@ afterEach(() => {
 });
 
 describe("Agent directory", () => {
+  it("does not add an offset shadow to Agent identity frames", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    const rule = css.match(/\.members-workspace \.member-identity > \.presence-identity,\s*\.members-workspace \.member-identity > \.pixel-identity\s*\{([^}]*)\}/s)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/box-shadow:\s*none/);
+  });
+
   it("shows Agent summary facts and links each Agent to management", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
