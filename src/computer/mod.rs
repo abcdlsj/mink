@@ -3,7 +3,10 @@ mod application;
 mod core;
 mod drivers;
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use adapters::{
     AgentHomeAdapter, LocalIpcAdapter, SandboxAdapter, ServerConnectionAdapter, SqliteAdapter,
@@ -26,7 +29,7 @@ use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoCl
 use uuid::Uuid;
 
 use crate::{
-    ids::{AttachmentId, DaemonSessionId, IdempotencyKey, RunId},
+    ids::{AttachmentId, DaemonSessionId, EventId, IdempotencyKey, RunId},
     protocol::{
         capability,
         computer::{
@@ -486,7 +489,7 @@ where
         command_watermark: CommandSequence(0),
         // Runs this daemon still holds. The Server fails the rest of its non-terminal Runs for this
         // Computer, which is how a restart is reported instead of inferred from a timer.
-        live_run_ids: RecoveryService::live_run_ids(storage)
+        live_run_ids: RecoveryService::reconnect_run_ids(storage)
             .await
             .map_err(|error| anyhow::anyhow!(error))?,
     };
@@ -508,10 +511,12 @@ where
             anyhow::bail!("Server rejected Computer protocol: {code:?}")
         }
     }
-    send_pending_events(storage, &mut writer).await?;
+    let mut sent_events = HashSet::new();
+    send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
     let adapter = ServerConnectionAdapter::new(drivers::prompt::global_contract());
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
     let mut driver_observation = tokio::time::interval(std::time::Duration::from_millis(250));
+    let mut lost_driver_check = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
@@ -519,31 +524,42 @@ where
                 if let Err(error) = RunService::interrupt_terminal(storage, driver, run_id).await {
                     tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
                 }
-                send_pending_events(storage, &mut writer).await?;
+                send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
             }
             _ = heartbeat.tick() => {
                 let active_runs=RecoveryService::live_run_ids(storage).await.map_err(|error|anyhow::anyhow!(error))?.len() as u32;
                 let frame=ComputerFrame::Heartbeat{heartbeat:Heartbeat{daemon_session_id,active_runs,observed_at:time::OffsetDateTime::now_utc()}};
                 writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
-                send_pending_events(storage,&mut writer).await?;
             }
             _ = driver_observation.tick() => {
+                let mut changed = false;
                 for completion in driver.poll_completions().await.map_err(|error| anyhow::anyhow!(error))? {
-                    RunService::finish_driver_turn(
+                    changed |= RunService::finish_driver_turn(
                         storage,
                         completion.run_id,
                         completion.outcome,
                     )
                     .await
-                    .map_err(|error| anyhow::anyhow!(error))?;
+                    .map_err(|error| anyhow::anyhow!(error))?
+                    .is_some();
                 }
-                RecoveryService::fail_lost_drivers(storage, driver)
+                if changed {
+                    SchedulerService::dispatch(storage, driver, max_concurrent_runs)
+                        .await
+                        .map_err(|error| anyhow::anyhow!(error))?;
+                    send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
+                }
+            }
+            _ = lost_driver_check.tick() => {
+                if RecoveryService::fail_lost_drivers(storage, driver)
                     .await
-                    .map_err(|error| anyhow::anyhow!(error))?;
-                SchedulerService::dispatch(storage, driver, max_concurrent_runs)
-                    .await
-                    .map_err(|error| anyhow::anyhow!(error))?;
-                send_pending_events(storage, &mut writer).await?;
+                    .map_err(|error| anyhow::anyhow!(error))?
+                {
+                    SchedulerService::dispatch(storage, driver, max_concurrent_runs)
+                        .await
+                        .map_err(|error| anyhow::anyhow!(error))?;
+                    send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
+                }
             }
             incoming=reader.next()=>{
                 let incoming=incoming.context("Computer WebSocket closed")??;
@@ -560,9 +576,13 @@ where
                         )
                         .await
                         .map_err(|error| anyhow::anyhow!(error))?;
-                        send_pending_events(storage,&mut writer).await?;
+                        send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
                     }
-                    ServerFrame::Receipt{receipt}=>RecoveryService::acknowledge(storage,receipt.event_id).await.map_err(|error|anyhow::anyhow!(error))?,
+                    ServerFrame::Receipt{receipt}=>{
+                        RecoveryService::acknowledge(storage,receipt.event_id).await.map_err(|error|anyhow::anyhow!(error))?;
+                        sent_events.remove(&receipt.event_id);
+                        send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
+                    },
                     ServerFrame::Query{query}=>{
                         let frame=ServerConnectionAdapter::answer_query(storage,homes,query).await;
                         writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
@@ -574,24 +594,30 @@ where
     }
 }
 
-async fn send_pending_events<P>(
+async fn send_next_pending_event<P>(
     storage: &mut P,
     writer: &mut (impl SinkExt<WebSocketMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
+    sent_events: &mut HashSet<EventId>,
 ) -> anyhow::Result<()>
 where
     P: TransactionPort,
 {
-    for event in RecoveryService::pending_results(storage)
+    let Some(event) = RecoveryService::pending_results(storage)
         .await
         .map_err(|error| anyhow::anyhow!(error))?
-    {
-        let frame = ServerConnectionAdapter::event_frame(event);
-        writer
-            .send(WebSocketMessage::Text(
-                serde_json::to_string(&frame)?.into(),
-            ))
-            .await?;
-    }
+        .into_iter()
+        .find(|event| !sent_events.contains(&event.id()))
+    else {
+        return Ok(());
+    };
+    let event_id = event.id();
+    let frame = ServerConnectionAdapter::event_frame(event);
+    writer
+        .send(WebSocketMessage::Text(
+            serde_json::to_string(&frame)?.into(),
+        ))
+        .await?;
+    sent_events.insert(event_id);
     Ok(())
 }
 

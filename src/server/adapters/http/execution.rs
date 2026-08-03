@@ -1808,7 +1808,7 @@ pub(in crate::server::adapters) async fn submit_run_result<P: TransactionPort + 
     Ok(StatusCode::OK)
 }
 
-pub(super) fn run_error_code(code: ComputerErrorCode) -> RunErrorCode {
+pub(in crate::server::adapters) fn run_error_code(code: ComputerErrorCode) -> RunErrorCode {
     use RunErrorCode;
     match code {
         ComputerErrorCode::DriverError => RunErrorCode::DriverError,

@@ -39,7 +39,7 @@ impl SchedulerService {
             }
         }
         while let Some(pending) = scheduler.next() {
-            let fingerprint = store
+            let fingerprint = match store
                 .transact(async |transaction| {
                     let run = transaction
                         .run(pending.run_id)?
@@ -49,8 +49,32 @@ impl SchedulerService {
                         .cloned()
                         .ok_or(ApplicationError::Conflict)
                 })
-                .await?;
-            RunService::start(store, driver, pending.run_id, fingerprint).await?;
+                .await
+            {
+                Ok(fingerprint) => fingerprint,
+                Err(ApplicationError::NotFound) => continue,
+                Err(ApplicationError::Conflict) => {
+                    tracing::warn!(
+                        run_id = %pending.run_id,
+                        "queued local Run has no usable session fingerprint"
+                    );
+                    RunService::stop(store, driver, pending.run_id).await?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            match RunService::start(store, driver, pending.run_id, fingerprint).await {
+                Ok(()) => {}
+                Err(ApplicationError::Conflict) => {
+                    tracing::warn!(
+                        run_id = %pending.run_id,
+                        "queued local Run conflicted while starting"
+                    );
+                    RunService::stop(store, driver, pending.run_id).await?;
+                }
+                Err(ApplicationError::NotFound) => {}
+                Err(error) => return Err(error),
+            }
         }
         Ok(())
     }

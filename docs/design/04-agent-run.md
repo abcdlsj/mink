@@ -93,9 +93,11 @@ Computer 重连后，双方同步一次实际状态：
 
 1. Computer 握手时带 daemon session ID 和命令 watermark。
 2. Server 重放未确认命令。
-3. Computer 上报本地每个非终态 Run 的实况：仍在处理、已结束（附结果）、已失败（附 `error_code`）。
+3. Computer 在握手中报告本地仍持有的非终态 Run，以及结果尚未收到回执的终态 Run；随后上报每个非终态 Run 的实况：仍在处理、已结束（附结果）、已失败（附 `error_code`）。
 4. Computer 重发已结束但未收到回执的结果。
 5. Server 按上报更新，并对本地已不存在的 Run 按 `computer_restarted` 处理。
+
+Server 发现 `dispatched` Run 仍有未确认的 `run.start` command 时保留该 Run，先重放 command；该 Run 不能在 command 被 Computer 处理前按 `computer_restarted` 终结。
 
 daemon session ID 标识连接会话，用于丢弃上一会话的残留帧。它属于连接，不属于 Run，不表达执行资格。
 
@@ -114,6 +116,8 @@ Agent yield 时对本次 Items 逐条给出 disposition：
 - `deferred`：未完成，到指定时间点再次可取。
 
 `deferred` 通过设置 Item 的 `available_at` 表达，见 [Inbox 与本地凭据](06-inbox-credentials.md)。Agent 提交 defer 时给出时间点，Server 写入 `available_at`。该时间到达后 Item 重新成为 pending，唤醒 Agent。
+
+如果 Server 在 Computer 已结束 Run 后才投递同一 Focus 的 `run.attach_item`，Computer 必须保存 `TooLate` delivery receipt。Server 收到该 receipt 后释放对应 Item；该 Item 不得进入已结束 Run 的结果列表。
 
 这使 Agent 能表达「我在等构建结果，20 分钟后再看」。Server 不解释等待原因，只按时间点使 Item 重新可取。
 

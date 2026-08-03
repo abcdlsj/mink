@@ -307,13 +307,15 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
             let root = Uuid::now_v7();
             let stale_run = Uuid::now_v7();
             let stale_item = Uuid::now_v7();
+            let pending_run = Uuid::now_v7();
+            let pending_start_command = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
                  INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{owner}',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','member',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{subscriber}','{space}','agent','Ada','member',now());
-                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',2,now());
                  INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
                  INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{subscriber}','{space}','{computer_id}','Watch',1,'active','codex',now());
                  INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
@@ -323,6 +325,8 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
                  INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','working','mention',now(),now());
                  INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,assigned_run_id,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','assigned',now(),'{stale_run}',0,now());
                  INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{stale_run}','{stale_item}',1,now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at) VALUES ('{pending_run}','{space}','{subscriber}','{root}','dispatched','mention',now());
+                 INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{pending_start_command}','{computer_id}',1,'run.start',jsonb_build_object('kind','run.start','payload',jsonb_build_object('run_id','{pending_run}')),now());
                  COMMIT;"
             ))
             .execute(&pool)
@@ -357,6 +361,14 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
                 recovered,
                 ("failed".into(), "failed".into(), "pending".into(), 1)
             );
+            let pending_status: String = sqlx::query_scalar(
+                "SELECT status FROM agent_runs WHERE id=$1",
+            )
+            .bind(pending_run)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(pending_status, "dispatched");
 
             // The Run is terminal, so the partial unique index now admits a new Run for that Agent.
             sqlx::query(

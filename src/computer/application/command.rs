@@ -299,6 +299,20 @@ impl CommandService {
                                 return Err(ApplicationError::Conflict);
                             }
                         } else {
+                            let has_active_run =
+                                transaction.nonterminal_runs()?.into_iter().any(|existing| {
+                                    existing.view().agent_id == run.view().agent_id
+                                        && matches!(
+                                            existing.view().state,
+                                            LocalRunState::Starting
+                                                | LocalRunState::Running
+                                                | LocalRunState::Finalizing
+                                                | LocalRunState::Stopping
+                                        )
+                                });
+                            if has_active_run {
+                                return Err(ApplicationError::Conflict);
+                            }
                             transaction.save_run(run)?;
                         }
                         Ok(())

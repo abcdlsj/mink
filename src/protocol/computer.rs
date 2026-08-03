@@ -35,9 +35,10 @@ pub(crate) struct ComputerHello {
     pub(crate) capabilities: BTreeSet<DaemonCapability>,
     pub(crate) daemon_session_id: DaemonSessionId,
     pub(crate) command_watermark: CommandSequence,
-    /// Runs this daemon still holds locally. The Server fails every other non-terminal Run it has for
-    /// this Computer, because those died with the previous daemon process. Sending the live set rather
-    /// than the lost set means a daemon that starts with empty state reports the truth by default.
+    /// Runs this daemon still holds locally, plus terminal Runs whose result is still pending delivery.
+    /// The Server fails every other non-terminal Run it has for this Computer, because those died with
+    /// the previous daemon process. Sending the protected set rather than the lost set means a daemon
+    /// that starts with empty state reports the truth by default.
     pub(crate) live_run_ids: Vec<RunId>,
 }
 
@@ -392,6 +393,8 @@ pub(crate) struct QueryEnvelope {
 pub(crate) enum Query {
     #[serde(rename = "session.continuity")]
     SessionContinuity(SessionContinuityQuery),
+    #[serde(rename = "runtime.diagnostics")]
+    RuntimeDiagnostics(RuntimeDiagnosticsQuery),
     #[serde(rename = "memory.list")]
     MemoryList(MemoryQuery),
     #[serde(rename = "memory.read")]
@@ -403,6 +406,12 @@ pub(crate) enum Query {
 pub(crate) struct SessionContinuityQuery {
     pub(crate) agent_id: AgentId,
     pub(crate) scope: SessionScope,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeDiagnosticsQuery {
+    pub(crate) agent_id: AgentId,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -430,6 +439,8 @@ pub(crate) struct QueryResultEnvelope {
 pub(crate) enum QueryResult {
     #[serde(rename = "session.continuity")]
     SessionContinuity(SessionContinuityResult),
+    #[serde(rename = "runtime.diagnostics")]
+    RuntimeDiagnostics(RuntimeDiagnosticsResult),
     #[serde(rename = "memory.list")]
     MemoryList(MemoryListResult),
     #[serde(rename = "memory.read")]
@@ -455,6 +466,32 @@ pub(crate) struct SessionContinuityResult {
     pub(crate) state: SessionContinuityState,
     pub(crate) generation: Option<u64>,
     pub(crate) reason_code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RuntimeRunState {
+    Queued,
+    Starting,
+    Running,
+    Finalizing,
+    Stopping,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeDiagnosticsResult {
+    pub(crate) local_run_id: Option<RunId>,
+    pub(crate) local_run_state: Option<RuntimeRunState>,
+    pub(crate) queued_runs: u32,
+    pub(crate) active_runs: u32,
+    pub(crate) pending_commands: u32,
+    pub(crate) pending_result_events: u32,
+    pub(crate) warm_sessions: u32,
+    pub(crate) cold_sessions: u32,
+    pub(crate) reset_required_sessions: u32,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) observed_at: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -638,8 +675,8 @@ mod tests {
         AttentionNotice, AttentionStrength, Command, CommandEnvelope, CommandSequence,
         ComputerFrame, ComputerHello, DaemonCapability, InboxSourceKind, MemoryFileProjection,
         MemoryReadResult, NoticeLocation, Query, QueryEnvelope, QueryErrorCode, QueryResult,
-        QueryResultEnvelope, RunStop, ServerFrame, SessionContinuityQuery, SessionScope,
-        StopReason,
+        QueryResultEnvelope, RunStop, RuntimeDiagnosticsQuery, RuntimeDiagnosticsResult,
+        RuntimeRunState, ServerFrame, SessionContinuityQuery, SessionScope, StopReason,
     };
     use crate::{
         ids::{AgentId, CommandId, DaemonSessionId, NoticeId, QueryId, RunId, TaskId},
@@ -774,5 +811,40 @@ mod tests {
 
         assert!(rendered.contains("[REDACTED]"));
         assert!(!rendered.contains("private note"));
+    }
+
+    #[test]
+    fn runtime_diagnostics_query_round_trips_without_content_fields() {
+        let frame = ServerFrame::Query {
+            query: QueryEnvelope {
+                query_id: QueryId::from_uuid(Uuid::now_v7()),
+                query: Query::RuntimeDiagnostics(RuntimeDiagnosticsQuery {
+                    agent_id: AgentId::from_uuid(Uuid::now_v7()),
+                }),
+            },
+        };
+        let value = serde_json::to_value(&frame).unwrap();
+        assert_eq!(value["query"]["query"]["kind"], "runtime.diagnostics");
+        assert!(value.get("content").is_none());
+        assert!(serde_json::from_value::<ServerFrame>(value).unwrap() == frame);
+
+        let result = QueryResult::RuntimeDiagnostics(RuntimeDiagnosticsResult {
+            local_run_id: Some(RunId::from_uuid(Uuid::now_v7())),
+            local_run_state: Some(RuntimeRunState::Running),
+            queued_runs: 1,
+            active_runs: 2,
+            pending_commands: 3,
+            pending_result_events: 4,
+            warm_sessions: 5,
+            cold_sessions: 6,
+            reset_required_sessions: 7,
+            observed_at: OffsetDateTime::now_utc(),
+        });
+        let encoded = serde_json::to_value(&result).unwrap();
+        assert_eq!(encoded["kind"], "runtime.diagnostics");
+        assert_eq!(
+            serde_json::from_value::<QueryResult>(encoded).unwrap(),
+            result
+        );
     }
 }

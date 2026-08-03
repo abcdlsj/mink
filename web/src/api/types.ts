@@ -71,6 +71,7 @@ export interface components {
             another_item_waiting: boolean;
             current_run?: null | components["schemas"]["RunResponse"];
             current_task?: null | components["schemas"]["TaskResponse"];
+            diagnostics?: null | components["schemas"]["RuntimeDiagnosticsResponse"];
             focus?: null | components["schemas"]["ThreadReferenceResponse"];
             session_continuity: components["schemas"]["SessionContinuityResponse"];
         };
@@ -486,6 +487,28 @@ export interface components {
         };
         /** @enum {string} */
         RunStatus: "dispatched" | "working" | "completed" | "yielded" | "failed" | "canceled";
+        RuntimeDiagnosticsResponse: {
+            /** Format: int32 */
+            active_runs: number;
+            /** Format: int32 */
+            cold_sessions: number;
+            /** Format: uuid */
+            local_run_id?: string | null;
+            local_run_state?: null | components["schemas"]["RuntimeRunState"];
+            observed_at: string;
+            /** Format: int32 */
+            pending_commands: number;
+            /** Format: int32 */
+            pending_result_events: number;
+            /** Format: int32 */
+            queued_runs: number;
+            /** Format: int32 */
+            reset_required_sessions: number;
+            /** Format: int32 */
+            warm_sessions: number;
+        };
+        /** @enum {string} */
+        RuntimeRunState: "queued" | "starting" | "running" | "finalizing" | "stopping";
         SessionContinuityResponse: {
             /** Format: int64 */
             generation?: number | null;

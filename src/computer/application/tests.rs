@@ -533,6 +533,64 @@ async fn duplicate_start_command_does_not_start_a_second_driver_turn() {
 }
 
 #[tokio::test]
+async fn start_command_rejects_a_second_active_run_for_the_same_agent() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let first = local_run(None, thread_id(), []);
+    let agent_id = first.view().agent_id;
+    let first_id = first.view().id;
+    CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id(),
+        1,
+        Command::Start {
+            run: Box::new(first),
+            fingerprint: fingerprint(1, "workspace-a"),
+        },
+    )
+    .await
+    .unwrap();
+    SchedulerService::dispatch(&mut store, &mut driver, 1)
+        .await
+        .unwrap();
+
+    let second_thread = thread_id();
+    let second = LocalRun::new(NewRun {
+        id: run_id(),
+        agent_id,
+        task_id: None,
+        focus_thread_id: second_thread,
+        run_secret: RunSecret::new("second-secret".to_owned()),
+        priority: default_priority(false),
+        input: test_input(agent_id, None, second_thread, []),
+    })
+    .unwrap();
+    let rejected = CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut MemoryHome::default(),
+        command_id(),
+        2,
+        Command::Start {
+            run: Box::new(second),
+            fingerprint: fingerprint(1, "workspace-a"),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(rejected.status, CommandStatus::Rejected);
+    assert_eq!(rejected.error, Some(ApplicationError::Conflict));
+    assert_eq!(
+        store.state.runs[&first_id].view().state,
+        LocalRunState::Running
+    );
+    assert_eq!(store.state.runs.len(), 1);
+}
+
+#[tokio::test]
 async fn rejected_command_replays_the_stored_error() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();
@@ -1016,6 +1074,72 @@ async fn repeated_delivery_steers_once_and_preserves_too_late_result() {
 }
 
 #[tokio::test]
+async fn late_delivery_after_terminal_run_emits_one_too_late_receipt() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let handled_item_id = item_id();
+    let run = local_run(None, thread_id, [(handled_item_id, None, thread_id)]);
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::finish(
+        &mut store,
+        run_id,
+        TerminalStatus::Completed,
+        vec![(handled_item_id, ItemDisposition::Handled)],
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let late_item = claimed_item(item_id(), None, thread_id);
+    assert_eq!(
+        RunService::attach(&mut store, &mut driver, run_id, 2, late_item.clone())
+            .await
+            .unwrap(),
+        DeliveryState::TooLate
+    );
+    assert_eq!(
+        RunService::attach(&mut store, &mut driver, run_id, 2, late_item)
+            .await
+            .unwrap(),
+        DeliveryState::TooLate
+    );
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Completed
+    );
+    assert_eq!(
+        store
+            .state
+            .events
+            .values()
+            .filter(|event| {
+                matches!(
+                    event,
+                    LocalEvent::Delivery {
+                        run_id: event_run_id,
+                        sequence: 2,
+                        outcome: DeliveryState::TooLate,
+                        ..
+                    } if *event_run_id == run_id
+                )
+            })
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn retryable_driver_error_keeps_command_pending_until_replay_succeeds() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver {
@@ -1355,6 +1479,93 @@ async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() 
     );
 }
 
+#[tokio::test]
+async fn restart_marks_a_starting_run_failed_and_keeps_result_for_retry() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver {
+        process_evidence: ProcessEvidence::Lost,
+        ..FakeDriver::default()
+    };
+    let thread_id = thread_id();
+    let claimed = item_id();
+    let mut run = local_run(None, thread_id, [(claimed, None, thread_id)]);
+    run.begin_start().unwrap();
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+
+    RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Failed
+    );
+    assert!(
+        RecoveryService::pending_results(&mut store)
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| matches!(
+                event,
+                LocalEvent::RunResult {
+                    status: TerminalStatus::Failed,
+                    error_code: Some(LocalErrorCode::ComputerRestarted),
+                    ..
+                }
+            ))
+    );
+}
+
+#[tokio::test]
+async fn reconnect_ids_keep_a_terminal_run_until_its_result_is_acknowledged() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let run = local_run(None, thread_id(), []);
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    let event_id = RunService::finish(
+        &mut store,
+        run_id,
+        TerminalStatus::Completed,
+        Vec::new(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        RecoveryService::live_run_ids(&mut store)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        RecoveryService::reconnect_run_ids(&mut store)
+            .await
+            .unwrap(),
+        vec![run_id]
+    );
+    RecoveryService::acknowledge(&mut store, event_id)
+        .await
+        .unwrap();
+    assert!(
+        RecoveryService::reconnect_run_ids(&mut store)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 /// Recovery must leave a Run alone while its Driver process is alive, no matter how long the turn has
 /// been running. Elapsed time is not evidence of anything, so nothing here may fail a live Run.
 #[tokio::test]
@@ -1460,6 +1671,30 @@ async fn a_queued_run_is_not_failed_for_having_no_driver_process() {
             .await
             .unwrap()
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn scheduler_cancels_a_queued_run_without_a_session_fingerprint() {
+    let mut store = MemoryPort::default();
+    let run = local_run(None, thread_id(), []);
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+    let mut driver = FakeDriver::default();
+
+    SchedulerService::dispatch(&mut store, &mut driver, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Canceled
+    );
+    assert_eq!(driver.start_count, 0);
+    assert!(
+        store.state.events.values().any(
+            |event| matches!(event, LocalEvent::RunResult { run_id: id, .. } if *id == run_id)
+        )
     );
 }
 

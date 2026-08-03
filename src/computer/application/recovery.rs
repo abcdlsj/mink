@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::ids::{EventId, RunId};
 
 use crate::computer::core::supervisor::{
@@ -104,10 +106,11 @@ impl RecoveryService {
     pub(in crate::computer) async fn fail_lost_drivers<P: TransactionPort, D: DriverPort>(
         store: &mut P,
         driver: &mut D,
-    ) -> Result<(), ApplicationError> {
+    ) -> Result<bool, ApplicationError> {
         let runs = store
             .transact(async |transaction| transaction.nonterminal_runs())
             .await?;
+        let mut failed = false;
         for run in runs {
             if !matches!(run.view().state, LocalRunState::Running) {
                 continue;
@@ -116,8 +119,9 @@ impl RecoveryService {
                 continue;
             }
             Self::fail_lost_run(store, &run, LocalErrorCode::DriverLost).await?;
+            failed = true;
         }
-        Ok(())
+        Ok(failed)
     }
 
     async fn fail_lost_run<P: TransactionPort>(
@@ -196,6 +200,28 @@ impl RecoveryService {
                     .into_iter()
                     .map(|run| run.view().id)
                     .collect())
+            })
+            .await
+    }
+
+    /// Runs that must be protected during handshake reconciliation. This includes non-terminal Runs
+    /// and terminal Runs whose result is still in the local outbox; the latter must reach the Server
+    /// before the Server can decide whether a non-terminal Run was lost.
+    pub(in crate::computer) async fn reconnect_run_ids<P: TransactionPort>(
+        store: &mut P,
+    ) -> Result<Vec<RunId>, ApplicationError> {
+        store
+            .transact(async |transaction| {
+                let mut run_ids = BTreeSet::new();
+                for run in transaction.nonterminal_runs()? {
+                    run_ids.insert(run.view().id);
+                }
+                for event in transaction.pending_events()? {
+                    if let LocalEvent::RunResult { run_id, .. } = event {
+                        run_ids.insert(run_id);
+                    }
+                }
+                Ok(run_ids.into_iter().collect())
             })
             .await
     }

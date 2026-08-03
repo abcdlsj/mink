@@ -188,6 +188,11 @@ impl PostgresTransaction {
             "SELECT r.id FROM agent_runs r JOIN agents a ON a.member_id=r.agent_id \
              WHERE a.computer_id=$1 \
                AND r.status NOT IN ('completed','yielded','failed','canceled') \
+               AND NOT (r.status='dispatched' AND EXISTS(\
+                 SELECT 1 FROM computer_commands c \
+                  WHERE c.computer_id=$1 AND c.kind='run.start' AND c.acked_at IS NULL \
+                    AND c.payload_json #>> '{payload,run_id}' = r.id::text\
+               )) \
              ORDER BY r.created_at,r.id",
         )
         .bind(computer_id.into_uuid())

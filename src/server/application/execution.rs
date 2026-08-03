@@ -263,7 +263,7 @@ impl StartRun {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            if run_view.status == RunStatus::Working {
+            if run_view.status == RunStatus::Working || run.is_terminal() {
                 return Ok(run);
             }
             run.start(input.now)?;
@@ -471,42 +471,59 @@ impl SyncComputerRuns {
                     }
                     let mut released = 0;
                     let mut dead = 0;
-                    // Every Item this Run held is resolved as released: the Agent reported no
-                    // disposition, so the attempt is spent and the Item returns to the queue.
+                    // A reported disposition is already an Agent decision. Apply it to the Inbox
+                    // without spending a failed-run retry; only an unreported Item is a lost attempt.
                     for run_item in run.items().collect::<Vec<_>>() {
-                        run.set_item_disposition(
-                            run_item.inbox_item_id,
-                            InboxItemDisposition::Released,
-                        )?;
+                        let Some(disposition) = run_item.disposition else {
+                            run.set_item_disposition(
+                                run_item.inbox_item_id,
+                                InboxItemDisposition::Released,
+                            )?;
+                            let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
+                            let item_view = item.view();
+                            if item_view.status != InboxItemStatus::Assigned
+                                || item_view.assigned_run_id != Some(run_id)
+                            {
+                                continue;
+                            }
+                            let retired = matches!(
+                                item.release_on_failed_run(
+                                    run_id,
+                                    input.max_retry_count,
+                                    input.now,
+                                )?,
+                                InboxItemStatus::Dead
+                            );
+                            let item_view = item.view();
+                            let agent_id = item_view.member_id;
+                            let thread_id = item_view.thread_id;
+                            transaction.save_inbox_item(item).await?;
+                            if retired {
+                                dead += 1;
+                                transaction
+                                    .insert_dead_item_notice(
+                                        agent_id,
+                                        thread_id,
+                                        "inbox_item_dead",
+                                        input.now,
+                                    )
+                                    .await?;
+                            } else {
+                                released += 1;
+                            }
+                            transaction.emit(Effect::InboxChanged(agent_id));
+                            continue;
+                        };
                         let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
                         let item_view = item.view();
-                        if item_view.status != InboxItemStatus::Assigned
-                            || item_view.assigned_run_id != Some(run_id)
+                        if item_view.status == InboxItemStatus::Assigned
+                            && item_view.assigned_run_id == Some(run_id)
                         {
-                            continue;
+                            let agent_id = item_view.member_id;
+                            item.apply_disposition(run_id, disposition, input.now)?;
+                            transaction.save_inbox_item(item).await?;
+                            transaction.emit(Effect::InboxChanged(agent_id));
                         }
-                        let retired = matches!(
-                            item.release_on_failed_run(run_id, input.max_retry_count, input.now)?,
-                            InboxItemStatus::Dead
-                        );
-                        let item_view = item.view();
-                        let agent_id = item_view.member_id;
-                        let thread_id = item_view.thread_id;
-                        transaction.save_inbox_item(item).await?;
-                        if retired {
-                            dead += 1;
-                            transaction
-                                .insert_dead_item_notice(
-                                    agent_id,
-                                    thread_id,
-                                    "inbox_item_dead",
-                                    input.now,
-                                )
-                                .await?;
-                        } else {
-                            released += 1;
-                        }
-                        transaction.emit(Effect::InboxChanged(agent_id));
                     }
                     run.finish(
                         RunOutcome::Failed,
@@ -552,13 +569,24 @@ impl CompleteRun {
                 }
                 return Ok(run);
             }
+            // A reconnect can reconcile a Run before its terminal result arrives. The Computer is
+            // authenticated above, so a later result for that Run is an idempotent acknowledgement.
+            if run.is_terminal() {
+                return Ok(run);
+            }
             for item_input in input.item_dispositions {
                 run.set_item_disposition(item_input.item_id, item_input.disposition)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
-                if item.view().status == InboxItemStatus::Assigned {
+                let item_view = item.view();
+                if item_view.status == InboxItemStatus::Assigned {
                     item.apply_disposition(run_id, item_input.disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;
-                } else if item_input.disposition != InboxItemDisposition::Released {
+                } else if !matches!(
+                    (item_view.status, item_input.disposition),
+                    (InboxItemStatus::Handled, InboxItemDisposition::Handled)
+                        | (InboxItemStatus::Deferred, InboxItemDisposition::Deferred)
+                        | (InboxItemStatus::Pending, InboxItemDisposition::Released)
+                ) {
                     return Err(ApplicationError::Conflict);
                 }
             }

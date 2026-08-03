@@ -58,6 +58,7 @@ struct RunResultPayload {
 
 pub(in crate::computer) struct SqliteTransaction {
     snapshot: Snapshot,
+    dirty: bool,
 }
 
 impl SqliteAdapter {
@@ -442,9 +443,12 @@ impl TransactionPort for SqliteAdapter {
         let result = async {
             let mut transaction = SqliteTransaction {
                 snapshot: self.load().await?,
+                dirty: false,
             };
             let value = operation(&mut transaction).await?;
-            self.save(&transaction.snapshot).await?;
+            if transaction.dirty {
+                self.save(&transaction.snapshot).await?;
+            }
             Ok(value)
         }
         .await;
@@ -480,11 +484,14 @@ impl ComputerTransaction for SqliteTransaction {
             return Err(ApplicationError::Conflict);
         }
         self.snapshot.commands.insert(command.id, command);
+        self.dirty = true;
         Ok(())
     }
 
     fn save_command(&mut self, command: StoredCommand) -> Result<(), ApplicationError> {
+        let changed = self.snapshot.commands.get(&command.id) != Some(&command);
         self.snapshot.commands.insert(command.id, command);
+        self.dirty |= changed;
         Ok(())
     }
 
@@ -503,7 +510,10 @@ impl ComputerTransaction for SqliteTransaction {
     }
 
     fn save_run(&mut self, run: LocalRun) -> Result<(), ApplicationError> {
-        self.snapshot.runs.insert(run.view().id, run);
+        let run_id = run.view().id;
+        let changed = self.snapshot.runs.get(&run_id) != Some(&run);
+        self.snapshot.runs.insert(run_id, run);
+        self.dirty |= changed;
         Ok(())
     }
 
@@ -550,9 +560,13 @@ impl ComputerTransaction for SqliteTransaction {
                 && existing.view().scope == session.view().scope
                 && existing.view().generation == session.view().generation
         }) {
-            *existing = session;
+            if *existing != session {
+                *existing = session;
+                self.dirty = true;
+            }
         } else {
             self.snapshot.sessions.push(session);
+            self.dirty = true;
         }
         Ok(())
     }
@@ -563,11 +577,13 @@ impl ComputerTransaction for SqliteTransaction {
         scope: SessionScope,
         generation: u64,
     ) -> Result<(), ApplicationError> {
+        let before = self.snapshot.sessions.len();
         self.snapshot.sessions.retain(|session| {
             !(session.view().agent_id == agent_id
                 && session.view().scope == scope
                 && session.view().generation == generation)
         });
+        self.dirty |= before != self.snapshot.sessions.len();
         Ok(())
     }
 
@@ -575,6 +591,7 @@ impl ComputerTransaction for SqliteTransaction {
         if self.snapshot.events.insert(event.id(), event).is_some() {
             return Err(ApplicationError::Conflict);
         }
+        self.dirty = true;
         Ok(())
     }
 
@@ -583,7 +600,7 @@ impl ComputerTransaction for SqliteTransaction {
     }
 
     fn acknowledge_event(&mut self, event_id: EventId) -> Result<(), ApplicationError> {
-        self.snapshot.events.remove(&event_id);
+        self.dirty |= self.snapshot.events.remove(&event_id).is_some();
         Ok(())
     }
 }
@@ -880,6 +897,29 @@ mod tests {
             .unwrap();
         assert!(stored_run.is_none());
         assert!(events.is_empty());
+    }
+
+    #[tokio::test]
+    async fn read_only_transaction_does_not_rewrite_the_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        let before: i64 = sqlx::query_scalar("SELECT total_changes()")
+            .fetch_one(&mut adapter.connection)
+            .await
+            .unwrap();
+
+        let events = adapter
+            .transact(async |transaction| transaction.pending_events())
+            .await
+            .unwrap();
+
+        let after: i64 = sqlx::query_scalar("SELECT total_changes()")
+            .fetch_one(&mut adapter.connection)
+            .await
+            .unwrap();
+        assert!(events.is_empty());
+        assert_eq!(after, before);
     }
 
     #[tokio::test]

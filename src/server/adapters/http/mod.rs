@@ -45,7 +45,8 @@ use crate::{
         computer::{
             ComputerFrame, ComputerHello, ItemDisposition, MemoryQuery, MemoryReadQuery,
             Query as ComputerQuery, QueryErrorCode, QueryResult, RunResult, RunTerminalStatus,
-            ServerFrame, SessionContinuityQuery, SessionContinuityState, SessionScope,
+            RuntimeDiagnosticsQuery, ServerFrame, SessionContinuityQuery, SessionContinuityState,
+            SessionScope,
         },
     },
     server::{
@@ -133,9 +134,10 @@ use super::{
         MemoryContentResponse, MemoryFileResponse, MessageAuthor, MessageContentResponse,
         MessagePageResponse, MessagePlacement, MessageResponse, MessageTaskRefResponse,
         MessageTaskSummary, ProvisionStatus, RegisterResponse, RunOutcome, RunResponse, RunStatus,
-        SessionContinuityResponse, SessionContinuityState as ContinuityStateCode, SpaceResponse,
-        TaskResponse, TaskStatus, ThreadReadResponse, ThreadReferenceResponse, ThreadRelation,
-        ThreadSubscriptionResponse, UserResponse,
+        RuntimeDiagnosticsResponse, RuntimeRunState, SessionContinuityResponse,
+        SessionContinuityState as ContinuityStateCode, SpaceResponse, TaskResponse, TaskStatus,
+        ThreadReadResponse, ThreadReferenceResponse, ThreadRelation, ThreadSubscriptionResponse,
+        UserResponse,
     },
     postgres::PostgresAdapter,
     query::QueryRegistry,

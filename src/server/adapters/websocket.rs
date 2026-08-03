@@ -7,7 +7,7 @@ use crate::protocol::{
     version::SUPPORTED,
 };
 use crate::{
-    ids::{ComputerId, MemberId, SpaceId, ThreadId},
+    ids::{ComputerId, EventId, MemberId, SpaceId, ThreadId},
     server::application::ports::ApplicationError,
 };
 
@@ -61,10 +61,11 @@ pub(super) fn negotiate(
 use super::http::{ApiError, ComputerPrincipal};
 use super::query::QueryRegistry;
 use crate::server::application::execution::{
-    AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, StartRun, StartRunInput,
-    SyncComputerRuns, SyncComputerRunsInput,
+    AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, CompleteRun,
+    CompleteRunInput, StartRun, StartRunInput, SyncComputerRuns, SyncComputerRunsInput,
 };
 use crate::server::domain::attention::AttentionPolicy;
+use crate::server::domain::execution::RunOutcome;
 use axum::extract::ws::{Message as WebSocketMessage, WebSocket};
 use futures_util::StreamExt;
 use sqlx::{PgPool, Row};
@@ -311,10 +312,32 @@ pub(super) async fn computer_socket(
                 }
             }
             ComputerFrame::CommandResult { result } => {
+                if let CommandOutcome::Rejected { ref code } = result.outcome {
+                    tracing::warn!(
+                        %computer_id,
+                        command_id = %result.command_id.into_uuid(),
+                        sequence = result.sequence.0,
+                        error_code = ?code,
+                        "Computer command rejected"
+                    );
+                }
                 if apply_command_result(&storage, computer_id, &result)
                     .await
                     .is_ok()
                 {
+                    if matches!(result.outcome, CommandOutcome::Rejected { .. })
+                        && let Err(error) =
+                            apply_rejected_command(&storage, computer_id, &pool, &result).await
+                    {
+                        tracing::error!(
+                            %computer_id,
+                            command_id = %result.command_id.into_uuid(),
+                            sequence = result.sequence.0,
+                            ?error,
+                            "Rejected Computer command could not be reconciled"
+                        );
+                        continue;
+                    }
                     let ack = CommandAck {
                         command_id: result.command_id,
                         sequence: result.sequence,
@@ -351,6 +374,99 @@ async fn apply_command_result(
     )
     .await
     .map_err(|_| ApiError::internal())
+}
+
+async fn apply_rejected_command(
+    storage: &PostgresAdapter,
+    computer_id: Uuid,
+    pool: &PgPool,
+    result: &CommandResult,
+) -> Result<(), ApiError> {
+    if let Some((run_id, delivery_sequence)) = storage
+        .run_attach_command_target(
+            ComputerId::from_uuid(computer_id),
+            result.command_id,
+            result.sequence.0,
+        )
+        .await
+        .map_err(|_| ApiError::internal())?
+    {
+        let mut application = storage.clone();
+        AcknowledgeDelivery::execute(
+            &mut application,
+            crate::server::application::execution::AcknowledgeDeliveryInput {
+                run_id,
+                computer_id: ComputerId::from_uuid(computer_id),
+                delivery_sequence,
+                accepted: false,
+                now: OffsetDateTime::now_utc(),
+            },
+        )
+        .await
+        .map_err(|_| ApiError::internal())?;
+
+        let row = sqlx::query(
+            "SELECT r.agent_id,r.space_id,r.focus_thread_id,m.channel_id \
+             FROM agent_runs r JOIN messages m ON m.id=r.focus_thread_id WHERE r.id=$1",
+        )
+        .bind(run_id.into_uuid())
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiError::internal())?;
+        if let Some(row) = row {
+            storage
+                .record_agent_activity(
+                    SpaceId::from_uuid(row.get("space_id")),
+                    MemberId::from_uuid(row.get("agent_id")),
+                    "run.delivery_rejected",
+                    super::http::agent_activity_details(
+                        serde_json::json!({
+                            "run_id": run_id,
+                            "thread_id": ThreadId::from_uuid(row.get("focus_thread_id")),
+                            "channel_id": row.get::<Uuid, _>("channel_id"),
+                            "scope_channel_id": row.get::<Uuid, _>("channel_id"),
+                        }),
+                        vec![("delivery_sequence", delivery_sequence.to_string())],
+                        None,
+                    ),
+                )
+                .await;
+        }
+        return Ok(());
+    }
+
+    let Some(run_id) = storage
+        .run_start_command_target(
+            ComputerId::from_uuid(computer_id),
+            result.command_id,
+            result.sequence.0,
+        )
+        .await
+        .map_err(|_| ApiError::internal())?
+    else {
+        return Ok(());
+    };
+    let CommandOutcome::Rejected { code } = &result.outcome else {
+        return Ok(());
+    };
+    let mut application = storage.clone();
+    CompleteRun::execute(
+        &mut application,
+        CompleteRunInput {
+            event_id: EventId::from_uuid(result.command_id.into_uuid()),
+            run_id,
+            computer_id: ComputerId::from_uuid(computer_id),
+            outcome: RunOutcome::Failed,
+            error_code: Some(super::http::run_error_code(*code)),
+            item_dispositions: Vec::new(),
+            continuation_note: None,
+            max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(|_| ApiError::internal())?;
+    Ok(())
 }
 
 async fn send_json(

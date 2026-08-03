@@ -183,6 +183,67 @@ impl PostgresAdapter {
         }
     }
 
+    pub(super) async fn run_attach_command_target(
+        &self,
+        computer_id: ComputerId,
+        command_id: CommandId,
+        sequence: u64,
+    ) -> Result<Option<(RunId, u64)>, ApplicationError> {
+        let sequence = i64::try_from(sequence).map_err(|_| ApplicationError::Conflict)?;
+        let row = sqlx::query(
+            "SELECT kind,payload_json #>> '{payload,run_id}' AS run_id,\
+                    payload_json #>> '{payload,delivery_sequence}' AS delivery_sequence \
+             FROM computer_commands WHERE id=$1 AND computer_id=$2 AND computer_seq=$3",
+        )
+        .bind(command_id.into_uuid())
+        .bind(computer_id.into_uuid())
+        .bind(sequence)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let Some(row) = row else {
+            return Err(ApplicationError::NotFound);
+        };
+        if row.get::<&str, _>("kind") != "run.attach_item" {
+            return Ok(None);
+        }
+        let run_id = Uuid::parse_str(row.get::<&str, _>("run_id"))
+            .map_err(|_| ApplicationError::Internal)?;
+        let delivery_sequence = row
+            .get::<&str, _>("delivery_sequence")
+            .parse::<u64>()
+            .map_err(|_| ApplicationError::Internal)?;
+        Ok(Some((RunId::from_uuid(run_id), delivery_sequence)))
+    }
+
+    pub(super) async fn run_start_command_target(
+        &self,
+        computer_id: ComputerId,
+        command_id: CommandId,
+        sequence: u64,
+    ) -> Result<Option<RunId>, ApplicationError> {
+        let sequence = i64::try_from(sequence).map_err(|_| ApplicationError::Conflict)?;
+        let row = sqlx::query(
+            "SELECT kind,payload_json #>> '{payload,run_id}' AS run_id \
+             FROM computer_commands WHERE id=$1 AND computer_id=$2 AND computer_seq=$3",
+        )
+        .bind(command_id.into_uuid())
+        .bind(computer_id.into_uuid())
+        .bind(sequence)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let Some(row) = row else {
+            return Err(ApplicationError::NotFound);
+        };
+        if row.get::<&str, _>("kind") != "run.start" {
+            return Ok(None);
+        }
+        let run_id = Uuid::parse_str(row.get::<&str, _>("run_id"))
+            .map_err(|_| ApplicationError::Internal)?;
+        Ok(Some(RunId::from_uuid(run_id)))
+    }
+
     /// Reads the Space event window as one viewer sees it. `viewer_member_id` filters events whose
     /// payload names a Channel the viewer cannot read, and Inbox events belonging to another
     /// Member, so a private Channel does not leak through the stream.

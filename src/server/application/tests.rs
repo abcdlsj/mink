@@ -1982,6 +1982,28 @@ async fn run_started_requires_assignment_and_is_idempotent() {
     .await
     .unwrap_err();
     assert_eq!(error, ApplicationError::PermissionDenied);
+
+    let terminal_id = run(40);
+    let mut terminal = running_run(terminal_id, agent, focus, None, Vec::new());
+    update_test_run(&mut terminal, |snapshot| {
+        snapshot.status = RunStatus::Failed;
+        snapshot.outcome = Some(RunOutcome::Failed);
+        snapshot.error_code = Some(RunErrorCode::ComputerRestarted);
+        snapshot.finished_at = Some(OffsetDateTime::UNIX_EPOCH);
+    });
+    port.state.runs.insert(terminal_id, terminal.clone());
+    let repeated_terminal = StartRun::execute(
+        &mut port,
+        StartRunInput {
+            run_id: terminal_id,
+            computer_id: computer(999),
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(repeated_terminal, terminal);
+    assert_eq!(port.state.effects.len(), 1);
 }
 
 #[tokio::test]
@@ -2197,6 +2219,67 @@ async fn syncing_a_reconnected_computer_fails_runs_it_no_longer_holds() {
     .unwrap();
     assert_eq!(repeated, SyncedComputerRuns::default());
     assert_eq!(port.state.items[&retryable].view().retry_count, 1);
+}
+
+#[tokio::test]
+async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
+    let agent = member(267);
+    let focus = thread(268);
+    let lost_run = run(269);
+    let handled = item(270);
+    let unresolved = item(271);
+    let now = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(5);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+
+    let mut current = running_run(lost_run, agent, focus, None, vec![handled, unresolved]);
+    update_test_run(&mut current, |snapshot| {
+        snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+    });
+    port.state.runs.insert(lost_run, current);
+    for item_id in [handled, unresolved] {
+        let mut assigned = inbox(item_id, agent, focus, None, InboxItemStatus::Assigned);
+        update_test_item(&mut assigned, |snapshot| {
+            snapshot.assigned_run_id = Some(lost_run);
+        });
+        port.state.items.insert(item_id, assigned);
+    }
+
+    let synced = SyncComputerRuns::execute(
+        &mut port,
+        SyncComputerRunsInput {
+            computer_id: computer(1),
+            live_run_ids: Vec::new(),
+            max_retry_count: 2,
+            now,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(synced.runs_failed, 1);
+    assert_eq!(synced.items_released, 1);
+    assert_eq!(synced.items_dead, 0);
+    assert_eq!(port.state.runs[&lost_run].view().status, RunStatus::Failed);
+    let run_items = port.state.runs[&lost_run].items().collect::<Vec<_>>();
+    assert_eq!(
+        run_items[0].disposition,
+        Some(InboxItemDisposition::Handled)
+    );
+    assert_eq!(
+        run_items[1].disposition,
+        Some(InboxItemDisposition::Released)
+    );
+    assert_eq!(
+        port.state.items[&handled].view().status,
+        InboxItemStatus::Handled
+    );
+    assert_eq!(port.state.items[&handled].view().assigned_run_id, None);
+    assert_eq!(
+        port.state.items[&unresolved].view().status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(port.state.items[&unresolved].view().retry_count, 1);
 }
 
 #[tokio::test]
@@ -3105,6 +3188,126 @@ async fn rejected_delivery_releases_the_item_once() {
     .await
     .unwrap();
     assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Completed);
+}
+
+#[tokio::test]
+async fn run_result_accepts_a_matching_disposition_already_applied_during_recovery() {
+    let run_id = run(1624);
+    let item_id = item(1625);
+    let agent_id = member(1626);
+    let focus = thread(1627);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    let mut current = running_run(run_id, agent_id, focus, None, vec![item_id]);
+    update_test_run(&mut current, |snapshot| {
+        snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+    });
+    port.state.runs.insert(run_id, current);
+    let mut handled = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
+    update_test_item(&mut handled, |snapshot| {
+        snapshot.status = InboxItemStatus::Handled;
+        snapshot.assigned_run_id = None;
+        snapshot.handled_at = Some(OffsetDateTime::UNIX_EPOCH);
+    });
+    port.state.items.insert(item_id, handled);
+
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1628),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Completed,
+            error_code: None,
+            item_dispositions: vec![ItemDispositionInput {
+                item_id,
+                disposition: InboxItemDisposition::Handled,
+            }],
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Completed);
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Handled
+    );
+}
+
+#[tokio::test]
+async fn late_result_for_a_terminal_run_is_idempotent_after_recovery() {
+    let run_id = run(1629);
+    let item_id = item(1630);
+    let agent_id = member(1631);
+    let focus = thread(1632);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent_id, focus, None, vec![item_id]),
+    );
+    let mut assigned = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
+    update_test_item(&mut assigned, |snapshot| {
+        snapshot.assigned_run_id = Some(run_id);
+    });
+    port.state.items.insert(item_id, assigned);
+
+    let recovered = CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1633),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Failed,
+            error_code: Some(RunErrorCode::ComputerRestarted),
+            item_dispositions: Vec::new(),
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(recovered.view().status, RunStatus::Failed);
+
+    let late = CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1634),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Completed,
+            error_code: None,
+            item_dispositions: vec![ItemDispositionInput {
+                item_id,
+                disposition: InboxItemDisposition::Released,
+            }],
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(late.view().status, RunStatus::Failed);
+    assert_eq!(
+        late.view().error_code,
+        Some(RunErrorCode::ComputerRestarted)
+    );
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(port.state.completed_run_events.len(), 1);
 }
 
 fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {

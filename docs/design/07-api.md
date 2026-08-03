@@ -133,7 +133,7 @@ DELETE /api/v1/members/{member_id}/permissions/{action_code}
 DELETE /api/v1/computers/{computer_id}
 ```
 
-Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得读取 Provider locator、transcript、隐藏推理或未授权的 Message 正文。
+Browser 可以读取 Run 状态、Focus、时间和错误代码。`GET /api/v1/agents/{agent_id}/runs/current`还返回在线 Computer 的本地运行诊断：本地 Run 阶段与 ID、queued/active Run 计数、未完成 command 计数、result event outbox 计数和 Session 状态计数。Browser 不得读取 Provider locator、transcript、隐藏推理或未授权的 Message 正文。
 
 `PATCH /api/v1/agents/{agent_id}` 接受`role_text`与`lifecycle`，两者都是治理动作。改写 Role 推进`role_revision`并向 Agent 所在 Computer 重新下发配置；文本未变时不推进 revision，Computer 无需重新拉取。空 Role 不成立。
 
@@ -301,6 +301,10 @@ Server 先持久化 command，再通过 WebSocket 投递。
 
 `run.start` 包含可选 Task 和 Focus 的结构化快照。`run.attach_item` 包含递增的 delivery sequence。`run.notice` 不把 Item 归入当前 Run。
 
+Computer 拒绝 `run.attach_item` 时，Server 必须按 command payload 定位该 delivery，并将其作为未处理 Item 释放。该处理与 command ACK 分开完成；释放失败时不得确认 command，以便重试。
+
+Computer 拒绝 `run.start` 时，Server 必须按 command payload 定位该 Run，将其以 Computer 报告的错误码终结为 `failed`，并释放该 Run 尚未处理的 Items。该处理与 command ACK 分开完成；恢复失败时不得确认 command，以便重试。
+
 ## 5. WebSocket query
 
 Command 是单向投递:Server 持久化后下发,daemon 回 ACK 与结果。continuity 和 Memory 正文不能用这个形状表达,因为它们是 Server 向 Computer 取值,取到的内容不落库。见 [Computer 与 Agent](04-computer-agent.md) 对 `provider_session_locator` 和 Memory 正文的约束。
@@ -315,6 +319,7 @@ Query 不持久化,不重放,不进 command 序号。Server 重启或连接断�
 查询类型:
 
 - `session.continuity`:按 Agent 与 scope 取当前 Session 的 generation 与状态。响应只含 `generation`、`state` 和可选 `reason_code`,不含 locator、会话正文或 transcript。
+- `runtime.diagnostics`:按 Agent 读取本地 Run 阶段与 ID、queued/active Run 计数、未完成 command 计数、result event outbox 计数和 Session 状态计数。响应不含正文、locator、transcript、workspace 路径或 Secret。
 - `memory.list`:取 Agent Memory 的文件名、大小、SHA-256 和更新时间投影。
 - `memory.read`:取单个 Memory 文件正文。正文只在响应中经过 Server,不落库、不进日志。
 
@@ -348,7 +353,7 @@ GET /api/v1/spaces/{space_id}/events
 
 事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得；`agent.activity` 的受限动作预览遵循下述专门契约。
 
-`agent.activity` 描述 Agent 自身完成的一次写交互。payload 包含`member_id`、稳定`kind`、该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合）和 Server 生成的`arguments`数组。需要按 Channel 授权的动作同时携带`scope_channel_id`；Server 和 Browser 使用它过滤和撤销不可见记录。`arguments`每项只有语义名称和值，不包含资源 ID、Token 或其他内部标识；值只来自动作的允许参数白名单，并与正文预览使用相同的 280 字符上限。具有正文或说明输入的动作可以附带`message_preview`和`message_truncated`：preview 最多 280 个 Unicode 字符，Server 在边界截断并把 truncated 设为`true`，Browser 不得请求或拼接完整正文。首批 preview 来源为`message.send`的 body、Task review/done 的结果正文、Task close 的 note 和 Run yield 的 continuation note；Task 标题、改名值及其他短输入进入`arguments`。Attachment、Memory、workspace 文件、Provider transcript 与隐藏推理永远不进入 payload。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
+`agent.activity` 描述 Agent 自身完成的一次写交互。payload 包含`member_id`、稳定`kind`、该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合）和 Server 生成的`arguments`数组。需要按 Channel 授权的动作同时携带`scope_channel_id`；Server 和 Browser 使用它过滤和撤销不可见记录。`arguments`每项只有语义名称和值，不包含资源 ID、Token 或其他内部标识；值只来自动作的允许参数白名单，并与正文预览使用相同的 280 字符上限。具有正文或说明输入的动作可以附带`message_preview`和`message_truncated`：preview 最多 280 个 Unicode 字符，Server 在边界截断并把 truncated 设为`true`，Browser 不得请求或拼接完整正文。首批 preview 来源为`message.send`的 body、Task review/done 的结果正文、Task close 的 note 和 Run yield 的 continuation note；Task 标题、改名值及其他短输入进入`arguments`。Attachment、Memory、workspace 文件、Provider transcript 与隐藏推理永远不进入 payload。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`、`run.delivery_rejected`。`run.delivery_rejected`描述 Computer 拒绝交付后 Server 完成的恢复动作，携带`run_id`、`thread_id`、`channel_id`、`scope_channel_id`和`delivery_sequence`，不携带 Message 正文。
 
 `agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`或`scope_channel_id`时，读不到对应 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
 

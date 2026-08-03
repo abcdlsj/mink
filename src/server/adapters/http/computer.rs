@@ -187,6 +187,7 @@ pub(super) async fn current_agent_run(
     )
     .await
     .map_err(application_error)?;
+    let diagnostics = agent_runtime_diagnostics(&state, agent_id).await;
     let Some(run_id) = run_id else {
         return Ok(Json(AgentRuntimeResponse {
             current_run: None,
@@ -194,6 +195,7 @@ pub(super) async fn current_agent_run(
             focus: None,
             another_item_waiting: false,
             session_continuity: unavailable_continuity(),
+            diagnostics,
         }));
     };
     let run = run_projection(&state.pool, run_id.into_uuid()).await?;
@@ -212,6 +214,7 @@ pub(super) async fn current_agent_run(
         current_task,
         another_item_waiting,
         session_continuity,
+        diagnostics,
     }))
 }
 
@@ -556,6 +559,54 @@ pub(super) async fn agent_continuity(
         )
         .await;
     continuity_response(result)
+}
+
+pub(super) async fn agent_runtime_diagnostics(
+    state: &RuntimeState,
+    agent_id: Uuid,
+) -> Option<RuntimeDiagnosticsResponse> {
+    let computer_id =
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
+            .bind(agent_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten()?;
+    let result = state
+        .queries
+        .ask(
+            computer_id,
+            ComputerQuery::RuntimeDiagnostics(RuntimeDiagnosticsQuery {
+                agent_id: AgentId::from_uuid(agent_id),
+            }),
+        )
+        .await;
+    match result {
+        QueryResult::RuntimeDiagnostics(diagnostics) => Some(RuntimeDiagnosticsResponse {
+            local_run_id: diagnostics.local_run_id.map(|id| id.into_uuid()),
+            local_run_state: diagnostics.local_run_state.map(runtime_run_state),
+            queued_runs: diagnostics.queued_runs,
+            active_runs: diagnostics.active_runs,
+            pending_commands: diagnostics.pending_commands,
+            pending_result_events: diagnostics.pending_result_events,
+            warm_sessions: diagnostics.warm_sessions,
+            cold_sessions: diagnostics.cold_sessions,
+            reset_required_sessions: diagnostics.reset_required_sessions,
+            observed_at: timestamp(diagnostics.observed_at),
+        }),
+        _ => None,
+    }
+}
+
+fn runtime_run_state(state: crate::protocol::computer::RuntimeRunState) -> RuntimeRunState {
+    match state {
+        crate::protocol::computer::RuntimeRunState::Queued => RuntimeRunState::Queued,
+        crate::protocol::computer::RuntimeRunState::Starting => RuntimeRunState::Starting,
+        crate::protocol::computer::RuntimeRunState::Running => RuntimeRunState::Running,
+        crate::protocol::computer::RuntimeRunState::Finalizing => RuntimeRunState::Finalizing,
+        crate::protocol::computer::RuntimeRunState::Stopping => RuntimeRunState::Stopping,
+    }
 }
 
 pub(super) fn continuity_response(result: QueryResult) -> SessionContinuityResponse {

@@ -59,6 +59,8 @@ use uuid::Uuid;
         ThreadReferenceResponse,
         RunResponse,
         SessionContinuityResponse,
+        RuntimeRunState,
+        RuntimeDiagnosticsResponse,
         TaskResponse,
         CreateTaskRequest,
         UpdateTaskRequest,
@@ -668,6 +670,28 @@ pub(super) struct SessionContinuityResponse {
     pub(super) generation: Option<u64>,
     pub(super) reason_code: Option<String>,
 }
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RuntimeRunState {
+    Queued,
+    Starting,
+    Running,
+    Finalizing,
+    Stopping,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct RuntimeDiagnosticsResponse {
+    pub(super) local_run_id: Option<Uuid>,
+    pub(super) local_run_state: Option<RuntimeRunState>,
+    pub(super) queued_runs: u32,
+    pub(super) active_runs: u32,
+    pub(super) pending_commands: u32,
+    pub(super) pending_result_events: u32,
+    pub(super) warm_sessions: u32,
+    pub(super) cold_sessions: u32,
+    pub(super) reset_required_sessions: u32,
+    pub(super) observed_at: String,
+}
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct TaskResponse {
     pub(super) id: Uuid,
@@ -732,6 +756,7 @@ pub(super) struct AgentRuntimeResponse {
     pub(super) focus: Option<ThreadReferenceResponse>,
     pub(super) another_item_waiting: bool,
     pub(super) session_continuity: SessionContinuityResponse,
+    pub(super) diagnostics: Option<RuntimeDiagnosticsResponse>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

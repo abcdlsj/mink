@@ -6,9 +6,9 @@ use crate::{
     computer::application::{
         AgentInput, ApplicationError, AttentionNoticeInput, ContextMessageInput, ContinuityState,
         DeliveryState, DispatchedItemInput, DriverKind, ItemDisposition, LocalAgent,
-        LocalAgentState, LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput,
-        RunContextInput, RunInput, RunPriority, RunSecret, SessionFingerprint, SessionScope,
-        SpaceMemberInput, TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput, MemoryFile, NewRun,
+        NoticeLocationInput, RunContextInput, RunInput, RunPriority, RunSecret, SessionFingerprint,
+        SessionScope, SpaceMemberInput, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -98,6 +98,25 @@ impl ServerConnectionAdapter {
                             },
                             generation: continuity.generation,
                             reason_code: None,
+                        })
+                    }
+                    Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownAgent),
+                }
+            }
+            wire::Query::RuntimeDiagnostics(query) => {
+                match QueryService::runtime_diagnostics(store, query.agent_id).await {
+                    Ok(diagnostics) => {
+                        wire::QueryResult::RuntimeDiagnostics(wire::RuntimeDiagnosticsResult {
+                            local_run_id: diagnostics.local_run_id,
+                            local_run_state: diagnostics.local_run_state.map(runtime_run_state),
+                            queued_runs: diagnostics.queued_runs,
+                            active_runs: diagnostics.active_runs,
+                            pending_commands: diagnostics.pending_commands,
+                            pending_result_events: diagnostics.pending_result_events,
+                            warm_sessions: diagnostics.warm_sessions,
+                            cold_sessions: diagnostics.cold_sessions,
+                            reset_required_sessions: diagnostics.reset_required_sessions,
+                            observed_at: OffsetDateTime::now_utc(),
                         })
                     }
                     Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownAgent),
@@ -443,6 +462,22 @@ fn local_scope(scope: wire::SessionScope) -> SessionScope {
     match scope {
         wire::SessionScope::Thread(id) => SessionScope::Thread(id),
         wire::SessionScope::Task(id) => SessionScope::Task(id),
+    }
+}
+
+fn runtime_run_state(state: LocalRunState) -> wire::RuntimeRunState {
+    match state {
+        LocalRunState::Queued => wire::RuntimeRunState::Queued,
+        LocalRunState::Starting => wire::RuntimeRunState::Starting,
+        LocalRunState::Running => wire::RuntimeRunState::Running,
+        LocalRunState::Finalizing => wire::RuntimeRunState::Finalizing,
+        LocalRunState::Stopping => wire::RuntimeRunState::Stopping,
+        LocalRunState::Completed
+        | LocalRunState::Yielded
+        | LocalRunState::Failed
+        | LocalRunState::Canceled => {
+            unreachable!("terminal local Run state was returned as a runtime diagnostic")
+        }
     }
 }
 

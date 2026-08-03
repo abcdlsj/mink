@@ -252,14 +252,42 @@ impl RunService {
         sequence: u64,
         item: DispatchedItemInput,
     ) -> Result<DeliveryState, ApplicationError> {
-        let (mut run, inserted) = store
+        let (mut run, inserted, late_outcome) = store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
+                if run.view().state.is_terminal() {
+                    let outcome = run.late_delivery(sequence, &item)?;
+                    if outcome == DeliveryState::TooLate
+                        && !transaction.pending_events()?.into_iter().any(|event| {
+                            matches!(
+                                event,
+                                LocalEvent::Delivery {
+                                    run_id: event_run_id,
+                                    sequence: event_sequence,
+                                    outcome: DeliveryState::TooLate,
+                                    ..
+                                } if event_run_id == run_id && event_sequence == sequence
+                            )
+                        })
+                    {
+                        transaction.append_event(LocalEvent::Delivery {
+                            event_id: next_event_id(),
+                            run_id,
+                            sequence,
+                            outcome,
+                        })?;
+                    }
+                    transaction.save_run(run.clone())?;
+                    return Ok((run, false, Some(outcome)));
+                }
                 let inserted = run.attach(sequence, item)?;
                 transaction.save_run(run.clone())?;
-                Ok((run, inserted))
+                Ok((run, inserted, None))
             })
             .await?;
+        if let Some(outcome) = late_outcome {
+            return Ok(outcome);
+        }
         if !inserted && run.view().deliveries[&sequence].state != DeliveryState::Pending {
             return Ok(run.view().deliveries[&sequence].state);
         }
@@ -378,7 +406,10 @@ impl RunService {
                     if run.view().state != LocalRunState::Stopping {
                         run.request_stop()?;
                     }
-                } else if run.view().state == LocalRunState::Running {
+                } else if matches!(
+                    run.view().state,
+                    LocalRunState::Starting | LocalRunState::Running
+                ) {
                     run.begin_finalizing()?;
                 }
                 run.validate_item_outcomes(&item_outcomes)?;

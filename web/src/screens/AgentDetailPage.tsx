@@ -43,7 +43,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
   const [retireConfirmOpen, setRetireConfirmOpen] = useState(false);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
-  const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false });
+  const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false, refetchInterval: 2000, refetchIntervalInBackground: true });
   const members = useQuery({ queryKey: ["members", spaceId], queryFn: () => listMembers(spaceId) });
   const agentDirectMessages = useQuery({
     queryKey: ["agent-direct-messages", agentId],
@@ -184,6 +184,19 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
             </DetailSection>
             <DetailSection className="agent-identity" title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
             <DetailSection className="agent-runtime" title="Runtime"><dl className="detail-grid"><Field label="Provision">{capitalize(value.provision_status)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Last error">{value.last_error_code ? <code>{value.last_error_code}</code> : "None recorded"}</Field></dl></DetailSection>
+            {runtime.data?.diagnostics ? <DetailSection className="agent-runtime-diagnostics" title="Live diagnostics">
+              <dl className="detail-grid">
+                <Field label="Local Run">{runtime.data.diagnostics.local_run_id ? <code title={runtime.data.diagnostics.local_run_id}>{runtime.data.diagnostics.local_run_state ? `${humanize(runtime.data.diagnostics.local_run_state)} · ${runtime.data.diagnostics.local_run_id.slice(0, 8)}` : runtime.data.diagnostics.local_run_id.slice(0, 8)}</code> : "No local Run"}</Field>
+                <Field label="Local queue" tabular>{runtime.data.diagnostics.queued_runs}</Field>
+                <Field label="Active local Runs" tabular>{runtime.data.diagnostics.active_runs}</Field>
+                <Field label="Pending commands" tabular>{runtime.data.diagnostics.pending_commands}</Field>
+                <Field label="Pending results" tabular>{runtime.data.diagnostics.pending_result_events}</Field>
+                <Field label="Sessions" tabular>{`${runtime.data.diagnostics.warm_sessions} warm · ${runtime.data.diagnostics.cold_sessions} cold · ${runtime.data.diagnostics.reset_required_sessions} reset`}</Field>
+              </dl>
+              {runtime.data.current_run && !runtime.data.diagnostics.local_run_id ? <p className="inline-notice inline-notice--error" role="alert">Server Run is active, but the Computer reports no local Run.</p> : null}
+              {runtime.data.current_run && runtime.data.diagnostics.local_run_id && runtime.data.diagnostics.local_run_id !== runtime.data.current_run.id ? <p className="inline-notice inline-notice--error" role="alert">Server and Computer report different active Runs.</p> : null}
+              {runtime.data.diagnostics.pending_result_events > 0 ? <p className="inline-notice" role="status">The Computer has result events waiting for Server receipts.</p> : null}
+            </DetailSection> : runtime.data ? <DetailSection className="agent-runtime-diagnostics" title="Live diagnostics"><p className="inline-notice">Computer-local diagnostics are unavailable.</p></DetailSection> : null}
             {canManage ? <DetailSection className="agent-direct-messages" title="Agent DMs">
               {agentDirectMessages.isPending ? <p>Loading Agent DMs...</p> : null}
               {agentDirectMessages.error ? <p className="inline-notice" role="alert">Agent DMs are unavailable.</p> : null}
@@ -296,6 +309,7 @@ const activityLabels: Record<AgentActivityItem["kind"], string> = {
   "inbox.ack": "Acknowledged an inbox item",
   "inbox.defer": "Deferred an inbox item",
   "run.yield": "Yielded the current run",
+  "run.delivery_rejected": "Recovered a rejected delivery",
 };
 
 function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; spaceSlug: string; channels: Channel[] }) {

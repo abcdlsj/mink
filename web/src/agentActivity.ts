@@ -19,7 +19,8 @@ export type AgentActivityKind =
   | "agent.create"
   | "inbox.ack"
   | "inbox.defer"
-  | "run.yield";
+  | "run.yield"
+  | "run.delivery_rejected";
 
 export interface AgentActivityArgument {
   name: string;

@@ -376,6 +376,33 @@ impl LocalRun {
         Ok(true)
     }
 
+    pub(in crate::computer) fn late_delivery(
+        &mut self,
+        sequence: u64,
+        item: &DispatchedItemInput,
+    ) -> Result<DeliveryState, CoreError> {
+        if item.task_id != self.task_id || item.thread_id != self.focus_thread_id {
+            return Err(CoreError::ScopeMismatch);
+        }
+        if let Some(existing) = self.deliveries.get_mut(&sequence) {
+            if existing.item != *item {
+                return Err(CoreError::ConflictingDelivery);
+            }
+            if existing.state == DeliveryState::Pending {
+                existing.state = DeliveryState::TooLate;
+            }
+            return Ok(existing.state);
+        }
+        let expected = self
+            .deliveries
+            .last_key_value()
+            .map_or(1, |(sequence, _)| sequence + 1);
+        if sequence != expected {
+            return Err(CoreError::InvalidDeliverySequence);
+        }
+        Ok(DeliveryState::TooLate)
+    }
+
     pub(in crate::computer) fn record_delivery(
         &mut self,
         sequence: u64,
@@ -463,7 +490,7 @@ impl LocalRun {
     }
 
     pub(in crate::computer) fn begin_finalizing(&mut self) -> Result<(), CoreError> {
-        if self.state != LocalRunState::Running {
+        if !matches!(self.state, LocalRunState::Starting | LocalRunState::Running) {
             return Err(CoreError::InvalidTransition);
         }
         self.state = LocalRunState::Finalizing;
