@@ -1194,6 +1194,19 @@ impl CollaborationTransaction for MemoryTransaction {
     ) -> Result<Option<ChannelId>, ApplicationError> {
         Ok(self.state.threads.get(&thread_id).map(|t| t.channel_id))
     }
+    async fn join_channel(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        _now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        let channel = self
+            .state
+            .channels
+            .get_mut(&channel_id)
+            .ok_or(ApplicationError::NotFound)?;
+        Ok(channel.audience.insert(actor))
+    }
     async fn add_channel_agents(
         &mut self,
         actor: MemberId,

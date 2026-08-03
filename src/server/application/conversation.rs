@@ -50,6 +50,7 @@ impl JoinChannel {
         port: &mut P,
         actor_member_id: MemberId,
         channel_id: ChannelId,
+        now: OffsetDateTime,
     ) -> Result<Channel, ApplicationError> {
         port.transact(async |transaction| {
             let mut channel = transaction.channel(channel_id).await?;
@@ -57,7 +58,9 @@ impl JoinChannel {
                 .member_access_level(actor_member_id, channel.space_id)
                 .await?;
             channel.admit(actor_member_id)?;
-            transaction.save_channel(channel.clone()).await?;
+            transaction
+                .join_channel(actor_member_id, channel_id, now)
+                .await?;
             transaction.emit(Effect::ChannelUpdated(channel.id));
             Ok(channel)
         })

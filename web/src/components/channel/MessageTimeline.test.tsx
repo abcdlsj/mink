@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRef } from "react";
@@ -52,6 +53,23 @@ describe("System Notice timeline", () => {
     expect(screen.getByText("Lin joined the channel")).toBeVisible();
     expect(screen.getByText("Reviewer joined the channel")).toBeVisible();
   });
+
+  it("resets Message identity grouping after a System Notice", () => {
+    const notice = systemNotice(1, "Sumi joined the channel", "2026-07-25T12:00:00Z");
+    const message: Message = {
+      ...notice,
+      id: "message-2",
+      seq: 2,
+      content: { type: "text", body_markdown: "Hello after the notice" },
+      created_at: "2026-07-25T12:01:00Z",
+    };
+
+    const { container } = renderSystemNotices([notice, message]);
+    const row = container.querySelector('[data-message-id="message-2"] .message-row');
+
+    expect(row).not.toHaveClass("message-row--grouped");
+    expect(screen.getByRole("img", { name: "Sumi avatar" })).toBeVisible();
+  });
 });
 
 describe("ExpandableMessageText", () => {
@@ -85,19 +103,21 @@ function renderSystemNotices(messages: Message[]) {
     has_more_after: false,
   };
   return render(
-    <MessageTimeline
-      timelineRef={createRef<HTMLDivElement>()}
-      page={page}
-      pending={false}
-      error={null}
-      retry={vi.fn()}
-      emptyTitle="No messages"
-      channelId="channel-1"
-      spaceSlug="sumi-lab"
-      openThread={vi.fn()}
-      activityByMemberId={new Map()}
-      members={[]}
-    />,
+    <QueryClientProvider client={new QueryClient()}>
+      <MessageTimeline
+        timelineRef={createRef<HTMLDivElement>()}
+        page={page}
+        pending={false}
+        error={null}
+        retry={vi.fn()}
+        emptyTitle="No messages"
+        channelId="channel-1"
+        spaceSlug="sumi-lab"
+        openThread={vi.fn()}
+        activityByMemberId={new Map()}
+        members={[]}
+      />
+    </QueryClientProvider>,
   );
 }
 

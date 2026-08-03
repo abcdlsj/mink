@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use anyhow::{Context, Result, ensure};
 use reqwest::{Client, StatusCode, header};
 use serde_json::Value;
+use sqlx::PgPool;
 use tempfile::tempdir;
 use url::Url;
 use uuid::Uuid;
@@ -154,6 +155,41 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     let members = members.as_array().context("Member list")?;
     ensure!(members.len() == 2, "{members:?}");
+
+    let general_channel_id: Uuid = space["general_channel_id"]
+        .as_str()
+        .context("general Channel ID")?
+        .parse()?;
+    let pool = PgPool::connect(&database.url).await?;
+    let notice: (String, String, Uuid) = sqlx::query_as(
+        "SELECT content_kind,body_markdown,author_member_id \
+         FROM messages WHERE channel_id=$1 ORDER BY channel_seq DESC LIMIT 1",
+    )
+    .bind(general_channel_id)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(
+        notice.0 == "system_notice"
+            && notice.1 == "Grace_Hopper joined the channel"
+            && notice.2
+                == accepted["id"]
+                    .as_str()
+                    .context("accepted Member ID")?
+                    .parse::<Uuid>()?,
+        "membership notice projection is invalid"
+    );
+    let member_event_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events \
+         WHERE kind='member.changed' AND payload_json->>'channel_id'=$1",
+    )
+    .bind(general_channel_id.to_string())
+    .fetch_one(&pool)
+    .await?;
+    ensure!(
+        member_event_count == 1,
+        "expected one member.changed event, got {member_event_count}"
+    );
+    pool.close().await;
 
     let retried: Value = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)

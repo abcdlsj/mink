@@ -610,16 +610,27 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-        sqlx::query(
+        let general_channel_id: Option<Uuid> = sqlx::query_scalar(
             "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) \
-             SELECT id,space_id,$2,$3 FROM channels WHERE space_id=$1 AND slug='general'",
+             SELECT id,space_id,$2,$3 FROM channels WHERE space_id=$1 AND slug='general' \
+             RETURNING channel_id",
         )
         .bind(record.space_id.into_uuid())
         .bind(record.member_id.into_uuid())
         .bind(record.created_at)
-        .execute(&mut *self.connection)
+        .fetch_optional(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        if let Some(channel_id) = general_channel_id {
+            self.record_channel_member_joined(
+                ChannelId::from_uuid(channel_id),
+                record.member_id,
+                record.member_id,
+                &record.display_name,
+                record.created_at,
+            )
+            .await?;
+        }
         sqlx::query(
             "INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,created_at) \
              VALUES($1,$2,$3,'space.member.joined','member',$3,$4)",

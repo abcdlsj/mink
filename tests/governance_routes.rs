@@ -118,6 +118,45 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     let private_id = private["id"].as_str().context("private Channel ID")?;
 
+    let public: Value = client
+        .post(server_url.join(&format!("/api/v1/spaces/{space_id}/channels"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({
+            "name": "Lounge", "slug": "lounge", "kind": "public", "agent_member_ids": []
+        }))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let public_id = public["id"].as_str().context("public Channel ID")?;
+    client
+        .post(server_url.join(&format!("/api/v1/channels/{public_id}/members/me"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &member)
+        .send()
+        .await?
+        .error_for_status()?;
+    let public_messages: Value = client
+        .get(server_url.join(&format!("/api/v1/channels/{public_id}/messages"))?)
+        .header(header::COOKIE, &member)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(
+        public_messages["messages"]
+            .as_array()
+            .is_some_and(|messages| {
+                messages.iter().any(|message| {
+                    message["content"]["type"] == "system_notice"
+                        && message["content"]["body_markdown"] == "Grace_Hopper joined the channel"
+                })
+            })
+    );
+
     let joined: Value = client
         .post(server_url.join(&format!("/api/v1/channels/{general_id}/members/me"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())

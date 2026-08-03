@@ -78,6 +78,12 @@ pub(in crate::server) trait CollaborationTransaction {
         &mut self,
         thread_id: ThreadId,
     ) -> Result<Option<ChannelId>, ApplicationError>;
+    async fn join_channel(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        now: time::OffsetDateTime,
+    ) -> Result<bool, ApplicationError>;
     async fn add_channel_agents(
         &mut self,
         actor: MemberId,

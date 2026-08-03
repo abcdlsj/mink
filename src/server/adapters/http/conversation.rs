@@ -732,6 +732,7 @@ pub(super) async fn join_channel(
         &mut storage,
         MemberId::from_uuid(actor_id),
         ChannelId::from_uuid(channel_id),
+        OffsetDateTime::now_utc(),
     )
     .await
     .map_err(application_error)?;

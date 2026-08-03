@@ -74,7 +74,13 @@ export function useSpaceEvents(
       }
       if (payload.type === "member.changed") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
-        void queryClient.invalidateQueries({ queryKey: ["channel-members"] });
+        if (payload.data.channel_id) {
+          void queryClient.invalidateQueries({ queryKey: ["channel-members", payload.data.channel_id] });
+        } else {
+          // Space-level membership changes have no Channel scope. Keep the
+          // fallback for any open Channel projections that may contain it.
+          void queryClient.invalidateQueries({ queryKey: ["channel-members"] });
+        }
       }
       if (payload.type === "agent.changed" || payload.type === "agent.updated" || payload.type === "run.changed") {
         void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });

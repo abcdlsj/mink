@@ -830,6 +830,9 @@ function groupTimelineMessages(messages: Message[]): Message[][] {
 // short window, so a burst reads as one turn instead of repeating the identity.
 function startsNewGroup(message: Message, previous: Message | undefined): boolean {
   if (!previous) return true;
+  // A System Notice marks a timeline boundary. It may have the same actor as
+  // the following Message, but it must not hide that Message's identity.
+  if (previous.content.type === "system_notice") return true;
   if (previous.author.id !== message.author.id) return true;
   const gap = new Date(message.created_at).getTime() - new Date(previous.created_at).getTime();
   return !Number.isFinite(gap) || gap > MESSAGE_GROUP_GAP_MS;
