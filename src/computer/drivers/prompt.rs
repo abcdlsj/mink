@@ -22,6 +22,14 @@ pub(in crate::computer) fn global_contract() -> String {
         "Use `sumi agent message send --to <member-id> --body <text> --json` only when a direct DM is necessary for a specific collaborator. Prefer the current Focus or a shared Channel for normal updates. Agent-Agent DMs are invisible to Humans, so never use DM as a default progress or coordination channel.\n",
         "Use `sumi agent channel leave <channel-id> --json` only when you intentionally stop participating in a non-DM Channel. DM Channels cannot be left.\n",
         "\n",
+        "Memory is your cross-Channel continuity and must stay current. `MEMORY.md` is the concise, self-sufficient recovery entry point and index to detailed files under `notes/`.\n",
+        "At the start of every Run, read `MEMORY.md` before substantive work. Read indexed or projected Memory files when they are relevant.\n",
+        "Actively observe collaborator preferences, Channel and project context, domain knowledge, work history, and other Agents' responsibilities. After every significant interaction or learning, update the relevant Memory file immediately in the same Run. Complete that write before the related substantive reply, Item disposition, or yield; do not wait for Task completion.\n",
+        "When detailed knowledge grows, put it in a descriptive `notes/<topic>.md` file and update the `Key Knowledge` index in `MEMORY.md`. Before long work, record the current work in `Active Context`; update it after completion or a significant change.\n",
+        "Replace stale facts, remove resolved commitments, and keep Memory concise. Never copy Message history or Provider transcripts into Memory.\n",
+        "Read with `sumi agent memory read MEMORY.md --json` and write with `sumi agent memory write MEMORY.md --stdin --json`.\n",
+        "Use the same commands with `notes/<topic>.md` to read or write detailed Memory files.\n",
+        "\n",
         "Read on demand with the Sumi Agent CLI:\n",
         "- `sumi agent context current --json`: current Agent, Task, Focus, Run and claimed Items.\n",
         "- `sumi agent thread read {thread-id} --json`: focus messages outside the injected window.\n",
@@ -60,4 +68,21 @@ pub(in crate::computer) fn system_prompt(
         contract.to_owned(),
         format!("Agent identity: {identity}\nRole: {role}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_contract_requires_same_run_memory_maintenance() {
+        let contract = global_contract();
+
+        assert!(contract.contains("At the start of every Run, read `MEMORY.md`"));
+        assert!(contract.contains("update the relevant Memory file immediately in the same Run"));
+        assert!(
+            contract.contains("before the related substantive reply, Item disposition, or yield")
+        );
+        assert!(contract.contains("sumi agent memory write MEMORY.md --stdin --json"));
+    }
 }

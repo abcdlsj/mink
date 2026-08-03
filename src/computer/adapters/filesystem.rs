@@ -76,6 +76,14 @@ impl AgentHomeAdapter {
         Ok(())
     }
 
+    async fn initialize_memory(&self, agent: &LocalAgent) -> Result<(), ApplicationError> {
+        let path = self
+            .agent_home(agent)
+            .join("memory")
+            .join(LocalAgent::PRIMARY_MEMORY_PATH);
+        write_private_file_if_absent(&path, agent.initial_memory_document().as_bytes()).await
+    }
+
     async fn install_codex_sources(&self, codex_home: &Path) -> Result<(), ApplicationError> {
         if let Some(source) = &self.codex_config_source {
             let encoded = tokio::fs::read_to_string(source)
@@ -216,7 +224,8 @@ impl AgentHomePort for AgentHomeAdapter {
     }
 
     async fn provision(&mut self, agent: LocalAgent) -> Result<(), ApplicationError> {
-        self.write_profile(&agent).await
+        self.write_profile(&agent).await?;
+        self.initialize_memory(&agent).await
     }
 
     async fn configure(&mut self, mut agent: LocalAgent) -> Result<(), ApplicationError> {
@@ -477,6 +486,36 @@ async fn write_new_private_file(path: &Path, contents: &[u8]) -> Result<(), Appl
     restrict_file(path).await
 }
 
+async fn write_private_file_if_absent(
+    path: &Path,
+    contents: &[u8],
+) -> Result<(), ApplicationError> {
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = match options.open(path).await {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = tokio::fs::symlink_metadata(path)
+                .await
+                .map_err(|_| ApplicationError::Internal)?;
+            if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+                return Err(ApplicationError::Conflict);
+            }
+            return restrict_file(path).await;
+        }
+        Err(_) => return Err(ApplicationError::Internal),
+    };
+    file.write_all(contents)
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    file.sync_all()
+        .await
+        .map_err(|_| ApplicationError::Internal)?;
+    restrict_file(path).await
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -539,6 +578,59 @@ mod tests {
         homes.retire(agent_id).await.unwrap();
         assert!(!profile_path.exists());
         assert!(computer_home.exists());
+    }
+
+    #[tokio::test]
+    async fn provision_initializes_primary_memory_without_overwriting_agent_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let mut homes = AgentHomeAdapter::new(computer_home, None, None);
+        let mut agent = LocalAgent {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(Uuid::now_v7()),
+            name: "agent".to_owned(),
+            role_revision: 1,
+            role: "Coordinate architecture decisions across channels.".to_owned(),
+            driver: DriverKind::Codex,
+            state: LocalAgentState::Active,
+        };
+        let agent_id = agent.agent_id;
+
+        homes.provision(agent.clone()).await.unwrap();
+
+        let initialized = String::from_utf8(
+            homes
+                .read_memory(agent_id, Path::new(LocalAgent::PRIMARY_MEMORY_PATH))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(initialized.starts_with("# agent\n\n## Role\n\n"));
+        assert!(initialized.contains(&agent.role));
+        for heading in ["## Key Knowledge", "## Active Context"] {
+            assert!(initialized.contains(heading));
+        }
+        assert!(initialized.contains("Read notes/<topic>.md for <scope>"));
+        assert!(initialized.contains("- Current focus:"));
+        assert!(initialized.contains("- Last interaction:"));
+
+        homes
+            .write_memory(
+                agent_id,
+                Path::new(LocalAgent::PRIMARY_MEMORY_PATH),
+                b"# Agent-maintained memory\n",
+            )
+            .await
+            .unwrap();
+        agent.role_revision = 2;
+        agent.role = "A revised role".to_owned();
+        homes.provision(agent).await.unwrap();
+
+        let preserved = homes
+            .read_memory(agent_id, Path::new(LocalAgent::PRIMARY_MEMORY_PATH))
+            .await
+            .unwrap();
+        assert!(preserved == b"# Agent-maintained memory\n");
     }
 
     #[cfg(unix)]
