@@ -3087,11 +3087,6 @@ pre {
   font-weight: 650;
 }
 
-.agent-activity-kind {
-  color: var(--muted);
-  font: 600 var(--text-meta)/1.2 var(--font-mono);
-}
-
 .agent-activity-command {
   gap: 5px;
   margin-top: 7px;
@@ -3100,7 +3095,7 @@ pre {
 }
 
 .agent-activity-command > div {
-  grid-template-columns: 116px minmax(0, 1fr);
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -3148,6 +3143,50 @@ pre {
   font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: .04em;
+}
+
+.agent-activity-arguments {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-activity-arguments li {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+
+.agent-activity-arguments li code:first-child {
+  color: var(--muted);
+}
+
+.agent-activity-message {
+  max-height: 11.2em;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-inline-start: 3px solid var(--accent);
+  background: var(--paper);
+  font-size: var(--text-system);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-activity-truncated {
+  display: inline-block;
+  margin-inline-start: 8px;
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 
 .computer-detail .hosted-agent-list .agent-state--idle i { background: var(--green); }

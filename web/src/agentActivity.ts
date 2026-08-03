@@ -21,6 +21,11 @@ export type AgentActivityKind =
   | "inbox.defer"
   | "run.yield";
 
+export interface AgentActivityArgument {
+  name: string;
+  value: string;
+}
+
 export interface AgentActivityItem {
   eventId: string;
   agentMemberId: string;
@@ -28,11 +33,15 @@ export interface AgentActivityItem {
   occurredAt: string;
   runId?: string;
   channelId?: string;
+  scopeChannelId?: string;
   threadId?: string;
   messageId?: string;
   taskId?: string;
   itemId?: string;
   targetMemberId?: string;
+  arguments: readonly AgentActivityArgument[];
+  messagePreview?: string;
+  messageTruncated: boolean;
 }
 
 export interface AgentActivityEvent {
@@ -43,15 +52,20 @@ export interface AgentActivityEvent {
     kind: AgentActivityKind;
     run_id?: string;
     channel_id?: string;
+    scope_channel_id?: string;
     thread_id?: string;
     message_id?: string;
     task_id?: string;
     item_id?: string;
     target_member_id?: string;
+    arguments?: AgentActivityArgument[];
+    message_preview?: string;
+    message_truncated?: boolean;
   };
 }
 
 const MAX_ITEMS_PER_AGENT = 50;
+const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const listeners = new Set<() => void>();
 const activityByAgent = new Map<string, AgentActivityItem[]>();
 
@@ -64,6 +78,16 @@ function dedupeKey(item: AgentActivityItem): string {
     item.targetMemberId ??
     item.runId ??
     item.eventId;
+  // The server can emit a fresh envelope when an idempotent request is retried.
+  // Include semantic details so those retries collapse while two updates to the
+  // same resource with different inputs remain visible as separate actions.
+  if (item.arguments.length > 0 || item.messagePreview !== undefined) {
+    return `${item.kind}:${resource}:${JSON.stringify([
+      item.arguments,
+      item.messagePreview,
+      item.messageTruncated,
+    ])}`;
+  }
   return `${item.kind}:${resource}`;
 }
 
@@ -71,8 +95,17 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
-/** Records one `agent.activity` event. Replays of the same action dedupe on the action kind plus
- *  its primary resource, so reconnects and idempotent retries do not duplicate feed rows. */
+function semanticArguments(arguments_: AgentActivityArgument[] | undefined): AgentActivityArgument[] {
+  return (arguments_ ?? [])
+    .filter((argument) => argument.name !== "id" && !argument.name.endsWith("_id"))
+    .map((argument) => ({
+      name: argument.name,
+      value: argument.value.replace(UUID_PATTERN, "[resource]"),
+    }));
+}
+
+/** Records one `agent.activity` event. Replays and idempotent retries dedupe by resource plus
+ * semantic details; legacy rows without details retain the resource-based fallback. */
 export function recordAgentActivity(event: AgentActivityEvent): void {
   const data = event.data;
   const item: AgentActivityItem = {
@@ -82,11 +115,15 @@ export function recordAgentActivity(event: AgentActivityEvent): void {
     occurredAt: event.occurred_at,
     runId: data.run_id,
     channelId: data.channel_id,
+    scopeChannelId: data.scope_channel_id,
     threadId: data.thread_id,
     messageId: data.message_id,
     taskId: data.task_id,
     itemId: data.item_id,
     targetMemberId: data.target_member_id,
+    arguments: semanticArguments(data.arguments),
+    messagePreview: data.message_preview,
+    messageTruncated: data.message_truncated ?? false,
   };
   const current = activityByAgent.get(item.agentMemberId) ?? [];
   const key = dedupeKey(item);
@@ -102,6 +139,21 @@ export function activityForAgent(agentMemberId: string): readonly AgentActivityI
 export function clearAgentActivity(): void {
   activityByAgent.clear();
   notify();
+}
+
+/** Drops rows whose visibility scope changed after a Channel membership update. */
+export function clearAgentActivityForChannel(channelId: string): void {
+  let changed = false;
+  for (const [agentId, items] of activityByAgent) {
+    const visibleItems = items.filter(
+      (item) => item.channelId !== channelId && item.scopeChannelId !== channelId,
+    );
+    if (visibleItems.length !== items.length) {
+      activityByAgent.set(agentId, visibleItems);
+      changed = true;
+    }
+  }
+  if (changed) notify();
 }
 
 export function useAgentActivity(agentMemberId: string): readonly AgentActivityItem[] {

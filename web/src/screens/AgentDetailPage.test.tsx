@@ -169,6 +169,11 @@ describe("Agent detail", () => {
         channel_id: space.general_channel_id,
         thread_id: "thread-1",
         message_id: "message-1",
+        arguments: [
+          { name: "target", value: "#general:12" },
+          { name: "attachment_count", value: "0" },
+        ],
+        message_preview: "The Agent sent this message.",
       },
     });
     recordAgentActivity({
@@ -186,7 +191,9 @@ describe("Agent detail", () => {
     expect(screen.getByText("Sent a message")).toBeVisible();
     expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
     expect(screen.getByText("message.send")).toBeVisible();
-    expect(screen.getByText("run-1")).toBeVisible();
+    expect(screen.getByText("Arguments")).toBeVisible();
+    expect(screen.getByText("The Agent sent this message.")).toBeVisible();
+    expect(screen.queryByText("run-1")).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Agent activity" })).toHaveClass("agent-activity-list");
 
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));

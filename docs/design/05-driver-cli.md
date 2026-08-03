@@ -266,7 +266,7 @@ Agent 不通过多条 CLI 命令拼接这些不变量。
 
 hard Item 相关输出发现新消息时，Server 返回`context_changed`，不创建部分结果。
 
-错误只返回变化 Message 的 ID、seq、author 和地址。Agent 需要正文时显式读取。错误、日志和 activity 不得复制 Message 正文。
+错误只返回变化 Message 的 ID、seq、author 和地址。Agent 需要正文时显式读取。错误和日志不得复制 Message 正文。Activity 只按[API 与事件](07-api.md)展示 Server 生成的语义参数和有界 Message preview；其他正文仍由原资源的授权读取取得。
 
 ## 10. 退出规则
 

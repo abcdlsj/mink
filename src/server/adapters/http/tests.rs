@@ -25,6 +25,14 @@ struct CapabilityFixture {
     deferred_item_id: InboxItemId,
 }
 
+#[test]
+fn agent_activity_preview_is_unicode_bounded() {
+    let preview = agent_activity_preview(&"界".repeat(300));
+    assert_eq!(preview.text.chars().count(), 280);
+    assert!(preview.truncated);
+    assert_eq!(preview.text.chars().last(), Some('…'));
+}
+
 impl CapabilityFixture {
     async fn create() -> Self {
         let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
@@ -1514,6 +1522,10 @@ async fn agent_write_actions_emit_agent_activity_events() {
     );
     assert_eq!(payloads[0]["thread_id"], serde_json::json!(focus_id));
     assert!(payloads[0]["message_id"].as_str().is_some());
+    assert_eq!(payloads[0]["arguments"][0]["name"], "target");
+    assert_eq!(payloads[0]["arguments"][1]["name"], "attachment_count");
+    assert_eq!(payloads[0]["message_preview"], "activity check");
+    assert_eq!(payloads[0]["message_truncated"], false);
     assert_eq!(
         payloads[1]["task_id"],
         serde_json::json!(task_id.into_uuid())
@@ -1528,9 +1540,10 @@ async fn agent_write_actions_emit_agent_activity_events() {
         payloads[5]["item_id"],
         serde_json::json!(fixture.handled_item_id.into_uuid())
     );
+    assert_eq!(payloads[5]["arguments"][0]["name"], "source");
+    assert_eq!(payloads[5]["arguments"][1]["name"], "disposition");
 
-    // A Space member who cannot read the private Channel still receives the
-    // Channel-independent activity rows, but not message.send / channel.create.
+    // A viewer who cannot read the scoped Channel receives no semantic activity payload.
     let viewer = MemberId::from_uuid(Uuid::now_v7());
     let visible = fixture
         .state
@@ -1544,16 +1557,7 @@ async fn agent_write_actions_emit_agent_activity_events() {
         .filter(|event| event.event_type == "agent.activity")
         .map(|event| event.data["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        visible_activity,
-        vec![
-            "task.create",
-            "task.update",
-            "agent.create",
-            "inbox.ack",
-            "task.done",
-        ]
-    );
+    assert!(visible_activity.is_empty());
 
     fixture.destroy().await;
 }
@@ -1599,8 +1603,10 @@ async fn yielded_run_emits_agent_activity_event() {
     assert_eq!(payload["member_id"], serde_json::json!(agent_id));
     assert_eq!(payload["run_id"], serde_json::json!(run_id));
     assert_eq!(payload["thread_id"], serde_json::json!(focus_id));
+    assert_eq!(payload["message_preview"], "continue later");
+    assert_eq!(payload["message_truncated"], false);
 
-    let viewer = MemberId::from_uuid(Uuid::now_v7());
+    let viewer = MemberId::from_uuid(fixture.owner_id);
     let visible = fixture
         .state
         .storage

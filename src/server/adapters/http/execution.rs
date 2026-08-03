@@ -163,15 +163,26 @@ pub(super) async fn apply_run_result(
     .map_err(application_error)?;
     if result.status == RunTerminalStatus::Yielded {
         let run_view = run.view();
+        let focus = activity_thread_reference(&state.pool, run_view.focus_thread_id).await;
+        let arguments = focus
+            .as_ref()
+            .map(|reference| vec![("focus", reference.label.clone())])
+            .unwrap_or_default();
         record_agent_activity(
             state,
             run_view.space_id.into_uuid(),
             run_view.agent_id.into_uuid(),
             "run.yield",
-            json!({
-                "run_id": run_view.id,
-                "thread_id": run_view.focus_thread_id,
-            }),
+            agent_activity_details(
+                json!({
+                    "run_id": run_view.id,
+                    "thread_id": run_view.focus_thread_id,
+                    "channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                    "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                }),
+                arguments,
+                run_view.continuation_note.map(agent_activity_preview),
+            ),
         )
         .await;
     }
@@ -479,6 +490,10 @@ pub(super) async fn execute_agent_action(
             .await
         }
         capability::Action::MessageSend(send) => {
+            let target = activity_message_target(state, context, &send.target).await;
+            let message_preview = agent_activity_preview(&send.body);
+            let attachment_count = send.attachment_ids.len();
+            let handles_item = send.handle_item_id.is_some();
             let expected_snapshot = send.snapshot_sequence.or_else(|| {
                 matches!(&send.target, capability::MessageTarget::Focus)
                     .then_some(context.message_snapshot_sequence)
@@ -582,12 +597,21 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "message.send",
-                json!({
-                    "run_id": context.run_id,
-                    "channel_id": channel_id,
-                    "thread_id": thread_id.unwrap_or(message_id),
-                    "message_id": message_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "channel_id": channel_id,
+                        "thread_id": thread_id.unwrap_or(message_id),
+                        "message_id": message_id,
+                        "scope_channel_id": channel_id,
+                    }),
+                    vec![
+                        ("target", target),
+                        ("attachment_count", attachment_count.to_string()),
+                        ("handle_item", handles_item.to_string()),
+                    ],
+                    Some(message_preview),
+                ),
             )
             .await;
             Ok(
@@ -614,6 +638,14 @@ pub(super) async fn execute_agent_action(
                             false,
                         )
                     })?;
+            let title = title.unwrap_or_else(|| default_title.chars().take(120).collect());
+            let assignee_label = match assignee.as_ref() {
+                Some(member_id) => activity_member_label(state, *member_id)
+                    .await
+                    .unwrap_or_else(|| "Assigned Agent".to_owned()),
+                None => "Unassigned".to_owned(),
+            };
+            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
             let mut storage = state.storage.clone();
             let task = CreateTaskFromRootMessage::execute(
                 &mut storage,
@@ -621,7 +653,7 @@ pub(super) async fn execute_agent_action(
                     task_id: TaskId::from_uuid(Uuid::now_v7()),
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
                     source: TaskSource::AgentRun(context.run_id),
-                    title: title.unwrap_or_else(|| default_title.chars().take(120).collect()),
+                    title: title.clone(),
                     assignee_agent_member_id: assignee,
                     idempotency_key: key,
                     now: OffsetDateTime::now_utc(),
@@ -635,11 +667,16 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "task.create",
-                json!({
-                    "run_id": context.run_id,
-                    "task_id": task_id,
-                    "thread_id": context.focus_thread_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "task_id": task_id,
+                        "thread_id": context.focus_thread_id,
+                        "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![("title", title), ("assignee", assignee_label)],
+                    None,
+                ),
             )
             .await;
             capability_value(
@@ -649,6 +686,7 @@ pub(super) async fn execute_agent_action(
             )
         }
         capability::Action::TaskLinkThread { thread_id } => {
+            let target = activity_thread_reference(&state.pool, thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -681,11 +719,22 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "task.link_thread",
-                json!({
-                    "run_id": context.run_id,
-                    "task_id": task_id,
-                    "thread_id": thread_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "task_id": task_id,
+                        "thread_id": thread_id,
+                        "scope_channel_id": target.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![(
+                        "thread",
+                        target
+                            .as_ref()
+                            .map(|reference| reference.label.clone())
+                            .unwrap_or_else(|| "Thread".to_owned()),
+                    )],
+                    None,
+                ),
             )
             .await;
             capability_value(
@@ -695,6 +744,7 @@ pub(super) async fn execute_agent_action(
             )
         }
         capability::Action::TaskUnlinkThread { thread_id } => {
+            let target = activity_thread_reference(&state.pool, thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -727,11 +777,22 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "task.unlink_thread",
-                json!({
-                    "run_id": context.run_id,
-                    "task_id": task_id,
-                    "thread_id": thread_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "task_id": task_id,
+                        "thread_id": thread_id,
+                        "scope_channel_id": target.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![(
+                        "thread",
+                        target
+                            .as_ref()
+                            .map(|reference| reference.label.clone())
+                            .unwrap_or_else(|| "Thread".to_owned()),
+                    )],
+                    None,
+                ),
             )
             .await;
             capability_value(
@@ -741,6 +802,8 @@ pub(super) async fn execute_agent_action(
             )
         }
         capability::Action::TaskUpdate { title } => {
+            let activity_title = title.clone();
+            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -773,10 +836,16 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "task.update",
-                json!({
-                    "run_id": context.run_id,
-                    "task_id": task_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "task_id": task_id,
+                        "thread_id": context.focus_thread_id,
+                        "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![("title", activity_title)],
+                    None,
+                ),
             )
             .await;
             capability_value(
@@ -835,6 +904,8 @@ pub(super) async fn execute_agent_action(
             .await
         }
         capability::Action::ChannelCreate { name, private } => {
+            let activity_name = name.clone();
+            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
             let channel_id = ChannelId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let channel = CreateChannelAction::execute(
@@ -869,16 +940,24 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "channel.create",
-                json!({
-                    "run_id": context.run_id,
-                    "channel_id": channel.id,
-                    "thread_id": context.focus_thread_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "channel_id": channel.id,
+                        "thread_id": context.focus_thread_id,
+                        "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![("name", activity_name), ("private", private.to_string())],
+                    None,
+                ),
             )
             .await;
             Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
         }
         capability::Action::ChannelLeave { channel_id } => {
+            let channel_label = activity_channel_label(state, channel_id)
+                .await
+                .unwrap_or_else(|| "Channel".to_owned());
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -901,10 +980,15 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "channel.leave",
-                json!({
-                    "run_id": context.run_id,
-                    "channel_id": channel_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "channel_id": channel_id,
+                        "scope_channel_id": channel_id,
+                    }),
+                    vec![("channel", channel_label)],
+                    None,
+                ),
             )
             .await;
             Ok(json!({"channel_id": channel_id, "member_id": context.agent_id}))
@@ -922,6 +1006,16 @@ pub(super) async fn execute_agent_action(
                     false,
                 ));
             }
+            let activity_name = name.clone();
+            let activity_role = bounded_activity_text(&role).0;
+            let activity_driver = match driver {
+                capability::DriverKind::Codex => "codex",
+                capability::DriverKind::Builtin => "builtin",
+            };
+            let activity_computer = activity_computer_label(state, target_computer_id)
+                .await
+                .unwrap_or_else(|| "Computer".to_owned());
+            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
             let agent_id = MemberId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let agent = CreateAgentAction::execute(
@@ -955,11 +1049,21 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "agent.create",
-                json!({
-                    "run_id": context.run_id,
-                    "target_member_id": agent.member_id,
-                    "thread_id": context.focus_thread_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "target_member_id": agent.member_id,
+                        "thread_id": context.focus_thread_id,
+                        "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    vec![
+                        ("name", activity_name),
+                        ("role", activity_role),
+                        ("driver", activity_driver.to_owned()),
+                        ("computer", activity_computer),
+                    ],
+                    None,
+                ),
             )
             .await;
             Ok(json!({"agent_id":agent.member_id,"lifecycle":"provisioning"}))
@@ -970,7 +1074,16 @@ pub(super) async fn execute_agent_action(
                 json!({"run_id":context.run_id,"items":rows.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at")),"disposition":row.get::<Option<String>,_>("disposition")})).collect::<Vec<_>>(),"notices":[]}),
             )
         }
-        capability::Action::InboxAck { item_id, .. } => {
+        capability::Action::InboxAck { item_id, reason } => {
+            let source = activity_inbox_thread_reference(&state.pool, item_id).await;
+            let mut activity_arguments = source
+                .as_ref()
+                .map(|reference| vec![("source", reference.label.clone())])
+                .unwrap_or_default();
+            activity_arguments.push(("disposition", "handled".to_owned()));
+            if let Some(reason) = reason {
+                activity_arguments.push(("reason", reason));
+            }
             record_agent_item_disposition(
                 state,
                 computer_id,
@@ -985,15 +1098,30 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "inbox.ack",
-                json!({
-                    "run_id": context.run_id,
-                    "item_id": item_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "item_id": item_id,
+                        "thread_id": source.as_ref().map(|reference| reference.thread_id),
+                        "scope_channel_id": source.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    activity_arguments,
+                    None,
+                ),
             )
             .await;
             Ok(json!({"item_id":item_id,"disposition":"handled"}))
         }
         capability::Action::InboxDefer { item_id, until } => {
+            let source = activity_inbox_thread_reference(&state.pool, item_id).await;
+            let mut activity_arguments = source
+                .as_ref()
+                .map(|reference| vec![("source", reference.label.clone())])
+                .unwrap_or_default();
+            activity_arguments.extend([
+                ("disposition", "deferred".to_owned()),
+                ("until", timestamp(until)),
+            ]);
             record_agent_item_disposition(
                 state,
                 computer_id,
@@ -1008,10 +1136,16 @@ pub(super) async fn execute_agent_action(
                 context.space_id.into_uuid(),
                 context.agent_id.into_uuid(),
                 "inbox.defer",
-                json!({
-                    "run_id": context.run_id,
-                    "item_id": item_id,
-                }),
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "item_id": item_id,
+                        "thread_id": source.as_ref().map(|reference| reference.thread_id),
+                        "scope_channel_id": source.as_ref().map(|reference| reference.channel_id),
+                    }),
+                    activity_arguments,
+                    None,
+                ),
             )
             .await;
             Ok(json!({"item_id":item_id,"disposition":"deferred","available_at":timestamp(until)}))
@@ -1052,11 +1186,54 @@ pub(super) async fn finish_agent_task(
             false,
         )
     })?;
-    let activity_kind = match &outcome {
-        TaskOutcome::SubmitReview { .. } => "task.submit_review",
-        TaskOutcome::Done { .. } => "task.done",
-        TaskOutcome::Close { .. } => "task.close",
+    let (activity_kind, activity_arguments, activity_preview, activity_post_target) = match &outcome
+    {
+        TaskOutcome::SubmitReview { message } => {
+            let post_to = message.as_ref().map(|message| message.post_to);
+            (
+                "task.submit_review",
+                post_to
+                    .map(|target| vec![("post_to", activity_task_post_target(target).to_owned())])
+                    .unwrap_or_default(),
+                message
+                    .as_ref()
+                    .map(|message| agent_activity_preview(&message.body_markdown)),
+                post_to,
+            )
+        }
+        TaskOutcome::Done { result } => (
+            "task.done",
+            vec![(
+                "post_to",
+                activity_task_post_target(result.post_to).to_owned(),
+            )],
+            Some(agent_activity_preview(&result.body_markdown)),
+            Some(result.post_to),
+        ),
+        TaskOutcome::Close { reason, note } => {
+            let reason = match reason {
+                CloseReason::Invalid => "invalid",
+                CloseReason::Duplicate => "duplicate",
+                CloseReason::NotNeeded => "not_needed",
+                CloseReason::Obsolete => "obsolete",
+                CloseReason::Other => "other",
+            };
+            (
+                "task.close",
+                vec![("reason", reason.to_owned())],
+                note.as_deref().map(agent_activity_preview),
+                None,
+            )
+        }
     };
+    let activity_thread_id = match activity_post_target {
+        Some(TaskPostTarget::Focus) | None => context.focus_thread_id,
+        Some(TaskPostTarget::Source) => activity_task_source_thread(state, task_id)
+            .await
+            .unwrap_or(context.focus_thread_id),
+        Some(TaskPostTarget::Thread(thread_id)) => thread_id,
+    };
+    let activity_thread = activity_thread_reference(&state.pool, activity_thread_id).await;
     let mut storage = state.storage.clone();
     RecordTaskOutcome::execute(
         &mut storage,
@@ -1079,10 +1256,16 @@ pub(super) async fn finish_agent_task(
         context.space_id.into_uuid(),
         context.agent_id.into_uuid(),
         activity_kind,
-        json!({
-            "run_id": context.run_id,
-            "task_id": task_id,
-        }),
+        agent_activity_details(
+            json!({
+                "run_id": context.run_id,
+                "task_id": task_id,
+                "thread_id": activity_thread_id,
+                "scope_channel_id": activity_thread.as_ref().map(|reference| reference.channel_id),
+            }),
+            activity_arguments,
+            activity_preview,
+        ),
     )
     .await;
     capability_value(
@@ -1375,6 +1558,186 @@ pub(super) fn capability_value(value: &impl serde::Serialize) -> Result<Value, c
             false,
         )
     })
+}
+
+const AGENT_ACTIVITY_PREVIEW_CHARS: usize = 280;
+
+pub(in crate::server::adapters) struct AgentActivityPreview {
+    pub(in crate::server::adapters) text: String,
+    pub(in crate::server::adapters) truncated: bool,
+}
+
+pub(in crate::server::adapters) fn agent_activity_preview(value: &str) -> AgentActivityPreview {
+    let (text, truncated) = bounded_activity_text(value);
+    AgentActivityPreview { text, truncated }
+}
+
+pub(in crate::server::adapters) fn agent_activity_details(
+    mut payload: Value,
+    arguments: Vec<(&str, String)>,
+    message: Option<AgentActivityPreview>,
+) -> Value {
+    let Some(object) = payload.as_object_mut() else {
+        return payload;
+    };
+    object.retain(|_, value| !value.is_null());
+    object.insert(
+        "arguments".to_owned(),
+        Value::Array(
+            arguments
+                .into_iter()
+                .map(|(name, value)| {
+                    let (value, _) = bounded_activity_text(&value);
+                    json!({"name": name, "value": value})
+                })
+                .collect(),
+        ),
+    );
+    if let Some(message) = message {
+        object.insert("message_preview".to_owned(), json!(message.text));
+        object.insert("message_truncated".to_owned(), json!(message.truncated));
+    }
+    payload
+}
+
+fn bounded_activity_text(value: &str) -> (String, bool) {
+    let mut characters = value.chars();
+    let mut preview: String = characters
+        .by_ref()
+        .take(AGENT_ACTIVITY_PREVIEW_CHARS)
+        .collect();
+    if characters.next().is_none() {
+        return (preview, false);
+    }
+    preview.pop();
+    preview.push('…');
+    (preview, true)
+}
+
+struct ActivityThreadReference {
+    thread_id: ThreadId,
+    channel_id: Uuid,
+    label: String,
+}
+
+async fn activity_thread_reference(
+    pool: &PgPool,
+    thread_id: ThreadId,
+) -> Option<ActivityThreadReference> {
+    let row = sqlx::query(
+        "SELECT messages.channel_id,messages.channel_seq,channels.slug \
+         FROM messages JOIN channels ON channels.id=messages.channel_id \
+         WHERE messages.id=$1 AND messages.placement='root'",
+    )
+    .bind(thread_id.into_uuid())
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    let sequence: i64 = row.get("channel_seq");
+    let slug: Option<String> = row.get("slug");
+    Some(ActivityThreadReference {
+        thread_id,
+        channel_id: row.get("channel_id"),
+        label: activity_thread_label(slug.as_deref(), sequence),
+    })
+}
+
+pub(in crate::server::adapters) fn activity_thread_label(
+    slug: Option<&str>,
+    sequence: i64,
+) -> String {
+    slug.map_or_else(
+        || format!("DM · message {sequence}"),
+        |slug| format!("#{slug}:{sequence}"),
+    )
+}
+
+async fn activity_channel_label(state: &RuntimeState, channel_id: ChannelId) -> Option<String> {
+    sqlx::query_scalar("SELECT COALESCE(topic,slug,'Direct message') FROM channels WHERE id=$1")
+        .bind(channel_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn activity_member_label(state: &RuntimeState, member_id: MemberId) -> Option<String> {
+    sqlx::query_scalar("SELECT display_name FROM members WHERE id=$1")
+        .bind(member_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn activity_computer_label(state: &RuntimeState, computer_id: ComputerId) -> Option<String> {
+    sqlx::query_scalar("SELECT name FROM computers WHERE id=$1")
+        .bind(computer_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+async fn activity_inbox_thread_reference(
+    pool: &PgPool,
+    item_id: InboxItemId,
+) -> Option<ActivityThreadReference> {
+    let thread_id: Uuid = sqlx::query_scalar("SELECT thread_id FROM inbox_items WHERE id=$1")
+        .bind(item_id.into_uuid())
+        .fetch_optional(pool)
+        .await
+        .ok()??;
+    activity_thread_reference(pool, ThreadId::from_uuid(thread_id)).await
+}
+
+async fn activity_task_source_thread(state: &RuntimeState, task_id: TaskId) -> Option<ThreadId> {
+    sqlx::query_scalar::<_, Uuid>("SELECT source_thread_id FROM tasks WHERE id=$1")
+        .bind(task_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .map(ThreadId::from_uuid)
+}
+
+fn activity_task_post_target(target: TaskPostTarget) -> &'static str {
+    match target {
+        TaskPostTarget::Focus => "focus",
+        TaskPostTarget::Source => "source",
+        TaskPostTarget::Thread(_) => "thread",
+    }
+}
+
+async fn activity_message_target(
+    state: &RuntimeState,
+    context: &capability::RunContext,
+    target: &capability::MessageTarget,
+) -> String {
+    match target {
+        capability::MessageTarget::Focus => {
+            activity_thread_reference(&state.pool, context.focus_thread_id)
+                .await
+                .map(|reference| reference.label)
+                .unwrap_or_else(|| "Current Focus".to_owned())
+        }
+        capability::MessageTarget::Thread(thread_id) => {
+            activity_thread_reference(&state.pool, *thread_id)
+                .await
+                .map(|reference| reference.label)
+                .unwrap_or_else(|| "Thread".to_owned())
+        }
+        capability::MessageTarget::Channel(channel_id) => {
+            activity_channel_label(state, *channel_id)
+                .await
+                .map(|name| format!("#{name}"))
+                .unwrap_or_else(|| "Channel".to_owned())
+        }
+        capability::MessageTarget::Member(member_id) => activity_member_label(state, *member_id)
+            .await
+            .map(|name| format!("DM with {name}"))
+            .unwrap_or_else(|| "Direct message".to_owned()),
+    }
 }
 
 /// Records an ephemeral `agent.activity` event for the Browser feed. The feed is best-effort, so a

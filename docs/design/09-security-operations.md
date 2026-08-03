@@ -70,7 +70,7 @@ Builtin token 可以来自 Computer TOML 或`SUMI_COMPUTER__BUILTIN__TOKEN`。�
 
 ## 6. 内容保护
 
-以下正文不得进入普通日志、audit metadata、error details、metrics label 或 activity：
+以下内容不得进入普通日志、audit metadata、error details 或 metrics label：
 
 - Message 和 Attachment。
 - Task Result。
@@ -78,7 +78,7 @@ Builtin token 可以来自 Computer TOML 或`SUMI_COMPUTER__BUILTIN__TOKEN`。�
 - Provider transcript 和隐藏推理。
 - Secret 和完整环境变量。
 
-UI activity 只显示可验证动作，例如“正在处理 #design:42”“正在等待外部输入”或“Session 正在恢复”。
+UI activity 可以显示动作输入中的有界 Message preview 和语义参数。preview 只在事件带有对应 `channel_id`或`scope_channel_id`且调用方有该 Channel 读取权时下发，Server 不把 preview 写入日志、audit metadata、error details 或 metrics label；完整正文仍由原资源的授权端点提供。Activity 不得显示 Attachment、Memory、workspace 文件、Provider transcript、隐藏推理、Secret 或完整环境变量。
 
 ## 7. 删除
 

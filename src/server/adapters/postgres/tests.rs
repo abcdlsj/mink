@@ -70,7 +70,7 @@ fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
         &channels
     ));
 
-    // agent.activity reaches every Space Member, but still hides Channels the viewer cannot read.
+    // agent.activity reaches readable scopes, but never crosses a Channel boundary.
     let agent_activity_in_readable = json!({"member_id": other_member, "channel_id": readable});
     let agent_activity_in_private = json!({"member_id": other_member, "channel_id": private});
     assert!(event_is_visible(
@@ -83,6 +83,20 @@ fn the_event_stream_hides_unreadable_channels_and_other_members_inboxes() {
     assert!(!event_is_visible(
         "agent.activity",
         &agent_activity_in_private,
+        viewer,
+        false,
+        &channels
+    ));
+    assert!(event_is_visible(
+        "agent.activity",
+        &json!({"member_id": other_member, "scope_channel_id": readable}),
+        viewer,
+        false,
+        &channels
+    ));
+    assert!(!event_is_visible(
+        "agent.activity",
+        &json!({"member_id": other_member, "scope_channel_id": private}),
         viewer,
         false,
         &channels

@@ -209,21 +209,41 @@ pub(super) async fn computer_socket(
                 if response.is_ok() {
                     if yielded {
                         let run = sqlx::query(
-                            "SELECT agent_id,space_id,focus_thread_id FROM agent_runs WHERE id=$1",
+                            "SELECT agent_runs.agent_id,agent_runs.space_id,agent_runs.focus_thread_id,\
+                                    agent_runs.continuation_note,\
+                                    messages.channel_id,messages.channel_seq,channels.slug \
+                             FROM agent_runs JOIN messages ON messages.id=agent_runs.focus_thread_id \
+                                    JOIN channels ON channels.id=messages.channel_id \
+                             WHERE agent_runs.id=$1",
                         )
                         .bind(run_id.into_uuid())
                         .fetch_optional(&pool)
                         .await;
                         if let Ok(Some(row)) = run {
+                            let slug = row.get::<Option<String>, _>("slug");
+                            let continuation_note =
+                                row.get::<Option<String>, _>("continuation_note");
+                            let focus_label = super::http::activity_thread_label(
+                                slug.as_deref(),
+                                row.get("channel_seq"),
+                            );
                             storage
                                 .record_agent_activity(
                                     SpaceId::from_uuid(row.get("space_id")),
                                     MemberId::from_uuid(row.get("agent_id")),
                                     "run.yield",
-                                    serde_json::json!({
-                                        "run_id": run_id,
-                                        "thread_id": ThreadId::from_uuid(row.get("focus_thread_id")),
-                                    }),
+                                    super::http::agent_activity_details(
+                                        serde_json::json!({
+                                            "run_id": run_id,
+                                            "thread_id": ThreadId::from_uuid(row.get("focus_thread_id")),
+                                            "channel_id": row.get::<Uuid, _>("channel_id"),
+                                            "scope_channel_id": row.get::<Uuid, _>("channel_id"),
+                                        }),
+                                        vec![("focus", focus_label)],
+                                        continuation_note
+                                            .as_deref()
+                                            .map(super::http::agent_activity_preview),
+                                    ),
                                 )
                                 .await;
                         }

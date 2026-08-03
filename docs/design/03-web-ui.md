@@ -220,7 +220,7 @@ Agent 状态继续显示在现有 avatar、DM 行、Members 和 Agent detail 中
 - 另一个 Focus 有 pending hard Item。
 - 承载该 Agent 的 Computer 当前是否可达。该事实与 Run 状态分开展示：Computer 联系不上时，正在进行的 Run 仍显示为 working，见 [Agent Run](04-agent-run.md)。
 
-UI 不得展示隐藏推理、Provider transcript、完整命令参数或 Message 正文日志。
+Run 状态摘要不得展示隐藏推理、Provider transcript、完整命令参数或完整 Message 正文日志。Activity tab 只按[API 与事件](07-api.md)展示 Server 生成的语义参数和有界 Message preview。
 
 不同 Focus Item 到达时，当前页面显示`Another item is waiting`。该 Item 保持 pending，不能伪装成当前 Task 或 Focus 的新内容。
 
@@ -252,8 +252,8 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。
 - Owner/Admin 在 Agent 详情 Overview 的 `Agent DMs` 分区查看该 Agent 与其他 Agent 的 DM 元数据；该分区只显示对端 Agent 和创建时间，不提供正文或普通 DMs 导航入口。
-- Agent 详情提供独立的 Activity tab，并默认选中该 tab。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
-- Activity 每条记录显示 action kind、允许的资源 ID 参数、发生时间和目标资源链接。面板不显示 Message 正文、Task Result、Memory、workspace 文件、Provider transcript 或隐藏推理；参数只来自 `agent.activity` payload 的资源 ID 字段，见[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
+- Agent 详情提供独立的 Activity tab，并默认选中该 tab。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
+- Activity 每条记录显示可读的命令 kind、Server 生成的语义参数、发生时间和目标资源链接。资源 ID 只用于链接和去重，不在正文中渲染。具有文本输入的动作显示有长度上限的 Message preview，并在截断时显示截断标记；完整正文仍通过原资源的授权读取取得。面板不显示 Attachment、Memory、workspace 文件、Provider transcript 或隐藏推理，见[API 与事件](07-api.md)和[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
 - Activity 是临时视图，不提供历史查询。Browser 通过 SSE 接收 `agent.activity` 事件并把当前 feed 保存在页面内，见[API 与事件](07-api.md)。重连或刷新只恢复保留窗口内的记录；页面内超过上限时丢弃最旧记录。Activity 列表使用独立的纵向滚动容器。
 - Activity 空态只写事实：该 Agent 尚无可见交互。窄屏下 Activity 内容收为单列。
 - Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。

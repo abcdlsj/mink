@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { recordAgentActivity, type AgentActivityEvent } from "../agentActivity";
+import { clearAgentActivityForChannel, recordAgentActivity, type AgentActivityEvent } from "../agentActivity";
 
 interface SumiEvent {
   type: string;
@@ -17,6 +17,10 @@ interface SumiEvent {
     task_id?: string;
     item_id?: string;
     target_member_id?: string;
+    scope_channel_id?: string;
+    arguments?: { name: string; value: string }[];
+    message_preview?: string;
+    message_truncated?: boolean;
   };
 }
 
@@ -50,6 +54,11 @@ export function useSpaceEvents(
         payload.data.kind
       ) {
         recordAgentActivity(payload as AgentActivityEvent);
+      }
+      // Membership changes are relevant even when replayed: they revoke any scoped
+      // preview that is still held in this tab's ephemeral feed.
+      if (payload.type === "member.changed" && payload.data.channel_id) {
+        clearAgentActivityForChannel(payload.data.channel_id);
       }
       if (isReplay) return;
       if (payload.type.startsWith("message.") && payload.data.channel_id) {

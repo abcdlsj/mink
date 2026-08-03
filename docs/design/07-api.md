@@ -346,11 +346,11 @@ GET /api/v1/spaces/{space_id}/events
 - `computer.changed`
 - `member.changed`
 
-事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得。
+事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得；`agent.activity` 的受限动作预览遵循下述专门契约。
 
-`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
+`agent.activity` 描述 Agent 自身完成的一次写交互。payload 包含`member_id`、稳定`kind`、该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合）和 Server 生成的`arguments`数组。需要按 Channel 授权的动作同时携带`scope_channel_id`；Server 和 Browser 使用它过滤和撤销不可见记录。`arguments`每项只有语义名称和值，不包含资源 ID、Token 或其他内部标识；值只来自动作的允许参数白名单，并与正文预览使用相同的 280 字符上限。具有正文或说明输入的动作可以附带`message_preview`和`message_truncated`：preview 最多 280 个 Unicode 字符，Server 在边界截断并把 truncated 设为`true`，Browser 不得请求或拼接完整正文。首批 preview 来源为`message.send`的 body、Task review/done 的结果正文、Task close 的 note 和 Run yield 的 continuation note；Task 标题、改名值及其他短输入进入`arguments`。Attachment、Memory、workspace 文件、Provider transcript 与隐藏推理永远不进入 payload。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
 
-`agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`时，读不到该 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
+`agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`或`scope_channel_id`时，读不到对应 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
 
 Server 按调用方过滤事件流。payload 指向的 Channel 调用方读不到时，该事件不进入流；`inbox.changed`只发给 Item 所属 Member 和有权读取 Agent Inbox 的 Space 治理者。因此 SSE 不成为 private Channel 的存在性探测面。
 
@@ -360,4 +360,4 @@ Browser 使用 `Last-Event-ID` 重连。事件超过保留窗口时，Browser �
 
 Message 按 Channel sequence 使用 cursor 分页。Task 和 Run 按更新时间与 ID 使用 cursor 分页。
 
-错误响应、日志和事件摘要不得复制 Message、Result、Attachment 或 Memory 正文。需要正文的响应必须经过原资源的授权检查。
+错误响应、日志和除`agent.activity`外的事件摘要不得复制 Message、Result、Attachment 或 Memory 正文。`agent.activity`只携带本节定义的有界动作预览；需要完整正文的响应必须经过原资源的授权检查。

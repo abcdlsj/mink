@@ -292,6 +292,20 @@ impl PostgresAdapter {
                 "kind": kind,
             });
         }
+        // Semantic arguments and previews can contain bounded user text, so both require a
+        // Channel scope. Keep the action fact if a caller forgot the scope, but drop its details.
+        let has_channel_scope = ["channel_id", "scope_channel_id"].iter().any(|field| {
+            record
+                .get(*field)
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.parse::<Uuid>().ok())
+                .is_some()
+        });
+        if !has_channel_scope && let Some(object) = record.as_object_mut() {
+            object.remove("arguments");
+            object.remove("message_preview");
+            object.remove("message_truncated");
+        }
         let result = sqlx::query(
             "INSERT INTO outbox_events (id,space_id,kind,payload_json,created_at) \
              VALUES ($1,$2,'agent.activity',$3,now())",
@@ -327,7 +341,9 @@ fn event_is_visible(
             .and_then(|value| value.as_str())
             .and_then(|value| value.parse::<Uuid>().ok())
     };
-    if let Some(channel_id) = payload_uuid("channel_id")
+    let visibility_channel =
+        payload_uuid("scope_channel_id").or_else(|| payload_uuid("channel_id"));
+    if let Some(channel_id) = visibility_channel
         && !readable_channels.contains(&channel_id)
     {
         return false;

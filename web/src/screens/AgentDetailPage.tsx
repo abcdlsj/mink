@@ -310,30 +310,22 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
         const link = activityLink(item, spaceSlug, channelById);
         return (
           <li className="agent-activity-row" key={item.eventId}>
-            <p><strong>{activityLabels[item.kind]}</strong><span className="agent-activity-kind">{item.kind}</span>{link ? <> {link}</> : null}</p>
+            <p><strong>{activityLabels[item.kind]}</strong>{link ? <> {link}</> : null}</p>
             <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
-            {activityArguments(item).length ? (
-              <dl className="agent-activity-command" aria-label={`${item.kind} resource references`}>
-                {activityArguments(item).map((argument) => <div key={argument.label}><dt>{argument.label}</dt><dd><code>{argument.value}</code></dd></div>)}
-              </dl>
-            ) : null}
+            <dl className="agent-activity-command" aria-label={`${item.kind} action details`}>
+              <div><dt>Command</dt><dd><code>{item.kind}</code></dd></div>
+              {item.arguments.length ? (
+                <div><dt>Arguments</dt><dd><ul className="agent-activity-arguments">{item.arguments.map((argument) => <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>)}</ul></dd></div>
+              ) : null}
+              {item.messagePreview ? (
+                <div><dt>Message</dt><dd><p className="agent-activity-message">{item.messagePreview}{item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}</p></dd></div>
+              ) : null}
+            </dl>
           </li>
         );
       })}
     </ol>
   );
-}
-
-function activityArguments(item: AgentActivityItem): Array<{ label: string; value: string }> {
-  return [
-    ["Run", item.runId],
-    ["Channel", item.channelId],
-    ["Thread", item.threadId],
-    ["Message", item.messageId],
-    ["Task", item.taskId],
-    ["Inbox item", item.itemId],
-    ["Target member", item.targetMemberId],
-  ].filter((entry): entry is [string, string] => Boolean(entry[1])).map(([label, value]) => ({ label, value }));
 }
 
 function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {

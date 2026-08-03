@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   activityForAgent,
   clearAgentActivity,
+  clearAgentActivityForChannel,
   recordAgentActivity,
   useAgentActivity,
   type AgentActivityEvent,
@@ -54,6 +55,33 @@ describe("agent activity store", () => {
     expect(activityForAgent("agent-1")).toHaveLength(2);
   });
 
+  it("keeps action details and distinguishes repeated commands with the same resource", () => {
+    act(() => {
+      recordAgentActivity(activityEvent("e1", {
+        kind: "task.update",
+        task_id: "task-1",
+        arguments: [{ name: "title", value: "First title" }],
+        message_preview: "A bounded message preview",
+        message_truncated: true,
+      }));
+      recordAgentActivity(activityEvent("e2", {
+        kind: "task.update",
+        task_id: "task-1",
+        arguments: [{ name: "title", value: "Second title" }],
+      }));
+      recordAgentActivity(activityEvent("e3", {
+        kind: "task.update",
+        task_id: "task-1",
+        arguments: [{ name: "title", value: "Second title" }],
+      }));
+    });
+    const items = activityForAgent("agent-1");
+    expect(items).toHaveLength(2);
+    expect(items[0].arguments[0]).toEqual({ name: "title", value: "Second title" });
+    expect(items[1].messagePreview).toBe("A bounded message preview");
+    expect(items[1].messageTruncated).toBe(true);
+  });
+
   it("caps the per-agent feed at 50 rows", () => {
     act(() => {
       for (let index = 0; index < 60; index += 1) {
@@ -72,5 +100,38 @@ describe("agent activity store", () => {
     });
     expect(activityForAgent("agent-1")).toHaveLength(0);
     expect(activityForAgent("agent-2")).toHaveLength(1);
+  });
+
+  it("removes rows whose Channel visibility changed", () => {
+    act(() => {
+      recordAgentActivity(activityEvent("e1", {
+        channel_id: "channel-1",
+        scope_channel_id: "channel-1",
+        message_id: "message-1",
+        arguments: [{ name: "target", value: "#private:4" }],
+      }));
+      recordAgentActivity(activityEvent("e2", {
+        channel_id: "channel-2",
+        scope_channel_id: "channel-2",
+        message_id: "message-2",
+        arguments: [{ name: "target", value: "#public:5" }],
+      }));
+      clearAgentActivityForChannel("channel-1");
+    });
+    expect(activityForAgent("agent-1").map((item) => item.messageId)).toEqual(["message-2"]);
+  });
+
+  it("does not render resource IDs supplied as semantic arguments", () => {
+    act(() => {
+      recordAgentActivity(activityEvent("e1", {
+        arguments: [
+          { name: "task_id", value: "019c0000-0000-7000-8000-000000000001" },
+          { name: "target", value: "thread 019c0000-0000-7000-8000-000000000002" },
+        ],
+      }));
+    });
+    expect(activityForAgent("agent-1")[0].arguments).toEqual([
+      { name: "target", value: "thread [resource]" },
+    ]);
   });
 });
