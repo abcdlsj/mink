@@ -437,9 +437,13 @@ function renderMessageBody(
   taskRefs: ReadonlyMap<number, MessageTaskRef>,
   spaceSlug: string,
 ): ReactNode[] {
-  return splitMessageBlocks(body).map((block, index) =>
+  return splitMessageBlocks(normalizeMessageLineBreaks(body)).map((block, index) =>
     renderMessageBlock(block, mentionedMembers, taskRefs, spaceSlug, index),
   );
+}
+
+function normalizeMessageLineBreaks(body: string): string {
+  return body.replace(/\\n/g, "\n");
 }
 
 function splitMessageBlocks(body: string): MessageBlock[] {

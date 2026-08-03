@@ -149,6 +149,22 @@ describe("markdown rendering", () => {
     expect(container.querySelector("h3.message-heading")).toHaveTextContent("Three");
   });
 
+  it("treats literal backslash-n sequences as Markdown line breaks", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-escaped-newlines"
+        body={String.raw`> Received:\n\n1. First item\n2. Second item`}
+        mentionedMembers={new Map()}
+        taskRefs={new Map()}
+        spaceSlug="sumi-lab"
+      />,
+    );
+
+    expect(container.querySelector("blockquote p")).toHaveTextContent("Received:");
+    expect(container.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(container.querySelector(".message-body")).not.toHaveTextContent("\\n");
+  });
+
   it("renders unordered and ordered lists", () => {
     const { container } = render(
       <ExpandableMessageText
