@@ -42,8 +42,18 @@ export function useSpaceEvents(
       const isReplay =
         payload.occurred_at !== undefined &&
         new Date(payload.occurred_at).getTime() < connectedAt;
+      if (
+        payload.type === "agent.activity" &&
+        payload.event_id &&
+        payload.occurred_at &&
+        payload.data.member_id &&
+        payload.data.kind
+      ) {
+        recordAgentActivity(payload as AgentActivityEvent);
+      }
+      if (isReplay) return;
       if (payload.type.startsWith("message.") && payload.data.channel_id) {
-        if (payload.type === "message.created" && payload.data.channel_id && !isReplay) {
+        if (payload.type === "message.created" && payload.data.channel_id) {
           onMessageRef.current?.({ type: payload.type, channelId: payload.data.channel_id });
         }
         void queryClient.invalidateQueries({ queryKey: ["messages", payload.data.channel_id] });
@@ -64,15 +74,6 @@ export function useSpaceEvents(
       }
       if (payload.type === "member.changed") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
-      }
-      if (
-        payload.type === "agent.activity" &&
-        payload.event_id &&
-        payload.occurred_at &&
-        payload.data.member_id &&
-        payload.data.kind
-      ) {
-        recordAgentActivity(payload as AgentActivityEvent);
       }
       if (payload.type === "agent.changed" || payload.type === "agent.updated" || payload.type === "run.changed") {
         void queryClient.invalidateQueries({ queryKey: ["agents", spaceId] });

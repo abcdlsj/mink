@@ -168,8 +168,9 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
               {runtime.data ? (
                 <div className="agent-work-facts">
                   <div><span>Task</span><p>{runtime.data.current_task ? <Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link> : "None"}</p></div>
-                  <div><span>Focus</span><p>{runtime.data.focus ? runtime.data.focus.channel_slug ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link> : <span>DM @{runtime.data.focus.root_message_seq}</span> : "None"}</p></div>
+                  <div><span>Focus</span><p>{runtime.data.focus ? runtime.data.focus.channel_slug ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug}:{runtime.data.focus.root_message_seq}</Link> : <span>DM · message {runtime.data.focus.root_message_seq}</span> : "None"}</p></div>
                   <div><span>Run</span><p>{runtime.data.current_run ? humanize(runtime.data.current_run.status) : "No active Run"}</p></div>
+                  <div><span>Computer</span><p><StateSignal tone={value.computer_reachable ? "warm" : "unavailable"} label={value.computer_id ? value.computer_reachable ? "Online" : "Offline" : "Unassigned"} /></p></div>
                   <div><span>Session</span><p>{humanize(runtime.data.session_continuity.state)}</p></div>
                 </div>
               ) : null}
@@ -203,10 +204,10 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
         ) : null}
         {tab === "memory" ? (
           <section className="agent-tab-panel agent-memory" id="agent-panel-memory" role="tabpanel" aria-labelledby="agent-tab-memory" tabIndex={0}>
-            <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
+            <div className="agent-memory-heading"><Brain /><h2 id="memory-heading">Memory files</h2></div>
             <p className="inline-notice">Memory lives only on this Computer. If the Computer is lost, Sumi cannot recover it.</p>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can inspect Agent Memory metadata.</p> : null}
-            {value.memory_files.length === 0 ? <div className="memory-empty" role="status"><Brain aria-hidden="true" /><span><strong>Memory is ready</strong><small>No Memory files have been written yet.</small></span></div> : <ul>{value.memory_files.map((file) => (
+            {value.memory_files.length === 0 ? <div className="memory-empty" role="status"><Brain aria-hidden="true" /><span><strong>No Memory files yet</strong><small>Memory files appear here when the Agent writes them.</small></span></div> : <ul>{value.memory_files.map((file) => (
               <li key={file.path}><button className="memory-file-button" type="button" aria-label={`Read ${file.path}`} disabled={!canManage || memory.isPending} onClick={() => memory.mutate(file.path)}><Eye /><strong>{file.path}</strong></button><span>{formatBytes(file.size)}</span><time dateTime={file.updated_at}>{new Date(file.updated_at).toLocaleDateString()}</time></li>
             ))}</ul>}
             {memory.data ? <section className="memory-reader" aria-label={`${memory.data.path} contents`}><header><strong>{memory.data.path}</strong><button className="icon-button" type="button" aria-label="Close Memory file" onClick={() => memory.reset()}><X /></button></header><pre>{memory.data.content}</pre></section> : null}
@@ -218,7 +219,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}
             <form className="agent-settings" onSubmit={save}>
               <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.desired_lifecycle === "retired"} /></label>
-              <p className="section-kicker">ATTENTION POLICY / SERVER MANAGED</p>
+              <div className="agent-settings-policy-heading"><h2>Attention policy</h2><span>Server managed</span></div>
               <dl className="detail-grid"><Field label="Ambient attention">{value.attention_config.ambient_enabled ? "Enabled" : "Disabled"}</Field><Field label="Debounce" tabular>{`${value.attention_config.ambient_debounce_seconds}s`}</Field><Field label="Maximum wait" tabular>{`${value.attention_config.ambient_max_wait_seconds}s`}</Field><Field label="Maximum retries" tabular>{String(value.attention_config.max_retry_count)}</Field></dl>
               {canManage && value.desired_lifecycle !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
             </form>
@@ -288,12 +289,13 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
         const link = activityLink(item, spaceSlug, channelById);
         return (
           <li className="agent-activity-row" key={item.eventId}>
-            <p>{activityLabels[item.kind]}{link ? <> {link}</> : null}</p>
+            <p><strong>{activityLabels[item.kind]}</strong><span className="agent-activity-kind">{item.kind}</span>{link ? <> {link}</> : null}</p>
             <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
-            <dl className="agent-activity-command" aria-label={`${item.kind} command details`}>
-              <div><dt>CMD</dt><dd><code>{item.kind}</code></dd></div>
-              <div><dt>ARGS</dt><dd><code>{activityArguments(item)}</code></dd></div>
-            </dl>
+            {activityArguments(item).length ? (
+              <dl className="agent-activity-command" aria-label={`${item.kind} resource references`}>
+                {activityArguments(item).map((argument) => <div key={argument.label}><dt>{argument.label}</dt><dd><code>{argument.value}</code></dd></div>)}
+              </dl>
+            ) : null}
           </li>
         );
       })}
@@ -301,16 +303,16 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
   );
 }
 
-function activityArguments(item: AgentActivityItem): string {
-  return JSON.stringify({
-    run_id: item.runId,
-    channel_id: item.channelId,
-    thread_id: item.threadId,
-    message_id: item.messageId,
-    task_id: item.taskId,
-    item_id: item.itemId,
-    target_member_id: item.targetMemberId,
-  });
+function activityArguments(item: AgentActivityItem): Array<{ label: string; value: string }> {
+  return [
+    ["Run", item.runId],
+    ["Channel", item.channelId],
+    ["Thread", item.threadId],
+    ["Message", item.messageId],
+    ["Task", item.taskId],
+    ["Inbox item", item.itemId],
+    ["Target member", item.targetMemberId],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1])).map(([label, value]) => ({ label, value }));
 }
 
 function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {

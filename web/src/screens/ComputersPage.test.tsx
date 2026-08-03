@@ -91,7 +91,7 @@ describe("Computer flows", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Agent" })).not.toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("link", { name: /Studio/ }).find((link) => link.classList.contains("computer-context-row"))!);
     expect(await screen.findByRole("heading", { name: "Studio" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
     expect(await screen.findByRole("dialog", { name: "Create Agent" })).toBeVisible();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Agent" })).not.toBeInTheDocument());

@@ -38,7 +38,7 @@ describe("Task work index", () => {
     expect(screen.getByRole("link", { name: /Wire Agent CLI/ })).toBeVisible();
     expect(screen.getByRole("link", { name: /Design claim flow/ })).toBeVisible();
     expect(screen.queryByText(/Ship old slice/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Source: #general @17" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-todo");
+    expect(screen.getByRole("link", { name: "Source: #general:17" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-todo");
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(await screen.findByText(/Ship old slice/)).toBeVisible();
     expect(screen.queryByText(/Design claim flow/)).not.toBeInTheDocument();
@@ -67,14 +67,14 @@ describe("Task work index", () => {
 
     expect(await screen.findByRole("heading", { name: value.title })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Source Thread" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "source: #general @21" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "related: #design @31" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "source: #general:21" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "related: #design:31" })).toBeVisible();
     expect(screen.getByText("working")).toBeVisible();
     expect(screen.getByText("yielded")).toBeVisible();
-    expect(screen.getByText("WARM").closest("p")).toHaveTextContent("WARM · generation 2");
+    expect(screen.getByText("Warm").closest("div")).toHaveTextContent("WarmGeneration 2");
     fireEvent.click(screen.getByRole("button", { name: /Reset continuity/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/reset-session"), expect.objectContaining({ method: "POST" })));
-    expect((await screen.findByText("COLD")).closest("p")).toHaveTextContent("COLD · generation 3");
+    expect((await screen.findByText("Cold")).closest("div")).toHaveTextContent("ColdGeneration 3");
   });
 
   it("labels a DM Source Thread without a channel link", async () => {
@@ -94,8 +94,8 @@ describe("Task work index", () => {
 
     expect(await screen.findByRole("heading", { name: "DM Task" })).toBeVisible();
     expect(screen.getByText("!21 · DM · message 21")).toBeVisible();
-    expect(screen.getByLabelText("source: DM @21")).toBeVisible();
-    expect(screen.getByLabelText("Focus: DM @21")).toBeVisible();
+    expect(screen.getByLabelText("source: DM · message 21")).toBeVisible();
+    expect(screen.getByLabelText("Focus: DM · message 21")).toBeVisible();
     expect(screen.queryAllByRole("link", { name: /#.*@21/ })).toHaveLength(0);
   });
 });

@@ -11,6 +11,7 @@ import {
   type Agent,
   type Computer,
 } from "../api/client";
+import { activityLabel } from "../agentActivity";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import { DialogFrame } from "../components/DialogFrame";
 
@@ -218,6 +219,7 @@ function ComputerOnboarding({ active }: { active?: boolean }) {
           </ol>
         </div>
         <div className="computer-onboarding-command">
+          <div className="computer-command-heading"><strong>Pairing command</strong><span>Run this on the machine that will host Agents.</span></div>
           <div className="pair-command"><code>{command}</code><button className="compact-action" type="button" aria-label="Copy Computer command" onClick={() => void copyCommand()}>{copied ? <Check /> : <Copy />}{copied ? "Copied" : "Copy"}</button></div>
           {copyError ? <p className="form-error" role="alert">Could not copy the command. Select it manually.</p> : null}
           <p className="computer-onboarding-note">A deleted Computer cannot reuse its old identity.</p>
@@ -259,18 +261,18 @@ function ComputerDetail({
         <div><span>Daemon</span><strong className="tabular">v{computer.daemon_version}</strong></div>
         <div><span>Last seen</span><strong className="tabular">{computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"}</strong></div>
       </div>
-      <section className="detail-panel computer-agents">
-        <header className="detail-panel-heading">
-          <h3>Agents on this Computer</h3>
+          <section className="detail-panel computer-agents">
+            <header className="detail-panel-heading">
+          <div><p className="detail-section-label">Hosted workload</p><h3>Agents on this Computer</h3></div>
           <div className="section-actions">
-            {canCreateAgent && computer.status === "online" ? <button className="compact-action" type="button" onClick={onCreate}><Plus />Create</button> : null}
+            {canCreateAgent && computer.status === "online" ? <button className="compact-action" type="button" onClick={onCreate}><Plus />Create Agent</button> : null}
           </div>
         </header>
         {agents.length ? <ul className="hosted-agent-list">{agents.map((agent) => (
           <li key={agent.member_id}><Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: agent.member_id }}>
             <PixelIdentity name={agent.name} kind="agent" seed={agent.member_id} />
             <span><strong>{agent.name}</strong><small title={agent.role_text}>{agent.role_text}</small></span>
-            <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${agent.activity_status}`} title={`Activity: ${agent.activity_status}`}><i aria-hidden="true" />{agent.activity_status}</span>
+            <span className={`agent-state agent-state--${agent.activity_status}`} aria-label={`Activity: ${activityLabel(agent.activity_status)}`} title={`Activity: ${activityLabel(agent.activity_status)}`}><i aria-hidden="true" />{activityLabel(agent.activity_status)}</span>
           </Link></li>
         ))}</ul> : <div className="computer-agents-empty"><p>No Agents are hosted on this Computer.</p>{canCreateAgent && computer.status === "online" ? <button className="command-button" type="button" onClick={onCreate}><Plus />Create first Agent</button> : null}</div>}
       </section>
@@ -310,4 +312,12 @@ function AgentDialog({ submit, close, pending, error, computers, selectedCompute
   );
 }
 
-function Status({ value }: { value: string }) { return <span className={`status status--${value}`} aria-label={`Status: ${value}`} title={`Status: ${value}`}><i aria-hidden="true" />{value}</span>; }
+function Status({ value }: { value: string }) {
+  const label = value.split(" · ").map(humanize).join(" · ");
+  const statusClass = value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return <span className={`status status--${statusClass}`} aria-label={`Status: ${label}`} title={`Status: ${label}`}><i aria-hidden="true" />{label}</span>;
+}
+
+function humanize(value: string): string {
+  return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}

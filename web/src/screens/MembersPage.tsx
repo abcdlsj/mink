@@ -132,7 +132,7 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
       <header className="members-header">
         <div className="members-title">
           <h1 id="members-heading">{agentsPage ? "Agents" : "Members"}</h1>
-          <p>{agentsPage ? "Persistent collaborators running in this Space." : "Agents and Humans in this Space."}</p>
+          <p>{agentsPage ? "Persistent collaborators with a Computer and a Role." : "People and Agents with access to this Space."}</p>
         </div>
         {canCreateAgent ? (
           <Link
@@ -253,7 +253,7 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
         {memberGroups.map((group) => <section className="member-group" key={group.kind} aria-labelledby={`member-group-${group.kind}`}>
           <header className="member-group-heading">
             <h2 id={`member-group-${group.kind}`}>{group.kind === "agent" ? "Agents" : "Humans"}</h2>
-            <span>{group.members.length}</span>
+            <span>{group.members.length} {group.kind === "agent" ? "Agents" : "Humans"}</span>
           </header>
           {group.members.map((member) => {
           const currentAccess = currentMember?.access_level;
@@ -262,10 +262,10 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
             <article className="member-row" key={member.id}>
               <div className="member-identity">
                 <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
-                <div>
-                  <strong title={member.display_name}>{member.display_name}</strong>
-                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : "Human"}</span>
-                </div>
+                  <div>
+                    <strong title={member.display_name}>{member.display_name}</strong>
+                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : "Space member"}</span>
+                  </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (
                   <Link
@@ -278,28 +278,31 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
                 ) : null}
               </div>
               <div className="member-presence">
-                {member.kind === "agent" ? <AgentPresence agent={agentByMemberId.get(member.id)} /> : <span className="member-presence-copy">Human member</span>}
+                {member.kind === "agent" ? <AgentPresence agent={agentByMemberId.get(member.id)} /> : <span className="member-presence-copy"><small className="member-field-label">Presence</small><strong>Human member</strong></span>}
               </div>
               <div className="access-control">
-                <ShieldCheck aria-hidden="true" />
-                {ownerCanSetAccess ? (
-                  <select
-                    aria-label={`Access level for ${member.display_name}`}
-                    value={member.access_level}
-                    disabled={memberUpdate.isPending}
-                    onChange={(event) =>
-                      memberUpdate.mutate({
-                        memberId: member.id,
-                        input: { access_level: event.target.value as "member" | "admin" },
-                      })
-                    }
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                ) : (
-                  <strong>{capitalize(member.access_level)}</strong>
-                )}
+                <span className="member-field-label">Access</span>
+                <div className="access-value">
+                  <ShieldCheck aria-hidden="true" />
+                  {ownerCanSetAccess ? (
+                    <select
+                      aria-label={`Access level for ${member.display_name}`}
+                      value={member.access_level}
+                      disabled={memberUpdate.isPending}
+                      onChange={(event) =>
+                        memberUpdate.mutate({
+                          memberId: member.id,
+                          input: { access_level: event.target.value as "member" | "admin" },
+                        })
+                      }
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  ) : (
+                    <strong>{capitalize(member.access_level)}</strong>
+                  )}
+                </div>
               </div>
               <div className="member-actions">
                 {member.id !== currentMember?.id ? (
@@ -343,13 +346,14 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
 }
 
 function AgentPresence({ agent }: { agent?: Agent }) {
-  if (!agent) return <span className="member-presence-copy">Agent status unavailable</span>;
+  if (!agent) return <span className="member-presence-copy"><small className="member-field-label">Activity</small><strong>Status unavailable</strong></span>;
   const activity = activityLabel(agent.activity_status);
   const connection = agent.computer_reachable ? "Computer online" : "Computer offline";
   return (
     <span className="agent-presence-stack" aria-label={`${activity}; ${agent.computer_id ? connection : "No Computer assigned"}`}>
       <span className={`agent-presence-signal agent-presence-signal--${agent.activity_status}`} aria-hidden="true" />
       <span>
+        <small className="member-field-label">Activity</small>
         <strong>{activity}</strong>
         <small>{agent.computer_id ? connection : "No Computer assigned"}</small>
       </span>

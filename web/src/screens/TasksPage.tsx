@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { Clock, Link2, RotateCcw, Unlink, XCircle } from "lucide-react";
+import { ArrowUpRight, Clock, Link2, RotateCcw, Unlink, XCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -44,6 +44,14 @@ const openOrder: Record<TaskStatus, number> = {
   closed: 4,
 };
 
+const statusLabels: Record<TaskStatus, string> = {
+  todo: "TODO",
+  in_progress: "In progress",
+  in_review: "In review",
+  done: "Done",
+  closed: "Closed",
+};
+
 const emptyFacts: Record<TaskFilter, string> = {
   all_open: "No open Tasks.",
   todo: "No TODO Tasks.",
@@ -79,6 +87,7 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
         ? task.assignee_agent_member_id === currentMemberId
         : task.status === filter)
     .sort((left, right) => openOrder[left.status] - openOrder[right.status] || right.updated_at.localeCompare(left.updated_at));
+  const groups = groupTasks(visible);
 
   return (
     <section className="tasks-workspace" aria-labelledby="tasks-heading">
@@ -92,11 +101,40 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
       {tasks.error ? <div className="route-status route-status--error" role="alert">Tasks unavailable. Retry from this page.</div> : null}
       {!tasks.isPending && !tasks.error && visible.length === 0 ? (
         <div className="tasks-empty" role="status">
-          <p>{emptyFacts[filter]}</p>
-          {filter === "all_open" ? <p>Create a Task from a Root Message in Conversation.</p> : null}
+          <span className="tasks-empty-mark" aria-hidden="true">—</span>
+          <div>
+            <p>{emptyFacts[filter]}</p>
+            {filter === "all_open" ? (
+              <Link className="tasks-empty-action" to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: "general" }}>
+                Open Conversation
+                <ArrowUpRight aria-hidden="true" />
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : null}
-      {visible.length ? <div className="task-list" role="list">{visible.map((task) => <TaskRow key={task.id} task={task} spaceSlug={spaceSlug} />)}</div> : null}
+      {groups.length ? (
+        <div className="task-groups">
+          {groups.map((group) => (
+            <section className="task-status-group" key={group.status} aria-labelledby={`task-group-${group.status}`}>
+              <header className="task-status-group-heading">
+                <h2 id={`task-group-${group.status}`}>{statusLabels[group.status]}</h2>
+                <span>{group.tasks.length}</span>
+              </header>
+              <div className="task-list-heading" aria-hidden="true">
+                <span>Status</span>
+                <span>Task</span>
+                <span>Assignee</span>
+                <span>Source</span>
+                <span>Updated</span>
+              </div>
+              <div className="task-list" role="list">
+                {group.tasks.map((task) => <TaskRow key={task.id} task={task} spaceSlug={spaceSlug} />)}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -104,18 +142,30 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
 function TaskRow({ task, spaceSlug }: { task: Task; spaceSlug: string }) {
   return (
     <article className="task-row" role="listitem">
-      <TaskStatusLabel status={task.status} />
+      <div className="task-row-status">
+        <TaskStatusLabel status={task.status} />
+        <span className="task-row-reference">!{task.seq}</span>
+      </div>
       <Link className="task-row-main" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: task.id }}>
-        <strong>!{task.seq} {task.title}</strong>
+        <strong>{task.title}</strong>
       </Link>
-      <span className="task-row-meta">
-        {task.assignee_name ?? "Unassigned"}
-        {" · "}
-        <ThreadLink thread={task.source_thread} spaceSlug={spaceSlug} label="Source" />
-      </span>
-      <time dateTime={task.updated_at}>{formatTaskTime(task.updated_at)}</time>
+      <dl className="task-row-facts">
+        <div><dt>Assignee</dt><dd>{task.assignee_name ?? "Unassigned"}</dd></div>
+        <div><dt>Source</dt><dd><ThreadLink thread={task.source_thread} spaceSlug={spaceSlug} label="Source" /></dd></div>
+        <div><dt>Updated</dt><dd><time dateTime={task.updated_at}>{formatTaskTime(task.updated_at)}</time></dd></div>
+      </dl>
     </article>
   );
+}
+
+function groupTasks(tasks: Task[]): Array<{ status: TaskStatus; tasks: Task[] }> {
+  const groups = new Map<TaskStatus, Task[]>();
+  for (const task of tasks) {
+    const group = groups.get(task.status) ?? [];
+    group.push(task);
+    groups.set(task.status, group);
+  }
+  return [...groups.entries()].map(([status, groupedTasks]) => ({ status, tasks: groupedTasks }));
 }
 
 export function TaskDetailPage() {
@@ -168,13 +218,20 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
   return (
     <section className="task-detail" aria-labelledby="task-heading">
       <header className="task-detail-header">
-        <div className="page-title"><h1 id="task-heading">{value.title}</h1><p>!{value.seq} · {threadAddressLabel(value.source_thread)} · message {value.source_thread.root_message_seq}</p></div>
-        <TaskStatusLabel status={value.status} />
+        <div className="page-title">
+          <h1 id="task-heading">{value.title}</h1>
+          <p>!{value.seq} · {threadDisplayLabel(value.source_thread)}</p>
+        </div>
+        <div className="task-detail-header-facts">
+          <div><span>Assignee</span><strong>{value.assignee_name ?? "Unassigned"}</strong></div>
+          <TaskStatusLabel status={value.status} />
+        </div>
       </header>
       {value.runtime_issue_code ? <p className="inline-notice inline-notice--error" role="alert">Task cannot run: <code>{value.runtime_issue_code}</code>. Restore compatible Thread membership or remove the Related Thread.</p> : null}
       {change.error ? <p className="inline-notice inline-notice--error" role="alert">The Task change failed. The current Server state is unchanged.</p> : null}
       <div className="task-detail-scroll">
-        <section className="task-detail-section"><h2>Task</h2><form className="task-title-form" onSubmit={rename}><label htmlFor="task-title">Title</label><input id="task-title" name="title" defaultValue={value.title} required /><button className="command-button" type="submit" disabled={change.isPending}>Save title</button></form><dl className="detail-grid"><Field label="Assignee" value={value.assignee_name ?? "Unassigned"} /><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
+        <div className="task-detail-primary">
+        <section className="task-detail-section"><h2>Task facts</h2><form className="task-title-form" onSubmit={rename}><label htmlFor="task-title">Title</label><input id="task-title" name="title" defaultValue={value.title} required /><button className="command-button" type="submit" disabled={change.isPending}>Save title</button></form><dl className="detail-grid"><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
         {!value.finished_at ? (
           <section className="task-detail-section">
             <h2>Actions</h2>
@@ -201,33 +258,37 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
           </section>
         ) : null}
         <section className="task-detail-section"><h2>Source Thread</h2><ThreadReferenceRow thread={value.source_thread} spaceSlug={spaceSlug} /></section>
-        <section className="task-detail-section"><h2>Related Threads</h2>{value.related_threads.length ? <ul className="linked-thread-list">{value.related_threads.map((thread) => <li key={thread.id}><ThreadReferenceRow thread={thread} spaceSlug={spaceSlug} /><button className="icon-button" type="button" aria-label={`Unlink ${threadAddressLabel(thread)} Thread`} onClick={() => change.mutate(() => unlinkTaskThread(value.id, thread.id))}><Unlink /></button></li>)}</ul> : <p>No Related Threads.</p>} {!value.finished_at ? <form className="link-thread-form" onSubmit={linkThread}><label htmlFor="related-thread-id">Related Thread ID</label><input id="related-thread-id" name="thread_id" required /><button className="command-button" type="submit" disabled={change.isPending}><Link2 /> Link Thread</button></form> : null}</section>
-        <section className="task-detail-section"><h2>Current Run and Focus</h2>{value.current_run ? <RunSummary run={value.current_run} spaceSlug={spaceSlug} /> : <p>No active Run. Task status does not imply an active Run.</p>}</section>
-        <section className="task-detail-section"><h2>Recent Run outcomes</h2>{value.recent_runs.length ? <ul className="run-history">{value.recent_runs.map((run) => <li key={run.id}><RunSummary run={run} spaceSlug={spaceSlug} /></li>)}</ul> : <p>No completed Runs.</p>}</section>
+        <section className="task-detail-section"><h2>Related Threads</h2>{value.related_threads.length ? <ul className="linked-thread-list">{value.related_threads.map((thread) => <li key={thread.id}><ThreadReferenceRow thread={thread} spaceSlug={spaceSlug} /><button className="icon-button" type="button" aria-label={`Unlink ${threadDisplayLabel(thread)} Thread`} title={`Unlink ${threadDisplayLabel(thread)} Thread`} onClick={() => change.mutate(() => unlinkTaskThread(value.id, thread.id))}><Unlink /></button></li>)}</ul> : <p>No Related Threads.</p>} {!value.finished_at ? <form className="link-thread-form" onSubmit={linkThread}><label htmlFor="related-thread-id">Thread address or ID</label><input id="related-thread-id" name="thread_id" required /><button className="command-button" type="submit" disabled={change.isPending}><Link2 /> Link Thread</button></form> : null}</section>
         {value.status === "done" ? <section className="task-detail-section"><h2>Result</h2>{value.result_message?.content.type === "text" ? <p className="task-result">{value.result_message.content.body_markdown}</p> : <p>Result Message is unavailable.</p>}</section> : null}
         {value.status === "closed" ? <section className="task-detail-section"><h2>Close reason</h2><p>{closeReasonLabel(value.close_reason_code)}{value.close_reason_note ? ` — ${value.close_reason_note}` : ""}</p></section> : null}
+        </div>
+        <aside className="task-detail-sidebar" aria-label="Task execution">
+        <section className="task-detail-section"><h2>Current Run and Focus</h2>{value.current_run ? <RunSummary run={value.current_run} spaceSlug={spaceSlug} /> : <p>No active Run. Task status does not imply an active Run.</p>}</section>
+        <section className="task-detail-section"><h2>Recent Run outcomes</h2>{value.recent_runs.length ? <ul className="run-history">{value.recent_runs.map((run) => <li key={run.id}><RunSummary run={run} spaceSlug={spaceSlug} /></li>)}</ul> : <p>No completed Runs.</p>}</section>
         <section className="task-detail-section session-continuity"><h2>Session continuity</h2><SessionState task={value} /><p>This state only describes the next Run's startup cost. Message, Task and Result facts remain on Server.</p>{!["done", "closed"].includes(value.status) ? <button className="command-button" type="button" disabled={change.isPending} onClick={() => change.mutate(() => resetTaskSession(value.id))}><RotateCcw /> Reset continuity</button> : null}</section>
+        </aside>
       </div>
     </section>
   );
 }
 
 function TaskStatusLabel({ status }: { status: TaskStatus }) {
-  return <span className={`task-status task-status--${status}`}><TaskStatusIcon status={status} />{status.replace("_", " ").toUpperCase()}</span>;
+  return <span className={`task-status task-status--${status}`}><TaskStatusIcon status={status} />{statusLabels[status]}</span>;
 }
-function threadAddressLabel(thread: ThreadReference): string {
-  return thread.channel_slug ? `#${thread.channel_slug}` : "DM";
+function threadDisplayLabel(thread: ThreadReference): string {
+  return thread.channel_slug ? `#${thread.channel_slug}:${thread.root_message_seq}` : `DM · message ${thread.root_message_seq}`;
 }
 function ThreadLink({ thread, spaceSlug, label }: { thread: ThreadReference; spaceSlug: string; label: string }) {
-  const address = `${threadAddressLabel(thread)} @${thread.root_message_seq}`;
+  const address = threadDisplayLabel(thread);
   if (!thread.channel_slug) {
     return <span className="task-source-link" aria-label={`${label}: ${address}`}>{address}</span>;
   }
-  return <Link className="task-source-link" to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: thread.channel_slug }} hash={`message-${thread.root_message_id}`} aria-label={`${label}: ${address}`}>{address}</Link>;
+  return <Link className="task-source-link" to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: thread.channel_slug }} hash={`message-${thread.root_message_id}`} aria-label={`${label}: ${address}`}><span>{address}</span><ArrowUpRight aria-hidden="true" /></Link>;
 }
-function ThreadReferenceRow({ thread, spaceSlug }: { thread: ThreadReference; spaceSlug: string }) { return <div className="thread-reference"><span>{thread.relation === "source" ? "SOURCE" : "RELATED"}</span><ThreadLink thread={thread} spaceSlug={spaceSlug} label={thread.relation} /><code>{thread.id}</code></div>; }
+function ThreadReferenceRow({ thread, spaceSlug }: { thread: ThreadReference; spaceSlug: string }) { return <div className="thread-reference"><div className="thread-reference-main"><ThreadLink thread={thread} spaceSlug={spaceSlug} label={thread.relation} /><small>Root message {thread.root_message_seq}</small></div></div>; }
 function RunSummary({ run, spaceSlug }: { run: Run; spaceSlug: string }) { return <article className="run-summary"><span className={`run-status run-status--${run.status}`}><Clock aria-hidden="true" />{run.status.replace("_", " ")}</span><strong>{run.agent_name}</strong><ThreadLink thread={run.focus} spaceSlug={spaceSlug} label="Focus" />{run.outcome ? <small>Outcome: {run.outcome}</small> : null}{run.error_code ? <code>{run.error_code}</code> : null}{run.continuation_note ? <p>{run.continuation_note}</p> : null}</article>; }
-function SessionState({ task }: { task: Task }) { const value = task.session_continuity; return <p className={`session-state session-state--${value.state}`}><strong>{value.state.replace("_", " ").toUpperCase()}</strong>{value.generation ? ` · generation ${value.generation}` : ""}{value.reason_code ? ` · ${value.reason_code}` : ""}</p>; }
+function SessionState({ task }: { task: Task }) { const value = task.session_continuity; return <div className={`session-state session-state--${value.state}`}><strong>{sessionStateLabel(value.state)}</strong>{value.generation ? <span>Generation {value.generation}</span> : null}{value.reason_code ? <code>{value.reason_code}</code> : null}</div>; }
+function sessionStateLabel(value: Task["session_continuity"]["state"]): string { return value === "reset_required" ? "Reset required" : value.charAt(0).toUpperCase() + value.slice(1); }
 function Field({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
 function formatTaskTime(value: string) { return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function closeReasonLabel(reason: Task["close_reason_code"]) { return reason ? reason.replace("_", " ").replace(/^./, (value) => value.toUpperCase()) : "Unknown"; }

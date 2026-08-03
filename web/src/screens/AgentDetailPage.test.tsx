@@ -172,7 +172,7 @@ describe("Agent detail", () => {
     expect(screen.getByText("Sent a message")).toBeVisible();
     expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
     expect(screen.getByText("message.send")).toBeVisible();
-    expect(screen.getByText(/"run_id":"run-1"/)).toBeVisible();
+    expect(screen.getByText("run-1")).toBeVisible();
     expect(screen.getByRole("list", { name: "Agent activity" })).toHaveClass("agent-activity-list");
 
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
@@ -206,8 +206,8 @@ describe("Agent detail", () => {
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     fireEvent.click(await screen.findByRole("tab", { name: "Overview" }));
-    expect(await screen.findByText("DM @7")).toBeVisible();
-    expect(screen.queryByRole("link", { name: /#.* @7/ })).not.toBeInTheDocument();
+    expect(await screen.findByText("DM · message 7")).toBeVisible();
+    expect(screen.queryByRole("link", { name: /#.*:7/ })).not.toBeInTheDocument();
   });
 });
 

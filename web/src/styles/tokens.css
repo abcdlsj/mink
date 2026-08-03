@@ -34,4 +34,10 @@
   --chip-reasoning: #f5e2a8;
   --chip-mode: #f2d3bd;
   --chip-neutral: #e4e2da;
+  --ui-page-gutter: 28px;
+  --ui-page-gutter-compact: 14px;
+  --ui-section-gap: 32px;
+  --ui-row-gap: 12px;
+  --ui-control-height: 36px;
+  --ui-control-shadow: 2px 2px 0 var(--ink);
 }
