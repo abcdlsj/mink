@@ -143,7 +143,28 @@ CLI 不得要求 Agent 重复传入这些字段。Agent 也不能通过参数切
 
 成功退出码为`0`，失败退出码非零。Agent 不能只依赖退出码理解错误原因。
 
-### 5.1 渐进式发现
+### 5.1 调用编排
+
+Agent 必须按数据依赖和写入冲突，把当前工作需要的 Sumi CLI 调用分成多个依赖波次。同一波内的调用不依赖彼此结果、不修改同一资源且没有可见顺序要求时，Agent 必须在一次 Driver tool-call batch 中分别发出这些调用。Agent 不得在同一波的调用之间插入模型推理。daemon 可以并发或排队执行同一波调用；该规则保证减少模型往返，不保证调用同时完成。后续波次只处理依赖前一波结果的调用。
+
+每个 tool call 只能包含一次`sumi agent`调用，并保留独立的 JSON envelope。Agent 不得用`;`、`&&`、后台进程或 shell 循环把多次`sumi agent`调用拼成一个 tool call。单次调用仍可以通过 stdin 接收正文。
+
+以下调用可以进入同一波：
+
+- 参数已由 Run 输入提供的独立只读调用，包括读取不同的 Thread、Channel、Message 或 Memory 文件。
+- 输出路径不同的 Attachment 下载。
+- 对不同 Items 作出的、已经确定且相互独立的`ack`或`defer`。
+
+以下调用之间必须保留顺序屏障：
+
+- 后一调用的参数或决策依赖前一调用结果，例如`discover -> action`、`attachment upload -> message send`和`memory read -> memory write`。
+- 调用修改同一个 Item、Task、Memory path 或输出文件。
+- Message 或 Task Action 具有协作者可见的顺序。
+- 调用改变 Run 或 Task 边界。`run yield`必须是该 Run 的最后一次 Sumi CLI 调用。
+
+Agent 必须检查同一波中每个 JSON envelope。已经成功的调用不得重复。失败的只读调用只有在`error.retryable=true`时才能重试；写调用结果不确定时，Agent 必须先读取权威状态再决定是否重试。没有对应读取能力时，Agent 不得盲目重试写调用。
+
+### 5.2 渐进式发现
 
 Agent 不需要预先知道资源创建所需的环境参数。`discover`是所有需要二次选择的 capability 共用的只读命令：
 

@@ -22,6 +22,13 @@ pub(in crate::computer) fn global_contract() -> String {
         "Use `sumi agent message send --to <member-id> --body <text> --json` only when a direct DM is necessary for a specific collaborator. Prefer the current Focus or a shared Channel for normal updates. Agent-Agent DMs are invisible to Humans, so never use DM as a default progress or coordination channel.\n",
         "Use `sumi agent channel leave <channel-id> --json` only when you intentionally stop participating in a non-DM Channel. DM Channels cannot be left.\n",
         "\n",
+        "Minimize model round trips by arranging Sumi Agent CLI calls into dependency waves. In each wave, issue all independent calls together as separate tool calls in one tool-call batch; do not insert another model turn between them. The runtime may execute or queue the calls.\n",
+        "Start a later wave only when its arguments or decision depend on earlier output, it touches the same Item, Task, Memory path, or output file, user-visible order matters, or a call changes a Run or Task boundary.\n",
+        "Typical same-wave calls are independent reads of known Threads, Channels, Messages, or Memory files; Attachment downloads to distinct output paths; and already-decided `ack` or `defer` actions for different Items.\n",
+        "Use exactly one `sumi agent` invocation per tool call so every invocation keeps its own JSON envelope. Never combine multiple Sumi invocations with shell operators, loops, or background jobs.\n",
+        "Keep `discover -> action`, `attachment upload -> message send`, `memory read -> memory write`, and ordered Message or Task actions sequential. `run yield` must be the final Sumi CLI call in a Run.\n",
+        "After a batch, inspect every JSON envelope and never repeat a successful call. Retry a failed read only when `error.retryable` is true. If a write outcome is uncertain, inspect authoritative state before deciding whether to retry; when no read capability exists, do not retry blindly.\n",
+        "\n",
         "Memory is your cross-Channel continuity and must stay current. `MEMORY.md` is the concise, self-sufficient recovery entry point and index to detailed files under `notes/`.\n",
         "At the start of every Run, read `MEMORY.md` before substantive work. Read indexed or projected Memory files when they are relevant.\n",
         "Actively observe collaborator preferences, Channel and project context, domain knowledge, work history, and other Agents' responsibilities. After every significant interaction or learning, update the relevant Memory file immediately in the same Run. Complete that write before the related substantive reply, Item disposition, or yield; do not wait for Task completion.\n",
@@ -84,5 +91,19 @@ mod tests {
             contract.contains("before the related substantive reply, Item disposition, or yield")
         );
         assert!(contract.contains("sumi agent memory write MEMORY.md --stdin --json"));
+    }
+
+    #[test]
+    fn global_contract_batches_independent_cli_calls_with_dependency_barriers() {
+        let contract = global_contract();
+
+        assert!(contract.contains("Sumi Agent CLI calls into dependency waves"));
+        assert!(contract.contains("separate tool calls in one tool-call batch"));
+        assert!(contract.contains("do not insert another model turn between them"));
+        assert!(contract.contains("exactly one `sumi agent` invocation per tool call"));
+        assert!(contract.contains("`run yield` must be the final Sumi CLI call in a Run"));
+        assert!(
+            contract.contains("inspect every JSON envelope and never repeat a successful call")
+        );
     }
 }
