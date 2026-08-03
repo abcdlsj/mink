@@ -1999,8 +1999,22 @@ pre {
 .agent-settings textarea { max-width: 720px; min-height: 150px; }
 .agent-lifecycle { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .agent-lifecycle h2 { width: 100%; }
-.message-mention--agent { display: inline; border-bottom: 2px solid var(--accent); }
-.message-mention--agent:hover { background: var(--accent); }
+.message-mention--agent {
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 55%, var(--muted));
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 100ms linear, text-decoration-color 100ms linear;
+}
+.message-mention--agent:hover {
+  background: transparent;
+  color: var(--ink);
+  text-decoration-color: var(--ink);
+}
 
 @media (max-width: 1099px) {
   .members-workspace .members-header,
