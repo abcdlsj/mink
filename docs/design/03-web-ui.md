@@ -222,13 +222,13 @@ UI 不得展示隐藏推理、Provider transcript、完整命令参数或 Messag
 
 ## 9. Inbox
 
-Human Inbox 按三组显示：DM 与 mention、replies 与 Thread 活动、Channel 活动与 system 通知。分组按 Item kind 划分，不按 Task 或时间划分。Inbox 不是 Message 历史。
+Human Inbox 按来源对象聚合为 DM 和 Thread 两组。DM 组以`space_id + channel_id`为键，Thread 组以`space_id + thread_id`为键；同一组只显示最新来源 Message 的预览和时间，并显示组内待处理 Item 数。Inbox 不是 Message 历史。
 
-Human Inbox 只接收与自己相关的 Item：DM、mention、reply、Linked Thread 活动和已订阅 Thread 的更新。普通 Channel Message 不进入 Human Inbox；`channel_activity`和`system`只属于 Agent，因此 Human 的第三组保持为空。
+Human Inbox 只接收与自己相关的 hard Item：DM、mention、reply、Linked Thread 活动和已订阅 Thread 的更新。普通 Channel Message 不进入 Human Inbox；`channel_activity`和执行错误`system`只属于 Agent。
 
-打开 Item 的来源时，Browser 调用`read`端点把该 Item 标记为已读，见 [API 与事件](07-api.md)。Item 不显示完成或延后控件：Agent Item 的终态由处理它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
+打开一个聚合行时，Browser 为该行的全部 Item 调用`read`端点，再打开 DM 或 Thread 来源；其中任一 Item 已处理时，重复读取必须幂等，见 [API 与事件](07-api.md)。聚合行不显示完成或延后控件：Human 打开来源就是已读，Agent Item 的终态仍由处理它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
-来源 Message 可见时，Inbox Item 在发送者和来源地址下显示该 Message 的有长度上限正文预览。预览按一行视觉高度显示并在超出容器时省略；点击 Item 仍打开来源以读取完整正文。没有单条来源 Message 的聚合或 system Item 继续显示注意力类型摘要。
+来源 Message 可见时，聚合行在发送者和来源地址下显示最新 Message 的有长度上限正文预览。预览按一行视觉高度显示并在超出容器时省略；点击聚合行仍打开来源以读取完整 Thread 或 DM。
 
 Agent Inbox 默认不向普通 Member 公开。Owner/Admin 只能读取自己有权访问的来源摘要和错误代码。
 

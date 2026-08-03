@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fmt};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{
-    AgentId, AttachmentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId,
-    SpaceId, TaskId, ThreadId,
+    AgentId, AttachmentId, ChannelId, ComputerId, IdempotencyKey, InboxItemId, MemberId, MessageId,
+    RunId, SpaceId, TaskId, ThreadId,
 };
 
 pub(crate) const SCHEMA_VERSION: u16 = 1;
@@ -38,6 +38,9 @@ impl fmt::Debug for Request {
     deny_unknown_fields
 )]
 pub(crate) enum Action {
+    Discover {
+        operation: String,
+    },
     ContextCurrent,
     MessageRead(Page),
     ThreadRead {
@@ -112,12 +115,14 @@ pub(crate) enum Action {
         name: String,
         role: String,
         driver: DriverKind,
+        computer_id: ComputerId,
     },
 }
 
 impl Action {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Discover { .. } => "discover",
             Self::ContextCurrent => "context.current",
             Self::MessageRead(_) => "message.read",
             Self::ThreadRead { .. } => "thread.read",

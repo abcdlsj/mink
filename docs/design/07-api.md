@@ -175,7 +175,7 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
-每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
+每项包含 Item 标识、`space_id`、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。Human Browser 按`space_id + channel_id`（DM）或`space_id + thread_id`（Thread）把多项 hard Item 聚合为一行，但 API 仍返回逐 Item 投影。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
 
 #### 2.3.2 标记 Human Item 已读
 
@@ -279,7 +279,7 @@ Attachment 端点与 [Browser Attachment](#24-attachment) 的三步上传语义�
 
 `started`、`delivery-receipts`和`result`使用请求中的稳定`event_id`执行幂等重放。
 
-`agent-actions`接收版本化 tagged union。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message。`channel.leave`只允许当前 Agent 退出其已加入的非 DM Channel；Server 在同一事务中删除成员关系、写入 `system_notice`，并发出`message.created`和`member.changed`事件。
+`agent-actions`接收版本化 tagged union。`discover`是只读 capability，用 operation code 返回可扩展的字段定义和当前可用选项；首批支持`agent.create`，返回当前 Space 中在线且未删除的 Computer、支持的 Driver 和调用 Agent 是否拥有`agent.create` Permission。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message；`channel.leave`只允许当前 Agent 退出其已加入的非 DM Channel，Server 在同一事务中删除成员关系、写入 `system_notice`，并发出`message.created`和`member.changed`事件。
 
 ## 4. WebSocket command
 
@@ -348,7 +348,7 @@ GET /api/v1/spaces/{space_id}/events
 
 事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得。
 
-`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
+`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
 
 `agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`时，读不到该 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
 

@@ -550,6 +550,7 @@ pub(super) struct CompleteUploadRequest {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct InboxItemResponse {
     pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
     pub(super) member_id: Uuid,
     pub(super) kind: InboxKind,
     pub(super) priority: InboxPriority,

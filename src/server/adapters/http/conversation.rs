@@ -655,6 +655,7 @@ pub(super) fn space_member_response(member: &SpaceMemberView) -> MemberResponse 
 pub(super) fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
     InboxItemResponse {
         id: item.id.into_uuid(),
+        space_id: item.space_id.into_uuid(),
         member_id: item.member_id.into_uuid(),
         kind: inbox_kind_code(item.kind),
         priority: match item.strength {

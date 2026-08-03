@@ -538,6 +538,12 @@ impl CreateAgentAction {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
+            if !transaction
+                .computer_accepts_agent(input.computer_id, run_view.space_id)
+                .await?
+            {
+                return Err(ApplicationError::Conflict);
+            }
             let member = Member {
                 id: input.agent_member_id,
                 space_id: run_view.space_id,

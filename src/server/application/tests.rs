@@ -2875,6 +2875,16 @@ async fn agent_creation_and_action_message_share_permission_and_transaction() {
     let computer_id = computer(114);
     let action_message_id = message(115);
     let mut port = MemoryPort::default();
+    port.state.computers.insert(
+        computer_id,
+        Computer {
+            id: computer_id,
+            space_id: space(1),
+            lifecycle: ComputerLifecycle::Online,
+            token_hash: Some("hash".into()),
+            deleted_at: None,
+        },
+    );
     insert_thread(&mut port, focus, &[actor]);
     port.state
         .runs
@@ -3170,6 +3180,7 @@ fn inbox_view(item: &InboxItem) -> InboxItemView {
     let item = item.view();
     InboxItemView {
         id: item.id,
+        space_id: item.space_id,
         member_id: item.member_id,
         kind: item.kind,
         strength: item.strength,

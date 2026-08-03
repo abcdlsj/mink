@@ -367,6 +367,7 @@ pub(super) fn inbox_view_from_row(
 ) -> Result<InboxItemView, ApplicationError> {
     Ok(InboxItemView {
         id: InboxItemId::from_uuid(row.get("id")),
+        space_id: SpaceId::from_uuid(row.get("space_id")),
         member_id: MemberId::from_uuid(row.get("member_id")),
         kind: inbox_kind_from_str(row.get("kind"))?,
         strength: strength_from_str(row.get("strength"))?,

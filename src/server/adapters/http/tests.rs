@@ -168,6 +168,66 @@ impl CapabilityFixture {
 }
 
 #[tokio::test]
+async fn agent_capability_discovery_lists_creation_choices_and_permission_state() {
+    let fixture = CapabilityFixture::create().await;
+    let discovery = fixture
+        .execute(capability::Action::Discover {
+            operation: "agent.create".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(discovery["operation"], "agent.create");
+    assert_eq!(discovery["permission"]["action"], "agent.create");
+    assert_eq!(discovery["permission"]["granted"], false);
+    let fields = discovery["input"]["fields"].as_array().unwrap();
+    let computer_field = fields
+        .iter()
+        .find(|field| field["name"] == "computer_id")
+        .unwrap();
+    assert_eq!(
+        computer_field["available"][0]["value"],
+        fixture.computer_id.to_string()
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field["name"] == "driver")
+            .unwrap()["available"][0]["value"],
+        "codex"
+    );
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn agent_capability_creation_rejects_an_unavailable_computer() {
+    let fixture = CapabilityFixture::create().await;
+    sqlx::query(
+        "INSERT INTO member_permissions (member_id,space_id,action_code,granted_by_member_id,created_at) \
+         VALUES ($1,$2,'agent.create',$3,now())",
+    )
+    .bind(fixture.context.agent_id.into_uuid())
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.owner_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+
+    let error = fixture
+        .execute(capability::Action::AgentCreate {
+            name: "Coder".into(),
+            role: "Write code".into(),
+            driver: capability::DriverKind::Codex,
+            computer_id: crate::ids::ComputerId::from_uuid(Uuid::now_v7()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, capability::ErrorCode::Conflict);
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
     let fixture = CapabilityFixture::create().await;
     let agent_id = fixture.context.agent_id.into_uuid();
@@ -1393,6 +1453,7 @@ async fn agent_write_actions_emit_agent_activity_events() {
             name: "Coder".into(),
             role: "Write code".into(),
             driver: capability::DriverKind::Codex,
+            computer_id: crate::ids::ComputerId::from_uuid(fixture.computer_id),
         })
         .await
         .unwrap();

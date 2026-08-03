@@ -1,7 +1,10 @@
 use clap::{Args, Subcommand};
 
 use crate::{
-    ids::{AttachmentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, ThreadId},
+    ids::{
+        AttachmentId, ChannelId, ComputerId, IdempotencyKey, InboxItemId, MemberId, MessageId,
+        ThreadId,
+    },
     protocol::capability::{
         Action, CloseReason, DriverKind, MessageSend, MessageTarget, Page, PostTarget,
     },
@@ -17,6 +20,7 @@ pub(crate) struct AgentCli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    Discover { operation: String },
     Context(ContextArgs),
     Message(MessageArgs),
     Task(TaskArgs),
@@ -192,6 +196,8 @@ enum AgentCommand {
         role_file: std::path::PathBuf,
         #[arg(long)]
         driver: String,
+        #[arg(long)]
+        computer_id: ComputerId,
     },
 }
 
@@ -265,6 +271,12 @@ impl AgentCli {
             return Err("--json is required for Agent automation");
         }
         let (action, writes) = match self.command {
+            Command::Discover { operation } => {
+                if operation.trim().is_empty() || operation.chars().count() > 100 {
+                    return Err("operation must contain 1 to 100 characters");
+                }
+                (Action::Discover { operation }, false)
+            }
             Command::Context(ContextArgs {
                 command: ContextCommand::Current,
             }) => (Action::ContextCurrent, false),
@@ -404,6 +416,7 @@ impl AgentCli {
                         name,
                         role_file,
                         driver,
+                        computer_id,
                     },
             }) => {
                 let role = tokio::fs::read_to_string(role_file)
@@ -414,7 +427,15 @@ impl AgentCli {
                     "builtin" => DriverKind::Builtin,
                     _ => return Err("--driver must be codex or builtin"),
                 };
-                (Action::AgentCreate { name, role, driver }, true)
+                (
+                    Action::AgentCreate {
+                        name,
+                        role,
+                        driver,
+                        computer_id,
+                    },
+                    true,
+                )
             }
             Command::Attachment(AttachmentArgs {
                 command: AttachmentCommand::Upload { path },
@@ -614,6 +635,53 @@ mod tests {
                 channel_id: channel
             }
         );
+    }
+
+    #[tokio::test]
+    async fn discover_maps_to_an_extensible_read_action() {
+        let cli =
+            TestAgentCli::try_parse_from(["sumi-agent", "discover", "agent.create", "--json"])
+                .unwrap()
+                .agent;
+        let (action, idempotency_key) = cli.action(None).await.unwrap();
+        assert_eq!(idempotency_key, None);
+        assert_eq!(
+            action,
+            Action::Discover {
+                operation: "agent.create".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_create_submits_the_discovered_computer() {
+        let computer_id = ComputerId::from_uuid(uuid::Uuid::from_u128(11));
+        let role_file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(role_file.path(), "Build and verify").unwrap();
+        let cli = TestAgentCli::try_parse_from(vec![
+            "sumi-agent".to_owned(),
+            "agent".to_owned(),
+            "create".to_owned(),
+            "Coder".to_owned(),
+            "--role-file".to_owned(),
+            role_file.path().to_string_lossy().into_owned(),
+            "--computer-id".to_owned(),
+            computer_id.to_string(),
+            "--driver".to_owned(),
+            "codex".to_owned(),
+            "--json".to_owned(),
+        ])
+        .unwrap()
+        .agent;
+        let (action, _) = cli.action(None).await.unwrap();
+        assert!(matches!(
+            action,
+            Action::AgentCreate {
+                computer_id: selected,
+                driver: DriverKind::Codex,
+                ..
+            } if selected == computer_id
+        ));
     }
 
     #[tokio::test]

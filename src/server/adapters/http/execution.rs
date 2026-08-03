@@ -429,6 +429,9 @@ pub(super) async fn execute_agent_action(
         ));
     }
     match request.action {
+        capability::Action::Discover { operation } => {
+            discover_operation(state, context, &operation).await
+        }
         capability::Action::ContextCurrent => {
             let task = match context.task_id {
                 Some(id) => Some(
@@ -906,7 +909,12 @@ pub(super) async fn execute_agent_action(
             .await;
             Ok(json!({"channel_id": channel_id, "member_id": context.agent_id}))
         }
-        capability::Action::AgentCreate { name, role, driver } => {
+        capability::Action::AgentCreate {
+            name,
+            role,
+            driver,
+            computer_id: target_computer_id,
+        } => {
             if !valid_display_name(&name) || name.chars().count() > 40 || role.trim().is_empty() {
                 return Err(capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -922,7 +930,7 @@ pub(super) async fn execute_agent_action(
                     agent_member_id: agent_id,
                     display_name: name.clone(),
                     role_text: role,
-                    computer_id: ComputerId::from_uuid(computer_id),
+                    computer_id: target_computer_id,
                     driver_kind: match driver {
                         capability::DriverKind::Codex => DriverKind::Codex,
                         capability::DriverKind::Builtin => DriverKind::Builtin,
@@ -1107,6 +1115,95 @@ pub(super) async fn record_agent_item_disposition(
     .await
     .map_err(app_to_capability)?;
     Ok(())
+}
+
+async fn discover_operation(
+    state: &RuntimeState,
+    context: &capability::RunContext,
+    operation: &str,
+) -> Result<Value, capability::Error> {
+    if operation != "agent.create" {
+        return Err(capability_error(
+            capability::ErrorCode::NotFound,
+            "Discovery operation is not available",
+            false,
+        ));
+    }
+
+    let computers = sqlx::query(
+        "SELECT id,name,hostname,os,connection_status FROM computers \
+         WHERE space_id=$1 AND deleted_at IS NULL AND connection_status='online' ORDER BY name,id",
+    )
+    .bind(context.space_id.into_uuid())
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Discovery options could not be read",
+            false,
+        )
+    })?;
+    let permission_granted = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM member_permissions \
+         WHERE member_id=$1 AND space_id=$2 AND action_code='agent.create')",
+    )
+    .bind(context.agent_id.into_uuid())
+    .bind(context.space_id.into_uuid())
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Discovery permission state could not be read",
+            false,
+        )
+    })?;
+
+    Ok(json!({
+        "operation": "agent.create",
+        "description": "Create an Agent in the current Space",
+        "input": {
+            "fields": [
+                {
+                    "name": "name",
+                    "value_type": "display_name",
+                    "required": true
+                },
+                {
+                    "name": "role_file",
+                    "value_type": "agent_role_file",
+                    "required": true
+                },
+                {
+                    "name": "computer_id",
+                    "value_type": "computer_id",
+                    "required": true,
+                    "available": computers.iter().map(|row| json!({
+                        "value": row.get::<Uuid, _>("id"),
+                        "label": row.get::<String, _>("name"),
+                        "hostname": row.get::<String, _>("hostname"),
+                        "os": row.get::<String, _>("os"),
+                        "status": row.get::<String, _>("connection_status"),
+                        "available": row.get::<&str, _>("connection_status") == "online"
+                    })).collect::<Vec<_>>()
+                },
+                {
+                    "name": "driver",
+                    "value_type": "driver_kind",
+                    "required": true,
+                    "available": [
+                        { "value": "codex", "label": "Codex" },
+                        { "value": "builtin", "label": "Builtin" }
+                    ]
+                }
+            ]
+        },
+        "permission": {
+            "action": "agent.create",
+            "granted": permission_granted
+        }
+    }))
 }
 
 pub(super) async fn agent_read_thread(

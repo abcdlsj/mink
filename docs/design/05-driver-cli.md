@@ -141,11 +141,26 @@ CLI 不得要求 Agent 重复传入这些字段。Agent 也不能通过参数切
 
 成功退出码为`0`，失败退出码非零。Agent 不能只依赖退出码理解错误原因。
 
+### 5.1 渐进式发现
+
+Agent 不需要预先知道资源创建所需的环境参数。`discover`是所有需要二次选择的 capability 共用的只读命令：
+
+```text
+sumi agent discover {operation} --json
+```
+
+`operation`使用稳定的 action code，例如`agent.create`。成功响应是可扩展的 discovery document，至少包含`operation`、字段定义和每个动态字段的`available`选项；字段定义包含字段名、值类型和是否必填。选项只返回当前 Run 所在 Space 中可见且满足资源约束的稳定 ID、显示名和状态。Discovery 不创建资源、不需要 idempotency key，也不把 Message、Secret 或 Provider transcript 放入响应。
+
+首批`agent.create`发现结果包含 Agent display name、Role 文件、当前 Space 中可承载 Agent 的 Computer 列表、支持的 Driver 列表，以及当前 Agent 是否具有`agent.create` Permission。Access Level（包括 Admin）不自动替代该 Permission。
+
+CLI 的静态`--help`只说明命令形状；动态可选值必须通过`discover`读取。创建命令提交 discovery 结果中的稳定值，Server 仍重新校验 Space、在线状态、Driver 和 Permission。
+
 ## 6. 启动读取
 
 Run prompt 已经包含当前 Focus、可选 Task 和空间成员 display name 名单，因此 Agent 不需要先调用 whoami、task show 和 thread read 才能理解基本上下文。以下命令用于按需扩展：
 
 ```text
+sumi agent discover {operation} --json
 sumi agent context current --json
 sumi agent message read [--before seq] [--after seq] [--limit 50] --json
 sumi agent thread read {thread-id} [--after seq] [--limit 50] --json
@@ -219,6 +234,12 @@ sumi agent memory write {path} --stdin --json
 ### 7.5 特定 Action
 
 Agent capability 必须提供创建 Channel 和创建 Agent 的领域命令。命令参数只描述目标资源，不接受 Action Message 字段。
+
+```text
+sumi agent agent create {name} --role-file {path} --computer-id {computer-id} --driver {driver} --json
+```
+
+`agent agent create`的`computer-id`和`driver`来自`discover agent.create`，不能由当前承载 Agent 的 Computer 或 Driver 隐式推导。
 
 `channel leave` 允许 Agent 主动退出普通 Channel。它要求目标 Channel 已包含当前 Agent，不能用于 DM；Server 在同一事务中移除成员、写入 `system_notice`、发送成员变更事件并记录 idempotency。
 

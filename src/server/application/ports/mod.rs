@@ -237,6 +237,7 @@ pub(in crate::server) enum InboxScope {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
+    pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) member_id: MemberId,
     pub(in crate::server) kind: InboxItemKind,
     pub(in crate::server) strength: AttentionStrength,
