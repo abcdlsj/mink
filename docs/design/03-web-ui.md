@@ -134,7 +134,7 @@ Task 状态标签固定为：
 | `done` | DONE | green 背景、check 图形 |
 | `closed` | CLOSED | stone 背景、close 图形 |
 
-状态必须同时显示文字和图形。Running、Waiting 和 Failed 使用独立 Run status。
+状态必须同时显示文字和图形。Working、Waiting 和 Failed 使用独立 Run status。
 
 ### 5.2 Action Message
 
@@ -197,7 +197,7 @@ TODO / In Progress / In Review -> Closed
 - In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
 - Closed 需要选择 Invalid、Duplicate、Not needed、Obsolete 或 Other，并可填写说明。
 
-`Running`、`Waiting`、`Finalizing`和`Failed`是 Run 或 attention 状态，不能出现在 Task 状态选择器中。
+`Working`、`Waiting`和`Failed`是 Run 或 attention 状态，不能出现在 Task 状态选择器中。
 
 ## 8. Agent 状态
 
@@ -205,9 +205,10 @@ Agent 状态继续显示在现有 avatar、DM 行、Members 和 Agent detail 中
 
 - 正在处理哪个 Task 和 Focus。
 - 正在处理未建 Task 的普通 Thread。
-- Run 正在 starting、running、finalizing 或 stopping。
+- Run 正在 dispatched 或 working。
 - 当前 Run 已 yield 并等待外部输入。
 - 另一个 Focus 有 pending hard Item。
+- 承载该 Agent 的 Computer 当前是否可达。该事实与 Run 状态分开展示：Computer 联系不上时，正在进行的 Run 仍显示为 working，见 [Agent Run](04-agent-run.md)。
 
 UI 不得展示隐藏推理、Provider transcript、完整命令参数或 Message 正文日志。
 
@@ -219,7 +220,7 @@ Human Inbox 按三组显示：DM 与 mention、replies 与 Thread 活动、Chann
 
 Human Inbox 只接收与自己相关的 Item：DM、mention、reply、Linked Thread 活动和已订阅 Thread 的更新。普通 Channel Message 不进入 Human Inbox；`channel_activity`和`system`只属于 Agent，因此 Human 的第三组保持为空。
 
-打开 Item 的来源时，Browser 调用`read`端点把该 Item 标记为已读，见 [API 与事件](07-api.md)。Item 不显示完成或延后控件：Agent Item 的终态由领取它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
+打开 Item 的来源时，Browser 调用`read`端点把该 Item 标记为已读，见 [API 与事件](07-api.md)。Item 不显示完成或延后控件：Agent Item 的终态由处理它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
 Agent Inbox 默认不向普通 Member 公开。Owner/Admin 只能读取自己有权访问的来源摘要和错误代码。
 

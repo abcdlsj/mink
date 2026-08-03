@@ -70,11 +70,6 @@ async fn agent_mention_ids(
     Ok(ids)
 }
 
-#[derive(Deserialize)]
-pub(super) struct RenewRunBody {
-    fencing_token: String,
-}
-
 pub(super) async fn run_started(
     State(state): State<RuntimeState>,
     headers: HeaderMap,
@@ -91,7 +86,6 @@ pub(super) async fn run_started(
         StartRunInput {
             run_id: started.run_id,
             computer_id: ComputerId::from_uuid(computer_id),
-            fencing_token_hash: token_hash(started.fencing_token.expose()),
             now: started.observed_at,
         },
     )
@@ -116,7 +110,6 @@ pub(super) async fn delivery_receipt(
         AcknowledgeDeliveryInput {
             run_id: receipt.run_id,
             computer_id: ComputerId::from_uuid(computer_id),
-            fencing_token_hash: token_hash(receipt.fencing_token.expose()),
             delivery_sequence: receipt.delivery_sequence.0,
             accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
             now: OffsetDateTime::now_utc(),
@@ -158,11 +151,11 @@ pub(super) async fn apply_run_result(
             event_id: result.event_id,
             run_id: result.run_id,
             computer_id: ComputerId::from_uuid(computer_id),
-            fencing_token_hash: token_hash(result.fencing_token.expose()),
             outcome,
             error_code,
             item_dispositions,
             continuation_note: result.continuation_note,
+            max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -199,102 +192,103 @@ pub(super) async fn run_result(
     Ok(StatusCode::OK)
 }
 
-pub(super) async fn claim_run(
-    State(state): State<RuntimeState>,
-    headers: HeaderMap,
-    Path(computer_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
-    authenticate_computer(&state, &headers, computer_id).await?;
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DispatchOutcome {
+    pub(crate) dispatched: u32,
+    pub(crate) failed: u32,
+}
+
+/// Dispatches one Run per Agent that has available work and no live Run.
+///
+/// Each candidate gets its own transaction, so one Agent whose dispatch fails does not stop the rest.
+/// A failed dispatch leaves the Item pending; it carries no deadline, so the next pass retries it.
+pub(crate) async fn dispatch_available_work(
+    state: &RuntimeState,
+    now: OffsetDateTime,
+    limit: u32,
+) -> Result<DispatchOutcome, crate::server::application::ports::ApplicationError> {
     let mut storage = state.storage.clone();
-    let candidate = ClaimNextRun::candidate(&mut storage, ComputerId::from_uuid(computer_id))
-        .await
-        .map_err(application_error)?;
-    let Some(candidate) = candidate else {
-        return Ok(Json(json!({"claimed":false})));
-    };
-    let run_id = RunId::from_uuid(Uuid::now_v7());
-    let fencing_token = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
-    let claim_result = ClaimRun::execute(
-        &mut storage,
-        ClaimRunInput {
-            run_id,
-            agent_id: candidate.agent_id,
-            computer_id: ComputerId::from_uuid(computer_id),
-            task_id: candidate.task_id,
-            focus_thread_id: candidate.thread_id,
-            item_ids: vec![candidate.item_id],
-            fencing_token: RawFencingToken::new(fencing_token),
-            lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(2),
-        },
-    )
-    .await;
-    if let Err(error) = claim_result {
-        let error_code = run_claim_error_code(&error);
+    let candidates = FindDispatchableWork::candidates(&mut storage, now, limit).await?;
+    let mut outcome = DispatchOutcome::default();
+    for candidate in candidates {
         let mut storage = state.storage.clone();
-        let changed = ClaimNextRun::record_failure(
+        let result = DispatchRun::execute(
             &mut storage,
-            candidate.item_id,
-            candidate.message_id,
-            candidate.channel_id,
-            error_code,
+            DispatchRunInput {
+                run_id: RunId::from_uuid(Uuid::now_v7()),
+                agent_id: candidate.agent_id,
+                task_id: candidate.task_id,
+                focus_thread_id: candidate.thread_id,
+                trigger: candidate.trigger,
+                item_ids: vec![candidate.item_id],
+            },
         )
-        .await
-        .map_err(application_error)?;
-        if changed {
-            tracing::warn!(
-                %computer_id,
-                item_id = %candidate.item_id.into_uuid(),
-                agent_id = %candidate.agent_id.into_uuid(),
-                error_code,
-                "Computer Run claim failed; the Inbox Item remains pending"
-            );
+        .await;
+        match result {
+            Ok(_) => outcome.dispatched += 1,
+            Err(error) => {
+                outcome.failed += 1;
+                let error_code = run_dispatch_error_code(&error);
+                let mut storage = state.storage.clone();
+                let changed = FindDispatchableWork::record_failure(
+                    &mut storage,
+                    candidate.item_id,
+                    candidate.message_id,
+                    candidate.channel_id,
+                    error_code,
+                )
+                .await?;
+                if changed {
+                    tracing::warn!(
+                        computer_id = %candidate.computer_id.into_uuid(),
+                        item_id = %candidate.item_id.into_uuid(),
+                        agent_id = %candidate.agent_id.into_uuid(),
+                        error_code,
+                        "Run dispatch failed; the Inbox Item remains pending"
+                    );
+                }
+            }
         }
-        return Err(application_error(error));
     }
-    Ok(Json(json!({"claimed":true,"run_id":run_id})))
+    Ok(outcome)
 }
 
-pub(super) fn run_claim_error_code(
-    error: &crate::server::application::ports::ApplicationError,
-) -> &'static str {
-    use crate::server::application::ports::ApplicationError;
-    match error {
-        ApplicationError::NotFound => "run_claim_not_found",
-        ApplicationError::Unauthenticated => "run_claim_unauthenticated",
-        ApplicationError::PayloadTooLarge => "run_claim_payload_too_large",
-        ApplicationError::PermissionDenied => "run_claim_permission_denied",
-        ApplicationError::Conflict | ApplicationError::Domain(_) => "run_claim_conflict",
-        ApplicationError::ContextChanged => "run_claim_context_changed",
-        ApplicationError::Unavailable => "run_claim_unavailable",
-        ApplicationError::Internal => "run_claim_internal",
-    }
-}
-
-pub(super) async fn renew_run(
+/// Records a Human's request to stop a Run. Returns immediately: the Run stays live until the Computer
+/// reports that the Driver actually stopped, because only the Computer can know that.
+pub(super) async fn cancel_run(
     State(state): State<RuntimeState>,
-    headers: HeaderMap,
-    Path((computer_id, run_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<RenewRunBody>,
-) -> Result<Json<Value>, ApiError> {
-    authenticate_computer(&state, &headers, computer_id).await?;
-    let lease_expires_at = OffsetDateTime::now_utc() + Duration::minutes(2);
+    jar: CookieJar,
+    Path((agent_id, run_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    let viewer_id = agent_space_member(&state, &jar, agent_id).await?;
     let mut storage = state.storage.clone();
-    let run = RenewRun::execute(
+    RequestRunCancel::execute(
         &mut storage,
-        RenewRunInput {
+        RequestRunCancelInput {
             run_id: RunId::from_uuid(run_id),
-            computer_id: ComputerId::from_uuid(computer_id),
-            fencing_token_hash: token_hash(&body.fencing_token),
-            lease_expires_at,
+            requested_by: MemberId::from_uuid(viewer_id),
+            now: OffsetDateTime::now_utc(),
         },
     )
     .await
     .map_err(application_error)?;
-    let run = run.view();
-    Ok(Json(json!({
-        "run_id": run.id,
-        "lease_expires_at": timestamp(run.lease_expires_at)
-    })))
+    Ok(StatusCode::ACCEPTED)
+}
+
+pub(super) fn run_dispatch_error_code(
+    error: &crate::server::application::ports::ApplicationError,
+) -> &'static str {
+    use crate::server::application::ports::ApplicationError;
+    match error {
+        ApplicationError::NotFound => "run_dispatch_not_found",
+        ApplicationError::Unauthenticated => "run_dispatch_unauthenticated",
+        ApplicationError::PayloadTooLarge => "run_dispatch_payload_too_large",
+        ApplicationError::PermissionDenied => "run_dispatch_permission_denied",
+        ApplicationError::Conflict | ApplicationError::Domain(_) => "run_dispatch_conflict",
+        ApplicationError::ContextChanged => "run_dispatch_context_changed",
+        ApplicationError::Unavailable => "run_dispatch_unavailable",
+        ApplicationError::Internal => "run_dispatch_internal",
+    }
 }
 
 pub(super) async fn agent_action(
@@ -380,7 +374,6 @@ pub(super) async fn execute_agent_action(
             space_id: context.space_id,
             task_id: context.task_id,
             focus_thread_id: context.focus_thread_id,
-            fencing_token_hash: token_hash(&context.fencing_token),
         },
     )
     .await
@@ -409,7 +402,7 @@ pub(super) async fn execute_agent_action(
             };
             let continuity = agent_continuity(state, context.agent_id.into_uuid(), scope).await;
             Ok(
-                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"claimed_items":items.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at"))})).collect::<Vec<_>>(),"session_continuity":continuity}),
+                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at"))})).collect::<Vec<_>>(),"session_continuity":continuity}),
             )
         }
         capability::Action::MessageRead(page) => {
@@ -974,7 +967,6 @@ pub(super) async fn finish_agent_task(
             scope: TaskOutcomeScope::AgentRun(OutcomeRunContext {
                 run_id: context.run_id,
                 computer_id: ComputerId::from_uuid(computer_id),
-                fencing_token_hash: token_hash(&context.fencing_token),
                 message_snapshot_sequence: context.message_snapshot_sequence,
             }),
             actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
@@ -1017,7 +1009,6 @@ pub(super) async fn record_agent_item_disposition(
         RecordRunItemDispositionInput {
             run_id: context.run_id,
             computer_id: ComputerId::from_uuid(computer_id),
-            fencing_token_hash: token_hash(&context.fencing_token),
             item_id,
             disposition,
             defer_until,
@@ -1163,6 +1154,8 @@ pub(super) fn app_to_capability(
     api_to_capability(api)
 }
 
+/// Authorizes a Run-scoped call. The Computer's own token plus a `working` Run hosted by that
+/// Computer is the whole proof: there is no per-Run credential and no deadline to check.
 pub(super) async fn require_active_agent_run(
     state: &RuntimeState,
     headers: &HeaderMap,
@@ -1171,23 +1164,17 @@ pub(super) async fn require_active_agent_run(
     run_id: Uuid,
 ) -> Result<Uuid, ApiError> {
     let computer_token = bearer_token(headers)?;
-    let fencing_token = headers
-        .get("x-sumi-fencing-token")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(ApiError::unauthenticated)?;
     sqlx::query_scalar(
         "SELECT runs.space_id FROM agent_runs runs \
          JOIN agents ON agents.member_id=runs.agent_id \
          JOIN computers ON computers.id=agents.computer_id \
          WHERE computers.id=$1 AND computers.token_hash=$2 AND computers.deleted_at IS NULL \
-         AND agents.member_id=$3 AND runs.id=$4 AND runs.status='running' \
-         AND runs.fencing_token_hash=$5 AND runs.lease_expires_at>now()",
+         AND agents.member_id=$3 AND runs.id=$4 AND runs.status='working'",
     )
     .bind(computer_id)
     .bind(token_hash(computer_token))
     .bind(agent_id)
     .bind(run_id)
-    .bind(token_hash(fencing_token))
     .fetch_optional(&state.pool)
     .await
     .map_err(map_sqlx)?
@@ -1234,7 +1221,6 @@ pub(in crate::server::adapters) async fn submit_run_result<P: TransactionPort + 
     principal: ComputerPrincipal,
     result: RunResult,
 ) -> Result<StatusCode, HttpError> {
-    let token_hash = hex::encode(Sha256::digest(result.fencing_token.expose().as_bytes()));
     let outcome = match result.status {
         RunTerminalStatus::Completed => RunOutcome::Completed,
         RunTerminalStatus::Yielded => RunOutcome::Yielded,
@@ -1261,11 +1247,11 @@ pub(in crate::server::adapters) async fn submit_run_result<P: TransactionPort + 
             event_id: result.event_id,
             run_id: result.run_id,
             computer_id: principal.computer_id,
-            fencing_token_hash: token_hash,
             outcome,
             error_code,
             item_dispositions,
             continuation_note: result.continuation_note,
+            max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -1276,12 +1262,12 @@ pub(in crate::server::adapters) async fn submit_run_result<P: TransactionPort + 
 pub(super) fn run_error_code(code: ComputerErrorCode) -> RunErrorCode {
     use RunErrorCode;
     match code {
-        ComputerErrorCode::InvalidCommand => RunErrorCode::InvalidCommand,
+        ComputerErrorCode::DriverError => RunErrorCode::DriverError,
+        ComputerErrorCode::DriverLost => RunErrorCode::DriverLost,
+        ComputerErrorCode::ComputerRestarted => RunErrorCode::ComputerRestarted,
+        ComputerErrorCode::SessionUnavailable => RunErrorCode::SessionUnavailable,
         ComputerErrorCode::AgentUnavailable => RunErrorCode::AgentUnavailable,
-        ComputerErrorCode::ProcessLost => RunErrorCode::ProcessLost,
-        ComputerErrorCode::SessionLost => RunErrorCode::SessionLost,
-        ComputerErrorCode::SandboxUnavailable => RunErrorCode::SandboxUnavailable,
-        ComputerErrorCode::DriverUnavailable => RunErrorCode::DriverUnavailable,
+        ComputerErrorCode::InvalidCommand => RunErrorCode::InvalidCommand,
         ComputerErrorCode::Internal => RunErrorCode::Internal,
     }
 }

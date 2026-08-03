@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use async_trait::async_trait;
-use time::{Duration, OffsetDateTime};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{
@@ -16,10 +16,10 @@ use crate::{
             },
         },
         core::{
-            input::{AgentInput, ClaimedItemInput, RunContextInput, RunInput, WorkInput},
+            input::{AgentInput, DispatchedItemInput, RunContextInput, RunInput, WorkInput},
             scheduler::{RunPriority, WorkStrength},
             session::{DriverKind, SessionFingerprint, SessionScope},
-            supervisor::{FencingToken, LocalRun, NewRun},
+            supervisor::{LocalRun, NewRun, RunSecret},
         },
     },
     ids::{AgentId, InboxItemId, RunId, SpaceId, ThreadId},
@@ -84,7 +84,7 @@ impl StructuredProviderClient for FakeClient {
     async fn steer(
         &mut self,
         _: &str,
-        _: &ClaimedItemInput,
+        _: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         Ok(self.steer)
     }
@@ -175,7 +175,7 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
         .unwrap();
     let mut run = test_run(DriverKind::Codex);
     driver.start_turn(&run, &opened.locator).await.unwrap();
-    let item = ClaimedItemInput {
+    let item = DispatchedItemInput {
         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
         task_id: None,
         thread_id: run.view().focus_thread_id,
@@ -197,7 +197,7 @@ fn open_request(driver: DriverKind, resume_locator: Option<String>) -> OpenSessi
         generation: 1,
         fingerprint: fingerprint(driver),
         resume_locator,
-        run_token: crate::computer::core::supervisor::FencingToken::new("run-token".into()),
+        run_token: crate::computer::core::supervisor::RunSecret::new("run-token".into()),
     }
 }
 
@@ -218,14 +218,13 @@ fn test_run(driver: DriverKind) -> LocalRun {
         agent_id,
         task_id: None,
         focus_thread_id: thread_id,
-        fencing_token: FencingToken::new("secret".to_owned()),
+        run_secret: RunSecret::new("secret".to_owned()),
         priority: RunPriority {
             explicit_human_redirect: false,
             strength: WorkStrength::Hard,
             available_at: OffsetDateTime::now_utc(),
             has_task_continuity: false,
         },
-        ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
         input: RunInput {
             global_contract: "contract".to_owned(),
             agent: AgentInput {
@@ -245,7 +244,7 @@ fn test_run(driver: DriverKind) -> LocalRun {
                 focus_thread_id: thread_id,
                 message_snapshot_sequence: 1,
                 focus_messages: Vec::new(),
-                claimed_items: Vec::new(),
+                dispatched_items: Vec::new(),
             },
             space_members: Vec::new(),
         },

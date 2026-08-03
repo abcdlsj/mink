@@ -21,7 +21,7 @@ Agent 身份、Message、Task 和 Result 必须继续存在。
 | Space、Member、权限 | Server PostgreSQL |
 | Channel、Message、Thread、Attachment | Server PostgreSQL 和对象存储 |
 | Task、Linked Thread、Result | Server PostgreSQL |
-| Inbox Item、Run、租约和结果回执 | Server PostgreSQL |
+| Inbox Item、Run 和结果回执 | Server PostgreSQL |
 | Agent Role 与 Computer assignment | Server PostgreSQL |
 | Provider Session、workspace、Memory | Computer 本地状态 |
 | Driver 进程、当前 turn、本地 outbox | Computer 本地状态 |
@@ -122,12 +122,12 @@ Server、Computer、Agent CLI 和 Driver 的代码职责、目录与依赖方向
 | 从 Root Message 创建 Task | `server::application::task::CreateTaskFromRootMessage` |
 | 关联 Related Thread | `server::application::task::LinkThreadToTask` |
 | Task 终态与 Result | `server::application::task::RecordTaskOutcome` |
-| 领取并创建 Run | `server::application::execution::ClaimRun` |
+| 派发并创建 Run | `server::application::execution::DispatchRun` |
 | 路由 hard Item 到 active Run | `server::application::attention::RouteHardItem` |
 | 完成 Run | `server::application::execution::CompleteRun` |
 | 解析 Provider Session | `computer::core::session::resolve` |
 
-`RecordTaskOutcome`同时服务 Browser 与 Agent CLI：Agent 调用时附带 Run 与 fencing token 并在同一事务完成 Run，Browser 调用时不持有 Run。`submit_review`、`done`和`close`不得再有第二个事务入口。
+`RecordTaskOutcome`同时服务 Browser 与 Agent CLI：Agent 调用时附带 Run 并在同一事务完成 Run，Browser 调用时不持有 Run。`submit_review`、`done`和`close`不得再有第二个事务入口。
 
 ## 7. 技术基线
 

@@ -187,9 +187,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .task-status--in_review { background: var(--orange); }
 .task-status--done { background: var(--green); }
 .task-status--closed { background: var(--stone); }
-.run-status--running,
-.run-status--starting { background: var(--accent-soft); }
-.run-status--finalizing,
+.run-status--dispatched,
+.run-status--working { background: var(--accent-soft); }
 .run-status--yielded { background: var(--orange); }
 .run-status--failed,
 .run-status--canceled { background: var(--red); }
@@ -645,7 +644,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .agent-state, .status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; font-family: inherit; font-size: 12px; font-weight: 700; text-transform: capitalize; }
 .agent-state { margin-inline-start: auto; margin-right: 18px; padding: 6px 9px; border: 2px solid var(--ink); background: var(--green); font-size: 12px; font-weight: 700; text-transform: capitalize; display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; font-family: inherit; }
 .agent-state i, .status i { width: 9px; height: 9px; border: 1px solid var(--ink); background: #9d9a93; }
-.agent-state--active i, .agent-state--running i, .status--online i, .status--active i { background: var(--green); }
+.agent-state--active i, .agent-state--working i, .agent-state--dispatched i, .status--online i, .status--active i { background: var(--green); }
 .agent-state--error i, .agent-state--retired i, .status--error i, .status--revoked i { background: var(--red); }
 .agent-state--provisioning i, .status--provisioning i { background: var(--cyan); }
 .detail-tabs button { min-width: 104px; padding: 0 16px; border: 0; border-right: 1px solid color-mix(in srgb, var(--ink) 20%, transparent); background: transparent; color: var(--ink); cursor: pointer; font-weight: 700; }
@@ -819,12 +818,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .presence-identity > .pixel-identity { width: 100%; height: 100%; flex-basis: 100%; }
 .presence-dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border: 1px solid var(--ink); border-radius: 50%; background: var(--status-offline); }
 .presence-dot--idle { background: var(--green); }
-.presence-dot--busy,
-.presence-dot--queued,
-.presence-dot--starting,
-.presence-dot--running,
-.presence-dot--stopping { background: var(--yellow); }
-.presence-dot--unreachable,
+.presence-dot--dispatched,
+.presence-dot--working { background: var(--yellow); }
 .presence-dot--suspended { background: var(--stone); }
 .presence-dot--error { background: var(--red); }
 .dm-nav-item > .presence-identity,
@@ -836,10 +831,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .member-strip > .pixel-identity { margin: 0; }
 .member-strip .presence-dot { right: -2px; bottom: -2px; z-index: 1; }
 @media (prefers-reduced-motion: no-preference) {
-  .presence-dot--busy,
-  .presence-dot--starting,
-  .presence-dot--running,
-  .presence-dot--stopping { animation: busy-pulse 1.4s steps(2, end) infinite; }
+  .presence-dot--dispatched,
+  .presence-dot--working { animation: busy-pulse 1.4s steps(2, end) infinite; }
   @keyframes busy-pulse {  }
 }
 /* Thread roots expose three real replies and reuse the full Thread query cache. */.message-row--has-thread { margin: 0; padding-top: 8px; padding-bottom: 12px; border: 0; background: transparent; }

@@ -49,7 +49,7 @@ impl CreateTaskFromRootMessage {
                     let run = transaction.run(run_id).await?;
                     let run_view = run.view();
                     if run_view.agent_id != input.actor_member_id
-                        || run_view.status != RunStatus::Running
+                        || run_view.status != RunStatus::Working
                     {
                         return Err(ApplicationError::ContextChanged);
                     }
@@ -174,7 +174,6 @@ impl TaskOutcome {
 pub(in crate::server) struct OutcomeRunContext {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) message_snapshot_sequence: u64,
 }
 
@@ -220,7 +219,6 @@ impl RecordTaskOutcome {
                     {
                         return Err(ApplicationError::PermissionDenied);
                     }
-                    run.validate_fencing(&context.fencing_token_hash)?;
                     if transaction
                         .thread_message_sequence(run.view().focus_thread_id)
                         .await?
@@ -286,13 +284,6 @@ impl RecordTaskOutcome {
             };
 
             if let Some(run) = run.as_mut() {
-                let fencing_token_hash = match &input.scope {
-                    TaskOutcomeScope::AgentRun(context) => context.fencing_token_hash.clone(),
-                    TaskOutcomeScope::Browser { .. } => {
-                        unreachable!("only an Agent scope carries a Run")
-                    }
-                };
-                run.begin_finalizing(&fencing_token_hash)?;
                 let run_id = run.view().id;
                 let run_items = run.items().collect::<Vec<_>>();
                 for run_item in run_items {
@@ -305,13 +296,7 @@ impl RecordTaskOutcome {
                     item.apply_disposition(run_id, disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;
                 }
-                run.finish(
-                    &fencing_token_hash,
-                    RunOutcome::Completed,
-                    None,
-                    None,
-                    input.now,
-                )?;
+                run.finish(RunOutcome::Completed, None, None, input.now)?;
             }
 
             if let Some(message) = message {

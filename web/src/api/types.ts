@@ -29,8 +29,13 @@ export interface components {
             label: string;
             status: components["schemas"]["AgentActivityStatus"];
         };
-        /** @enum {string} */
-        AgentActivityStatus: "idle" | "queued" | "starting" | "running" | "finalizing" | "stopping" | "unreachable" | "suspended" | "error";
+        /**
+         * @description What the Agent is doing. Independent of whether its Computer is reachable: an Agent can be
+         *     `working` while `computer_reachable` is false, which is the honest description of a Run in progress
+         *     on a Computer we cannot currently reach.
+         * @enum {string}
+         */
+        AgentActivityStatus: "idle" | "dispatched" | "working" | "suspended" | "error";
         /** @enum {string} */
         AgentLifecycle: "active" | "suspended" | "retired";
         AgentResponse: {
@@ -40,6 +45,11 @@ export interface components {
             attention_config: components["schemas"]["AttentionConfig"];
             /** Format: uuid */
             computer_id?: string | null;
+            /**
+             * @description Whether the Computer hosting this Agent is currently connected. Reported separately from
+             *     `activity_status` so a Run in progress is not relabelled as unreachable.
+             */
+            computer_reachable: boolean;
             created_at: string;
             desired_lifecycle: components["schemas"]["AgentLifecycle"];
             driver_kind: components["schemas"]["DriverKind"];
@@ -284,7 +294,7 @@ export interface components {
         /** @enum {string} */
         InboxPriority: "hard" | "ambient";
         /** @enum {string} */
-        InboxStatus: "pending" | "leased" | "deferred" | "handled" | "dead";
+        InboxStatus: "pending" | "assigned" | "deferred" | "handled" | "dead";
         InvitationResponse: {
             accepted_at?: string | null;
             /** Format: uuid */
@@ -402,6 +412,14 @@ export interface components {
             /** Format: uuid */
             thread_id: string;
         };
+        MessageTaskRefResponse: {
+            /** Format: int64 */
+            seq: number;
+            status: components["schemas"]["TaskStatus"];
+            /** Format: uuid */
+            task_id: string;
+            title: string;
+        };
         MessageTaskSummary: {
             /** Format: uuid */
             assignee_agent_member_id?: string | null;
@@ -413,14 +431,6 @@ export interface components {
             status: components["schemas"]["TaskStatus"];
             title: string;
             working_elsewhere: boolean;
-        };
-        MessageTaskRefResponse: {
-            /** Format: int64 */
-            seq: number;
-            /** Format: uuid */
-            task_id: string;
-            status: components["schemas"]["TaskStatus"];
-            title: string;
         };
         PairingDetailsResponse: {
             daemon_version: string;
@@ -467,7 +477,7 @@ export interface components {
             task_id?: string | null;
         };
         /** @enum {string} */
-        RunStatus: "queued" | "starting" | "running" | "finalizing" | "completed" | "yielded" | "failed" | "stopping" | "canceled";
+        RunStatus: "dispatched" | "working" | "completed" | "yielded" | "failed" | "canceled";
         SessionContinuityResponse: {
             /** Format: int64 */
             generation?: number | null;
@@ -505,12 +515,12 @@ export interface components {
             finished_at?: string | null;
             /** Format: uuid */
             id: string;
-            /** Format: int64 */
-            seq: number;
             recent_runs: components["schemas"]["RunResponse"][];
             related_threads: components["schemas"]["ThreadReferenceResponse"][];
             result_message?: null | components["schemas"]["MessageResponse"];
             runtime_issue_code?: string | null;
+            /** Format: int64 */
+            seq: number;
             session_continuity: components["schemas"]["SessionContinuityResponse"];
             source_thread: components["schemas"]["ThreadReferenceResponse"];
             /** Format: uuid */
@@ -622,8 +632,8 @@ export type Member = components["schemas"]["MemberResponse"];
 export type Message = components["schemas"]["MessageResponse"];
 export type MessageAuthor = components["schemas"]["MessageAuthor"];
 export type MessagePage = components["schemas"]["MessagePageResponse"];
-export type MessageTaskSummary = components["schemas"]["MessageTaskSummary"];
 export type MessageTaskRef = components["schemas"]["MessageTaskRefResponse"];
+export type MessageTaskSummary = components["schemas"]["MessageTaskSummary"];
 export type PairingDetails = components["schemas"]["PairingDetailsResponse"];
 export type ReadAgentMemoryInput = components["schemas"]["ReadMemoryRequest"];
 export type RegisterInput = components["schemas"]["RegisterRequest"];

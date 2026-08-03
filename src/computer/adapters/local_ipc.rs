@@ -187,7 +187,6 @@ impl LocalIpcAdapter {
                     task_id: context.task_id,
                     focus_thread_id: context.focus_thread_id,
                     run_id: context.run_id,
-                    fencing_token: context.fencing_token,
                     message_snapshot_sequence: context.message_snapshot_sequence,
                 },
                 action.clone(),
@@ -268,16 +267,16 @@ mod tests {
         computer::{
             adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::{
-                AgentInput, ClaimedItemInput, DriverKind, FencingToken, LocalAgent,
-                LocalAgentState, LocalRun, LocalRunState, NewRun, RunContextInput, RunInput,
-                RunPriority, SessionScope, TaskInput, WorkInput, WorkStrength,
+                AgentInput, DispatchedItemInput, DriverKind, LocalAgent, LocalAgentState, LocalRun,
+                LocalRunState, NewRun, RunContextInput, RunInput, RunPriority, RunSecret,
+                SessionScope, TaskInput, WorkInput, WorkStrength,
                 ports::{AgentHomePort, ComputerTransaction, LocalEvent, TransactionPort},
             },
         },
         ids::{AgentId, RunId, SpaceId, TaskId, ThreadId},
         protocol::capability::{Action, Response, RunContext},
     };
-    use time::{Duration, OffsetDateTime};
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -324,14 +323,13 @@ mod tests {
             agent_id,
             task_id: Some(task_id),
             focus_thread_id: thread_id,
-            fencing_token: FencingToken::new("run-secret".to_owned()),
+            run_secret: RunSecret::new("run-secret".to_owned()),
             priority: RunPriority {
                 explicit_human_redirect: false,
                 strength: WorkStrength::Hard,
                 available_at: OffsetDateTime::now_utc(),
                 has_task_continuity: true,
             },
-            ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
             input: RunInput {
                 global_contract: "contract".to_owned(),
                 agent: AgentInput {
@@ -356,7 +354,7 @@ mod tests {
                     focus_thread_id: thread_id,
                     message_snapshot_sequence: 9,
                     focus_messages: Vec::new(),
-                    claimed_items: Vec::<ClaimedItemInput>::new(),
+                    dispatched_items: Vec::<DispatchedItemInput>::new(),
                 },
                 space_members: Vec::new(),
             },

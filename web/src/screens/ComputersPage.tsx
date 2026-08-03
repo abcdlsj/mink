@@ -244,7 +244,7 @@ function ComputerDetail({
   onCreate: () => void;
   onDelete: () => void;
 }) {
-  const busyAgents = agents.filter((agent) => ["queued", "starting", "running", "stopping", "unreachable"].includes(agent.activity_status)).length;
+  const busyAgents = agents.filter((agent) => ["dispatched", "working"].includes(agent.activity_status)).length;
   return (
     <article className="computer-detail">
       <header className="entity-detail-header">

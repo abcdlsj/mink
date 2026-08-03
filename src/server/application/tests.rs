@@ -1,6 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -16,7 +15,9 @@ use crate::server::domain::{
         InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
-    execution::{Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus},
+    execution::{
+        Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus, RunTrigger,
+    },
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
         PermissionAction,
@@ -47,10 +48,10 @@ use super::{
         PublishMessage,
     },
     execution::{
-        AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, ClaimNextRun, ClaimRun,
-        ClaimRunInput, CompleteRun, CompleteRunInput, ItemDispositionInput, ReclaimExpiredLeases,
-        ReclaimExpiredLeasesInput, ReclaimedLeases, RecordRunItemDisposition,
-        RecordRunItemDispositionInput, RenewRun, RenewRunInput, StartRun, StartRunInput,
+        AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, CompleteRun,
+        CompleteRunInput, DispatchRun, DispatchRunInput, FindDispatchableWork,
+        ItemDispositionInput, RecordRunItemDisposition, RecordRunItemDispositionInput, StartRun,
+        StartRunInput, SyncComputerRuns, SyncComputerRunsInput, SyncedComputerRuns,
     },
     identity::{
         AuthenticateHuman, AuthenticateHumanInput, AuthenticateSession, AuthorizeAgentGovernance,
@@ -62,7 +63,7 @@ use super::{
     },
     ports::{
         ApplicationError, AttachmentObjectPort, AttachmentTransaction, AuthenticatedHuman,
-        ClaimCandidate, CollaborationTransaction, ComputerRecord, DirectMessageView, Effect,
+        CollaborationTransaction, ComputerRecord, DirectMessageView, DispatchCandidate, Effect,
         EffectSink, ExecutionTransaction, HumanMemberRecord, IdentityTransaction, InboxItemView,
         InboxScope, InvitationTokenPort, MemberKind, MessageDraft, PairedComputer, PairingCodePort,
         PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
@@ -157,39 +158,39 @@ async fn human_channel_and_agent_creation_use_access_and_computer_transaction_ru
 }
 
 #[tokio::test]
-async fn claim_failure_is_recorded_idempotently_in_a_separate_transaction() {
+async fn dispatch_failure_is_recorded_idempotently_in_a_separate_transaction() {
     let mut port = MemoryPort::default();
     let item_id = item(920);
     let message_id = message(921);
     let channel_id = channel(922);
 
     assert_eq!(
-        ClaimNextRun::candidate(&mut port, computer(923))
+        FindDispatchableWork::candidates(&mut port, OffsetDateTime::UNIX_EPOCH, 10)
             .await
             .expect("candidate query succeeds"),
-        None
+        Vec::new()
     );
     assert_eq!(port.transaction_count, 1);
 
     assert!(
-        ClaimNextRun::record_failure(
+        FindDispatchableWork::record_failure(
             &mut port,
             item_id,
             Some(message_id),
             channel_id,
-            "run_claim_conflict",
+            "run_dispatch_conflict",
         )
         .await
         .expect("first failure changes the projection")
     );
     assert_eq!(port.transaction_count, 2);
     assert!(
-        !ClaimNextRun::record_failure(
+        !FindDispatchableWork::record_failure(
             &mut port,
             item_id,
             Some(message_id),
             channel_id,
-            "run_claim_conflict",
+            "run_dispatch_conflict",
         )
         .await
         .expect("repeated failure is idempotent")
@@ -200,7 +201,7 @@ async fn claim_failure_is_recorded_idempotently_in_a_separate_transaction() {
         (
             Some(message_id),
             channel_id,
-            "run_claim_conflict".to_owned()
+            "run_dispatch_conflict".to_owned()
         )
     );
 }
@@ -949,7 +950,7 @@ impl CollaborationTransaction for MemoryTransaction {
                         InboxScope::Queue => matches!(
                             item.status,
                             InboxItemStatus::Pending
-                                | InboxItemStatus::Leased
+                                | InboxItemStatus::Assigned
                                 | InboxItemStatus::Deferred
                         ),
                         InboxScope::Dead => item.status == InboxItemStatus::Dead,
@@ -1323,36 +1324,30 @@ impl ExecutionTransaction for MemoryTransaction {
     ) -> Result<Option<RunId>, ApplicationError> {
         Ok(self.state.completed_run_events.get(&event_id).copied())
     }
-    async fn runs_with_expired_lease(
+    async fn nonterminal_runs_for_computer(
         &mut self,
-        now: OffsetDateTime,
-        limit: u32,
+        _computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError> {
-        let mut expired = self
+        Ok(self
             .state
             .runs
             .values()
-            .filter(|run| !run.is_terminal() && run.view().lease_expires_at <= now)
-            .map(|run| (run.view().lease_expires_at, run.view().id))
-            .collect::<Vec<_>>();
-        expired.sort();
-        Ok(expired
-            .into_iter()
-            .take(limit as usize)
-            .map(|(_, id)| id)
+            .filter(|run| !run.is_terminal())
+            .map(|run| run.view().id)
             .collect())
     }
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.state.runs.insert(run.view().id, run);
         Ok(())
     }
-    async fn next_claim_candidate(
+    async fn dispatchable_work(
         &mut self,
-        _computer_id: ComputerId,
-    ) -> Result<Option<ClaimCandidate>, ApplicationError> {
-        Ok(None)
+        _now: OffsetDateTime,
+        _limit: u32,
+    ) -> Result<Vec<DispatchCandidate>, ApplicationError> {
+        Ok(Vec::new())
     }
-    async fn record_claim_failure(
+    async fn record_dispatch_failure(
         &mut self,
         item_id: InboxItemId,
         message_id: Option<MessageId>,
@@ -1378,8 +1373,7 @@ impl ExecutionTransaction for MemoryTransaction {
             && view.space_id == proof.space_id
             && view.task_id == proof.task_id
             && view.focus_thread_id == proof.focus_thread_id
-            && view.status == RunStatus::Running
-            && view.fencing_token_hash == proof.fencing_token_hash
+            && view.status == RunStatus::Working
             && self
                 .state
                 .computer_assignments
@@ -1396,7 +1390,7 @@ impl ExecutionTransaction for MemoryTransaction {
             .values()
             .find(|r| {
                 let v = r.view();
-                v.agent_id == agent_id && v.status == RunStatus::Running
+                v.agent_id == agent_id && v.status == RunStatus::Working
             })
             .map(|r| r.view().id))
     }
@@ -1621,7 +1615,7 @@ async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently
     port.state.assignable_agents.insert(agent);
     port.state.items.insert(
         item_id,
-        inbox(item_id, agent, thread_id, None, InboxItemStatus::Leased),
+        inbox(item_id, agent, thread_id, None, InboxItemStatus::Assigned),
     );
     port.state.runs.insert(
         run_id,
@@ -1777,25 +1771,18 @@ async fn claim_rejects_parallel_active_run_and_task_focus_outside_links() {
         running_run(run(34), agent, focus, Some(task(33)), Vec::new()),
     );
 
-    let mut unauthorized_input = claim_input(run(35), agent, Some(task(33)), focus);
-    unauthorized_input.computer_id = computer(998);
-    let unauthorized = ClaimRun::execute(&mut port, unauthorized_input)
-        .await
-        .unwrap_err();
-    assert_eq!(unauthorized, ApplicationError::PermissionDenied);
-
-    let conflict = ClaimRun::execute(
+    let conflict = DispatchRun::execute(
         &mut port,
-        claim_input(run(35), agent, Some(task(33)), focus),
+        dispatch_input(run(35), agent, Some(task(33)), focus),
     )
     .await
     .unwrap_err();
     assert_eq!(conflict, ApplicationError::Conflict);
 
     port.state.runs.clear();
-    let focus_error = ClaimRun::execute(
+    let focus_error = DispatchRun::execute(
         &mut port,
-        claim_input(run(36), agent, Some(task(33)), other_focus),
+        dispatch_input(run(36), agent, Some(task(33)), other_focus),
     )
     .await
     .unwrap_err();
@@ -1840,33 +1827,34 @@ async fn ambient_item_can_be_leased_by_a_new_run() {
     )
     .expect("channel activity is ambient");
     port.state.items.insert(item_id, ambient);
-    let mut input = claim_input(run_id, agent, None, focus);
+    let mut input = dispatch_input(run_id, agent, None, focus);
     input.item_ids.push(item_id);
 
-    let claimed = ClaimRun::execute(&mut port, input).await.unwrap();
+    let claimed = DispatchRun::execute(&mut port, input).await.unwrap();
 
     assert_eq!(claimed.items().next().unwrap().inbox_item_id, item_id);
     assert_eq!(
         port.state.items[&item_id].view().status,
-        InboxItemStatus::Leased
+        InboxItemStatus::Assigned
     );
-    assert_eq!(port.state.items[&item_id].view().lease_run_id, Some(run_id));
+    assert_eq!(
+        port.state.items[&item_id].view().assigned_run_id,
+        Some(run_id)
+    );
 }
 
 #[tokio::test]
-async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
+async fn run_started_requires_assignment_and_is_idempotent() {
     let agent = member(37);
     let focus = thread(38);
     let run_id = run(39);
-    let token_hash = hex::encode(Sha256::digest(b"token"));
-    let mut queued = running_run(run_id, agent, focus, None, Vec::new());
-    update_test_run(&mut queued, |snapshot| {
-        snapshot.status = RunStatus::Queued;
+    let mut dispatched = running_run(run_id, agent, focus, None, Vec::new());
+    update_test_run(&mut dispatched, |snapshot| {
+        snapshot.status = RunStatus::Dispatched;
         snapshot.started_at = None;
-        snapshot.fencing_token_hash = token_hash.clone();
     });
     let mut port = MemoryPort::default();
-    port.state.runs.insert(run_id, queued);
+    port.state.runs.insert(run_id, dispatched);
     port.state
         .computer_assignments
         .insert((computer(999), agent));
@@ -1874,31 +1862,16 @@ async fn run_started_requires_assignment_and_fencing_and_is_idempotent() {
     let input = || StartRunInput {
         run_id,
         computer_id: computer(999),
-        fencing_token_hash: token_hash.clone(),
         now: OffsetDateTime::UNIX_EPOCH,
     };
     let started = StartRun::execute(&mut port, input()).await.unwrap();
-    assert_eq!(started.view().status, RunStatus::Running);
+    assert_eq!(started.view().status, RunStatus::Working);
     assert_eq!(started.view().started_at, Some(OffsetDateTime::UNIX_EPOCH));
     assert!(matches!(port.state.effects.last(), Some(Effect::RunStarted(id)) if *id == run_id));
     assert_eq!(
         StartRun::execute(&mut port, input()).await.unwrap(),
         started
     );
-    let stale = StartRun::execute(
-        &mut port,
-        StartRunInput {
-            fencing_token_hash: hex::encode(Sha256::digest(b"stale")),
-            ..input()
-        },
-    )
-    .await
-    .unwrap_err();
-    assert!(matches!(
-        stale,
-        ApplicationError::Domain(DomainError::StaleFencingToken)
-    ));
-
     let error = StartRun::execute(
         &mut port,
         StartRunInput {
@@ -1917,20 +1890,17 @@ async fn the_assignees_first_task_run_moves_the_task_from_todo_to_in_progress() 
     let other_agent = member(241);
     let focus = thread(242);
     let task_id = task(243);
-    let token_hash = hex::encode(Sha256::digest(b"token"));
     let queued = |run_id, agent| {
         let mut queued = running_run(run_id, agent, focus, Some(task_id), Vec::new());
         update_test_run(&mut queued, |snapshot| {
-            snapshot.status = RunStatus::Queued;
+            snapshot.status = RunStatus::Dispatched;
             snapshot.started_at = None;
-            snapshot.fencing_token_hash = token_hash.clone();
         });
         queued
     };
     let start = |run_id| StartRunInput {
         run_id,
         computer_id: computer(999),
-        fencing_token_hash: token_hash.clone(),
         now: OffsetDateTime::UNIX_EPOCH,
     };
 
@@ -2036,11 +2006,14 @@ async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
     assert_eq!(notified, vec![first_agent, second_agent]);
 }
 
+/// A reconnecting Computer reports which Runs it still holds. Anything else the Server believes is
+/// live on that Computer died with the previous daemon, so it fails and its Items return to the queue.
+/// Nothing here consults a clock: the Computer's report is the only trigger.
 #[tokio::test]
-async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items() {
+async fn syncing_a_reconnected_computer_fails_runs_it_no_longer_holds() {
     let agent = member(260);
     let focus = thread(261);
-    let expired_run = run(262);
+    let lost_run = run(262);
     let live_run = run(263);
     let retryable = item(264);
     let exhausted = item(265);
@@ -2048,58 +2021,53 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
 
-    let mut abandoned = running_run(expired_run, agent, focus, None, vec![retryable, exhausted]);
-    update_test_run(&mut abandoned, |snapshot| {
-        snapshot.lease_expires_at = now - time::Duration::minutes(1);
-    });
-    port.state.runs.insert(expired_run, abandoned);
-    // A Run whose lease still holds must survive the sweep untouched.
-    let mut healthy = running_run(live_run, member(266), focus, None, Vec::new());
-    update_test_run(&mut healthy, |snapshot| {
-        snapshot.lease_expires_at = now + time::Duration::minutes(1);
-    });
-    port.state.runs.insert(live_run, healthy);
+    port.state.runs.insert(
+        lost_run,
+        running_run(lost_run, agent, focus, None, vec![retryable, exhausted]),
+    );
+    // A Run the Computer still holds must survive the sync untouched.
+    port.state.runs.insert(
+        live_run,
+        running_run(live_run, member(266), focus, None, Vec::new()),
+    );
     for (item_id, retry_count) in [(retryable, 0), (exhausted, 2)] {
-        let mut leased = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
-        update_test_item(&mut leased, |snapshot| {
-            snapshot.lease_run_id = Some(expired_run);
-            snapshot.lease_expires_at = Some(now - time::Duration::minutes(1));
+        let mut assigned = inbox(item_id, agent, focus, None, InboxItemStatus::Assigned);
+        update_test_item(&mut assigned, |snapshot| {
+            snapshot.assigned_run_id = Some(lost_run);
             snapshot.retry_count = retry_count;
         });
-        port.state.items.insert(item_id, leased);
+        port.state.items.insert(item_id, assigned);
     }
 
-    let reclaimed = ReclaimExpiredLeases::execute(
+    let synced = SyncComputerRuns::execute(
         &mut port,
-        ReclaimExpiredLeasesInput {
-            now,
-            limit: 10,
+        SyncComputerRunsInput {
+            computer_id: computer(1),
+            live_run_ids: vec![live_run],
             max_retry_count: 2,
+            now,
         },
     )
     .await
     .unwrap();
 
     assert_eq!(
-        reclaimed,
-        ReclaimedLeases {
+        synced,
+        SyncedComputerRuns {
             runs_failed: 1,
             items_released: 1,
             items_dead: 1,
         }
     );
+    assert_eq!(port.state.runs[&lost_run].view().status, RunStatus::Failed);
     assert_eq!(
-        port.state.runs[&expired_run].view().status,
-        RunStatus::Failed
-    );
-    assert_eq!(
-        port.state.runs[&expired_run].view().error_code,
-        Some(RunErrorCode::ProcessLost)
+        port.state.runs[&lost_run].view().error_code,
+        Some(RunErrorCode::ComputerRestarted)
     );
     assert_eq!(
         port.state.runs[&live_run].view().status,
-        RunStatus::Running,
-        "a Run holding a valid lease is untouched"
+        RunStatus::Working,
+        "a Run the Computer still holds is untouched"
     );
     assert_eq!(
         port.state.items[&retryable].view().status,
@@ -2115,18 +2083,19 @@ async fn reclaiming_an_expired_lease_frees_the_agent_and_retires_exhausted_items
         "a retired Item reports itself without copying the source Message"
     );
 
-    // The sweep is idempotent: the Run is terminal, so a second pass changes nothing.
-    let repeated = ReclaimExpiredLeases::execute(
+    // Idempotent: the Run is terminal, so a second sync changes nothing.
+    let repeated = SyncComputerRuns::execute(
         &mut port,
-        ReclaimExpiredLeasesInput {
-            now,
-            limit: 10,
+        SyncComputerRunsInput {
+            computer_id: computer(1),
+            live_run_ids: vec![live_run],
             max_retry_count: 2,
+            now,
         },
     )
     .await
     .unwrap();
-    assert_eq!(repeated, ReclaimedLeases::default());
+    assert_eq!(repeated, SyncedComputerRuns::default());
     assert_eq!(port.state.items[&retryable].view().retry_count, 1);
 }
 
@@ -2245,59 +2214,6 @@ async fn publishing_a_message_requires_ready_attachments_from_the_same_space() {
 }
 
 #[tokio::test]
-async fn run_renewal_updates_run_and_item_lease_with_assignment_and_fencing() {
-    let agent = member(137);
-    let focus = thread(138);
-    let run_id = run(139);
-    let item_id = item(140);
-    let mut port = MemoryPort::default();
-    port.state
-        .computer_assignments
-        .insert((computer(999), agent));
-    let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
-    update_test_item(&mut leased_item, |snapshot| {
-        snapshot.lease_run_id = Some(run_id)
-    });
-    port.state.items.insert(item_id, leased_item);
-    port.state.runs.insert(
-        run_id,
-        running_run(run_id, agent, focus, None, vec![item_id]),
-    );
-    let renewed_until = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
-
-    let renewed = RenewRun::execute(
-        &mut port,
-        RenewRunInput {
-            run_id,
-            computer_id: computer(999),
-            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
-            lease_expires_at: renewed_until,
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(renewed.view().lease_expires_at, renewed_until);
-    assert_eq!(
-        port.state.items[&item_id].view().lease_expires_at,
-        Some(renewed_until)
-    );
-    assert!(matches!(
-        RenewRun::execute(
-            &mut port,
-            RenewRunInput {
-                run_id,
-                computer_id: computer(999),
-                fencing_token_hash: "stale".into(),
-                lease_expires_at: renewed_until + time::Duration::hours(1),
-            },
-        )
-        .await,
-        Err(ApplicationError::Domain(DomainError::StaleFencingToken))
-    ));
-}
-
-#[tokio::test]
 async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
     let agent = member(141);
     let focus = thread(142);
@@ -2307,9 +2223,9 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
     port.state
         .computer_assignments
         .insert((computer(999), agent));
-    let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Leased);
+    let mut leased_item = inbox(item_id, agent, focus, None, InboxItemStatus::Assigned);
     update_test_item(&mut leased_item, |snapshot| {
-        snapshot.lease_run_id = Some(run_id)
+        snapshot.assigned_run_id = Some(run_id)
     });
     port.state.items.insert(item_id, leased_item);
     port.state.runs.insert(
@@ -2323,7 +2239,6 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
         RecordRunItemDispositionInput {
             run_id,
             computer_id: computer(999),
-            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
             item_id,
             disposition: InboxItemDisposition::Deferred,
             defer_until: Some(defer_until),
@@ -2339,13 +2254,15 @@ async fn run_item_disposition_is_recorded_without_releasing_lease_early() {
     );
     assert_eq!(
         port.state.items[&item_id].view().status,
-        InboxItemStatus::Leased
+        InboxItemStatus::Assigned
     );
     assert_eq!(port.state.items[&item_id].view().available_at, defer_until);
 }
 
+/// A Run in a terminal state is not executing, so a newly arrived hard Item must stay pending and wait
+/// for the next Run instead of attaching to work nobody is doing.
 #[tokio::test]
-async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
+async fn hard_item_created_after_a_terminal_run_stays_pending_without_effect() {
     let agent = member(53);
     let focus = thread(54);
     let run_id = run(55);
@@ -2353,9 +2270,14 @@ async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
     let mut current = running_run(run_id, agent, focus, None, Vec::new());
-    update_test_run(&mut current, |snapshot| {
-        snapshot.status = RunStatus::Finalizing
-    });
+    current
+        .finish(
+            RunOutcome::Completed,
+            None,
+            None,
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("the test Run completes");
     port.state.runs.insert(run_id, current);
     port.state.items.insert(
         item_id,
@@ -2375,16 +2297,16 @@ async fn hard_item_created_after_finalizing_stays_pending_without_effect() {
 }
 
 #[tokio::test]
-async fn hard_item_routes_to_same_focus_once_and_uses_run_lease() {
+async fn hard_item_routes_to_same_focus_once_and_assigns_to_the_run() {
     let agent = member(44);
     let focus = thread(45);
     let run_id = run(46);
     let item_id = item(47);
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
-    let current = running_run(run_id, agent, focus, None, Vec::new());
-    let lease_expires_at = current.view().lease_expires_at;
-    port.state.runs.insert(run_id, current);
+    port.state
+        .runs
+        .insert(run_id, running_run(run_id, agent, focus, None, Vec::new()));
     port.state.items.insert(
         item_id,
         inbox(item_id, agent, focus, None, InboxItemStatus::Pending),
@@ -2396,11 +2318,11 @@ async fn hard_item_routes_to_same_focus_once_and_uses_run_lease() {
     assert_eq!(route, HardItemRoute::Attached { sequence: 1 });
     assert_eq!(
         port.state.items[&item_id].view().status,
-        InboxItemStatus::Leased
+        InboxItemStatus::Assigned
     );
     assert_eq!(
-        port.state.items[&item_id].view().lease_expires_at,
-        Some(lease_expires_at)
+        port.state.items[&item_id].view().assigned_run_id,
+        Some(run_id)
     );
     assert!(matches!(
         port.state.effects.as_slice(),
@@ -2478,7 +2400,7 @@ async fn run_completion_checks_fencing_and_does_not_complete_task() {
             agent,
             focus,
             Some(task_id),
-            InboxItemStatus::Leased,
+            InboxItemStatus::Assigned,
         ),
     );
     port.state.runs.insert(
@@ -2486,19 +2408,11 @@ async fn run_completion_checks_fencing_and_does_not_complete_task() {
         running_run(run_id, agent, focus, Some(task_id), vec![item_id]),
     );
 
-    let stale = CompleteRun::execute(&mut port, complete_run_input(run_id, "stale", item_id))
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        stale,
-        ApplicationError::Domain(DomainError::StaleFencingToken)
-    ));
-
-    let completed = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
+    let completed = CompleteRun::execute(&mut port, complete_run_input(run_id, item_id))
         .await
         .unwrap();
     assert_eq!(completed.view().status, RunStatus::Completed);
-    let retried = CompleteRun::execute(&mut port, complete_run_input(run_id, "token", item_id))
+    let retried = CompleteRun::execute(&mut port, complete_run_input(run_id, item_id))
         .await
         .unwrap();
     assert_eq!(retried.view().status, RunStatus::Completed);
@@ -2578,10 +2492,10 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
             agent,
             focus,
             Some(task_id),
-            InboxItemStatus::Leased,
+            InboxItemStatus::Assigned,
         );
         update_test_item(&mut inbox_item, |snapshot| {
-            snapshot.lease_run_id = Some(run_id)
+            snapshot.assigned_run_id = Some(run_id)
         });
         port.state.items.insert(item_id, inbox_item);
     }
@@ -2601,7 +2515,6 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
         scope: TaskOutcomeScope::AgentRun(OutcomeRunContext {
             run_id,
             computer_id,
-            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
             message_snapshot_sequence: 0,
         }),
         actor_member_id: agent,
@@ -2675,9 +2588,9 @@ async fn computer_delete_requires_explicit_agent_retirement() {
             retired_at: None,
         },
     );
-    let mut leased_item = inbox(item_id, agent_id, focus, None, InboxItemStatus::Leased);
+    let mut leased_item = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
     update_test_item(&mut leased_item, |snapshot| {
-        snapshot.lease_run_id = Some(run_id)
+        snapshot.assigned_run_id = Some(run_id)
     });
     port.state.items.insert(item_id, leased_item);
     port.state.runs.insert(
@@ -3036,7 +2949,7 @@ async fn rejected_delivery_releases_the_item_once() {
     );
     port.state.items.insert(
         item_id,
-        inbox(item_id, agent_id, focus, None, InboxItemStatus::Leased),
+        inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned),
     );
     port.state
         .computer_assignments
@@ -3044,7 +2957,6 @@ async fn rejected_delivery_releases_the_item_once() {
     let input = || AcknowledgeDeliveryInput {
         run_id,
         computer_id: computer(999),
-        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
         delivery_sequence: 1,
         accepted: false,
         now: OffsetDateTime::UNIX_EPOCH,
@@ -3066,10 +2978,10 @@ async fn rejected_delivery_releases_the_item_once() {
     CompleteRun::execute(
         &mut port,
         CompleteRunInput {
+            max_retry_count: 5,
             event_id: event(1623),
             run_id,
             computer_id: computer(999),
-            fencing_token_hash: hex::encode(Sha256::digest(b"token")),
             outcome: RunOutcome::Completed,
             error_code: None,
             item_dispositions: vec![ItemDispositionInput {
@@ -3146,9 +3058,9 @@ fn running_run(
         agent_id: agent,
         task_id,
         focus_thread_id: focus,
-        status: RunStatus::Running,
-        fencing_token_hash: hex::encode(Sha256::digest(b"token")),
-        lease_expires_at: OffsetDateTime::UNIX_EPOCH,
+        status: RunStatus::Working,
+        trigger: RunTrigger::Mention,
+        cancel_requested: false,
         items: items
             .into_iter()
             .enumerate()
@@ -3206,12 +3118,9 @@ fn inbox(
         OffsetDateTime::UNIX_EPOCH,
     )
     .expect("mention is hard");
-    if status == InboxItemStatus::Leased {
-        item.lease_for_run(
-            run(if id.into_uuid().as_u128() == 3 { 4 } else { 53 }),
-            OffsetDateTime::UNIX_EPOCH,
-        )
-        .expect("test Item can be leased");
+    if status == InboxItemStatus::Assigned {
+        item.assign_to_run(run(if id.into_uuid().as_u128() == 3 { 4 } else { 53 }))
+            .expect("test Item can be assigned");
     } else if status != InboxItemStatus::Pending {
         let mut snapshot = item.snapshot();
         snapshot.status = status;
@@ -3240,30 +3149,28 @@ fn update_test_task(task: &mut Task, update: impl FnOnce(&mut TaskSnapshot)) {
     *task = Task::rehydrate(snapshot).expect("updated test Task state is valid");
 }
 
-fn claim_input(
+fn dispatch_input(
     run_id: RunId,
     agent: MemberId,
     task_id: Option<TaskId>,
     focus: ThreadId,
-) -> ClaimRunInput {
-    ClaimRunInput {
+) -> DispatchRunInput {
+    DispatchRunInput {
         run_id,
-        computer_id: computer(999),
         agent_id: agent,
         task_id,
         focus_thread_id: focus,
+        trigger: RunTrigger::Mention,
         item_ids: Vec::new(),
-        fencing_token: super::ports::RawFencingToken::new("token".into()),
-        lease_expires_at: OffsetDateTime::UNIX_EPOCH,
     }
 }
 
-fn complete_run_input(run_id: RunId, token: &str, item_id: InboxItemId) -> CompleteRunInput {
+fn complete_run_input(run_id: RunId, item_id: InboxItemId) -> CompleteRunInput {
     CompleteRunInput {
+        max_retry_count: 5,
         event_id: event(80),
         run_id,
         computer_id: computer(999),
-        fencing_token_hash: hex::encode(Sha256::digest(token.as_bytes())),
         outcome: RunOutcome::Completed,
         error_code: None,
         item_dispositions: vec![ItemDispositionInput {

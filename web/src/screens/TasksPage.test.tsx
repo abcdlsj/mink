@@ -49,7 +49,7 @@ describe("Task work index", () => {
   it("shows Source, Related Threads, Run, Result continuity and reset action", async () => {
     const value = task("in_progress", "Rebuild Task detail", 21, "Lin");
     value.related_threads = [{ ...thread("related", 31), channel_slug: "design" }];
-    value.current_run = run("running", value.source_thread);
+    value.current_run = run("working", value.source_thread);
     value.recent_runs = [run("yielded", value.source_thread)];
     value.session_continuity = { state: "warm", generation: 2 };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -69,7 +69,7 @@ describe("Task work index", () => {
     expect(screen.getByRole("heading", { name: "Source Thread" })).toBeVisible();
     expect(screen.getByRole("link", { name: "source: #general @21" })).toBeVisible();
     expect(screen.getByRole("link", { name: "related: #design @31" })).toBeVisible();
-    expect(screen.getByText("running")).toBeVisible();
+    expect(screen.getByText("working")).toBeVisible();
     expect(screen.getByText("yielded")).toBeVisible();
     expect(screen.getByText("WARM").closest("p")).toHaveTextContent("WARM · generation 2");
     fireEvent.click(screen.getByRole("button", { name: /Reset continuity/i }));
@@ -80,7 +80,7 @@ describe("Task work index", () => {
   it("labels a DM Source Thread without a channel link", async () => {
     const value = task("in_progress", "DM Task", 21, "Lin");
     value.source_thread = { ...thread("source", 21), channel_slug: null };
-    value.current_run = run("running", value.source_thread);
+    value.current_run = run("working", value.source_thread);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       const shell = shellResponse(path);
@@ -130,7 +130,7 @@ function thread(relation: "source" | "related", seq: number): ThreadReference {
   return { id: `thread-${seq}`, channel_id: "channel", channel_slug: "general", root_message_id: seq === 17 ? "message-todo" : `message-${seq}`, root_message_seq: seq, relation };
 }
 
-function run(status: "running" | "yielded", focus: ThreadReference): Run {
+function run(status: "working" | "yielded", focus: ThreadReference): Run {
   return { id: `run-${status}`, task_id: "task", agent_member_id: "agent", agent_name: "Lin", focus, status, outcome: status === "yielded" ? "yielded" : undefined, started_at: "2026-07-28T01:00:00Z" };
 }
 

@@ -104,7 +104,7 @@ Server 从当前 Run 的 Focus 推导 Root Message、`space_id`、`channel_id`�
 2. 校验 Message 位于 Channel 主时间线。
 3. 锁定 Root Message 和 Thread。
 4. 创建 Task，并把推导出的 Thread 直接写入`source_thread_id`。
-5. 将当前 Run 和它领取的同 Focus Items 绑定到 Task。
+5. 将当前 Run 和它同 Focus 的 Items 绑定到 Task。
 6. 写入本地 Session 提升 command、audit 和 outbox。
 7. 返回包含 Source Thread 的完整 Task。
 
@@ -186,7 +186,7 @@ Task 进入`done`或`closed`后，系统保留 Source Thread、Linked Thread、R
 
 Computer 应关闭对应的 Provider Session。关闭失败不能回滚 Task 终态。
 
-`in_review`、`done`和`closed`由同一个事务入口写入，见 [产品基础与系统结构](01-foundations.md)。Agent 从 Run 内提交时，同一事务额外校验 fencing token、处理已领取 Items 并完成 Run；Human 从 Browser 提交时不持有 Run。两条路径不得各自实现一套终态事务。
+`in_review`、`done`和`closed`由同一个事务入口写入，见 [产品基础与系统结构](01-foundations.md)。Agent 从 Run 内提交时，同一事务额外处理该 Run 的 Items 并完成 Run；Human 从 Browser 提交时不持有 Run。两条路径不得各自实现一套终态事务。
 
 ## 7. 权限
 

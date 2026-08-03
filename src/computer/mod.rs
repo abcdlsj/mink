@@ -73,17 +73,6 @@ struct AgentActionRequest {
     idempotency_key: Option<IdempotencyKey>,
 }
 
-#[derive(Serialize)]
-struct RenewRunRequest<'a> {
-    fencing_token: &'a str,
-}
-
-#[derive(Deserialize)]
-struct RenewRunResponse {
-    #[serde(with = "time::serde::rfc3339")]
-    lease_expires_at: time::OffsetDateTime,
-}
-
 pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     let mut config = crate::config::load(args.config.as_ref())?.computer;
     if let Some(server) = args.server {
@@ -287,7 +276,6 @@ async fn proxy_attachment_upload(
                 .expect("relative Attachment URL is valid"),
         )
         .bearer_auth(token)
-        .header("x-sumi-fencing-token", &context.fencing_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({
             "original_name": name,
@@ -315,7 +303,6 @@ async fn proxy_attachment_upload(
     let uploaded = client
         .put(content_url)
         .bearer_auth(token)
-        .header("x-sumi-fencing-token", &context.fencing_token)
         .body(content.clone())
         .send()
         .await;
@@ -331,7 +318,6 @@ async fn proxy_attachment_upload(
                 .expect("relative Attachment URL is valid"),
         )
         .bearer_auth(token)
-        .header("x-sumi-fencing-token", &context.fencing_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({"size":content.len(),"sha256":digest}))
         .send()
@@ -363,13 +349,7 @@ async fn proxy_attachment_download(
         Ok(endpoint) => endpoint,
         Err(_) => return capability_failure(),
     };
-    let response = match client
-        .get(endpoint)
-        .bearer_auth(token)
-        .header("x-sumi-fencing-token", &context.fencing_token)
-        .send()
-        .await
-    {
+    let response = match client.get(endpoint).bearer_auth(token).send().await {
         Ok(response) => response,
         Err(_) => return capability_failure(),
     };
@@ -504,6 +484,11 @@ where
         ]),
         daemon_session_id,
         command_watermark: CommandSequence(0),
+        // Runs this daemon still holds. The Server fails the rest of its non-terminal Runs for this
+        // Computer, which is how a restart is reported instead of inferred from a timer.
+        live_run_ids: RecoveryService::live_run_ids(storage)
+            .await
+            .map_err(|error| anyhow::anyhow!(error))?,
     };
     writer
         .send(WebSocketMessage::Text(
@@ -526,15 +511,7 @@ where
     send_pending_events(storage, &mut writer).await?;
     let adapter = ServerConnectionAdapter::new(drivers::prompt::global_contract());
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
-    let mut claim = tokio::time::interval(std::time::Duration::from_secs(2));
     let mut driver_observation = tokio::time::interval(std::time::Duration::from_millis(250));
-    let mut lease_renewal = tokio::time::interval(std::time::Duration::from_secs(30));
-    let claim_endpoint = server.join(&format!(
-        "api/v1/computers/{}/runs/claim",
-        secrets.computer_id
-    ))?;
-    let claim_client = reqwest::Client::new();
-    let mut last_claim_failure: Option<String> = None;
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
@@ -545,33 +522,10 @@ where
                 send_pending_events(storage, &mut writer).await?;
             }
             _ = heartbeat.tick() => {
-                let frame=ComputerFrame::Heartbeat{heartbeat:Heartbeat{daemon_session_id,active_runs:0,observed_at:time::OffsetDateTime::now_utc()}};
+                let active_runs=RecoveryService::live_run_ids(storage).await.map_err(|error|anyhow::anyhow!(error))?.len() as u32;
+                let frame=ComputerFrame::Heartbeat{heartbeat:Heartbeat{daemon_session_id,active_runs,observed_at:time::OffsetDateTime::now_utc()}};
                 writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                 send_pending_events(storage,&mut writer).await?;
-            }
-            _ = claim.tick() => {
-                let response = claim_client
-                    .post(claim_endpoint.clone())
-                    .bearer_auth(&secrets.token)
-                    .send()
-                    .await;
-                let failure = match response {
-                    Ok(response) if !response.status().is_success() => {
-                        Some(format!("http_{}", response.status().as_u16()))
-                    }
-                    Ok(_) => None,
-                    Err(_) => Some("transport".to_owned()),
-                };
-                if failure != last_claim_failure {
-                    if let Some(error_code) = &failure {
-                        tracing::warn!(error_code, "Computer Run claim request failed");
-                    } else if last_claim_failure.is_some() {
-                        tracing::info!("Computer Run claim request recovered");
-                    }
-                    last_claim_failure = failure;
-                }
-                let frame=ComputerFrame::Heartbeat{heartbeat:Heartbeat{daemon_session_id,active_runs:0,observed_at:time::OffsetDateTime::now_utc()}};
-                writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
             }
             _ = driver_observation.tick() => {
                 for completion in driver.poll_completions().await.map_err(|error| anyhow::anyhow!(error))? {
@@ -583,39 +537,13 @@ where
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?;
                 }
-                send_pending_events(storage, &mut writer).await?;
-            }
-            _ = lease_renewal.tick() => {
-                for (run_id, fencing_token) in RunService::active_leases(storage)
+                RecoveryService::fail_lost_drivers(storage, driver)
                     .await
-                    .map_err(|error| anyhow::anyhow!(error))?
-                {
-                    let endpoint = server.join(&format!(
-                        "api/v1/computers/{}/runs/{run_id}/renew",
-                        secrets.computer_id
-                    ))?;
-                    let response = claim_client
-                        .post(endpoint)
-                        .bearer_auth(&secrets.token)
-                        .json(&RenewRunRequest {
-                            fencing_token: &fencing_token,
-                        })
-                        .send()
-                        .await;
-                    match response {
-                        Ok(response) if response.status().is_success() => {
-                            let renewed: RenewRunResponse = response.json().await?;
-                            RunService::renew_lease(
-                                storage,
-                                run_id,
-                                renewed.lease_expires_at,
-                            )
-                            .await
-                            .map_err(|error| anyhow::anyhow!(error))?;
-                        }
-                        _ => tracing::warn!(%run_id, "Computer Run lease renewal failed"),
-                    }
-                }
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                SchedulerService::dispatch(storage, driver, max_concurrent_runs)
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                send_pending_events(storage, &mut writer).await?;
             }
             incoming=reader.next()=>{
                 let incoming=incoming.context("Computer WebSocket closed")??;

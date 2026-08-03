@@ -526,7 +526,7 @@ impl CreateAgentAction {
             }
             let run = transaction.run(input.current_run_id).await?;
             let run_view = run.view();
-            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Running {
+            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Working {
                 return Err(ApplicationError::ContextChanged);
             }
             if !transaction
@@ -622,7 +622,7 @@ impl CreateChannelAction {
             }
             let run = transaction.run(input.current_run_id).await?;
             let run_view = run.view();
-            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Running {
+            if run_view.agent_id != input.actor_member_id || run_view.status != RunStatus::Working {
                 return Err(ApplicationError::ContextChanged);
             }
             if !transaction

@@ -117,8 +117,8 @@ async fn run_dm_focus_flow(database: &TestDatabase) -> Result<()> {
     .await?;
     sqlx::query(
         "INSERT INTO agent_runs \
-         (id,space_id,agent_id,task_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) \
-         VALUES ($1,$2,$3,NULL,$4,'running','test',now()+interval '1 hour',now(),now())",
+         (id,space_id,agent_id,task_id,focus_thread_id,status,trigger_kind,created_at,started_at) \
+         VALUES ($1,$2,$3,NULL,$4,'working','direct_message',now(),now())",
     )
     .bind(run_id)
     .bind(space_id)

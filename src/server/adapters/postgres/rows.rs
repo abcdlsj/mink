@@ -65,8 +65,8 @@ pub(super) fn run_from_row(
         task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
         focus_thread_id: ThreadId::from_uuid(row.get("focus_thread_id")),
         status: run_status_from_str(row.get("status"))?,
-        fencing_token_hash: row.get("fencing_token_hash"),
-        lease_expires_at: row.get("lease_expires_at"),
+        trigger: run_trigger_from_str(row.get("trigger_kind"))?,
+        cancel_requested: row.get("cancel_requested"),
         items,
         outcome: row
             .get::<Option<String>, _>("outcome_code")
@@ -97,10 +97,9 @@ pub(super) fn inbox_from_row(row: &sqlx::postgres::PgRow) -> Result<InboxItem, A
         strength: strength_from_str(row.get("strength"))?,
         status: inbox_status_from_str(row.get("status"))?,
         available_at: row.get("available_at"),
-        lease_run_id: row
-            .get::<Option<Uuid>, _>("lease_run_id")
+        assigned_run_id: row
+            .get::<Option<Uuid>, _>("assigned_run_id")
             .map(RunId::from_uuid),
-        lease_expires_at: row.get("lease_expires_at"),
         retry_count: u32::try_from(row.get::<i32, _>("retry_count"))
             .map_err(|_| ApplicationError::Internal)?,
         requeue_count: u32::try_from(row.get::<i32, _>("requeue_count"))
@@ -203,19 +202,22 @@ text_enum!(close_reason_str, close_reason_from_str, CloseReason, {
     CloseReason::Invalid => "invalid", CloseReason::Duplicate => "duplicate", CloseReason::NotNeeded => "not_needed", CloseReason::Obsolete => "obsolete", CloseReason::Other => "other"
 });
 text_enum!(run_status_str, run_status_from_str, RunStatus, {
-    RunStatus::Queued => "queued", RunStatus::Starting => "starting", RunStatus::Running => "running", RunStatus::Finalizing => "finalizing", RunStatus::Completed => "completed", RunStatus::Yielded => "yielded", RunStatus::Failed => "failed", RunStatus::Stopping => "stopping", RunStatus::Canceled => "canceled"
+    RunStatus::Dispatched => "dispatched", RunStatus::Working => "working", RunStatus::Completed => "completed", RunStatus::Yielded => "yielded", RunStatus::Failed => "failed", RunStatus::Canceled => "canceled"
+});
+text_enum!(run_trigger_str, run_trigger_from_str, RunTrigger, {
+    RunTrigger::Mention => "mention", RunTrigger::DirectMessage => "direct_message", RunTrigger::TaskActivity => "task_activity", RunTrigger::ThreadActivity => "thread_activity", RunTrigger::ChannelActivity => "channel_activity", RunTrigger::Schedule => "schedule"
 });
 text_enum!(run_outcome_str, run_outcome_from_str, RunOutcome, {
     RunOutcome::Completed => "completed", RunOutcome::Yielded => "yielded", RunOutcome::Failed => "failed", RunOutcome::Canceled => "canceled"
 });
 text_enum!(run_error_code_str, run_error_code_from_str, RunErrorCode, {
-    RunErrorCode::InvalidCommand => "invalid_command", RunErrorCode::AgentUnavailable => "agent_unavailable", RunErrorCode::ProcessLost => "process_lost", RunErrorCode::SessionLost => "session_lost", RunErrorCode::SandboxUnavailable => "sandbox_unavailable", RunErrorCode::DriverUnavailable => "driver_unavailable", RunErrorCode::Internal => "internal"
+    RunErrorCode::DriverError => "driver_error", RunErrorCode::DriverLost => "driver_lost", RunErrorCode::ComputerRestarted => "computer_restarted", RunErrorCode::SessionUnavailable => "session_unavailable", RunErrorCode::AgentUnavailable => "agent_unavailable", RunErrorCode::InvalidCommand => "invalid_command", RunErrorCode::Internal => "internal"
 });
 text_enum!(disposition_str, disposition_from_str, InboxItemDisposition, {
     InboxItemDisposition::Handled => "handled", InboxItemDisposition::Deferred => "deferred", InboxItemDisposition::Released => "released"
 });
 text_enum!(inbox_status_str, inbox_status_from_str, InboxItemStatus, {
-    InboxItemStatus::Pending => "pending", InboxItemStatus::Leased => "leased", InboxItemStatus::Deferred => "deferred", InboxItemStatus::Handled => "handled", InboxItemStatus::Dead => "dead"
+    InboxItemStatus::Pending => "pending", InboxItemStatus::Assigned => "assigned", InboxItemStatus::Deferred => "deferred", InboxItemStatus::Handled => "handled", InboxItemStatus::Dead => "dead"
 });
 text_enum!(inbox_kind_str, inbox_kind_from_str, InboxItemKind, {
     InboxItemKind::Direct => "direct", InboxItemKind::Mention => "mention", InboxItemKind::Reply => "reply", InboxItemKind::TaskActivity => "task_activity", InboxItemKind::ThreadActivity => "thread_activity", InboxItemKind::ChannelActivity => "channel_activity", InboxItemKind::System => "system"

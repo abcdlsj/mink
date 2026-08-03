@@ -42,7 +42,6 @@
 - 资源创建使用唯一约束和 idempotency key。
 - 状态转换锁定聚合根，并校验旧状态。
 - Thread 关联操作先锁定 Thread，再检查未结束 Task。
-- Run ownership 使用 lease 和 fencing token。
 - 一个 Agent 的非终态 Run 使用 partial unique index 保证唯一。
 
 ## 3. PostgreSQL 约定
@@ -287,10 +286,9 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `task_id`
 - `kind`
 - `strength=hard|ambient`
-- `status=pending|leased|deferred|handled|dead`
+- `status=pending|assigned|deferred|handled|dead`
 - `available_at`
-- `lease_run_id`
-- `lease_expires_at`
+- `assigned_run_id`
 - `retry_count`
 - `requeue_count`
 - `handled_at`
@@ -301,7 +299,7 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `aggregated_count`
 - `force_at`
 
-Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Human 都可以持有 Item；lease 和 retry 字段只由 Agent Item 使用，Human Item 不进 lease。`task_id`是创建或绑定 Task 后确定的路由事实。
+Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Human 都可以持有 Item；`assigned_run_id`和 retry 字段只由 Agent Item 使用。`status='assigned'`与`assigned_run_id`非空由 CHECK 约束为等价，因此不存在指向不明的已分配 Item。`task_id`是创建或绑定 Task 后确定的路由事实。
 
 `message_mentions`保存显式 mention 与`@all`展开的 Member targets（`message_id`、`space_id`、`member_id`、`created_at`）。`messages.mention_all`记录该 Message 是否由`@all`发出；该布尔事实与展开关系同时写入，读取投影不得重新解析正文。
 
@@ -309,7 +307,7 @@ Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Hu
 
 后四列描述一个 ambient 聚合覆盖的 Message 区间，见 [Inbox 与凭据](06-inbox-credentials.md) 的 Ambient 聚合。它们由 CHECK 约束为同时存在或同时为空，只允许出现在`strength='ambient'`的行上，且该行的`message_id`必须为空：聚合项代表区间，不代表单条 Message。`aggregated_count`不得超过`last_message_seq - first_message_seq + 1`。
 
-`inbox_items_open_ambient_aggregate`是`(member_id, thread_id)`上的 partial unique index，条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Member 在一个 Thread 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被领取的聚合项上，因此 lease 回收放回的聚合项不阻塞该 Thread 的下一个聚合项。
+`inbox_items_open_ambient_aggregate`是`(member_id, thread_id)`上的 partial unique index，条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Member 在一个 Thread 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被分配的聚合项上，因此 Run 失败放回的聚合项不阻塞该 Thread 的下一个聚合项。
 
 聚合项的写入路径持有分配`channel_seq`时取得的 Channel 行锁，Thread 只属于一个 Channel，因此同一 Thread 的并发 publish 已经串行；合并语句额外使用`FOR UPDATE`，使该保证不依赖调用方。
 
@@ -320,9 +318,9 @@ Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Hu
 - `agent_id`
 - `task_id`
 - `focus_thread_id`
-- `status=queued|starting|running|finalizing|completed|yielded|failed|stopping|canceled`
-- `fencing_token_hash`
-- `lease_expires_at`
+- `status=dispatched|working|completed|yielded|failed|canceled`
+- `trigger_kind=mention|direct_message|task_activity|thread_activity|channel_activity|schedule`
+- `cancel_requested`
 - `outcome_code`
 - `error_code`
 - `continuation_note`
@@ -332,9 +330,11 @@ Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Hu
 
 `task_id`可以为空。Run 绑定 Task 时，Focus 必须是 Source Thread 或 Related Thread。
 
+Run 上没有所有权凭据和期限列。状态由 Computer 上报改写，Server 不按时间改写它，原因见 [Run 不使用租约与 fencing token](../adr/0004-no-run-lease.md)。`cancel_requested`记录已请求取消，终态仍由上报确认。`trigger_kind`记录这次执行由哪种事件触发，见 [Agent Run](04-agent-run.md)。
+
 一个 Agent 只能有一个非终态 Run。该规则使用 partial unique index 表达。
 
-`error_code`保存 Computer 上报的稳定错误码，取值域是`invalid_command`、`agent_unavailable`、`process_lost`、`session_lost`、`sandbox_unavailable`、`driver_unavailable`、`internal`，与协议的`ComputerErrorCode`一致。稳定取值使 Browser 与运维统计可以按错误码归类失败，无需解析文本。
+`error_code`保存 Computer 上报的稳定错误码，取值域是`driver_error`、`driver_lost`、`computer_restarted`、`session_unavailable`、`agent_unavailable`、`invalid_command`、`internal`，与协议的`ComputerErrorCode`一致。稳定取值使 Browser 与运维统计可以按错误码归类失败，无需解析文本。
 
 `outcome_code`回答 Run 以哪种终态结束，`error_code`回答失败的机器可读原因。只有`outcome_code='failed'`允许非空`error_code`；`completed`、`yielded`、`canceled`不是失败终态，`error_code`必须为空。该约束由 PostgreSQL 基线 schema 的 CHECK 表达。
 
@@ -391,7 +391,7 @@ Computer 删除是一个软删除事务。事务锁定 Computer 和全部 assign
 - `run_id`
 - `created_at`
 
-Run 结果上报的幂等记录。`event_id`是主键，`run_id`唯一，因此重复上报既不会重复处理 Item，也不会让一个 Run 产生第二个终态，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
+Run 结果上报的幂等记录。`event_id`是主键，`run_id`唯一，因此重复上报既不会重复处理 Item，也不会让一个 Run 产生第二个终态，见 [Agent Run](04-agent-run.md)。
 
 ### 8.4 `computer_commands`
 
@@ -455,7 +455,7 @@ SQLite 不得保存 Computer Token 或模型凭据。
 1. 锁定 Root Message，即锁定 Thread。
 2. 验证 Source 和权限。
 3. 创建 Task，并写入`source_thread_id`。
-4. Agent Run 发起时，绑定 Run 和已领取 Item。
+4. Agent Run 发起时，绑定 Run 和该 Run 的 Item。
 5. 写入`run.task_bound` command、audit 和 outbox。
 
 ### 10.3 关联 Thread
@@ -468,8 +468,8 @@ SQLite 不得保存 Computer Token 或模型凭据。
 ### 10.4 Attach hard Item
 
 1. 锁定 Run 和 Item。
-2. 验证 Run 仍是 running，且 Task 和 Focus 一致。
-3. 租约 Item，并创建`run_items`。
+2. 验证 Run 仍是`working`，且 Task 和 Focus 一致。
+3. 把 Item 置为`assigned`，并创建`run_items`。
 4. 分配 delivery sequence。
 5. 写入 Computer command 和 outbox。
 

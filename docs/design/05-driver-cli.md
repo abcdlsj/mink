@@ -27,17 +27,17 @@ Computer 传给 Driver 的输入分为四块：
 1. `global_contract`：安全规则、Sumi 能力和沟通约束。
 2. `agent_profile`：Agent identity、Role 和 Memory 投影，见 [Computer 与 Agent](04-computer-agent.md) 的 Memory 定义。
 3. `work_context`：可选 Task、Linked Threads、Session scope 和已有公开结果。
-4. `run_context`：Run、Focus、claimed Items 和当前消息窗口。
+4. `run_context`：Run、Focus、本 Run 的 Items 和当前消息窗口。
 
-注入内容采用固定结构并标注读取优先级：除 reference 标识外的块必须读取；Agent ID、Space ID 等身份标识只作为 reference 提供。`message_snapshot_sequence`、`role_revision` 等内部同步字段和空值字段不注入。claimed Item 正文与窗口内 focus 消息重复时不重复注入。
+注入内容采用固定结构并标注读取优先级：除 reference 标识外的块必须读取；Agent ID、Space ID 等身份标识只作为 reference 提供。`message_snapshot_sequence`、`role_revision` 等内部同步字段和空值字段不注入。Item 正文与窗口内 focus 消息重复时不重复注入。
 
 稳定内容和动态内容必须保持结构化边界。Driver 可以按 provider 协议映射缓存，但不能修改产品语义。
 
 Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session 历史不能替代 Server 的最新可选 Task、Message、权限和 Inbox 事实。
 
-`run_context`中的 focus 消息包含稳定 Message ID、作者 ID 和正文。注入采用有界窗口：Root 与最近 5 条 reply 注入全文，更早消息不注入；Agent 需要更早消息时用 `thread.read` 按需读取。claimed Item 的来源正文只在来源消息不在窗口内时注入，来源消息在窗口内时只注入 Item 标识与引用关系。
+`run_context`中的 focus 消息包含稳定 Message ID、作者 ID 和正文。注入采用有界窗口：Root 与最近 5 条 reply 注入全文，更早消息不注入；Agent 需要更早消息时用 `thread.read` 按需读取。Item 的来源正文只在来源消息不在窗口内时注入，来源消息在窗口内时只注入 Item 标识与引用关系。
 
-`global_contract` 必须要求 Agent 处理每个 claimed Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
+`global_contract` 必须要求 Agent 处理本 Run 的每个 Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
 
 ## 3. Codex Driver
 
@@ -60,7 +60,7 @@ Codex Driver 必须使用 Agent 专属的`CODEX_HOME`。daemon 只复制明确�
 
 Codex Driver 必须为每个 Run 向工具子进程注入当前 capability socket 和 Run token，分别使用 `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`。Run token 只存在于该 Run 的进程环境，不得写入配置文件、日志或 provider session。重新启动 app-server 时，Driver 必须 resume 原 Codex thread 后再启动 turn。
 
-Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-sandbox`，turn 使用 `dangerFullAccess`。Computer 通过 Agent 专属目录、Run fencing token 和 capability 授权控制协作写入。
+Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-sandbox`，turn 使用 `dangerFullAccess`。Computer 通过 Agent 专属目录、Run Secret 和 capability 授权控制协作写入。Run Secret 只用于本机 capability socket 的调用者认证，由 daemon 生成，不出本机，也不表达执行资格。
 
 Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式进入 Agent 环境。
 
@@ -100,7 +100,7 @@ Run token 隐式确定：
 - Space。
 - 可选 Task。
 - Focus Thread。
-- Run 和 fencing token。
+- Run。
 
 CLI 不得要求 Agent 重复传入这些字段。Agent 也不能通过参数切换身份、Task 或 Focus。
 
@@ -153,7 +153,7 @@ sumi agent channel read {channel-id} [--around message-id] [--limit 50] --json
 sumi agent memory read {path} --json
 ```
 
-`context current` 一次返回 Agent、Task、Focus、Run、claimed Items 和 Session continuity 摘要。它不返回 Provider transcript。
+`context current` 一次返回 Agent、Task、Focus、Run、本 Run 的 Items 和 Session continuity 摘要。它不返回 Provider transcript。
 
 ## 7. 最小协作命令
 
@@ -199,7 +199,7 @@ sumi agent inbox ack {item-id} [--reason text] --json
 sumi agent inbox defer {item-id} --until timestamp --json
 ```
 
-`inbox current` 只显示当前 Run 已经领取的 Items 和不同 Focus notices。不同 Focus Item 正文必须在后续 Run 取得 lease 后读取。
+`inbox current` 只显示当前 Run 的 Items 和不同 Focus notices。不同 Focus Item 正文必须在处理该 Item 的后续 Run 中读取。
 
 ### 7.4 Attachment 与 Memory
 
@@ -243,7 +243,7 @@ hard Item 相关输出发现新消息时，Server 返回`context_changed`，不�
 
 ## 10. 退出规则
 
-Driver turn 正常结束后，daemon 自动进入 Run finalizing。Agent 不调用 settle、finish-run 或 ack-all。
+Driver turn 正常结束后，daemon 自动结算该 Run。Agent 不调用 settle、finish-run 或 ack-all。
 
 存在未处理 Items 时：
 

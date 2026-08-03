@@ -9,7 +9,7 @@ use crate::server::domain::{
     attachment::Attachment,
     attention::{AttentionStrength, InboxItem, InboxItemKind, InboxItemStatus},
     conversation::{Channel, Message, Thread},
-    execution::Run,
+    execution::{Run, RunTrigger},
     identity::{AccessLevel, Agent, Computer, Member, PermissionAction},
     invitation::Invitation,
     pairing::{ComputerOs, Pairing, PairingStatus},
@@ -298,10 +298,8 @@ pub(in crate::server) enum Effect {
         item_id: InboxItemId,
         location_visible: bool,
     },
-    RunClaimed {
-        run_id: RunId,
-        fencing_token: RawFencingToken,
-    },
+    RunDispatched(RunId),
+    RunCancelRequested(RunId),
     RunStarted(RunId),
     RunCompleted(RunId),
     TaskCompleted {
@@ -366,21 +364,22 @@ pub(in crate::server) struct CreatedSpace {
     pub(in crate::server) general_channel_id: ChannelId,
 }
 
-#[derive(Clone, Eq, PartialEq)]
-pub(in crate::server) struct RawFencingToken(String);
-
-/// Pending Item selected by the claim scheduler. The scheduler returns only identifiers and
-/// routing metadata; leasing and all state transitions remain in `ClaimRun`.
+/// Work the dispatcher found for one Agent: a pending Item and the Computer that hosts the Agent. The
+/// dispatcher returns identifiers only; every state transition stays in `DispatchRun`.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::server) struct ClaimCandidate {
+pub(in crate::server) struct DispatchCandidate {
     pub(in crate::server) item_id: InboxItemId,
     pub(in crate::server) agent_id: MemberId,
+    pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) task_id: Option<TaskId>,
     pub(in crate::server) thread_id: ThreadId,
     pub(in crate::server) message_id: Option<MessageId>,
     pub(in crate::server) channel_id: ChannelId,
+    pub(in crate::server) trigger: RunTrigger,
 }
 
+/// Proves a capability call belongs to a live Run on the Computer making the call. Carries no token
+/// and no deadline: the Run being `working` on this Computer is the whole proof.
 pub(in crate::server) struct RunCapabilityProof {
     pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) run_id: RunId,
@@ -388,27 +387,6 @@ pub(in crate::server) struct RunCapabilityProof {
     pub(in crate::server) space_id: SpaceId,
     pub(in crate::server) task_id: Option<TaskId>,
     pub(in crate::server) focus_thread_id: ThreadId,
-    pub(in crate::server) fencing_token_hash: String,
-}
-
-impl RawFencingToken {
-    pub(in crate::server) fn new(value: String) -> Self {
-        Self(value)
-    }
-
-    pub(in crate::server) fn expose(&self) -> &str {
-        &self.0
-    }
-
-    pub(in crate::server) fn sha256_hash(&self) -> String {
-        hex::encode(Sha256::digest(self.0.as_bytes()))
-    }
-}
-
-impl fmt::Debug for RawFencingToken {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("RawFencingToken([REDACTED])")
-    }
 }
 
 mod attachment;

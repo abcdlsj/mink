@@ -108,27 +108,26 @@ impl Fixture {
         Ok(message["id"].as_str().context("Message ID")?.parse()?)
     }
 
-    /// Claims the pending Item as this Computer would, returning the new Run.
-    async fn claim_run(&self) -> Result<Option<Uuid>> {
-        let response = self
-            .client
-            .post(self.server_url.join(&format!(
-                "/api/v1/computers/{}/runs/claim",
-                self.computer_id
-            ))?)
-            .bearer_auth(&self.computer_token)
-            .send()
-            .await?;
-        ensure!(
-            response.status().is_success(),
-            "claim Run: {}",
-            response.status()
-        );
-        let claimed: Value = response.json().await?;
-        if !claimed["claimed"].as_bool().unwrap_or(false) {
-            return Ok(None);
-        }
-        Ok(Some(claimed["run_id"].as_str().context("Run ID")?.parse()?))
+    /// The Run the Server dispatched for this Agent, if any. The Computer does not ask for work: the
+    /// Server creates the Run and queues its start command.
+    async fn dispatched_run(&self) -> Result<Option<Uuid>> {
+        let row = sqlx::query(
+            "SELECT id FROM agent_runs WHERE agent_id=$1 \
+             AND status NOT IN ('completed','yielded','failed','canceled')",
+        )
+        .bind(self.agent_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| row.get(0)))
+    }
+
+    /// Waits for the Server's dispatch pass to create a Run for this Agent.
+    async fn await_dispatched_run(&self) -> Result<Uuid> {
+        wait_for(Duration::from_secs(15), || async {
+            self.dispatched_run().await
+        })
+        .await
+        .context("the Server did not dispatch a Run for the pending Item")
     }
 
     async fn restart_server(&mut self) -> Result<()> {
@@ -148,7 +147,7 @@ impl Fixture {
 
     async fn item_row(&self, message_id: Uuid) -> Result<(String, i32, Option<Uuid>)> {
         let row = sqlx::query(
-            "SELECT status,retry_count,lease_run_id FROM inbox_items WHERE message_id=$1",
+            "SELECT status,retry_count,assigned_run_id FROM inbox_items WHERE message_id=$1",
         )
         .bind(message_id)
         .fetch_one(&self.pool)
@@ -172,21 +171,17 @@ async fn a_server_restart_during_a_run_preserves_every_committed_fact() -> Resul
     result
 }
 
-/// A Server restart is not a Run failure: the Run's ownership lives in the database, so the same
-/// Computer must be able to continue reporting against it once the Server is back.
+/// A Server restart is not a Run failure: the Run lives in the database, so the same Computer must be
+/// able to continue reporting against it once the Server is back.
 async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
     let mut fixture = Fixture::start(database).await?;
 
     let message_id = fixture
         .mention_agent("please review the deploy plan")
         .await?;
-    let run_id = fixture
-        .claim_run()
-        .await?
-        .context("the mention produces a claimable hard Item")?;
+    let run_id = fixture.await_dispatched_run().await?;
 
     // Report the Run as started so the restart interrupts a Run that is genuinely in flight.
-    let fencing_token = fencing_token_for(&fixture, run_id).await?;
     let started = fixture
         .client
         .post(fixture.server_url.join(&format!(
@@ -197,7 +192,6 @@ async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
         .json(&serde_json::json!({
             "event_id": Uuid::now_v7(),
             "run_id": run_id,
-            "fencing_token": fencing_token,
             "observed_at": now_rfc3339(),
         }))
         .send()
@@ -208,7 +202,7 @@ async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
         started.status()
     );
     let before = fixture.run_row(run_id).await?;
-    ensure!(before.0 == "running", "Run is in flight: {before:?}");
+    ensure!(before.0 == "working", "Run is in flight: {before:?}");
 
     fixture.restart_server().await?;
 
@@ -218,10 +212,10 @@ async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
         after == before,
         "Run facts changed across the restart: {before:?} -> {after:?}"
     );
-    let (item_status, retry_count, lease_run_id) = fixture.item_row(message_id).await?;
+    let (item_status, retry_count, assigned_run_id) = fixture.item_row(message_id).await?;
     ensure!(
-        (item_status.as_str(), retry_count, lease_run_id) == ("leased", 0, Some(run_id)),
-        "Item lease did not survive the restart: {item_status} {retry_count} {lease_run_id:?}"
+        (item_status.as_str(), retry_count, assigned_run_id) == ("assigned", 0, Some(run_id)),
+        "Item assignment did not survive the restart: {item_status} {retry_count} {assigned_run_id:?}"
     );
     // A restart is not a delivery failure, so it must not spend a retry.
     ensure!(retry_count == 0, "the restart consumed a retry attempt");
@@ -256,7 +250,6 @@ async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
         .json(&serde_json::json!({
             "event_id": Uuid::now_v7(),
             "run_id": run_id,
-            "fencing_token": fencing_token,
             "status": "completed",
             "item_outcomes": [{
                 "item_id": item_id_for(&fixture, message_id).await?,
@@ -279,87 +272,137 @@ async fn server_restart_during_run(database: &TestDatabase) -> Result<()> {
             == ("completed", Some("completed"), None),
         "Run did not reach a clean terminal state: {status} {outcome:?} {error:?}"
     );
-    let (item_status, _, lease) = fixture.item_row(message_id).await?;
+    let (item_status, _, assigned) = fixture.item_row(message_id).await?;
     ensure!(
-        item_status == "handled" && lease.is_none(),
-        "the handled Item still holds a lease: {item_status} {lease:?}"
+        item_status == "handled" && assigned.is_none(),
+        "the handled Item is still assigned to a Run: {item_status} {assigned:?}"
     );
 
     fixture.finish().await
 }
 
 #[tokio::test]
-async fn a_computer_offline_until_its_lease_expires_returns_the_item_and_frees_the_agent()
--> Result<()> {
-    let database = TestDatabase::create("sumi_failure_lease_expiry").await?;
-    let result = computer_offline_until_lease_expiry(&database).await;
+async fn an_offline_computer_keeps_its_run_until_it_reports_otherwise() -> Result<()> {
+    let database = TestDatabase::create("sumi_failure_offline_computer").await?;
+    let result = offline_computer_keeps_its_run(&database).await;
     database.drop().await?;
     result
 }
 
-/// A Computer that stops renewing must not strand the Item or the Agent. The Server's reclaim sweep
-/// fails the Run and returns the Item, and the Agent must then be able to claim again.
-async fn computer_offline_until_lease_expiry(database: &TestDatabase) -> Result<()> {
+/// An offline Computer must not turn a Run into a failure. Nothing on the Server side judges a Run by
+/// elapsed time, so the Run stays `working` for as long as the Computer is away, however long that is.
+/// The Run only resolves when the Computer comes back and says what actually happened.
+async fn offline_computer_keeps_its_run(database: &TestDatabase) -> Result<()> {
     let fixture = Fixture::start(database).await?;
 
     let message_id = fixture.mention_agent("the staging build is red").await?;
-    let run_id = fixture
-        .claim_run()
-        .await?
-        .context("the mention produces a claimable hard Item")?;
+    let run_id = fixture.await_dispatched_run().await?;
     let item_id = item_id_for(&fixture, message_id).await?;
 
-    // While the lease holds, no second Run can start for this Agent.
+    // While this Run is live, the Agent gets no second Run.
     ensure!(
-        fixture.claim_run().await?.is_none(),
-        "a leased Item must not be claimed twice"
+        fixture.dispatched_run().await? == Some(run_id),
+        "an Agent with a live Run must not be dispatched another"
     );
 
-    // Expire the lease rather than waiting two minutes. Backdating is what going offline looks like to
-    // the Server: the Computer stopped renewing and the deadline passed.
-    sqlx::query("UPDATE agent_runs SET lease_expires_at=now()-interval '1 minute' WHERE id=$1")
-        .bind(run_id)
+    // Report the Run as started so the Computer disappears while a Run is genuinely in flight.
+    let started = fixture
+        .client
+        .post(fixture.server_url.join(&format!(
+            "/api/v1/computers/{}/runs/{run_id}/started",
+            fixture.computer_id
+        ))?)
+        .bearer_auth(&fixture.computer_token)
+        .json(&serde_json::json!({
+            "event_id": Uuid::now_v7(),
+            "run_id": run_id,
+            "observed_at": now_rfc3339(),
+        }))
+        .send()
+        .await?;
+    ensure!(
+        started.status().is_success(),
+        "report Run started: {}",
+        started.status()
+    );
+
+    // Mark the Computer offline and give the Server far longer than any old lease window. Under the
+    // previous design this is exactly when the lease sweep failed the Run; now nothing happens.
+    sqlx::query("UPDATE computers SET connection_status='offline' WHERE id=$1")
+        .bind(fixture.computer_id)
         .execute(&fixture.pool)
         .await?;
-    sqlx::query("UPDATE inbox_items SET lease_expires_at=now()-interval '1 minute' WHERE id=$1")
-        .bind(item_id)
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let (status, outcome, error) = fixture.run_row(run_id).await?;
+    ensure!(
+        (status.as_str(), outcome.as_deref(), error.as_deref()) == ("working", None, None),
+        "an offline Computer must not change its Run: {status} {outcome:?} {error:?}"
+    );
+    let (item_status, retry_count, assigned) = fixture.item_row(message_id).await?;
+    ensure!(
+        (item_status.as_str(), retry_count, assigned) == ("assigned", 0, Some(run_id)),
+        "the Item must stay with its Run while the Computer is away: \
+         {item_status} {retry_count} {assigned:?}"
+    );
+
+    // The Computer returns and reports the Driver process died with the previous daemon. That report,
+    // not any timer, is what fails the Run and returns the Item.
+    let reported = fixture
+        .client
+        .post(fixture.server_url.join(&format!(
+            "/api/v1/computers/{}/runs/{run_id}/result",
+            fixture.computer_id
+        ))?)
+        .bearer_auth(&fixture.computer_token)
+        .json(&serde_json::json!({
+            "event_id": Uuid::now_v7(),
+            "run_id": run_id,
+            "status": "failed",
+            "item_outcomes": [],
+            "continuation_note": null,
+            "error_code": "computer_restarted",
+        }))
+        .send()
+        .await?;
+    ensure!(
+        reported.status().is_success(),
+        "the Server must accept a late report from a returning Computer: {} {}",
+        reported.status(),
+        reported.text().await.unwrap_or_default()
+    );
+
+    let (status, outcome, error) = fixture.run_row(run_id).await?;
+    ensure!(
+        (status.as_str(), outcome.as_deref(), error.as_deref())
+            == ("failed", Some("failed"), Some("computer_restarted")),
+        "the reported failure did not reach the Run: {status} {outcome:?} {error:?}"
+    );
+
+    // The Item returned to the queue and spent exactly one retry, because one attempt failed.
+    let (item_status, retry_count, assigned) = fixture.item_row(message_id).await?;
+    ensure!(
+        (item_status.as_str(), retry_count, assigned) == ("pending", 1, None),
+        "the Item did not return to the queue cleanly: {item_status} {retry_count} {assigned:?}"
+    );
+
+    // The Agent is free, so the Server dispatches the recovered Item to a new Run.
+    sqlx::query("UPDATE computers SET connection_status='online' WHERE id=$1")
+        .bind(fixture.computer_id)
         .execute(&fixture.pool)
         .await?;
-
-    // The sweep runs every 30 seconds inside the Server, so allow it more than one interval.
-    let recovered = wait_for(Duration::from_secs(75), || async {
-        let (status, outcome, error) = fixture.run_row(run_id).await?;
-        Ok((status == "failed").then_some((status, outcome, error)))
+    let second_run = wait_for(Duration::from_secs(15), || async {
+        Ok(fixture
+            .dispatched_run()
+            .await?
+            .filter(|dispatched| *dispatched != run_id))
     })
     .await
-    .context("the Server did not reclaim the Run whose lease expired")?;
+    .context("the recovered Item must be dispatched to a new Run")?;
+    let (item_status, _, assigned) = fixture.item_row(message_id).await?;
     ensure!(
-        (recovered.1.as_deref(), recovered.2.as_deref()) == (Some("failed"), Some("process_lost")),
-        "the reclaimed Run lost its machine-readable cause: {recovered:?}"
-    );
-
-    // The Item returned to the queue and spent exactly one retry, because one delivery attempt failed.
-    let (item_status, retry_count, lease) = fixture.item_row(message_id).await?;
-    ensure!(
-        (item_status.as_str(), retry_count, lease) == ("pending", 1, None),
-        "the Item did not return to the queue cleanly: {item_status} {retry_count} {lease:?}"
-    );
-
-    // The Run is terminal, so the Agent is free and the recovered Item is claimable again. Without
-    // both, the expiry would leave the Agent permanently unable to work.
-    let second_run = wait_for(Duration::from_secs(10), || async {
-        fixture.claim_run().await
-    })
-    .await
-    .context("the recovered Item must be claimable by a new Run")?;
-    ensure!(
-        second_run != run_id,
-        "recovery reused the failed Run instead of starting a new one"
-    );
-    let (item_status, _, lease) = fixture.item_row(message_id).await?;
-    ensure!(
-        item_status == "leased" && lease == Some(second_run),
-        "the new Run does not own the recovered Item: {item_status} {lease:?}"
+        item_status == "assigned" && assigned == Some(second_run),
+        "the new Run does not own the recovered Item: {item_status} {assigned:?}"
     );
 
     // The source Message and the Inbox projection still agree: one Item, same source, no duplicates.
@@ -570,8 +613,8 @@ async fn workspace_loss_and_locator_corruption(database: &TestDatabase) -> Resul
         "the Message and its Item disagree: {message_count} {item_count}"
     );
     let orphaned: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM inbox_items i WHERE i.status='leased' \
-         AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.id=i.lease_run_id \
+        "SELECT count(*) FROM inbox_items i WHERE i.status='assigned' \
+         AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.id=i.assigned_run_id \
                         AND r.status NOT IN ('completed','yielded','failed','canceled'))",
     )
     .fetch_one(&fixture.pool)
@@ -736,19 +779,6 @@ async fn item_id_for(fixture: &Fixture, message_id: Uuid) -> Result<Uuid> {
             .fetch_one(&fixture.pool)
             .await?,
     )
-}
-
-/// Inserts a fencing token the test controls. The Server only stores the hash, so a test cannot recover
-/// the token the claim generated; replacing the hash lets it prove ownership as the owning Computer.
-async fn fencing_token_for(fixture: &Fixture, run_id: Uuid) -> Result<String> {
-    let token = format!("failure-test-fencing-{}", Uuid::now_v7().simple());
-    let hash = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(token.as_bytes()));
-    sqlx::query("UPDATE agent_runs SET fencing_token_hash=$2 WHERE id=$1")
-        .bind(run_id)
-        .bind(&hash)
-        .execute(&fixture.pool)
-        .await?;
-    Ok(token)
 }
 
 /// Inserts a confirmed Computer and returns its ID with the raw Token. Pairing is covered elsewhere;

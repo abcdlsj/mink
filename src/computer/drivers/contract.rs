@@ -7,7 +7,7 @@ use crate::computer::{
     },
     core::{
         home::LocalAgent,
-        input::{ClaimedItemInput, RunInput},
+        input::{DispatchedItemInput, RunInput},
     },
 };
 use crate::ids::{AgentId, RunId};
@@ -43,7 +43,7 @@ pub(in crate::computer) trait ProviderBackend {
     async fn steer(
         &mut self,
         locator: &str,
-        item: &ClaimedItemInput,
+        item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError>;
     async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;
@@ -79,7 +79,7 @@ pub(in crate::computer) trait StructuredProviderClient {
     async fn steer(
         &mut self,
         locator: &str,
-        item: &ClaimedItemInput,
+        item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError>;
     async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;

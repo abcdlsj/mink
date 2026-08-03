@@ -18,26 +18,6 @@ pub(crate) struct CommandSequence(pub(crate) u64);
 #[serde(transparent)]
 pub(crate) struct DeliverySequence(pub(crate) u64);
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(transparent)]
-pub(crate) struct FencingToken(String);
-
-impl FencingToken {
-    pub(crate) fn new(value: String) -> Self {
-        Self(value)
-    }
-
-    pub(crate) fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for FencingToken {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("FencingToken([REDACTED])")
-    }
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DaemonCapability {
@@ -55,6 +35,10 @@ pub(crate) struct ComputerHello {
     pub(crate) capabilities: BTreeSet<DaemonCapability>,
     pub(crate) daemon_session_id: DaemonSessionId,
     pub(crate) command_watermark: CommandSequence,
+    /// Runs this daemon still holds locally. The Server fails every other non-terminal Run it has for
+    /// this Computer, because those died with the previous daemon process. Sending the live set rather
+    /// than the lost set means a daemon that starts with empty state reports the truth by default.
+    pub(crate) live_run_ids: Vec<RunId>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -165,11 +149,8 @@ pub(crate) struct RunStart {
     pub(crate) agent_id: AgentId,
     pub(crate) task: Option<TaskSnapshot>,
     pub(crate) focus: FocusSnapshot,
-    pub(crate) claimed_items: Vec<InboxItemSnapshot>,
+    pub(crate) dispatched_items: Vec<InboxItemSnapshot>,
     pub(crate) space_members: Vec<SpaceMemberSnapshot>,
-    pub(crate) fencing_token: FencingToken,
-    #[serde(with = "time::serde::rfc3339")]
-    pub(crate) ownership_lease_expires_at: OffsetDateTime,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -214,7 +195,6 @@ pub(crate) enum StopReason {
     Suspend,
     Retire,
     HumanRequest,
-    LeaseExpired,
     SafetyLimit,
 }
 
@@ -554,7 +534,6 @@ pub(crate) enum CommandOutcome {
 pub(crate) struct RunStarted {
     pub(crate) event_id: EventId,
     pub(crate) run_id: RunId,
-    pub(crate) fencing_token: FencingToken,
     #[serde(with = "time::serde::rfc3339")]
     pub(crate) observed_at: OffsetDateTime,
 }
@@ -565,7 +544,6 @@ pub(crate) struct DeliveryReceipt {
     pub(crate) event_id: EventId,
     pub(crate) run_id: RunId,
     pub(crate) delivery_sequence: DeliverySequence,
-    pub(crate) fencing_token: FencingToken,
     pub(crate) outcome: DeliveryOutcome,
 }
 
@@ -582,7 +560,6 @@ pub(crate) enum DeliveryOutcome {
 pub(crate) struct RunResult {
     pub(crate) event_id: EventId,
     pub(crate) run_id: RunId,
-    pub(crate) fencing_token: FencingToken,
     pub(crate) status: RunTerminalStatus,
     pub(crate) item_outcomes: Vec<ItemOutcome>,
     pub(crate) continuation_note: Option<String>,
@@ -613,15 +590,17 @@ pub(crate) enum ItemDisposition {
     Released,
 }
 
+/// Failures the Computer observed directly. There is no code for "the Server lost contact": that is
+/// Computer reachability, which the Server derives from the connection, not from a report.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ComputerErrorCode {
-    InvalidCommand,
+    DriverError,
+    DriverLost,
+    ComputerRestarted,
+    SessionUnavailable,
     AgentUnavailable,
-    ProcessLost,
-    SessionLost,
-    SandboxUnavailable,
-    DriverUnavailable,
+    InvalidCommand,
     Internal,
 }
 
@@ -676,6 +655,7 @@ mod tests {
             capabilities: BTreeSet::from([DaemonCapability::ActiveTurnSteer]),
             daemon_session_id: DaemonSessionId::from_uuid(Uuid::now_v7()),
             command_watermark: CommandSequence(12),
+            live_run_ids: Vec::new(),
         };
         let value = serde_json::to_value(hello).unwrap();
 

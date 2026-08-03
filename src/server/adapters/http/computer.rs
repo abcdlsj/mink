@@ -408,11 +408,8 @@ pub(super) fn agent_activity(
 
 pub(super) fn run_activity_status(status: Option<&str>) -> AgentActivityStatus {
     match status {
-        Some("queued") => AgentActivityStatus::Queued,
-        Some("starting") => AgentActivityStatus::Starting,
-        Some("running") => AgentActivityStatus::Running,
-        Some("finalizing") => AgentActivityStatus::Finalizing,
-        Some("stopping") => AgentActivityStatus::Stopping,
+        Some("dispatched") => AgentActivityStatus::Dispatched,
+        Some("working") => AgentActivityStatus::Working,
         _ => AgentActivityStatus::Idle,
     }
 }
@@ -432,11 +429,12 @@ pub(super) fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, Ap
         "error" => ProvisionStatus::Error,
         _ => ProvisionStatus::Ready,
     };
+    // Reachability is reported alongside activity, not instead of it. A Run keeps its status while its
+    // Computer is offline, because nothing about the Run changed: we simply cannot hear about it.
+    let computer_reachable = connection.as_deref() == Some("online");
     let activity_status = match lifecycle {
         "error" => AgentActivityStatus::Error,
-        "provisioning" => AgentActivityStatus::Unreachable,
         "suspended" => AgentActivityStatus::Suspended,
-        _ if connection.as_deref() != Some("online") => AgentActivityStatus::Unreachable,
         _ => run_activity_status(run_status.as_deref()),
     };
     Ok(AgentResponse {
@@ -455,6 +453,7 @@ pub(super) fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, Ap
         desired_lifecycle,
         provision_status,
         activity_status,
+        computer_reachable,
         driver_kind: match row.get::<&str, _>("driver_kind") {
             "codex" => DriverKindCode::Codex,
             "builtin" => DriverKindCode::Builtin,

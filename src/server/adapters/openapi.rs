@@ -231,6 +231,9 @@ pub(super) struct AgentResponse {
     pub(super) desired_lifecycle: AgentLifecycle,
     pub(super) provision_status: ProvisionStatus,
     pub(super) activity_status: AgentActivityStatus,
+    /// Whether the Computer hosting this Agent is currently connected. Reported separately from
+    /// `activity_status` so a Run in progress is not relabelled as unreachable.
+    pub(super) computer_reachable: bool,
     pub(super) driver_kind: DriverKind,
     pub(super) attention_config: AttentionConfig,
     pub(super) activity: Option<AgentActivityResponse>,
@@ -256,14 +259,13 @@ pub(super) enum ProvisionStatus {
 }
 #[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+/// What the Agent is doing. Independent of whether its Computer is reachable: an Agent can be
+/// `working` while `computer_reachable` is false, which is the honest description of a Run in progress
+/// on a Computer we cannot currently reach.
 pub(super) enum AgentActivityStatus {
     Idle,
-    Queued,
-    Starting,
-    Running,
-    Finalizing,
-    Stopping,
-    Unreachable,
+    Dispatched,
+    Working,
     Suspended,
     Error,
 }
@@ -586,7 +588,7 @@ pub(super) enum InboxPriority {
 #[serde(rename_all = "snake_case")]
 pub(super) enum InboxStatus {
     Pending,
-    Leased,
+    Assigned,
     Deferred,
     Handled,
     Dead,
@@ -604,14 +606,11 @@ pub(super) enum TaskStatus {
 #[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum RunStatus {
-    Queued,
-    Starting,
-    Running,
-    Finalizing,
+    Dispatched,
+    Working,
     Completed,
     Yielded,
     Failed,
-    Stopping,
     Canceled,
 }
 #[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]

@@ -21,7 +21,7 @@ use crate::{
         },
         core::{
             home::LocalAgent,
-            input::{ClaimedItemInput, RunInput},
+            input::{DispatchedItemInput, RunInput},
         },
     },
     ids::{AgentId, RunId},
@@ -436,7 +436,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
     async fn steer(
         &mut self,
         locator: &str,
-        item: &ClaimedItemInput,
+        item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         let agent_id = self.owner_for_locator(locator)?;
         let Some(turn_id) = self
@@ -635,7 +635,7 @@ done
                     author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
-                claimed_items: Vec::new(),
+                dispatched_items: Vec::new(),
             },
             space_members: Vec::new(),
         };
@@ -648,7 +648,7 @@ done
             client
                 .steer(
                     &locator,
-                    &ClaimedItemInput {
+                    &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id,

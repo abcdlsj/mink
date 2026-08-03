@@ -8,7 +8,7 @@ use crate::ids::{AgentId, CommandId, EventId, InboxItemId, RunId};
 use crate::computer::core::{
     home::{LocalAgent, MemoryFile},
     session::{ProviderSession, SessionFingerprint, SessionScope},
-    supervisor::{DeliveryState, FencingToken, ItemDisposition, LocalRun, TerminalStatus},
+    supervisor::{DeliveryState, ItemDisposition, LocalRun, RunSecret, TerminalStatus},
 };
 
 use super::ApplicationError;
@@ -36,14 +36,12 @@ pub(in crate::computer) enum LocalEvent {
     RunStarted {
         event_id: EventId,
         run_id: RunId,
-        fencing_token: FencingToken,
     },
     Delivery {
         event_id: EventId,
         run_id: RunId,
         sequence: u64,
         outcome: DeliveryState,
-        fencing_token: FencingToken,
     },
     RunResult {
         event_id: EventId,
@@ -52,7 +50,6 @@ pub(in crate::computer) enum LocalEvent {
         item_outcomes: Vec<(InboxItemId, ItemDisposition)>,
         continuation_note: Option<String>,
         error_code: Option<LocalErrorCode>,
-        fencing_token: FencingToken,
     },
 }
 
@@ -66,11 +63,18 @@ impl LocalEvent {
     }
 }
 
+/// Failures this Computer observed directly. Each is reported the moment it is seen; nothing here is
+/// inferred from elapsed time.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) enum LocalErrorCode {
-    ProcessLost,
-    SessionLost,
-    DriverUnavailable,
+    /// The Driver returned an error: model call, quota, or tool failure.
+    DriverError,
+    /// The Driver process is gone while this daemon is still running.
+    DriverLost,
+    /// This daemon restarted and found a local Run whose process no longer exists.
+    ComputerRestarted,
+    /// A Provider Session could not be opened or resumed.
+    SessionUnavailable,
     Internal,
 }
 
@@ -145,7 +149,7 @@ pub(in crate::computer) struct OpenSessionRequest {
     pub(in crate::computer) generation: u64,
     pub(in crate::computer) fingerprint: SessionFingerprint,
     pub(in crate::computer) resume_locator: Option<String>,
-    pub(in crate::computer) run_token: FencingToken,
+    pub(in crate::computer) run_token: RunSecret,
 }
 
 impl fmt::Debug for OpenSessionRequest {

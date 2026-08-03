@@ -330,7 +330,7 @@ tests/governance_routes.rs          治理动作的授权与状态规则
 tests/space_invitation.rs           Invitation 全流程
 tests/inbox_direct_message.rs       Inbox 投影与 DM
 tests/attachment_flow.rs            Attachment 上传与下载
-tests/failure_recovery.rs           进程重启、lease 过期与本地状态损坏后的恢复
+tests/failure_recovery.rs           进程重启、Computer 离线重连与本地状态损坏后的恢复
 tests/cli.rs                        命令行入口
 ```
 

@@ -8,27 +8,34 @@ use crate::ids::{
 use crate::server::domain::{
     DomainError,
     attention::{InboxItemDisposition, InboxItemStatus},
-    execution::{Run, RunErrorCode, RunOutcome, RunStatus},
+    execution::{Run, RunErrorCode, RunOutcome, RunStatus, RunTrigger},
     task::TaskStatus,
 };
 
 use super::ports::{
     ApplicationError, CollaborationTransaction, Effect, EffectSink, ExecutionTransaction,
-    IdentityTransaction, RawFencingToken, RunCapabilityProof, TaskTransaction, TransactionPort,
+    IdentityTransaction, RunCapabilityProof, TaskTransaction, TransactionPort,
 };
 
-pub(in crate::server) struct ClaimNextRun;
+/// Finds Agents whose Inbox holds work and who have no live Run, so the Server can dispatch to them.
+///
+/// A tick rather than a pure event reaction, because availability is a future fact: an ambient
+/// aggregate becomes available after its debounce, and a deferred Item after the time the Agent
+/// asked for. The tick only starts work; it never judges a Run, so a slow tick delays a Run and
+/// cannot fail one.
+pub(in crate::server) struct FindDispatchableWork;
 
-impl ClaimNextRun {
-    pub(in crate::server) async fn candidate<P: TransactionPort>(
+impl FindDispatchableWork {
+    pub(in crate::server) async fn candidates<P: TransactionPort>(
         port: &mut P,
-        computer_id: ComputerId,
-    ) -> Result<Option<super::ports::ClaimCandidate>, ApplicationError> {
-        port.transact(async |transaction| transaction.next_claim_candidate(computer_id).await)
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<super::ports::DispatchCandidate>, ApplicationError> {
+        port.transact(async |transaction| transaction.dispatchable_work(now, limit).await)
             .await
     }
 
-    /// The claim transaction has already rolled back when this method is called. Keeping this
+    /// The dispatch transaction has already rolled back when this method is called. Keeping this
     /// write in a second transaction preserves the diagnostic Item state and outbox event.
     pub(in crate::server) async fn record_failure<P: TransactionPort>(
         port: &mut P,
@@ -39,7 +46,7 @@ impl ClaimNextRun {
     ) -> Result<bool, ApplicationError> {
         port.transact(async |transaction| {
             transaction
-                .record_claim_failure(item_id, message_id, channel_id, error_code)
+                .record_dispatch_failure(item_id, message_id, channel_id, error_code)
                 .await
         })
         .await
@@ -138,34 +145,28 @@ impl ApplyCommandResult {
     }
 }
 
-pub(in crate::server) struct ClaimRunInput {
+pub(in crate::server) struct DispatchRunInput {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) agent_id: MemberId,
-    pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) task_id: Option<TaskId>,
     pub(in crate::server) focus_thread_id: ThreadId,
+    pub(in crate::server) trigger: RunTrigger,
     pub(in crate::server) item_ids: Vec<InboxItemId>,
-    pub(in crate::server) fencing_token: RawFencingToken,
-    pub(in crate::server) lease_expires_at: OffsetDateTime,
 }
 
-pub(in crate::server) struct ClaimRun;
+/// Creates a Run and queues its start command for the Computer hosting the Agent. The Server chooses
+/// the host from the Agent's hosting record; no Computer asks for work.
+pub(in crate::server) struct DispatchRun;
 
-impl ClaimRun {
+impl DispatchRun {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
-        input: ClaimRunInput,
+        input: DispatchRunInput,
     ) -> Result<Run, ApplicationError> {
         port.transact(async |transaction| {
             match transaction.run(input.run_id).await {
                 Ok(run) => {
                     let run_view = run.view();
-                    if !transaction
-                        .can_operate_agent(input.computer_id, run_view.agent_id)
-                        .await?
-                    {
-                        return Err(ApplicationError::PermissionDenied);
-                    }
                     if run_view.agent_id == input.agent_id
                         && run_view.focus_thread_id == input.focus_thread_id
                         && run_view.task_id == input.task_id
@@ -176,12 +177,6 @@ impl ClaimRun {
                 }
                 Err(ApplicationError::NotFound) => {}
                 Err(error) => return Err(error),
-            }
-            if !transaction
-                .can_operate_agent(input.computer_id, input.agent_id)
-                .await?
-            {
-                return Err(ApplicationError::PermissionDenied);
             }
             let agent = transaction.agent(input.agent_id).await?;
             if transaction
@@ -209,10 +204,9 @@ impl ClaimRun {
                 input.agent_id,
                 input.task_id,
                 input.focus_thread_id,
-                input.fencing_token.sha256_hash(),
-                input.lease_expires_at,
+                input.trigger,
             );
-            let mut leased_items = Vec::with_capacity(input.item_ids.len());
+            let mut assigned_items = Vec::with_capacity(input.item_ids.len());
             for (index, item_id) in input.item_ids.into_iter().enumerate() {
                 let mut item = transaction.inbox_item(item_id).await?;
                 let item_view = item.view();
@@ -223,22 +217,19 @@ impl ClaimRun {
                 {
                     return Err(DomainError::ItemScopeMismatch.into());
                 }
-                item.lease_for_run(run_view.id, run_view.lease_expires_at)?;
-                run.add_claimed_item(item_view.id, index as u64 + 1)?;
-                leased_items.push(item);
+                item.assign_to_run(run_view.id)?;
+                run.add_dispatched_item(item_view.id, index as u64 + 1)?;
+                assigned_items.push(item);
             }
             transaction.save_run(run.clone()).await?;
-            for item in leased_items {
+            for item in assigned_items {
                 let source_message_id = item.view().message_id;
                 transaction.save_inbox_item(item).await?;
                 if let Some(message_id) = source_message_id {
                     transaction.emit(Effect::MessageUpdated(message_id));
                 }
             }
-            transaction.emit(Effect::RunClaimed {
-                run_id: run.view().id,
-                fencing_token: input.fencing_token,
-            });
+            transaction.emit(Effect::RunDispatched(run.view().id));
             Ok(run)
         })
         .await
@@ -253,7 +244,6 @@ pub(in crate::server) struct ItemDispositionInput {
 pub(in crate::server) struct StartRunInput {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -273,14 +263,13 @@ impl StartRun {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            if run_view.status == RunStatus::Running {
-                run.validate_fencing(&input.fencing_token_hash)?;
+            if run_view.status == RunStatus::Working {
                 return Ok(run);
             }
-            run.start(&input.fencing_token_hash, input.now)?;
+            run.start(input.now)?;
             transaction.save_run(run.clone()).await?;
             transaction.emit(Effect::RunStarted(run.view().id));
-            // The assignee's first Task Run reaching `running` is what makes the Task in progress;
+            // The assignee's first Task Run reaching `working` is what makes the Task in progress;
             // a Run by any other Agent leaves the Task status alone.
             let run_view = run.view();
             if let Some(task_id) = run_view.task_id {
@@ -304,25 +293,17 @@ pub(in crate::server) struct CompleteRunInput {
     pub(in crate::server) event_id: EventId,
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) outcome: RunOutcome,
     pub(in crate::server) error_code: Option<RunErrorCode>,
     pub(in crate::server) item_dispositions: Vec<ItemDispositionInput>,
     pub(in crate::server) continuation_note: Option<String>,
+    pub(in crate::server) max_retry_count: u32,
     pub(in crate::server) now: OffsetDateTime,
-}
-
-pub(in crate::server) struct RenewRunInput {
-    pub(in crate::server) run_id: RunId,
-    pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
-    pub(in crate::server) lease_expires_at: OffsetDateTime,
 }
 
 pub(in crate::server) struct RecordRunItemDispositionInput {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) item_id: InboxItemId,
     pub(in crate::server) disposition: InboxItemDisposition,
     pub(in crate::server) defer_until: Option<OffsetDateTime>,
@@ -346,8 +327,7 @@ impl RecordRunItemDisposition {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            run.validate_fencing(&input.fencing_token_hash)?;
-            if run_view.status != RunStatus::Running {
+            if run_view.status != RunStatus::Working {
                 return Err(ApplicationError::ContextChanged);
             }
             run.set_item_disposition(input.item_id, input.disposition)?;
@@ -366,7 +346,6 @@ impl RecordRunItemDisposition {
 pub(in crate::server) struct AcknowledgeDeliveryInput {
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
-    pub(in crate::server) fencing_token_hash: String,
     pub(in crate::server) delivery_sequence: u64,
     pub(in crate::server) accepted: bool,
     pub(in crate::server) now: OffsetDateTime,
@@ -389,7 +368,6 @@ impl AcknowledgeDelivery {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            run.validate_fencing(&input.fencing_token_hash)?;
             let item = run
                 .item_for_delivery(input.delivery_sequence)
                 .ok_or(ApplicationError::NotFound)?;
@@ -407,89 +385,108 @@ impl AcknowledgeDelivery {
     }
 }
 
-pub(in crate::server) struct RenewRun;
+pub(in crate::server) struct RequestRunCancelInput {
+    pub(in crate::server) run_id: RunId,
+    pub(in crate::server) requested_by: MemberId,
+    pub(in crate::server) now: OffsetDateTime,
+}
 
-impl RenewRun {
+/// Records a Human's stop request and queues the stop command. The Run stays live until the Computer
+/// reports it stopped, because only the Computer knows when the Driver actually ended.
+pub(in crate::server) struct RequestRunCancel;
+
+impl RequestRunCancel {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
-        input: RenewRunInput,
+        input: RequestRunCancelInput,
     ) -> Result<Run, ApplicationError> {
         port.transact(async |transaction| {
             let mut run = transaction.run(input.run_id).await?;
             let run_view = run.view();
-            let run_id = run_view.id;
             if !transaction
-                .can_operate_agent(input.computer_id, run_view.agent_id)
+                .can_read_thread(input.requested_by, run_view.focus_thread_id)
                 .await?
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            run.renew_lease(&input.fencing_token_hash, input.lease_expires_at)?;
-            for run_item in run.items() {
-                let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
-                item.renew_lease(run_id, input.lease_expires_at)?;
-                transaction.save_inbox_item(item).await?;
+            if run.is_terminal() {
+                return Ok(run);
             }
+            run.request_cancel()?;
             transaction.save_run(run.clone()).await?;
+            transaction.emit(Effect::RunCancelRequested(run.view().id));
+            let _ = input.now;
             Ok(run)
         })
         .await
     }
 }
 
-pub(in crate::server) struct ReclaimExpiredLeasesInput {
-    pub(in crate::server) now: OffsetDateTime,
-    pub(in crate::server) limit: u32,
+pub(in crate::server) struct SyncComputerRunsInput {
+    pub(in crate::server) computer_id: ComputerId,
+    /// Runs the Computer still has locally. Every other non-terminal Run on this Computer is gone
+    /// with the previous daemon process.
+    pub(in crate::server) live_run_ids: Vec<RunId>,
     pub(in crate::server) max_retry_count: u32,
+    pub(in crate::server) now: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::server) struct ReclaimedLeases {
+pub(in crate::server) struct SyncedComputerRuns {
     pub(in crate::server) runs_failed: u32,
     pub(in crate::server) items_released: u32,
     pub(in crate::server) items_dead: u32,
 }
 
-/// Recovers Runs abandoned by a Computer that stopped renewing its lease. Without this, one offline
-/// Computer leaves a non-terminal Run that the partial unique index counts as active, which blocks
-/// every later Run for that Agent.
-pub(in crate::server) struct ReclaimExpiredLeases;
+/// Reconciles the Server's view with what a reconnecting Computer actually holds.
+///
+/// This replaces timer-based reclamation. A Run is failed only because the Computer that owned it says
+/// it is gone, never because time passed: an offline Computer leaves its Runs untouched until it comes
+/// back and reports.
+pub(in crate::server) struct SyncComputerRuns;
 
-impl ReclaimExpiredLeases {
+impl SyncComputerRuns {
     pub(in crate::server) async fn execute<P: TransactionPort>(
         port: &mut P,
-        input: ReclaimExpiredLeasesInput,
-    ) -> Result<ReclaimedLeases, ApplicationError> {
-        let expired = port
+        input: SyncComputerRunsInput,
+    ) -> Result<SyncedComputerRuns, ApplicationError> {
+        let orphaned = port
             .transact(async |transaction| {
                 transaction
-                    .runs_with_expired_lease(input.now, input.limit)
+                    .nonterminal_runs_for_computer(input.computer_id)
                     .await
             })
-            .await?;
-        let mut reclaimed = ReclaimedLeases::default();
-        for run_id in expired {
-            // One transaction per Run: a Run that cannot be recovered must not block the others.
+            .await?
+            .into_iter()
+            .filter(|run_id| !input.live_run_ids.contains(run_id))
+            .collect::<Vec<_>>();
+        let mut synced = SyncedComputerRuns::default();
+        for run_id in orphaned {
+            // One transaction per Run: a Run that cannot be reconciled must not block the others.
             let outcome = port
                 .transact(async |transaction| {
                     let mut run = transaction.run(run_id).await?;
-                    let run_view = run.view();
-                    let run_id = run_view.id;
-                    if run.is_terminal() || run_view.lease_expires_at > input.now {
+                    if run.is_terminal() {
                         return Ok(None);
                     }
                     let mut released = 0;
                     let mut dead = 0;
-                    for run_item in run.items() {
+                    // Every Item this Run held is resolved as released: the Agent reported no
+                    // disposition, so the attempt is spent and the Item returns to the queue.
+                    for run_item in run.items().collect::<Vec<_>>() {
+                        run.set_item_disposition(
+                            run_item.inbox_item_id,
+                            InboxItemDisposition::Released,
+                        )?;
                         let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
                         let item_view = item.view();
-                        if item_view.status != InboxItemStatus::Leased
-                            || item_view.lease_run_id != Some(run_id)
+                        if item_view.status != InboxItemStatus::Assigned
+                            || item_view.assigned_run_id != Some(run_id)
                         {
                             continue;
                         }
                         let retired = matches!(
-                            item.reclaim_expired_lease(run_id, input.max_retry_count, input.now)?,
+                            item.release_on_failed_run(run_id, input.max_retry_count, input.now)?,
                             InboxItemStatus::Dead
                         );
                         let item_view = item.view();
@@ -511,19 +508,24 @@ impl ReclaimExpiredLeases {
                         }
                         transaction.emit(Effect::InboxChanged(agent_id));
                     }
-                    run.fail_expired_lease(input.now)?;
+                    run.finish(
+                        RunOutcome::Failed,
+                        Some(RunErrorCode::ComputerRestarted),
+                        None,
+                        input.now,
+                    )?;
                     transaction.save_run(run.clone()).await?;
                     transaction.emit(Effect::RunCompleted(run_id));
                     Ok(Some((released, dead)))
                 })
                 .await?;
             if let Some((released, dead)) = outcome {
-                reclaimed.runs_failed += 1;
-                reclaimed.items_released += released;
-                reclaimed.items_dead += dead;
+                synced.runs_failed += 1;
+                synced.items_released += released;
+                synced.items_dead += dead;
             }
         }
-        Ok(reclaimed)
+        Ok(synced)
     }
 }
 
@@ -544,26 +546,66 @@ impl CompleteRun {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
-            run.validate_fencing(&input.fencing_token_hash)?;
             if let Some(run_id) = transaction.completed_run_for_event(input.event_id).await? {
                 if run_id != run_view.id {
                     return Err(ApplicationError::Conflict);
                 }
                 return Ok(run);
             }
-            run.begin_finalizing(&input.fencing_token_hash)?;
             for item_input in input.item_dispositions {
                 run.set_item_disposition(item_input.item_id, item_input.disposition)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
-                if item.view().status == InboxItemStatus::Leased {
+                if item.view().status == InboxItemStatus::Assigned {
                     item.apply_disposition(run_id, item_input.disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;
                 } else if item_input.disposition != InboxItemDisposition::Released {
                     return Err(ApplicationError::Conflict);
                 }
             }
+            // A failed Run leaves Items the Agent never resolved. They return to the queue here,
+            // spending one retry, because this report is the only signal that the attempt failed.
+            if input.outcome == RunOutcome::Failed {
+                for run_item in run.items().collect::<Vec<_>>() {
+                    if run_item.disposition.is_some() {
+                        continue;
+                    }
+                    let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
+                    let item_view = item.view();
+                    if item_view.status != InboxItemStatus::Assigned
+                        || item_view.assigned_run_id != Some(run_id)
+                    {
+                        run.set_item_disposition(
+                            run_item.inbox_item_id,
+                            InboxItemDisposition::Released,
+                        )?;
+                        continue;
+                    }
+                    let retired = matches!(
+                        item.release_on_failed_run(run_id, input.max_retry_count, input.now)?,
+                        InboxItemStatus::Dead
+                    );
+                    let item_view = item.view();
+                    let agent_id = item_view.member_id;
+                    let thread_id = item_view.thread_id;
+                    transaction.save_inbox_item(item).await?;
+                    if retired {
+                        transaction
+                            .insert_dead_item_notice(
+                                agent_id,
+                                thread_id,
+                                "inbox_item_dead",
+                                input.now,
+                            )
+                            .await?;
+                    }
+                    transaction.emit(Effect::InboxChanged(agent_id));
+                    run.set_item_disposition(
+                        run_item.inbox_item_id,
+                        InboxItemDisposition::Released,
+                    )?;
+                }
+            }
             run.finish(
-                &input.fencing_token_hash,
                 input.outcome,
                 input.error_code,
                 input.continuation_note,

@@ -58,11 +58,13 @@ pub(super) fn negotiate(
     }
 }
 
-use super::http::{ApiError, ComputerPrincipal, token_hash};
+use super::http::{ApiError, ComputerPrincipal};
 use super::query::QueryRegistry;
 use crate::server::application::execution::{
     AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, StartRun, StartRunInput,
+    SyncComputerRuns, SyncComputerRunsInput,
 };
+use crate::server::domain::attention::AttentionPolicy;
 use axum::extract::ws::{Message as WebSocketMessage, WebSocket};
 use futures_util::StreamExt;
 use sqlx::{PgPool, Row};
@@ -91,6 +93,34 @@ pub(super) async fn computer_socket(
     }
     let _=sqlx::query("UPDATE computers SET connection_status='online',daemon_version=$2,last_seen_at=$3 WHERE id=$1")
         .bind(computer_id).bind(&hello.daemon_version).bind(OffsetDateTime::now_utc()).execute(&pool).await;
+    // Reconcile before replaying commands. The Computer just told us which Runs it still holds; every
+    // other non-terminal Run of ours died with its previous daemon process. This is the only path that
+    // fails a Run the Server never heard about, and it runs because the Computer reported, not because
+    // time passed.
+    {
+        let mut application = storage.clone();
+        match SyncComputerRuns::execute(
+            &mut application,
+            SyncComputerRunsInput {
+                computer_id: ComputerId::from_uuid(computer_id),
+                live_run_ids: hello.live_run_ids.clone(),
+                max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
+                now: OffsetDateTime::now_utc(),
+            },
+        )
+        .await
+        {
+            Ok(synced) if synced.runs_failed > 0 => tracing::warn!(
+                %computer_id,
+                runs_failed = synced.runs_failed,
+                items_released = synced.items_released,
+                items_dead = synced.items_dead,
+                "reconnecting Computer no longer holds these Runs; their Items returned to the queue"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::error!(%computer_id, ?error, "Computer Run sync failed"),
+        }
+    }
     if let Ok(commands) = super::websocket::replay_commands(
         &storage,
         ComputerId::from_uuid(computer_id),
@@ -217,7 +247,6 @@ pub(super) async fn computer_socket(
                     StartRunInput {
                         run_id: started.run_id,
                         computer_id: ComputerId::from_uuid(computer_id),
-                        fencing_token_hash: token_hash(started.fencing_token.expose()),
                         now: started.observed_at,
                     },
                 )
@@ -242,7 +271,6 @@ pub(super) async fn computer_socket(
                     AcknowledgeDeliveryInput {
                         run_id: receipt.run_id,
                         computer_id: ComputerId::from_uuid(computer_id),
-                        fencing_token_hash: token_hash(receipt.fencing_token.expose()),
                         delivery_sequence: receipt.delivery_sequence.0,
                         accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
                         now: OffsetDateTime::now_utc(),
@@ -335,6 +363,7 @@ mod tests {
             capabilities: BTreeSet::from([DaemonCapability::Sandbox]),
             daemon_session_id: DaemonSessionId::from_uuid(Uuid::now_v7()),
             command_watermark: CommandSequence(0),
+            live_run_ids: Vec::new(),
         }
     }
 

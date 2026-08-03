@@ -94,16 +94,15 @@ impl PostgresTransaction {
     ) -> Result<(), ApplicationError> {
         let item = item.snapshot();
         let changed = sqlx::query(
-            "UPDATE inbox_items SET task_id=$2,status=$3,available_at=$4,lease_run_id=$5, \
-             lease_expires_at=$6,retry_count=$7,handled_at=$8,requeue_count=$9, \
-             last_error_code=CASE WHEN $3='leased' THEN NULL ELSE last_error_code END WHERE id=$1",
+            "UPDATE inbox_items SET task_id=$2,status=$3,available_at=$4,assigned_run_id=$5, \
+             retry_count=$6,handled_at=$7,requeue_count=$8, \
+             last_error_code=CASE WHEN $3='assigned' THEN NULL ELSE last_error_code END WHERE id=$1",
         )
         .bind(item.id.into_uuid())
         .bind(item.task_id.map(TaskId::into_uuid))
         .bind(inbox_status_str(item.status))
         .bind(item.available_at)
-        .bind(item.lease_run_id.map(RunId::into_uuid))
-        .bind(item.lease_expires_at)
+        .bind(item.assigned_run_id.map(RunId::into_uuid))
         .bind(i32::try_from(item.retry_count).map_err(|_| ApplicationError::Conflict)?)
         .bind(item.handled_at)
         .bind(i32::try_from(item.requeue_count).map_err(|_| ApplicationError::Conflict)?)
@@ -123,7 +122,7 @@ impl PostgresTransaction {
         scope: InboxScope,
     ) -> Result<Vec<InboxItemView>, ApplicationError> {
         let statuses: &[&str] = match scope {
-            InboxScope::Queue => &["pending", "leased", "deferred"],
+            InboxScope::Queue => &["pending", "assigned", "deferred"],
             InboxScope::Dead => &["dead"],
         };
         let rows = sqlx::query(
@@ -160,7 +159,7 @@ impl PostgresTransaction {
     ) -> Result<(), ApplicationError> {
         let open = sqlx::query(
             "SELECT id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status,\
-                    available_at,lease_run_id,lease_expires_at,retry_count,requeue_count,\
+                    available_at,assigned_run_id,retry_count,requeue_count,\
                     handled_at,first_message_seq,last_message_seq,aggregated_count,force_at \
              FROM inbox_items \
              WHERE member_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \

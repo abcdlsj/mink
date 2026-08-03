@@ -29,7 +29,7 @@ use crate::{
         },
         core::{
             home::LocalAgent,
-            input::{ClaimedItemInput, RunInput},
+            input::{DispatchedItemInput, RunInput},
         },
     },
     config::ComputerConfig,
@@ -281,7 +281,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
     async fn steer(
         &mut self,
         locator: &str,
-        _: &ClaimedItemInput,
+        _: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         self.owner_for_locator(locator)?;
         Ok(SteerOutcome::Unsupported)
@@ -584,7 +584,7 @@ mod tests {
             client
                 .steer(
                     &locator,
-                    &ClaimedItemInput {
+                    &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
                         thread_id: input.context.focus_thread_id,
@@ -678,7 +678,7 @@ mod tests {
                     author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
-                claimed_items: Vec::new(),
+                dispatched_items: Vec::new(),
             },
             space_members: Vec::new(),
         }

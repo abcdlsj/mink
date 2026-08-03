@@ -93,7 +93,7 @@ pub(in crate::server) enum AttentionStrength {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum InboxItemStatus {
     Pending,
-    Leased,
+    Assigned,
     Deferred,
     Handled,
     Dead,
@@ -118,8 +118,10 @@ pub(in crate::server) struct InboxItem {
     strength: AttentionStrength,
     status: InboxItemStatus,
     available_at: OffsetDateTime,
-    lease_run_id: Option<RunId>,
-    lease_expires_at: Option<OffsetDateTime>,
+    /// The Run currently processing this Item. A plain reference, not a lease: it carries no expiry,
+    /// because nothing reclaims an Item on a timer. The Item returns to the queue when the owning
+    /// Computer reports the Run's outcome.
+    assigned_run_id: Option<RunId>,
     retry_count: u32,
     /// Times a governor returned this Item from `dead` to the queue. Retained across those returns so
     /// a repeatedly failing source stays distinguishable from a fresh Item.
@@ -141,8 +143,7 @@ pub(in crate::server) struct InboxItemView {
     pub(in crate::server) strength: AttentionStrength,
     pub(in crate::server) status: InboxItemStatus,
     pub(in crate::server) available_at: OffsetDateTime,
-    pub(in crate::server) lease_run_id: Option<RunId>,
-    pub(in crate::server) lease_expires_at: Option<OffsetDateTime>,
+    pub(in crate::server) assigned_run_id: Option<RunId>,
     pub(in crate::server) retry_count: u32,
     pub(in crate::server) requeue_count: u32,
     pub(in crate::server) handled_at: Option<OffsetDateTime>,
@@ -161,8 +162,7 @@ pub(in crate::server) struct InboxItemSnapshot {
     pub(in crate::server) strength: AttentionStrength,
     pub(in crate::server) status: InboxItemStatus,
     pub(in crate::server) available_at: OffsetDateTime,
-    pub(in crate::server) lease_run_id: Option<RunId>,
-    pub(in crate::server) lease_expires_at: Option<OffsetDateTime>,
+    pub(in crate::server) assigned_run_id: Option<RunId>,
     pub(in crate::server) retry_count: u32,
     pub(in crate::server) requeue_count: u32,
     pub(in crate::server) handled_at: Option<OffsetDateTime>,
@@ -202,8 +202,7 @@ impl InboxItem {
             strength: AttentionStrength::Hard,
             status: InboxItemStatus::Pending,
             available_at: now,
-            lease_run_id: None,
-            lease_expires_at: None,
+            assigned_run_id: None,
             retry_count: 0,
             requeue_count: 0,
             handled_at: None,
@@ -242,8 +241,7 @@ impl InboxItem {
             strength: AttentionStrength::Ambient,
             status: InboxItemStatus::Pending,
             available_at: ambient.debounced_available_at(now),
-            lease_run_id: None,
-            lease_expires_at: None,
+            assigned_run_id: None,
             retry_count: 0,
             requeue_count: 0,
             handled_at: None,
@@ -263,8 +261,7 @@ impl InboxItem {
             strength: self.strength,
             status: self.status,
             available_at: self.available_at,
-            lease_run_id: self.lease_run_id,
-            lease_expires_at: self.lease_expires_at,
+            assigned_run_id: self.assigned_run_id,
             retry_count: self.retry_count,
             requeue_count: self.requeue_count,
             handled_at: self.handled_at,
@@ -290,8 +287,7 @@ impl InboxItem {
             strength: view.strength,
             status: view.status,
             available_at: view.available_at,
-            lease_run_id: view.lease_run_id,
-            lease_expires_at: view.lease_expires_at,
+            assigned_run_id: view.assigned_run_id,
             retry_count: view.retry_count,
             requeue_count: view.requeue_count,
             handled_at: view.handled_at,
@@ -305,10 +301,7 @@ impl InboxItem {
     }
 
     pub(in crate::server) fn rehydrate(snapshot: InboxItemSnapshot) -> Result<Self, DomainError> {
-        let has_lease_id = snapshot.lease_run_id.is_some();
-        let has_lease_expiry = snapshot.lease_expires_at.is_some();
-        if has_lease_id != has_lease_expiry
-            || (snapshot.status == InboxItemStatus::Leased) != has_lease_id
+        if (snapshot.status == InboxItemStatus::Assigned) != snapshot.assigned_run_id.is_some()
             || (snapshot.status == InboxItemStatus::Handled) != snapshot.handled_at.is_some()
         {
             return Err(DomainError::InvalidPersistedState);
@@ -363,8 +356,7 @@ impl InboxItem {
             strength: snapshot.strength,
             status: snapshot.status,
             available_at: snapshot.available_at,
-            lease_run_id: snapshot.lease_run_id,
-            lease_expires_at: snapshot.lease_expires_at,
+            assigned_run_id: snapshot.assigned_run_id,
             retry_count: snapshot.retry_count,
             requeue_count: snapshot.requeue_count,
             handled_at: snapshot.handled_at,
@@ -403,38 +395,35 @@ impl InboxItem {
         Ok(())
     }
 
-    pub(in crate::server) fn lease_for_run(
-        &mut self,
-        run_id: RunId,
-        expires_at: OffsetDateTime,
-    ) -> Result<(), DomainError> {
+    pub(in crate::server) fn assign_to_run(&mut self, run_id: RunId) -> Result<(), DomainError> {
         if self.status != InboxItemStatus::Pending {
             return Err(DomainError::InvalidTransition);
         }
-        self.status = InboxItemStatus::Leased;
-        self.lease_run_id = Some(run_id);
-        self.lease_expires_at = Some(expires_at);
+        self.status = InboxItemStatus::Assigned;
+        self.assigned_run_id = Some(run_id);
         Ok(())
     }
 
     pub(in crate::server) fn attach_to_active_run(
         &mut self,
         run_id: RunId,
-        expires_at: OffsetDateTime,
     ) -> Result<(), DomainError> {
         if self.strength != AttentionStrength::Hard {
             return Err(DomainError::AmbientItemCannotAttach);
         }
-        self.lease_for_run(run_id, expires_at)
+        self.assign_to_run(run_id)
     }
 
+    /// Applies the disposition the Agent reported for this Item. `Deferred` keeps the Item out of the
+    /// queue until `prepare_defer` sets its `available_at`, which is how an Agent says "look at this
+    /// again in twenty minutes".
     pub(in crate::server) fn apply_disposition(
         &mut self,
         run_id: RunId,
         disposition: InboxItemDisposition,
         now: OffsetDateTime,
     ) -> Result<(), DomainError> {
-        if self.status != InboxItemStatus::Leased || self.lease_run_id != Some(run_id) {
+        if self.status != InboxItemStatus::Assigned || self.assigned_run_id != Some(run_id) {
             return Err(DomainError::InvalidTransition);
         }
         match disposition {
@@ -445,9 +434,34 @@ impl InboxItem {
             InboxItemDisposition::Deferred => self.status = InboxItemStatus::Deferred,
             InboxItemDisposition::Released => self.status = InboxItemStatus::Pending,
         }
-        self.lease_run_id = None;
-        self.lease_expires_at = None;
+        self.assigned_run_id = None;
         Ok(())
+    }
+
+    /// Returns an Item to the queue because the Computer reported its Run failed. Counts one failed
+    /// attempt and retires the Item once it exhausts `max_retry_count`, so a source the Agent cannot
+    /// process stops being retried forever.
+    ///
+    /// This is the only transition that raises `retry_count`: a `Released` disposition is the Agent
+    /// deciding not to handle the Item, which is not a failed attempt.
+    pub(in crate::server) fn release_on_failed_run(
+        &mut self,
+        run_id: RunId,
+        max_retry_count: u32,
+        now: OffsetDateTime,
+    ) -> Result<InboxItemStatus, DomainError> {
+        if self.status != InboxItemStatus::Assigned || self.assigned_run_id != Some(run_id) {
+            return Err(DomainError::InvalidTransition);
+        }
+        self.assigned_run_id = None;
+        self.retry_count += 1;
+        self.status = if self.retry_count > max_retry_count {
+            InboxItemStatus::Dead
+        } else {
+            self.available_at = now;
+            InboxItemStatus::Pending
+        };
+        Ok(self.status)
     }
 
     /// Marks a Human-owned Item handled on its owner's explicit read. Agent Items never use this
@@ -463,50 +477,6 @@ impl InboxItem {
             }
             _ => Err(DomainError::InvalidTransition),
         }
-    }
-
-    pub(in crate::server) fn renew_lease(
-        &mut self,
-        run_id: RunId,
-        expires_at: OffsetDateTime,
-    ) -> Result<(), DomainError> {
-        if self.status != InboxItemStatus::Leased
-            || self.lease_run_id != Some(run_id)
-            || self
-                .lease_expires_at
-                .is_none_or(|current| expires_at <= current)
-        {
-            return Err(DomainError::InvalidTransition);
-        }
-        self.lease_expires_at = Some(expires_at);
-        Ok(())
-    }
-
-    /// Releases a lease the owning Run never resolved, because that Run's lease expired. Counts one
-    /// failed attempt and retires the Item once it exhausts `max_retry_count`, so a source the Agent
-    /// cannot process stops being retried forever.
-    ///
-    /// This is the only transition that raises `retry_count`: a `Released` disposition is the Agent
-    /// deciding not to handle the Item, which is not a failed attempt.
-    pub(in crate::server) fn reclaim_expired_lease(
-        &mut self,
-        run_id: RunId,
-        max_retry_count: u32,
-        now: OffsetDateTime,
-    ) -> Result<InboxItemStatus, DomainError> {
-        if self.status != InboxItemStatus::Leased || self.lease_run_id != Some(run_id) {
-            return Err(DomainError::InvalidTransition);
-        }
-        self.lease_run_id = None;
-        self.lease_expires_at = None;
-        self.retry_count += 1;
-        self.status = if self.retry_count > max_retry_count {
-            InboxItemStatus::Dead
-        } else {
-            self.available_at = now;
-            InboxItemStatus::Pending
-        };
-        Ok(self.status)
     }
 
     /// Returns a retired Item to the queue on a governor's decision.
@@ -535,8 +505,8 @@ impl InboxItem {
         until: OffsetDateTime,
         now: OffsetDateTime,
     ) -> Result<(), DomainError> {
-        if self.status != InboxItemStatus::Leased
-            || self.lease_run_id != Some(run_id)
+        if self.status != InboxItemStatus::Assigned
+            || self.assigned_run_id != Some(run_id)
             || until <= now
         {
             return Err(DomainError::InvalidTransition);
@@ -551,7 +521,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rehydrate_accepts_a_complete_snapshot_and_rejects_a_partial_lease() {
+    fn rehydrate_accepts_a_complete_snapshot_and_rejects_a_dangling_assignment() {
         let item = InboxItem::open_hard(
             InboxItemId::from_uuid(uuid::Uuid::from_u128(21)),
             SpaceId::from_uuid(uuid::Uuid::from_u128(22)),
@@ -568,7 +538,7 @@ mod tests {
         assert_eq!(restored.snapshot(), snapshot);
 
         let mut invalid = snapshot;
-        invalid.lease_run_id = Some(RunId::from_uuid(uuid::Uuid::from_u128(25)));
+        invalid.assigned_run_id = Some(RunId::from_uuid(uuid::Uuid::from_u128(25)));
         assert_eq!(
             InboxItem::rehydrate(invalid),
             Err(DomainError::InvalidPersistedState)
@@ -625,7 +595,7 @@ mod tests {
         );
     }
 
-    fn leased_item(run_id: RunId, retry_count: u32) -> InboxItem {
+    fn assigned_item(run_id: RunId, retry_count: u32) -> InboxItem {
         InboxItem {
             id: InboxItemId::from_uuid(uuid::Uuid::from_u128(1)),
             space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
@@ -635,10 +605,9 @@ mod tests {
             task_id: None,
             kind: InboxItemKind::Mention,
             strength: AttentionStrength::Hard,
-            status: InboxItemStatus::Leased,
+            status: InboxItemStatus::Assigned,
             available_at: OffsetDateTime::UNIX_EPOCH,
-            lease_run_id: Some(run_id),
-            lease_expires_at: Some(OffsetDateTime::UNIX_EPOCH),
+            assigned_run_id: Some(run_id),
             retry_count,
             requeue_count: 0,
             handled_at: None,
@@ -724,18 +693,18 @@ mod tests {
         );
         assert_eq!(item.ambient.expect("aggregates").aggregated_count, 1);
 
-        // Once claimed, the aggregate is frozen: the Agent already received this range.
-        let mut leased = ambient_item(now);
-        leased
-            .lease_for_run(run_id, now + Duration::minutes(2))
-            .expect("a pending Item can be leased");
+        // Once assigned, the aggregate is frozen: the Agent already received this range.
+        let mut assigned = ambient_item(now);
+        assigned
+            .assign_to_run(run_id)
+            .expect("a pending Item can be assigned");
         assert_eq!(
-            leased.absorb_ambient_message(11, now),
+            assigned.absorb_ambient_message(11, now),
             Err(DomainError::InvalidTransition)
         );
 
         // A hard Item is one Message, not a range.
-        let mut hard = leased_item(run_id, 0);
+        let mut hard = assigned_item(run_id, 0);
         hard.status = InboxItemStatus::Pending;
         assert_eq!(
             hard.absorb_ambient_message(11, now),
@@ -749,9 +718,9 @@ mod tests {
         let retired_at = OffsetDateTime::UNIX_EPOCH;
         let requeued_at = retired_at + Duration::hours(1);
 
-        let mut item = leased_item(run_id, 2);
+        let mut item = assigned_item(run_id, 2);
         assert_eq!(
-            item.reclaim_expired_lease(run_id, 2, retired_at),
+            item.release_on_failed_run(run_id, 2, retired_at),
             Ok(InboxItemStatus::Dead)
         );
 
@@ -761,15 +730,15 @@ mod tests {
         assert_eq!(item.available_at, requeued_at);
         assert_eq!(
             item.retry_count, 0,
-            "without a fresh budget the next expiry would retire it again"
+            "without a fresh budget the next failure would retire it again"
         );
         assert_eq!(item.requeue_count, 1);
 
         // A second round trip accumulates, so a source that keeps failing stays visible.
-        item.lease_for_run(run_id, requeued_at)
-            .expect("the requeued Item is claimable again");
+        item.assign_to_run(run_id)
+            .expect("the requeued Item is assignable again");
         assert_eq!(
-            item.reclaim_expired_lease(run_id, 0, requeued_at),
+            item.release_on_failed_run(run_id, 0, requeued_at),
             Ok(InboxItemStatus::Dead)
         );
         item.requeue_from_dead(requeued_at).expect("requeued again");
@@ -781,16 +750,16 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH;
         let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
 
-        // A leased Item belongs to a live Run; requeueing it would strip that Run's lease.
-        let mut leased = leased_item(run_id, 0);
+        // An assigned Item belongs to a live Run; requeueing it would strip that Run's Item.
+        let mut assigned = assigned_item(run_id, 0);
         assert_eq!(
-            leased.requeue_from_dead(now),
+            assigned.requeue_from_dead(now),
             Err(DomainError::InvalidTransition)
         );
-        assert_eq!(leased.lease_run_id, Some(run_id));
+        assert_eq!(assigned.assigned_run_id, Some(run_id));
 
         // A handled Item is resolved history, not a retirement to undo.
-        let mut handled = leased_item(run_id, 0);
+        let mut handled = assigned_item(run_id, 0);
         handled
             .apply_disposition(run_id, InboxItemDisposition::Handled, now)
             .expect("the owning Run resolves its Item");
@@ -808,7 +777,7 @@ mod tests {
         let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
         let mut item = ambient_item(now);
         assert_eq!(
-            item.attach_to_active_run(run_id, now + Duration::minutes(2)),
+            item.attach_to_active_run(run_id),
             Err(DomainError::AmbientItemCannotAttach),
             "ambient activity only aggregates; it does not interrupt a Run"
         );
@@ -816,66 +785,94 @@ mod tests {
     }
 
     #[test]
-    fn reclaiming_a_lease_retries_until_the_limit_then_retires_the_item() {
+    fn releasing_on_a_failed_run_retries_until_the_limit_then_retires_the_item() {
         let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
         let now = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(3);
 
         // Below the limit the Item returns to the queue and becomes available immediately.
-        let mut item = leased_item(run_id, 0);
+        let mut item = assigned_item(run_id, 0);
         assert_eq!(
-            item.reclaim_expired_lease(run_id, 2, now),
+            item.release_on_failed_run(run_id, 2, now),
             Ok(InboxItemStatus::Pending)
         );
         assert_eq!(item.retry_count, 1);
         assert_eq!(item.available_at, now);
-        assert_eq!(item.lease_run_id, None);
-        assert_eq!(item.lease_expires_at, None);
+        assert_eq!(item.assigned_run_id, None);
 
         // Reaching the limit still retries; only exceeding it retires the Item.
-        let mut item = leased_item(run_id, 1);
+        let mut item = assigned_item(run_id, 1);
         assert_eq!(
-            item.reclaim_expired_lease(run_id, 2, now),
+            item.release_on_failed_run(run_id, 2, now),
             Ok(InboxItemStatus::Pending)
         );
-        let mut item = leased_item(run_id, 2);
+        let mut item = assigned_item(run_id, 2);
         assert_eq!(
-            item.reclaim_expired_lease(run_id, 2, now),
+            item.release_on_failed_run(run_id, 2, now),
             Ok(InboxItemStatus::Dead)
         );
         assert_eq!(item.retry_count, 3);
-        assert_eq!(item.lease_run_id, None);
+        assert_eq!(item.assigned_run_id, None);
     }
 
     #[test]
-    fn only_the_owning_run_can_reclaim_a_lease() {
+    fn only_the_owning_run_can_release_an_item() {
         let owner = RunId::from_uuid(uuid::Uuid::from_u128(9));
         let stranger = RunId::from_uuid(uuid::Uuid::from_u128(10));
         let now = OffsetDateTime::UNIX_EPOCH;
 
-        let mut item = leased_item(owner, 0);
+        let mut item = assigned_item(owner, 0);
         assert_eq!(
-            item.reclaim_expired_lease(stranger, 5, now),
+            item.release_on_failed_run(stranger, 5, now),
             Err(DomainError::InvalidTransition)
         );
         assert_eq!(item.retry_count, 0, "a foreign Run does not spend a retry");
 
-        // A Item the Agent already resolved is no longer leased, so expiry cannot count against it.
-        let mut handled = leased_item(owner, 0);
+        // An Item the Agent already resolved is no longer assigned, so a failure cannot count against it.
+        let mut handled = assigned_item(owner, 0);
         handled
             .apply_disposition(owner, InboxItemDisposition::Handled, now)
             .expect("the owning Run resolves its Item");
         assert_eq!(
-            handled.reclaim_expired_lease(owner, 5, now),
+            handled.release_on_failed_run(owner, 5, now),
             Err(DomainError::InvalidTransition)
         );
         assert_eq!(handled.status, InboxItemStatus::Handled);
         assert_eq!(handled.retry_count, 0);
     }
 
+    /// A deferred Item is how an Agent says "look at this again later". The defer target becomes the
+    /// Item's `available_at`, and reaching it is what wakes the Agent.
+    #[test]
+    fn a_deferred_item_becomes_available_at_the_requested_time() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let later = now + Duration::minutes(20);
+        let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
+
+        let mut item = assigned_item(run_id, 0);
+        item.prepare_defer(run_id, later, now)
+            .expect("an Agent may defer to a future time");
+        item.apply_disposition(run_id, InboxItemDisposition::Deferred, now)
+            .expect("the deferred disposition applies");
+
+        assert_eq!(item.status, InboxItemStatus::Deferred);
+        assert_eq!(item.available_at, later);
+        assert_eq!(
+            item.retry_count, 0,
+            "deferring is a decision, not a failed attempt"
+        );
+
+        let mut backwards = assigned_item(run_id, 0);
+        assert_eq!(
+            backwards.prepare_defer(run_id, now, now),
+            Err(DomainError::InvalidTransition),
+            "a defer target must be in the future"
+        );
+    }
+
     #[test]
     fn a_released_disposition_is_not_a_failed_attempt() {
         let run_id = RunId::from_uuid(uuid::Uuid::from_u128(9));
-        let mut item = leased_item(run_id, 0);
+        let mut item = assigned_item(run_id, 0);
         item.apply_disposition(
             run_id,
             InboxItemDisposition::Released,

@@ -246,8 +246,8 @@ pub(super) async fn message_task_summary(
         "SELECT t.id, t.seq, t.title, t.status, t.assignee_agent_member_id, \
                 m.display_name AS assignee_name, \
                 (SELECT r.focus_thread_id FROM agent_runs r \
-                 WHERE r.task_id = t.id AND r.status IN ('starting','running','finalizing') \
-                 ORDER BY r.lease_expires_at DESC LIMIT 1) AS active_focus_thread_id \
+                 WHERE r.task_id = t.id AND r.status IN ('dispatched','working') \
+                 ORDER BY r.created_at DESC LIMIT 1) AS active_focus_thread_id \
          FROM tasks t LEFT JOIN members m ON m.id = t.assignee_agent_member_id \
          WHERE t.source_thread_id = $1 OR EXISTS (SELECT 1 FROM task_threads tt \
              WHERE tt.task_id = t.id AND tt.thread_id = $1) \
@@ -606,11 +606,8 @@ pub(super) async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<RunRes
         agent_name: row.get("agent_name"),
         focus,
         status: match row.get::<&str, _>("status") {
-            "queued" => RunStatus::Queued,
-            "starting" => RunStatus::Starting,
-            "running" => RunStatus::Running,
-            "finalizing" => RunStatus::Finalizing,
-            "stopping" => RunStatus::Stopping,
+            "dispatched" => RunStatus::Dispatched,
+            "working" => RunStatus::Working,
             "completed" => RunStatus::Completed,
             "yielded" => RunStatus::Yielded,
             "failed" => RunStatus::Failed,

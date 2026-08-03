@@ -8,9 +8,7 @@ use url::Url;
 
 use super::*;
 use crate::ids::{AgentId, AttachmentId, ChannelId, EventId, IdempotencyKey, SpaceId};
-use crate::protocol::computer::{
-    FencingToken, ItemDisposition, ItemOutcome, RunResult, RunTerminalStatus,
-};
+use crate::protocol::computer::{ItemDisposition, ItemOutcome, RunResult, RunTerminalStatus};
 
 struct CapabilityFixture {
     state: RuntimeState,
@@ -55,7 +53,6 @@ impl CapabilityFixture {
         let handled_item_id = Uuid::now_v7();
         let deferred_item_id = Uuid::now_v7();
         let computer_token = "capability-computer-token";
-        let fencing_token = "capability-fencing-token";
         sqlx::raw_sql(&format!(
                 "BEGIN;
                  INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','#FE7DA8','{owner_id}',now());
@@ -67,16 +64,15 @@ impl CapabilityFixture {
                  INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{owner_id}',now(),0);
                  INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel_id}','{space_id}','{agent_id}',now(),0);
                  INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{focus_id}','{space_id}','{channel_id}','{focus_id}',1,'root','text','{owner_id}','source',now());
-                 INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space_id}','{agent_id}','{focus_id}','running','{}',now()+interval '1 hour',now(),now());
-                 INSERT INTO inbox_items(id,space_id,member_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,created_at) VALUES
-                   ('{handled_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now()),
-                   ('{deferred_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','leased',now(),'{run_id}',now()+interval '1 hour',now());
+                 INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at,started_at) VALUES ('{run_id}','{space_id}','{agent_id}','{focus_id}','working','mention',now(),now());
+                 INSERT INTO inbox_items(id,space_id,member_id,thread_id,kind,strength,status,available_at,assigned_run_id,created_at) VALUES
+                   ('{handled_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','assigned',now(),'{run_id}',now()),
+                   ('{deferred_item_id}','{space_id}','{agent_id}','{focus_id}','mention','hard','assigned',now(),'{run_id}',now());
                  INSERT INTO run_items(run_id,inbox_item_id,delivery_seq,attached_at) VALUES
                    ('{run_id}','{handled_item_id}',1,now()),
                    ('{run_id}','{deferred_item_id}',2,now());
                  COMMIT;",
                 token_hash(computer_token),
-                token_hash(fencing_token),
             ))
             .execute(&pool)
             .await
@@ -112,7 +108,6 @@ impl CapabilityFixture {
                 task_id: None,
                 focus_thread_id: ThreadId::from_uuid(focus_id),
                 run_id: RunId::from_uuid(run_id),
-                fencing_token: fencing_token.to_owned(),
                 message_snapshot_sequence: 1,
             },
             handled_item_id: InboxItemId::from_uuid(handled_item_id),
@@ -195,18 +190,18 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
     let run_id = fixture.context.run_id.into_uuid();
     let running = read_agent(&fixture, agent_id).await;
     let activity = running.activity.as_ref().unwrap();
-    assert_eq!(activity.kind, "running");
+    assert_eq!(activity.kind, "working");
     assert!(activity.label.contains("#general:1"), "{}", activity.label);
     assert!(matches!(
         running.activity_status,
-        AgentActivityStatus::Running
+        AgentActivityStatus::Working
     ));
 
     let item_id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,\
              status,available_at,last_error_code,created_at) \
-             VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),'run_claim_unavailable',now())",
+             VALUES($1,$2,$3,$4,$4,'mention','hard','pending',now(),'run_dispatch_unavailable',now())",
     )
     .bind(item_id)
     .bind(fixture.context.space_id.into_uuid())
@@ -218,19 +213,22 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
     let with_item_error = read_agent(&fixture, agent_id).await;
     assert_eq!(
         with_item_error.last_error_code.as_deref(),
-        Some("run_claim_unavailable")
+        Some("run_dispatch_unavailable")
     );
 
     sqlx::query(
         "UPDATE agent_runs SET status='failed',outcome_code='failed',\
-             error_code='session_lost',finished_at=now() WHERE id=$1",
+             error_code='session_unavailable',finished_at=now() WHERE id=$1",
     )
     .bind(run_id)
     .execute(&fixture.state.pool)
     .await
     .unwrap();
     let failed = read_agent(&fixture, agent_id).await;
-    assert_eq!(failed.last_error_code.as_deref(), Some("session_lost"));
+    assert_eq!(
+        failed.last_error_code.as_deref(),
+        Some("session_unavailable")
+    );
     assert!(failed.activity.is_none());
 
     fixture.destroy().await;
@@ -303,24 +301,24 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
 
     let mut storage = fixture.state.storage.clone();
     assert!(
-        ClaimNextRun::record_failure(
+        FindDispatchableWork::record_failure(
             &mut storage,
             InboxItemId::from_uuid(item_id),
             Some(MessageId::from_uuid(message_id)),
             ChannelId::from_uuid(fixture.channel_id),
-            "run_claim_unavailable",
+            "run_dispatch_unavailable",
         )
         .await
         .unwrap()
     );
     let mut storage = fixture.state.storage.clone();
     assert!(
-        !ClaimNextRun::record_failure(
+        !FindDispatchableWork::record_failure(
             &mut storage,
             InboxItemId::from_uuid(item_id),
             Some(MessageId::from_uuid(message_id)),
             ChannelId::from_uuid(fixture.channel_id),
-            "run_claim_unavailable",
+            "run_dispatch_unavailable",
         )
         .await
         .unwrap()
@@ -338,7 +336,7 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
         failures[0].agent_member_id,
         fixture.context.agent_id.into_uuid()
     );
-    assert_eq!(failures[0].error_code, "run_claim_unavailable");
+    assert_eq!(failures[0].error_code, "run_dispatch_unavailable");
     assert!(failures[0].retrying);
     assert_eq!(
         projected.mentions,
@@ -382,7 +380,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
     .await
     .unwrap();
     let same_focus: (Uuid, String, Option<Uuid>, i64, i64) = sqlx::query_as(
-        "SELECT i.id,i.status,i.lease_run_id,ri.delivery_seq, \
+        "SELECT i.id,i.status,i.assigned_run_id,ri.delivery_seq, \
              (SELECT count(*) FROM computer_commands WHERE kind='run.attach_item') \
              FROM inbox_items i JOIN run_items ri ON ri.inbox_item_id=i.id \
              WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='same Focus')",
@@ -390,7 +388,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
     .fetch_one(&fixture.state.pool)
     .await
     .unwrap();
-    assert_eq!(same_focus.1, "leased");
+    assert_eq!(same_focus.1, "assigned");
     assert_eq!(same_focus.2, Some(fixture.context.run_id.into_uuid()));
     assert_eq!(same_focus.3, 3);
     assert_eq!(same_focus.4, 1);
@@ -443,11 +441,16 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
     assert_eq!(different_focus.1, 1);
     assert!(!different_focus.2.to_string().contains("different Focus"));
     assert!(!different_focus.2.to_string().contains("body_markdown"));
-    sqlx::query("UPDATE agent_runs SET status='finalizing' WHERE id=$1")
-        .bind(fixture.context.run_id.into_uuid())
-        .execute(&fixture.state.pool)
-        .await
-        .unwrap();
+    // A Run that already reached a terminal state cannot take new work: the Item must stay pending
+    // and wait for the next Run rather than attach to a Run nobody is executing.
+    sqlx::query(
+        "UPDATE agent_runs SET status='completed',outcome_code='completed',finished_at=now() \
+         WHERE id=$1",
+    )
+    .bind(fixture.context.run_id.into_uuid())
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
     insert_message(
         &fixture.state,
         fixture.channel_id,
@@ -459,7 +462,7 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             expected_snapshot: None,
         },
         CreateMessageBody {
-            body_markdown: "finalizing race".into(),
+            body_markdown: "after terminal run".into(),
             mentions: vec![fixture.context.agent_id.into_uuid()],
             mention_all: false,
             attachment_ids: Vec::new(),
@@ -468,16 +471,16 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
     )
     .await
     .unwrap();
-    let finalizing: (String, i64, i64) = sqlx::query_as(
+    let after_terminal: (String, i64, i64) = sqlx::query_as(
             "SELECT i.status, \
              (SELECT count(*) FROM computer_commands WHERE kind='run.attach_item'), \
              (SELECT count(*) FROM computer_commands WHERE kind='run.notice') \
-             FROM inbox_items i WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='finalizing race')",
+             FROM inbox_items i WHERE i.message_id=(SELECT id FROM messages WHERE body_markdown='after terminal run')",
         )
         .fetch_one(&fixture.state.pool)
         .await
         .unwrap();
-    assert_eq!(finalizing, ("pending".into(), 1, 1));
+    assert_eq!(after_terminal, ("pending".into(), 1, 1));
     let events = fixture
         .state
         .storage
@@ -638,8 +641,8 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
         (
             "handled".into(),
             "deferred".into(),
-            "leased".into(),
-            "leased".into()
+            "assigned".into(),
+            "assigned".into()
         )
     );
 
@@ -660,7 +663,6 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
         RunResult {
             event_id: EventId::from_uuid(Uuid::now_v7()),
             run_id: fixture.context.run_id,
-            fencing_token: FencingToken::new(fixture.context.fencing_token.clone()),
             status: RunTerminalStatus::Yielded,
             item_outcomes: vec![
                 ItemOutcome {
@@ -681,8 +683,8 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
     let yielded: (String, Option<String>, String, String) = sqlx::query_as(
         "SELECT runs.status,runs.continuation_note,handled.status,deferred.status
              FROM agent_runs runs
-             JOIN inbox_items handled ON handled.lease_run_id IS NULL AND handled.id=$2
-             JOIN inbox_items deferred ON deferred.lease_run_id IS NULL AND deferred.id=$3
+             JOIN inbox_items handled ON handled.assigned_run_id IS NULL AND handled.id=$2
+             JOIN inbox_items deferred ON deferred.assigned_run_id IS NULL AND deferred.id=$3
              WHERE runs.id=$1",
     )
     .bind(fixture.context.run_id.into_uuid())
@@ -776,7 +778,7 @@ async fn capability_task_done_commits_collaboration_facts_and_replays() {
     let rolled_back: (String, String, i64, i64) = sqlx::query_as(
         "SELECT tasks.status,runs.status, \
              (SELECT count(*) FROM messages WHERE body_markdown='Task Result'), \
-             (SELECT count(*) FROM inbox_items WHERE status='leased' AND lease_run_id=$2) \
+             (SELECT count(*) FROM inbox_items WHERE status='assigned' AND assigned_run_id=$2) \
              FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
     )
     .bind(task_id.into_uuid())
@@ -784,7 +786,7 @@ async fn capability_task_done_commits_collaboration_facts_and_replays() {
     .fetch_one(&fixture.state.pool)
     .await
     .unwrap();
-    assert_eq!(rolled_back, ("in_progress".into(), "running".into(), 0, 2));
+    assert_eq!(rolled_back, ("in_progress".into(), "working".into(), 0, 2));
     sqlx::raw_sql(
         "DROP TRIGGER test_reject_task_audit ON audit_events;
              DROP FUNCTION test_reject_task_audit();",
@@ -798,7 +800,7 @@ async fn capability_task_done_commits_collaboration_facts_and_replays() {
 
     let facts: (String, String, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT tasks.status,runs.status, \
-             (SELECT count(*) FROM inbox_items WHERE lease_run_id IS NULL AND status='handled' AND id IN ($2,$3)), \
+             (SELECT count(*) FROM inbox_items WHERE assigned_run_id IS NULL AND status='handled' AND id IN ($2,$3)), \
              (SELECT count(*) FROM messages WHERE body_markdown='Task Result'), \
              (SELECT count(*) FROM audit_events WHERE action='task.done' AND subject_id=$1), \
              (SELECT count(*) FROM idempotency_records WHERE action='task.done' AND resource_id=$1), \
@@ -873,10 +875,6 @@ async fn capability_task_submit_review_and_close_use_terminal_transaction() {
 async fn agent_attachment_stream_uses_active_run_and_commits_metadata() {
     let fixture = CapabilityFixture::create().await;
     let mut headers = fixture.headers.clone();
-    headers.insert(
-        "x-sumi-fencing-token",
-        HeaderValue::from_str(&fixture.context.fencing_token).unwrap(),
-    );
     let key = Uuid::now_v7();
     headers.insert(
         "idempotency-key",
@@ -970,10 +968,6 @@ async fn agent_attachment_stream_uses_active_run_and_commits_metadata() {
 async fn capability_message_send_mounts_ready_attachments_from_uploader() {
     let fixture = CapabilityFixture::create().await;
     let mut headers = fixture.headers.clone();
-    headers.insert(
-        "x-sumi-fencing-token",
-        HeaderValue::from_str(&fixture.context.fencing_token).unwrap(),
-    );
     let key = Uuid::now_v7();
     headers.insert(
         "idempotency-key",
@@ -1140,7 +1134,7 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
         .fetch_one(&fixture.state.pool)
         .await
         .unwrap();
-    assert_eq!(facts, ("in_progress".into(), "running".into(), 0));
+    assert_eq!(facts, ("in_progress".into(), "working".into(), 0));
     fixture.destroy().await;
 }
 
@@ -1360,7 +1354,6 @@ async fn yielded_run_emits_agent_activity_event() {
         RunResult {
             event_id: EventId::from_uuid(Uuid::now_v7()),
             run_id: fixture.context.run_id,
-            fencing_token: FencingToken::new(fixture.context.fencing_token.clone()),
             status: RunTerminalStatus::Yielded,
             item_outcomes: vec![
                 ItemOutcome {

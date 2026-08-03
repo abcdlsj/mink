@@ -44,6 +44,7 @@ const exportedTypes = {
   Message: "MessageResponse",
   MessageAuthor: "MessageAuthor",
   MessagePage: "MessagePageResponse",
+  MessageTaskRef: "MessageTaskRefResponse",
   MessageTaskSummary: "MessageTaskSummary",
   PairingDetails: "PairingDetailsResponse",
   ReadAgentMemoryInput: "ReadMemoryRequest",

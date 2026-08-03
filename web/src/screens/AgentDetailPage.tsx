@@ -110,6 +110,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
         ))}
       </nav>
       <div className="agent-detail-scroll">
+        {value.computer_reachable ? null : <p className="inline-notice">Computer unreachable. Work already in progress keeps its status until the Computer reports the outcome.</p>}
         {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
           <div className="agent-overview-grid">

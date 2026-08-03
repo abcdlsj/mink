@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 use crate::computer::core::{
     home::LocalAgent,
-    input::{AttentionNoticeInput, ClaimedItemInput},
+    input::{AttentionNoticeInput, DispatchedItemInput},
     session::{ProviderSession, SessionFingerprint, SessionState},
     supervisor::{LocalRun, LocalRunState},
 };
@@ -41,7 +41,7 @@ pub(in crate::computer) enum Command {
     Attach {
         run_id: RunId,
         sequence: u64,
-        item: ClaimedItemInput,
+        item: DispatchedItemInput,
     },
     Notice {
         run_id: RunId,
@@ -76,7 +76,7 @@ impl Command {
                 run.view().agent_id,
                 run.view().task_id,
                 run.view().focus_thread_id,
-                run.view().fencing_token.expose(),
+                run.view().run_secret.expose(),
                 fingerprint.workspace,
                 fingerprint.role_revision,
                 fingerprint.audience,

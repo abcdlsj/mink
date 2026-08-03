@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::ids::{EventId, InboxItemId, RunId, TaskId};
 
 use crate::computer::core::{
-    input::{AttentionNoticeInput, ClaimedItemInput},
+    input::{AttentionNoticeInput, DispatchedItemInput},
     session::{self, ProviderSession, SessionFingerprint, SessionScope, SessionState},
     supervisor::{DeliveryState, ItemDisposition, LocalRunState, TerminalStatus},
 };
@@ -20,21 +20,6 @@ use super::{
 pub(in crate::computer) struct RunService;
 
 impl RunService {
-    pub(in crate::computer) async fn active_leases<P: TransactionPort>(
-        store: &mut P,
-    ) -> Result<Vec<(RunId, String)>, ApplicationError> {
-        store
-            .transact(async |transaction| {
-                Ok(transaction
-                    .nonterminal_runs()?
-                    .into_iter()
-                    .filter(|run| run.view().state == LocalRunState::Running)
-                    .map(|run| (run.view().id, run.view().fencing_token.expose().to_owned()))
-                    .collect())
-            })
-            .await
-    }
-
     pub(in crate::computer) async fn finish_driver_turn<P: TransactionPort>(
         store: &mut P,
         run_id: RunId,
@@ -69,10 +54,9 @@ impl RunService {
                 (TerminalStatus::Completed, None)
             }
             DriverTurnOutcome::Completed => (TerminalStatus::Failed, None),
-            DriverTurnOutcome::Failed => (
-                TerminalStatus::Failed,
-                Some(LocalErrorCode::DriverUnavailable),
-            ),
+            DriverTurnOutcome::Failed => {
+                (TerminalStatus::Failed, Some(LocalErrorCode::DriverError))
+            }
             DriverTurnOutcome::Interrupted => (TerminalStatus::Canceled, None),
         };
         Self::finish(store, run_id, status, item_outcomes, None, error_code)
@@ -201,7 +185,7 @@ impl RunService {
             resume_locator: resume_candidate
                 .as_ref()
                 .map(|session| session.view().locator.to_owned()),
-            run_token: run.view().fencing_token.clone(),
+            run_token: run.view().run_secret.clone(),
         };
         let attempted_resume = resume_candidate.is_some();
         let session_created_at = resume_candidate
@@ -225,7 +209,7 @@ impl RunService {
                         generation,
                         fingerprint: fingerprint.clone(),
                         resume_locator: None,
-                        run_token: run.view().fencing_token.clone(),
+                        run_token: run.view().run_secret.clone(),
                     })
                     .await?
             }
@@ -256,7 +240,6 @@ impl RunService {
                 transaction.append_event(LocalEvent::RunStarted {
                     event_id: next_event_id(),
                     run_id: run.view().id,
-                    fencing_token: run.view().fencing_token.clone(),
                 })
             })
             .await
@@ -267,7 +250,7 @@ impl RunService {
         driver: &mut D,
         run_id: RunId,
         sequence: u64,
-        item: ClaimedItemInput,
+        item: DispatchedItemInput,
     ) -> Result<DeliveryState, ApplicationError> {
         let (mut run, inserted) = store
             .transact(async |transaction| {
@@ -294,7 +277,6 @@ impl RunService {
                     run_id,
                     sequence,
                     outcome,
-                    fencing_token: run.view().fencing_token.clone(),
                 })
             })
             .await?;
@@ -366,20 +348,6 @@ impl RunService {
             .await
     }
 
-    pub(in crate::computer) async fn renew_lease<P: TransactionPort>(
-        store: &mut P,
-        run_id: RunId,
-        lease_expires_at: OffsetDateTime,
-    ) -> Result<(), ApplicationError> {
-        store
-            .transact(async |transaction| {
-                let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
-                run.renew_lease(lease_expires_at)?;
-                transaction.save_run(run)
-            })
-            .await
-    }
-
     pub(in crate::computer) async fn finish<P: TransactionPort>(
         store: &mut P,
         run_id: RunId,
@@ -427,7 +395,6 @@ impl RunService {
                     }
                 }
                 let event_id = next_event_id();
-                let fencing_token = run.view().fencing_token.clone();
                 transaction.save_run(run)?;
                 transaction.append_event(LocalEvent::RunResult {
                     event_id,
@@ -436,7 +403,6 @@ impl RunService {
                     item_outcomes,
                     continuation_note,
                     error_code,
-                    fencing_token,
                 })?;
                 Ok(event_id)
             })
@@ -456,7 +422,6 @@ impl RunService {
         if run.view().state == LocalRunState::Queued {
             run.cancel_queued()?;
             let event_id = next_event_id();
-            let fencing_token = run.view().fencing_token.clone();
             store
                 .transact(async |transaction| {
                     transaction.save_run(run.clone())?;
@@ -472,7 +437,6 @@ impl RunService {
                             .collect(),
                         continuation_note: None,
                         error_code: None,
-                        fencing_token,
                     })
                 })
                 .await?;

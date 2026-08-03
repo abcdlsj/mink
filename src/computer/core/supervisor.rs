@@ -5,15 +5,18 @@ use crate::ids::{AgentId, InboxItemId, NoticeId, RunId, TaskId, ThreadId};
 
 use super::{
     CoreError,
-    input::{AttentionNoticeInput, ClaimedItemInput, RunInput},
+    input::{AttentionNoticeInput, DispatchedItemInput, RunInput},
     scheduler::RunPriority,
     session::{SessionFingerprint, SessionScope},
 };
 
+/// Secret this daemon hands to the Driver process it starts, so a capability call over local IPC can
+/// prove which Run it belongs to. Generated locally and never leaves this machine. It is not a claim
+/// of Run ownership: the Server does not know it and does not check it.
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub(in crate::computer) struct FencingToken(String);
+pub(in crate::computer) struct RunSecret(String);
 
-impl FencingToken {
+impl RunSecret {
     pub(in crate::computer) fn new(value: String) -> Self {
         Self(value)
     }
@@ -23,9 +26,9 @@ impl FencingToken {
     }
 }
 
-impl fmt::Debug for FencingToken {
+impl fmt::Debug for RunSecret {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("FencingToken([REDACTED])")
+        formatter.write_str("RunSecret([REDACTED])")
     }
 }
 
@@ -62,7 +65,7 @@ pub(in crate::computer) enum DeliveryState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct Delivery {
     pub(in crate::computer) sequence: u64,
-    pub(in crate::computer) item: ClaimedItemInput,
+    pub(in crate::computer) item: DispatchedItemInput,
     pub(in crate::computer) state: DeliveryState,
     pub(in crate::computer) disposition: Option<ItemDisposition>,
 }
@@ -94,9 +97,8 @@ pub(in crate::computer) struct LocalRun {
     agent_id: AgentId,
     task_id: Option<TaskId>,
     focus_thread_id: ThreadId,
-    fencing_token: FencingToken,
+    run_secret: RunSecret,
     priority: RunPriority,
-    ownership_lease_expires_at: time::OffsetDateTime,
     input: RunInput,
     state: LocalRunState,
     session: Option<(SessionScope, u64)>,
@@ -112,9 +114,8 @@ pub(in crate::computer) struct LocalRunSnapshot {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) focus_thread_id: ThreadId,
-    pub(in crate::computer) fencing_token: FencingToken,
+    pub(in crate::computer) run_secret: RunSecret,
     pub(in crate::computer) priority: RunPriority,
-    pub(in crate::computer) ownership_lease_expires_at: time::OffsetDateTime,
     pub(in crate::computer) input: RunInput,
     pub(in crate::computer) state: LocalRunState,
     pub(in crate::computer) session: Option<(SessionScope, u64)>,
@@ -139,9 +140,8 @@ pub(in crate::computer) struct LocalRunView<'a> {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) focus_thread_id: ThreadId,
-    pub(in crate::computer) fencing_token: &'a FencingToken,
+    pub(in crate::computer) run_secret: &'a RunSecret,
     pub(in crate::computer) priority: &'a RunPriority,
-    pub(in crate::computer) ownership_lease_expires_at: time::OffsetDateTime,
     pub(in crate::computer) input: &'a RunInput,
     pub(in crate::computer) state: LocalRunState,
     pub(in crate::computer) session: Option<(SessionScope, u64)>,
@@ -156,9 +156,8 @@ pub(in crate::computer) struct NewRun {
     pub(in crate::computer) agent_id: AgentId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) focus_thread_id: ThreadId,
-    pub(in crate::computer) fencing_token: FencingToken,
+    pub(in crate::computer) run_secret: RunSecret,
     pub(in crate::computer) priority: RunPriority,
-    pub(in crate::computer) ownership_lease_expires_at: time::OffsetDateTime,
     pub(in crate::computer) input: RunInput,
 }
 
@@ -176,15 +175,14 @@ impl LocalRun {
         {
             return Err(CoreError::InputScopeMismatch);
         }
-        let initial_items = spec.input.context.claimed_items.clone();
+        let initial_items = spec.input.context.dispatched_items.clone();
         let mut run = Self {
             id: spec.id,
             agent_id: spec.agent_id,
             task_id: spec.task_id,
             focus_thread_id: spec.focus_thread_id,
-            fencing_token: spec.fencing_token,
+            run_secret: spec.run_secret,
             priority: spec.priority,
-            ownership_lease_expires_at: spec.ownership_lease_expires_at,
             input: spec.input,
             state: LocalRunState::Queued,
             session: None,
@@ -200,7 +198,7 @@ impl LocalRun {
     }
 
     pub(in crate::computer) fn rehydrate(snapshot: LocalRunSnapshot) -> Result<Self, CoreError> {
-        if snapshot.fencing_token.expose().is_empty()
+        if snapshot.run_secret.expose().is_empty()
             || snapshot.input.agent.agent_id != snapshot.agent_id
             || snapshot.input.context.focus_thread_id != snapshot.focus_thread_id
             || (snapshot
@@ -243,7 +241,7 @@ impl LocalRun {
             }
         }
         let mut expected_sequence = 1;
-        for (index, item) in snapshot.input.context.claimed_items.iter().enumerate() {
+        for (index, item) in snapshot.input.context.dispatched_items.iter().enumerate() {
             let Some(delivery) = snapshot.deliveries.get(&(index as u64 + 1)) else {
                 return Err(CoreError::InvalidDeliverySequence);
             };
@@ -280,9 +278,8 @@ impl LocalRun {
             agent_id: snapshot.agent_id,
             task_id: snapshot.task_id,
             focus_thread_id: snapshot.focus_thread_id,
-            fencing_token: snapshot.fencing_token,
+            run_secret: snapshot.run_secret,
             priority: snapshot.priority,
-            ownership_lease_expires_at: snapshot.ownership_lease_expires_at,
             input: snapshot.input,
             state: snapshot.state,
             session: snapshot.session,
@@ -299,9 +296,8 @@ impl LocalRun {
             agent_id: self.agent_id,
             task_id: self.task_id,
             focus_thread_id: self.focus_thread_id,
-            fencing_token: &self.fencing_token,
+            run_secret: &self.run_secret,
             priority: &self.priority,
-            ownership_lease_expires_at: self.ownership_lease_expires_at,
             input: &self.input,
             state: self.state,
             session: self.session,
@@ -318,19 +314,6 @@ impl LocalRun {
 
     pub(in crate::computer) fn set_session(&mut self, session: Option<(SessionScope, u64)>) {
         self.session = session;
-    }
-
-    pub(in crate::computer) fn recover_starting(&mut self) -> Result<(), CoreError> {
-        if self.state != LocalRunState::Starting {
-            return Err(CoreError::InvalidTransition);
-        }
-        self.state = LocalRunState::Running;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(in crate::computer) fn set_lease_for_test(&mut self, expires_at: time::OffsetDateTime) {
-        self.ownership_lease_expires_at = expires_at;
     }
 
     pub(in crate::computer) fn begin_start(&mut self) -> Result<(), CoreError> {
@@ -357,7 +340,7 @@ impl LocalRun {
     pub(in crate::computer) fn attach(
         &mut self,
         sequence: u64,
-        item: ClaimedItemInput,
+        item: DispatchedItemInput,
     ) -> Result<bool, CoreError> {
         if !matches!(
             self.state,
@@ -548,17 +531,6 @@ impl LocalRun {
                 return Err(CoreError::IncompleteItemDisposition);
             }
         }
-        Ok(())
-    }
-
-    pub(in crate::computer) fn renew_lease(
-        &mut self,
-        lease_expires_at: time::OffsetDateTime,
-    ) -> Result<(), CoreError> {
-        if self.state.is_terminal() || lease_expires_at <= self.ownership_lease_expires_at {
-            return Err(CoreError::InvalidTransition);
-        }
-        self.ownership_lease_expires_at = lease_expires_at;
         Ok(())
     }
 }

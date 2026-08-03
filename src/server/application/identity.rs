@@ -564,7 +564,7 @@ impl RetireAgent {
                             .disposition
                             .unwrap_or(InboxItemDisposition::Released);
                         let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
-                        if item.view().status == InboxItemStatus::Leased {
+                        if item.view().status == InboxItemStatus::Assigned {
                             item.apply_disposition(run_id, disposition, now)?;
                             transaction.save_inbox_item(item).await?;
                         } else if disposition != InboxItemDisposition::Released {

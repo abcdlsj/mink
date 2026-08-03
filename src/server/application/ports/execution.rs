@@ -11,17 +11,17 @@ pub(in crate::server) trait ExecutionTransaction {
         &mut self,
         event_id: EventId,
     ) -> Result<Option<RunId>, ApplicationError>;
-    async fn runs_with_expired_lease(
+    async fn nonterminal_runs_for_computer(
+        &mut self,
+        computer_id: ComputerId,
+    ) -> Result<Vec<RunId>, ApplicationError>;
+    async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
+    async fn dispatchable_work(
         &mut self,
         now: time::OffsetDateTime,
         limit: u32,
-    ) -> Result<Vec<RunId>, ApplicationError>;
-    async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
-    async fn next_claim_candidate(
-        &mut self,
-        computer_id: ComputerId,
-    ) -> Result<Option<ClaimCandidate>, ApplicationError>;
-    async fn record_claim_failure(
+    ) -> Result<Vec<DispatchCandidate>, ApplicationError>;
+    async fn record_dispatch_failure(
         &mut self,
         item_id: InboxItemId,
         message_id: Option<MessageId>,

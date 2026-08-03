@@ -125,7 +125,7 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
                 run.view().id,
                 locator,
                 run.view().input,
-                run.view().fencing_token.expose(),
+                run.view().run_secret.expose(),
             )
             .await?;
         self.turns.insert(

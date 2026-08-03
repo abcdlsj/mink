@@ -7,7 +7,7 @@ use crate::computer::{
     },
     core::{
         home::LocalAgent,
-        input::{ClaimedItemInput, RunInput},
+        input::{DispatchedItemInput, RunInput},
     },
 };
 use crate::ids::{AgentId, RunId};
@@ -73,7 +73,7 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
     async fn steer(
         &mut self,
         locator: &str,
-        item: &ClaimedItemInput,
+        item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         self.client.steer(locator, item).await
     }

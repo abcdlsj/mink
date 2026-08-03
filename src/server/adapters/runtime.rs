@@ -2,7 +2,7 @@ use super::{
     http, object_storage::AttachmentObjectStore, postgres::PostgresAdapter, query::QueryRegistry,
 };
 use crate::config::ServerConfig;
-use crate::server::domain::{access::SessionLifetime, attention::AttentionPolicy};
+use crate::server::domain::access::SessionLifetime;
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
@@ -40,7 +40,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         queries: QueryRegistry::default(),
     };
     let api = http::api_router(state.clone(), 100 * 1024 * 1024);
-    let reclaim = tokio::spawn(reclaim_expired_leases_forever(state.storage.clone()));
+    let dispatcher = tokio::spawn(dispatch_available_work_forever(state.clone()));
     let app = axum::Router::new()
         .nest("/api/v1", api)
         .fallback_service(
@@ -56,38 +56,36 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server stopped unexpectedly");
-    reclaim.abort();
+    dispatcher.abort();
     served
 }
 
-const LEASE_RECLAIM_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
-const LEASE_RECLAIM_BATCH: u32 = 50;
-async fn reclaim_expired_leases_forever(mut storage: PostgresAdapter) {
-    let mut ticker = tokio::time::interval(LEASE_RECLAIM_INTERVAL);
+/// How often the Server looks for Agents with work and no live Run.
+///
+/// Short because it bounds how long an Agent waits before starting, and nothing else: no Run outcome
+/// depends on this timer, so a slow or skipped tick delays work and cannot fail it. A tick is needed
+/// at all because availability is a future fact, set by ambient debounce and by Agent-chosen defer
+/// times.
+const DISPATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Agents dispatched per tick. Caps one pass, not total throughput: the next tick takes the rest.
+const DISPATCH_BATCH: u32 = 64;
+
+async fn dispatch_available_work_forever(state: http::RuntimeState) {
+    let mut ticker = tokio::time::interval(DISPATCH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
-        match crate::server::application::execution::ReclaimExpiredLeases::execute(
-            &mut storage,
-            crate::server::application::execution::ReclaimExpiredLeasesInput {
-                now: OffsetDateTime::now_utc(),
-                limit: LEASE_RECLAIM_BATCH,
-                max_retry_count: AttentionPolicy::MAX_RETRY_COUNT,
-            },
-        )
-        .await
+        match http::dispatch_available_work(&state, OffsetDateTime::now_utc(), DISPATCH_BATCH).await
         {
-            Ok(reclaimed) if reclaimed.runs_failed > 0 => tracing::warn!(
-                runs_failed = reclaimed.runs_failed,
-                items_released = reclaimed.items_released,
-                items_dead = reclaimed.items_dead,
-                "reclaimed Runs whose ownership lease expired"
+            Ok(outcome) if outcome.failed > 0 => tracing::warn!(
+                dispatched = outcome.dispatched,
+                failed = outcome.failed,
+                "some Runs could not be dispatched; their Items stay pending for the next pass"
             ),
             Ok(_) => {}
-            Err(error) => tracing::error!(
-                ?error,
-                "lease reclaim sweep failed; retrying on the next tick"
-            ),
+            Err(error) => {
+                tracing::error!(?error, "dispatch pass failed; retrying on the next tick")
+            }
         }
     }
 }

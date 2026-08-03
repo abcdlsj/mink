@@ -23,8 +23,11 @@ CREATE TABLE local_runs (
     agent_id TEXT NOT NULL,
     task_id TEXT,
     focus_thread_id TEXT NOT NULL,
-    fencing_token TEXT NOT NULL,
-    ownership_lease_expires_at TEXT NOT NULL,
+    -- Secret handed to the Driver process so a local IPC capability call can name its Run. Local to
+    -- this machine; the Server neither knows nor checks it.
+    run_secret TEXT NOT NULL,
+    -- Local Driver phases. Finer than the Server's status because this side starts and stops the
+    -- process. No phase carries a deadline: nothing here expires.
     state TEXT NOT NULL CHECK (state IN (
         'queued', 'starting', 'running', 'finalizing', 'stopping',
         'completed', 'yielded', 'failed', 'canceled'

@@ -1,13 +1,14 @@
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::{
     computer::application::{
-        AgentInput, ApplicationError, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
-        ContinuityState, DeliveryState, DriverKind, FencingToken, ItemDisposition, LocalAgent,
+        AgentInput, ApplicationError, AttentionNoticeInput, ContextMessageInput, ContinuityState,
+        DeliveryState, DispatchedItemInput, DriverKind, ItemDisposition, LocalAgent,
         LocalAgentState, LocalRun, MemoryEntryInput, MemoryFile, NewRun, NoticeLocationInput,
-        RunContextInput, RunInput, RunPriority, SessionFingerprint, SessionScope, SpaceMemberInput,
-        TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        RunContextInput, RunInput, RunPriority, RunSecret, SessionFingerprint, SessionScope,
+        SpaceMemberInput, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -172,19 +173,19 @@ impl ServerConnectionAdapter {
                     task_threads(start.task.as_ref(), start.focus.thread_id),
                 );
                 let task_id = start.task.as_ref().map(|task| task.task_id);
-                let claimed_items = start
-                    .claimed_items
+                let dispatched_items = start
+                    .dispatched_items
                     .iter()
-                    .map(claimed_item)
+                    .map(dispatched_item)
                     .collect::<Vec<_>>();
                 let available_at = start
-                    .claimed_items
+                    .dispatched_items
                     .iter()
                     .map(|item| item.available_at)
                     .min()
                     .unwrap_or_else(OffsetDateTime::now_utc);
                 let strength = if start
-                    .claimed_items
+                    .dispatched_items
                     .iter()
                     .any(|item| item.strength == wire::AttentionStrength::Hard)
                 {
@@ -223,7 +224,7 @@ impl ServerConnectionAdapter {
                             .chain(start.focus.replies.iter())
                             .map(context_message)
                             .collect(),
-                        claimed_items,
+                        dispatched_items,
                     },
                     space_members: start
                         .space_members
@@ -239,14 +240,19 @@ impl ServerConnectionAdapter {
                     agent_id: start.agent_id,
                     task_id,
                     focus_thread_id,
-                    fencing_token: FencingToken::new(start.fencing_token.expose().to_owned()),
+                    // Generated here, not received: this secret only ever authenticates the Driver
+                    // process this daemon is about to start.
+                    run_secret: RunSecret::new(format!(
+                        "{}{}",
+                        Uuid::now_v7().simple(),
+                        Uuid::now_v7().simple()
+                    )),
                     priority: RunPriority {
                         explicit_human_redirect: false,
                         strength,
                         available_at,
                         has_task_continuity: task_id.is_some(),
                     },
-                    ownership_lease_expires_at: start.ownership_lease_expires_at,
                     input,
                 })?;
                 Ok(ApplicationCommand::Start {
@@ -270,7 +276,7 @@ impl ServerConnectionAdapter {
             wire::Command::RunAttachItem(attach) => Ok(ApplicationCommand::Attach {
                 run_id: attach.run_id,
                 sequence: attach.delivery_sequence.0,
-                item: claimed_item(&attach.item),
+                item: dispatched_item(&attach.item),
             }),
             wire::Command::RunNotice(notice) => Ok(ApplicationCommand::Notice {
                 run_id: notice.run_id,
@@ -295,15 +301,10 @@ impl ServerConnectionAdapter {
 
     pub(in crate::computer) fn event_frame(event: LocalEvent) -> wire::ComputerFrame {
         match event {
-            LocalEvent::RunStarted {
-                event_id,
-                run_id,
-                fencing_token,
-            } => wire::ComputerFrame::RunStarted {
+            LocalEvent::RunStarted { event_id, run_id } => wire::ComputerFrame::RunStarted {
                 started: wire::RunStarted {
                     event_id,
                     run_id,
-                    fencing_token: wire::FencingToken::new(fencing_token.expose().to_owned()),
                     observed_at: OffsetDateTime::now_utc(),
                 },
             },
@@ -312,13 +313,11 @@ impl ServerConnectionAdapter {
                 run_id,
                 sequence,
                 outcome,
-                fencing_token,
             } => wire::ComputerFrame::DeliveryReceipt {
                 receipt: wire::DeliveryReceipt {
                     event_id,
                     run_id,
                     delivery_sequence: wire::DeliverySequence(sequence),
-                    fencing_token: wire::FencingToken::new(fencing_token.expose().to_owned()),
                     outcome: match outcome {
                         DeliveryState::Accepted => wire::DeliveryOutcome::Accepted,
                         DeliveryState::TooLate => wire::DeliveryOutcome::TooLate,
@@ -334,12 +333,10 @@ impl ServerConnectionAdapter {
                 item_outcomes,
                 continuation_note,
                 error_code,
-                fencing_token,
             } => wire::ComputerFrame::RunResult {
                 result: wire::RunResult {
                     event_id,
                     run_id,
-                    fencing_token: wire::FencingToken::new(fencing_token.expose().to_owned()),
                     status: terminal_status(status),
                     item_outcomes: item_outcomes
                         .into_iter()
@@ -402,8 +399,8 @@ fn session_fingerprint(
     }
 }
 
-fn claimed_item(item: &wire::InboxItemSnapshot) -> ClaimedItemInput {
-    ClaimedItemInput {
+fn dispatched_item(item: &wire::InboxItemSnapshot) -> DispatchedItemInput {
+    DispatchedItemInput {
         item_id: item.item_id,
         task_id: item.task_id,
         thread_id: item.thread_id,
@@ -478,9 +475,10 @@ fn item_disposition(disposition: ItemDisposition) -> wire::ItemDisposition {
 
 fn local_error(error: LocalErrorCode) -> wire::ComputerErrorCode {
     match error {
-        LocalErrorCode::ProcessLost => wire::ComputerErrorCode::ProcessLost,
-        LocalErrorCode::SessionLost => wire::ComputerErrorCode::SessionLost,
-        LocalErrorCode::DriverUnavailable => wire::ComputerErrorCode::DriverUnavailable,
+        LocalErrorCode::DriverError => wire::ComputerErrorCode::DriverError,
+        LocalErrorCode::DriverLost => wire::ComputerErrorCode::DriverLost,
+        LocalErrorCode::ComputerRestarted => wire::ComputerErrorCode::ComputerRestarted,
+        LocalErrorCode::SessionUnavailable => wire::ComputerErrorCode::SessionUnavailable,
         LocalErrorCode::Internal => wire::ComputerErrorCode::Internal,
     }
 }
@@ -513,8 +511,8 @@ fn computer_error(error: &ApplicationError) -> wire::ComputerErrorCode {
         ApplicationError::NotFound
         | ApplicationError::Conflict
         | ApplicationError::AlreadyApplied => wire::ComputerErrorCode::InvalidCommand,
-        ApplicationError::DriverUnavailable => wire::ComputerErrorCode::DriverUnavailable,
-        ApplicationError::SessionLost => wire::ComputerErrorCode::SessionLost,
+        ApplicationError::DriverUnavailable => wire::ComputerErrorCode::DriverLost,
+        ApplicationError::SessionLost => wire::ComputerErrorCode::SessionUnavailable,
         ApplicationError::Unauthenticated
         | ApplicationError::Core(_)
         | ApplicationError::Internal => wire::ComputerErrorCode::Internal,
@@ -524,7 +522,7 @@ fn computer_error(error: &ApplicationError) -> wire::ComputerErrorCode {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use time::{Duration, OffsetDateTime};
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     use super::*;
@@ -539,8 +537,7 @@ mod tests {
         ids::{AgentId, ChannelId, CommandId, MemberId, MessageId, RunId, SpaceId, ThreadId},
         protocol::computer::{
             AgentConfiguration, CommandEnvelope, CommandSequence, DriverKind as WireDriverKind,
-            FencingToken as WireFencingToken, FocusSnapshot, MessageContent, MessageSnapshot,
-            RoleSnapshot, RunStart,
+            FocusSnapshot, MessageContent, MessageSnapshot, RoleSnapshot, RunStart,
         },
     };
 
@@ -655,11 +652,8 @@ mod tests {
                             replies: Vec::new(),
                             message_sequence: 1,
                         },
-                        claimed_items: Vec::new(),
+                        dispatched_items: Vec::new(),
                         space_members: Vec::new(),
-                        fencing_token: WireFencingToken::new("raw-token".to_owned()),
-                        ownership_lease_expires_at: OffsetDateTime::now_utc()
-                            + Duration::minutes(5),
                     }),
                 },
             )
@@ -674,7 +668,6 @@ mod tests {
         assert_eq!(run.view().input.agent.role_revision, 3);
         assert_eq!(run.view().input.context.focus_thread_id, thread_id);
         assert!(!format!("{run:?}").contains("private body"));
-        assert!(!format!("{run:?}").contains("raw-token"));
         assert_eq!(run.view().priority.strength, WorkStrength::Ambient);
     }
 }

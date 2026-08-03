@@ -15,17 +15,17 @@ use crate::{
     protocol::computer::{
         ActionKind, ActionTarget, AgentRetire, AttentionNotice,
         AttentionStrength as WireAttentionStrength, Command, CommandAck, CommandEnvelope,
-        CommandSequence, DeliverySequence, FencingToken, FocusSnapshot, InboxItemSnapshot,
-        InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation,
-        RunAttachItem, RunNotice, RunStart, RunTaskBound, SessionChangeReason, SessionCommand,
-        SessionScope, TaskSnapshot, TaskStatus as WireTaskStatus,
+        CommandSequence, DeliverySequence, FocusSnapshot, InboxItemSnapshot, InboxSourceKind,
+        MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation, RunAttachItem,
+        RunNotice, RunStart, RunStop, RunTaskBound, SessionChangeReason, SessionCommand,
+        SessionScope, StopReason, TaskSnapshot, TaskStatus as WireTaskStatus,
     },
     server::{
         application::ports::{
-            ApplicationError, AttachmentTransaction, AuthenticatedHuman, ClaimCandidate,
-            CollaborationTransaction, ComputerRecord, CreatedSpace, DirectMessageView, Effect,
-            EffectSink, ExecutionTransaction, HumanMemberRecord, IdentityTransaction,
-            InboxItemView, InboxScope, MemberKind, MessageDraft, PairedComputer, PublishedMessage,
+            ApplicationError, AttachmentTransaction, AuthenticatedHuman, CollaborationTransaction,
+            ComputerRecord, CreatedSpace, DirectMessageView, DispatchCandidate, Effect, EffectSink,
+            ExecutionTransaction, HumanMemberRecord, IdentityTransaction, InboxItemView,
+            InboxScope, MemberKind, MessageDraft, PairedComputer, PublishedMessage,
             RunCapabilityProof, SpaceHumanMember, SpaceMemberView, TaskTransaction,
             TransactionPort,
         },
@@ -41,7 +41,7 @@ use crate::{
             },
             execution::{
                 Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot as DomainRunSnapshot,
-                RunStatus,
+                RunStatus, RunTrigger,
             },
             identity::{
                 AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
@@ -546,14 +546,23 @@ impl PostgresTransaction {
                     json!({"run_id": run_id, "notice_id": item_id}),
                 ));
             }
-            Effect::RunClaimed {
-                run_id,
-                fencing_token,
-            } => {
+            Effect::RunDispatched(run_id) => {
                 let computer_id = self.computer_for_run(run_id).await?;
-                let command = self.run_start(run_id, fencing_token.expose()).await?;
+                let command = self.run_start(run_id).await?;
                 self.queue_command(computer_id, Command::RunStart(command))
                     .await?;
+                ("run.changed", run_id.into_uuid())
+            }
+            Effect::RunCancelRequested(run_id) => {
+                let computer_id = self.computer_for_run(run_id).await?;
+                self.queue_command(
+                    computer_id,
+                    Command::RunStop(RunStop {
+                        run_id,
+                        reason: StopReason::HumanRequest,
+                    }),
+                )
+                .await?;
                 ("run.changed", run_id.into_uuid())
             }
             Effect::RunStarted(id) => ("run.changed", id.into_uuid()),

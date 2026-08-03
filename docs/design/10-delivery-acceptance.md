@@ -34,7 +34,7 @@
 
 - 从空库创建 PostgreSQL 最终 schema。
 - 从空目录创建 Computer SQLite 最终 schema。
-- 实现 Task 来源、Thread 关联、active Run 和 fencing 约束。
+- 实现 Task 来源、Thread 关联和 active Run 唯一性约束。
 - 不创建从旧版本进入新基线的 migration。
 - 新基线进入共享环境后，按数据库设计使用前向 migration。
 
@@ -48,7 +48,7 @@
 ### 阶段四：Computer
 
 - 实现 Session registry 和 fingerprint。
-- 实现 Run supervisor、steer、yield、finalizing 和恢复。
+- 实现 Run supervisor、steer、yield 和恢复。
 - 实现 Codex resume 和 Builtin Session adapter。
 - 实现 sandbox 和本地 Secret 边界。
 
@@ -67,7 +67,7 @@
 
 ## 3. 单元验收
 
-单元测试只验证业务流程、不变量和失败分支。测试对象包括状态转换、用例编排、幂等、租约、重试、恢复、权限判断和 Session 生命周期。
+单元测试只验证业务流程、不变量和失败分支。测试对象包括状态转换、用例编排、幂等、重试、恢复、权限判断和 Session 生命周期。
 
 以下实现不单独编写单元测试：
 
@@ -94,9 +94,9 @@
 - In Review 可以由 assignee 之外、能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress。
 - Review 不检查 Permission，也不保存 reviewer 字段。
 - Run 终态不自动完成 Task。
-- assignee 的首个 Task Run 进入`running`时把`todo`推进为`in_progress`；其他 Agent 的 Run 和重复上报都不改变状态。
-- lease 过期回收释放 Items 并增加 retry count，把 Run 置为`failed`，且该 Agent 随后可以创建新 Run。
-- 回收保留 Agent 已上报的 disposition，重复扫描不重复计数。
+- assignee 的首个 Task Run 进入`working`时把`todo`推进为`in_progress`；其他 Agent 的 Run 和重复上报都不改变状态。
+- Run 失败时释放未处理 Items 并增加 retry count，且该 Agent 随后可以创建新 Run。
+- 释放保留 Agent 已上报的 disposition，重复上报不重复计数。
 - retry count 超过上限的 Item 进入`dead`，并产生不含正文的 system Item。
 - Agent 显式 release 的 Item 不增加 retry count。
 - 订阅该 Thread 的 Agent 收到`thread_activity`，未订阅的收到`channel_activity`。
@@ -104,10 +104,10 @@
 ## 4. 集成验收
 
 - Message 发送事务同时创建 Root Thread 和 Inbox Items。
-- same-Focus hard Item 与 finalizing 并发时不会丢失或重复处理。
+- Run 已进入终态后到达的 same-Focus hard Item 保持 pending，不附加到该 Run。
 - different-Focus Item 保持 pending，notice 不泄露正文。
 - 重复 command、started、delivery 和 result 只应用一次。
-- lease 过期后旧 fencing token 不能修改状态。
+- 上一 daemon session 的残留帧不能修改状态。
 - Task 完成事务失败时 Message 和 Result 都不产生部分写入。
 - Session close 失败不回滚已完成 Task。
 - Task 表不重复保存 Root Message、Result 正文或 Source link。
@@ -143,14 +143,15 @@
 - WebSocket 在 start ACK 前后断开。
 - daemon 在 Driver 运行和 result 上报期间重启。
 - receipt 丢失并重复上报。
-- Computer 离线直到 lease 过期。
+- Computer 离线任意时长后重连。
+- Driver 进程在 daemon 存活期间消失。
 - Task 完成后 Computer 离线，Session 稍后关闭。
 - workspace 丢失和 Provider locator 损坏。
 - active Run 收到 Human 明确转向并 yield。
 
 每个场景必须证明 Message、Task、Inbox 和 Run 事实一致。
 
-需要真实进程与数据库的场景在`tests/failure_recovery.rs`验证：Server 重启、Computer 离线直到 lease 过期、workspace 丢失与 Provider locator 损坏。daemon 重启、重复上报和 yield 是 Computer 内部的状态转换，在`src/computer/application/tests.rs`验证，见 [代码组织与依赖边界](11-code-organization.md) 的测试组织。
+需要真实进程与数据库的场景在`tests/failure_recovery.rs`验证：Server 重启、Computer 离线后重连、workspace 丢失与 Provider locator 损坏。daemon 重启、Driver 进程消失、重复上报和 yield 是 Computer 内部的状态转换，在`src/computer/application/tests.rs`验证，见 [代码组织与依赖边界](11-code-organization.md) 的测试组织。
 
 workspace 场景需要运行中的 daemon 把 Agent 带到`active`，因此依赖本机`codex`可执行文件。缺少该文件时该场景跳过并说明原因，不得记为通过。
 

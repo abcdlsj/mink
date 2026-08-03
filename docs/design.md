@@ -23,7 +23,7 @@
 2. [协作、Task 与 Thread](./design/02-collaboration.md)：Message、Thread、Task、来源绑定、关联和 Result。
 3. [WebUI](./design/03-web-ui.md)：视觉、页面、交互、状态和响应式行为。
 4. [Computer 与 Agent](./design/04-computer-agent.md)：本地状态、Provider Session、workspace、Memory 和 Driver。
-5. [Agent Run 可靠性](./design/04-agent-lifecycle-reliability.md)：Run、Focus、打断、yield、结果回执和恢复。
+5. [Agent Run](./design/04-agent-run.md)：Run 模型、Trigger、状态、失败判定、投递、Waiting 唤醒和 yield。
 6. [Driver 与 Agent CLI](./design/05-driver-cli.md)：Driver 契约、Codex resume 和最小 Agent 操作面。
 7. [Inbox 与凭据](./design/06-inbox-credentials.md)：注意力路由、active Run 交付和本地 Secret。
 8. [API 与事件](./design/07-api.md)：Browser、Computer、WebSocket 和 SSE 契约。
@@ -37,3 +37,4 @@
 - [Task 是持续工作边界](./adr/0001-task-is-the-continuity-boundary.md)
 - [Provider Session 是 Computer 本地缓存](./adr/0002-provider-session-is-local-cache.md)
 - [新版本采用断代 schema](./adr/0003-clean-break-schema.md)
+- [Run 不使用租约与 fencing token](./adr/0004-no-run-lease.md)

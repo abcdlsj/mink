@@ -8,7 +8,7 @@ Inbox 是注意力事实，不是 Message 历史。Sumi 保证：
 
 - 有资格的信息会持久生成 Inbox Item。
 - Item 在明确处理前不会因进程退出而消失。
-- 领取、附加、释放和完成操作可以幂等重试。
+- 分配、附加、释放和完成操作可以幂等重试。
 - Agent 能知道 active Run 之外还有新的 hard attention。
 - Human 能直接看到与自己相关的 hard attention，不必逐群检查 Channel。
 
@@ -52,20 +52,22 @@ Message 的 mention targets 是结构化事实。显式 mention 保存为 Messag
 
 ```text
 Agent Item:
-pending -> leased -> handled
-   ^          |----> deferred
-   |          |----> pending
-   +----------+
+pending -> assigned -> handled
+   ^           |----> deferred
+   |           |----> pending
+   +-----------+
 
-pending/leased -> dead
+pending/assigned -> dead
 
 Human Item:
 pending -> handled
 ```
 
-Human Item 不进 lease：没有 Human Run 领取它。Human 打开来源 Message 时，Server 把该 Item 标记为 handled；重复读取已经 handled 的 Item 幂等。Human Item 不进入 deferred 或 dead。
+`assigned` 表示该 Item 已归入某个非终态 Run，由 `assigned_run_id` 指向该 Run。它不是租约，没有期限：Item 停留在 `assigned` 直到该 Run 上报终态。
 
-Item 保存来源 Message、Thread、可选 Task、强度、available time、lease、retry count 和处理结果。Item 不复制 Message 正文。
+Human Item 不进 `assigned`：没有 Human Run 处理它。Human 打开来源 Message 时，Server 把该 Item 标记为 handled；重复读取已经 handled 的 Item 幂等。Human Item 不进入 deferred 或 dead。
+
+Item 保存来源 Message、Thread、可选 Task、强度、available time、`assigned_run_id`、retry count 和处理结果。Item 不复制 Message 正文。
 
 ## 4. Task 路由
 
@@ -75,7 +77,7 @@ Message 位于未完成 Task 的 Linked Thread 时，Server 在发送事务中�
 
 Agent 决定开始持续工作时，可以在 Run 中调用无来源参数的`task create`。
 
-Server 从 Focus 找到 Root Message。Server 原子创建 Task、绑定当前 Run，并更新已领取 Item。
+Server 从 Focus 找到 Root Message。Server 原子创建 Task、绑定当前 Run，并更新该 Run 的 Items。
 
 Thread reply 不能成为 Task source。reply 触发的 Run 调用`task create`时，Server 仍使用 Focus Thread 的 Root Message。
 
@@ -85,7 +87,7 @@ hard Item 生成后，attention 模块只做结构化判断：
 
 - 与 active Run 的 Agent、可选 Task scope 和 Focus 一致时，尝试 attach。
 - Task 或 Focus 不同，Item 保持 pending 并生成 notice。
-- active Run 不是 running 时，Item 保持 pending。
+- active Run 不是 `working` 时，Item 保持 pending。
 - ambient Item 只聚合，不 attach active Run。
 
 daemon 和 Server 不得读取正文决定 attach 或 notice。
@@ -96,15 +98,15 @@ Server 按 Member 和 Thread 聚合 ambient activity。一个 Member 在一个 T
 
 聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message；Human 的聚合项保持 pending，直到打开来源。
 
-available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可领取。该上限是防止新 Message 无限推迟处理的唯一机制。
+available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可派发。该上限是防止新 Message 无限推迟处理的唯一机制。
 
-已领取的聚合项不再接受新 Message。该 Agent 已经收到这个区间，后续 Message 进入下一个聚合项。
+已进入 `assigned` 的聚合项不再接受新 Message。该 Agent 已经收到这个区间，后续 Message 进入下一个聚合项。
 
-hard Item 优先于 ambient Item。ambient Item 在 Agent 有执行容量时才创建 Run：领取要求该 Agent 没有非终态 Run，且同一批候选中 hard Item 先被取走。
+hard Item 优先于 ambient Item。派发要求该 Agent 没有非终态 Run，且同一批候选中 hard Item 先被取走，见 [Agent Run](04-agent-run.md) 的投递。
 
 ## 7. notice
 
-不同 Focus hard Item 到达时，Server 向 active Run 发送 notice。notice 用于让 Agent 决定是否 yield，不授予该 Item lease。
+不同 Focus hard Item 到达时，Server 向 active Run 发送 notice。notice 用于让 Agent 决定是否 yield，不把该 Item 归入当前 Run。
 
 notice 包含：
 
@@ -118,17 +120,17 @@ Agent 当前无权读取来源时，notice 只显示“另一个受限位置有�
 
 ## 8. 重试和 dead
 
-lease 过期时，Server 把该 Run 未处理的 Items 返回 pending 并增加 retry count，同时把 Run 置为`failed`并记录`process_lost`。retry count 超过`max_retry_count`后 Item 进入 dead，并在同一事务创建不含正文的 system Item。
+Run 转 `failed` 时，Server 在同一事务把该 Run 未处理的 Items 返回 pending 并增加 retry count。retry count 超过`max_retry_count`后 Item 进入 dead，并在同一事务创建不含正文的 system Item。失败由 Computer 上报，判定规则见 [Agent Run](04-agent-run.md)。
 
 该 system Item 只面向 Agent 执行错误，归属该 Agent。Space 治理者通过读取 Agent Inbox 看到它，见 [API 与事件](07-api.md) 的 Inbox 读取授权。
 
-只有 lease 过期计入 retry count。Agent 显式 release 一个 Item 是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt 丢失和重复 command 同样不得重复增加 retry count。
+只有 Run 失败计入 retry count。Agent 显式 release 一个 Item 是它的处理决定，不是失败尝试，因此不增加计数。网络错误、receipt 丢失和重复 command 同样不得重复增加 retry count。
 
-Run 终态由回收事务写入，因此该 Agent 的非终态 Run 被释放，后续 Run 不再被 partial unique index 阻止，见 [Agent Run 可靠性](04-agent-lifecycle-reliability.md)。
+Run 终态与 Item 释放在同一事务写入，因此该 Agent 不再持有非终态 Run，后续 Run 不再被 partial unique index 阻止。
 
-Server 领取 Item 或创建 Run 失败时，Item 保持`pending`并记录稳定的`last_error_code`。来源 Message 的可见投影必须向有权读取该 Message 的 Human 显示对应 Agent、错误码和自动重试状态。该提示是运行状态，不创建 Message，也不冒充 Member 发言。
+Server 分配 Item 或创建 Run 失败时，Item 保持`pending`并记录稳定的`last_error_code`。来源 Message 的可见投影必须向有权读取该 Message 的 Human 显示对应 Agent、错误码和自动重试状态。该提示是运行状态，不创建 Message，也不冒充 Member 发言。
 
-后续领取成功时，Server 必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源 Message 投影刷新。
+后续派发成功时，Server 必须在同一事务中清除`last_error_code`。运行状态变化必须触发来源 Message 投影刷新。
 
 ## 9. 本地凭据
 

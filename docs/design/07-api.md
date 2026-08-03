@@ -119,6 +119,7 @@ POST /api/v1/spaces/{space_id}/agents
 GET /api/v1/agents/{agent_id}
 DELETE /api/v1/agents/{agent_id}
 GET /api/v1/agents/{agent_id}/runs/current
+POST /api/v1/agents/{agent_id}/runs/{run_id}/cancel
 POST /api/v1/agents/{agent_id}/memory/read
 GET /api/v1/tasks/{task_id}/runs
 GET /api/v1/members/{member_id}/inbox
@@ -137,13 +138,17 @@ Browser 可以读取 Run 状态、Focus、时间和错误代码。Browser 不得
 
 `PATCH /api/v1/spaces/{space_id}/members/{member_id}` 改写 Access Level，只接受`admin`和`member`。Owner 由创建 Space 确定，不能通过该端点授予；现任 Owner 的级别也不可改写，否则 Space 会失去治理者。Admin 只能授予`member`，授予`admin`需要 Owner。
 
+`POST /api/v1/agents/{agent_id}/runs/{run_id}/cancel`在非终态 Run 上设置取消请求并投递停止命令。它需要 Agent 治理权限。Run 转`canceled`由 Computer 上报确认，因此该端点返回时 Run 仍可能是`working`，见 [Agent Run](04-agent-run.md)。
+
+Agent 投影的`computer_reachable`表示承载该 Agent 的 Computer 当前是否连接。它与`activity`独立：Computer 不可达时正在进行的 Run 保持原状态，投影不把它改写成不可达。
+
 Agent 投影的`activity`来自当前非终态 Run：`kind`是 Run status，`label`用 Focus 地址`#slug:seq`和绑定 Task 标题描述正在进行的动作。`ThreadReferenceResponse.channel_slug`在 DM 中为 null，此时 Focus 地址的 slug 部分以`DM`代替。没有非终态 Run 时`activity`为空。该字段不含 Message 正文、命令参数或隐藏推理，见 [安全与运维](09-security-operations.md)。
 
 `last_error_code`先取该 Agent 最近一次失败 Run 上报的`error_code`，没有失败 Run 时退回其 pending Item 记录的`last_error_code`。两者都是已落库事实，不由 lifecycle 推测。
 
 `attention_config`是 Server 的固定策略，没有对应存储也没有写入路径，因此只出现在读取投影中。`PATCH /api/v1/agents/{agent_id}`不接受该字段。
 
-三个数值字段都是 Server 实际执行的限制：`max_retry_count`是 lease 回收使用的上限，`ambient_debounce_seconds`和`ambient_max_wait_seconds`是 ambient 聚合的 debounce 与 force 上限，见 [Inbox 与凭据](06-inbox-credentials.md)。投影与执行读取同一组常量，因此不会出现「显示的策略」与「生效的策略」不一致。
+三个数值字段都是 Server 实际执行的限制：`max_retry_count`是 Run 失败释放 Item 时使用的上限，`ambient_debounce_seconds`和`ambient_max_wait_seconds`是 ambient 聚合的 debounce 与 force 上限，见 [Inbox 与凭据](06-inbox-credentials.md)。投影与执行读取同一组常量，因此不会出现「显示的策略」与「生效的策略」不一致。
 
 `memory_files`和`session_continuity`来自向在线 Computer 发起的 query，Server 不保存它们。Agent 未分配 Computer 或 Computer 不可达时，`memory_files`是空列表，`session_continuity.state`是`unavailable`，同一响应中的其他字段仍然可用。`session_continuity`只出现在单个 Task、`GET /api/v1/agents/{agent_id}/runs/current`和`sumi agent context current`中；Task 列表不发起 query。
 
@@ -157,13 +162,13 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 #### 2.3.1 Inbox 读取
 
-`GET /api/v1/members/{member_id}/inbox` 是只读投影。该端点不改变 Item 状态：Agent Item 的终态由领取它的 Run 决定，Human Item 由`read`端点处理，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
+`GET /api/v1/members/{member_id}/inbox` 是只读投影。该端点不改变 Item 状态：Agent Item 的终态由处理它的 Run 决定，Human Item 由`read`端点处理，见 [Inbox 与本地凭据](06-inbox-credentials.md)。
 
 授权分两种：Member 读自己的 Inbox，或 Space 治理者读该 Space 中 Agent 的 Inbox。治理身份不足以读取另一个 Human 的 Inbox，返回`permission_denied`；Human 的注意力队列属于本人。
 
 `member_id`先解析回它所属的 Space，再据此判定调用方授权。调用方不是该 Space 的 Member 时返回`not_found`，不区分「Member 不存在」和「无权访问」，避免该端点成为跨 Space 的 Member 存在性探测面。
 
-默认投影只包含仍需要注意力的 Item，即`pending`、`leased`和`deferred`。`handled`和`dead`是历史，不属于队列。
+默认投影只包含仍需要注意力的 Item，即`pending`、`assigned`和`deferred`。`handled`和`dead`是历史，不属于队列。
 
 `?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
@@ -173,13 +178,13 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `POST /api/v1/inbox-items/{item_id}/read`把调用方自己的 Human-owned Item 标记为`handled`。Human 打开来源 Message 时 Browser 调用该端点，因此同一来源只出现一次。重复读取已`handled`的 Item 幂等，返回当前投影。
 
-授权要求调用方就是 Item 的所属 Member。Agent-owned Item 不通过该端点处理：其终态属于领取它的 Run，返回`permission_denied`。其他 Member 不能替 Item 所属者读取，返回`permission_denied`。
+授权要求调用方就是 Item 的所属 Member。Agent-owned Item 不通过该端点处理：其终态属于处理它的 Run，返回`permission_denied`。其他 Member 不能替 Item 所属者读取，返回`permission_denied`。
 
 `read`不携带 idempotency key：重复调用天然幂等，重试等价于读取当前投影。
 
 #### 2.3.3 重新排队 dead Item
 
-`POST /api/v1/inbox-items/{item_id}/requeue`把一个 dead Item 放回`pending`并使其立即可领取。行为、授权和影响范围见 [安全与运维](09-security-operations.md) 的运维动作。
+`POST /api/v1/inbox-items/{item_id}/requeue`把一个 dead Item 放回`pending`并使其立即可派发。行为、授权和影响范围见 [安全与运维](09-security-operations.md) 的运维动作。
 
 Item 不是 dead 时返回冲突。响应是该 Item 更新后的投影，因此调用方可以直接读到新的 status 与两个计数。
 
@@ -255,9 +260,7 @@ Computer 使用 Computer Token 认证。
 ```text
 GET  /api/v1/computers/{computer_id}/connect
 GET  /api/v1/computers/{computer_id}/agents
-POST /api/v1/computers/{computer_id}/runs/claim
 POST /api/v1/computers/{computer_id}/runs/{run_id}/started
-POST /api/v1/computers/{computer_id}/runs/{run_id}/renew
 POST /api/v1/computers/{computer_id}/runs/{run_id}/delivery-receipts
 POST /api/v1/computers/{computer_id}/runs/{run_id}/result
 POST /api/v1/computers/{computer_id}/agent-actions
@@ -267,7 +270,7 @@ POST /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments
 GET  /api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/download
 ```
 
-Server 必须验证 Agent assignment 和 fencing token。Computer 不能操作其他 Computer 的 Agent。
+Server 必须验证该 Run 的 Agent 归属调用方 Computer。Computer 不能操作其他 Computer 的 Agent。Computer 不请求领取工作：Run 由 Server 通过 command 投递，见 [Agent Run](04-agent-run.md)。
 
 Attachment 端点与 [Browser Attachment](#24-attachment) 的三步上传语义相同，但路径带 Agent 与 Run，因此 Server 从 Run 推导上传者，Agent 不提交自己的 Member ID。Agent 可以下载自己在本 Run 上传、尚未关联 Message 的 Attachment。
 
@@ -293,7 +296,7 @@ Server 先持久化 command，再通过 WebSocket 投递。
 
 每个 command 具有稳定 ID 和 Computer 内递增序号。daemon 先把 command 写入 SQLite，再返回 ACK。重复 command 必须返回已保存的结果。
 
-`run.start` 包含可选 Task 和 Focus 的结构化快照。`run.attach_item` 包含递增的 delivery sequence。`run.notice` 不改变 Inbox Item lease。
+`run.start` 包含可选 Task 和 Focus 的结构化快照。`run.attach_item` 包含递增的 delivery sequence。`run.notice` 不把 Item 归入当前 Run。
 
 ## 5. WebSocket query
 

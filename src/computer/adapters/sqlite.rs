@@ -5,10 +5,10 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        ApplicationError, ClaimedItemInput, Delivery, DeliveryState, DriverKind, FencingToken,
+        ApplicationError, Delivery, DeliveryState, DispatchedItemInput, DriverKind,
         ItemDisposition, LocalRun, LocalRunSnapshot, LocalRunState, NoticeDelivery,
-        ProviderSession, ProviderSessionSnapshot, RunInput, RunPriority, SessionFingerprint,
-        SessionScope, SessionState, TerminalStatus,
+        ProviderSession, ProviderSessionSnapshot, RunInput, RunPriority, RunSecret,
+        SessionFingerprint, SessionScope, SessionState, TerminalStatus,
         command::Command,
         ports::{
             CommandStatus, ComputerTransaction, LocalErrorCode, LocalEvent, StoredCommand,
@@ -43,15 +43,9 @@ struct RunPayload {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct RunStartedPayload {
-    fencing_token: FencingToken,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
 struct DeliveryPayload {
     sequence: u64,
     outcome: DeliveryState,
-    fencing_token: FencingToken,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -60,7 +54,6 @@ struct RunResultPayload {
     item_outcomes: Vec<(InboxItemId, ItemDisposition)>,
     continuation_note: Option<String>,
     error_code: Option<LocalErrorCode>,
-    fencing_token: FencingToken,
 }
 
 pub(in crate::computer) struct SqliteTransaction {
@@ -131,8 +124,8 @@ impl SqliteAdapter {
 
         let mut run_snapshots = BTreeMap::new();
         for row in sqlx::query(
-            "SELECT run_id,agent_id,task_id,focus_thread_id,fencing_token, \
-             ownership_lease_expires_at,state,run_json FROM local_runs ORDER BY run_id",
+            "SELECT run_id,agent_id,task_id,focus_thread_id,run_secret,state,run_json \
+             FROM local_runs ORDER BY run_id",
         )
         .fetch_all(&mut self.connection)
         .await
@@ -150,9 +143,8 @@ impl SqliteAdapter {
                         .map(parse_id)
                         .transpose()?,
                     focus_thread_id: parse_id(row.get("focus_thread_id"))?,
-                    fencing_token: FencingToken::new(row.get("fencing_token")),
+                    run_secret: RunSecret::new(row.get("run_secret")),
                     priority: payload.priority,
-                    ownership_lease_expires_at: parse_time(row.get("ownership_lease_expires_at"))?,
                     input: payload.input,
                     state: run_state(row.get("state"))?,
                     session: payload.session,
@@ -181,7 +173,7 @@ impl SqliteAdapter {
             let run = run_snapshots
                 .get_mut(&run_id)
                 .ok_or(ApplicationError::Internal)?;
-            let item: ClaimedItemInput = decode(row.get("item_json"))?;
+            let item: DispatchedItemInput = decode(row.get("item_json"))?;
             let stored_item_id: InboxItemId = parse_id(row.get("inbox_item_id"))?;
             if stored_item_id != item.item_id {
                 return Err(ApplicationError::Internal);
@@ -252,14 +244,8 @@ impl SqliteAdapter {
             let run_id = parse_id(row.get("run_id"))?;
             let payload = row.get("payload_json");
             let event = match row.get::<&str, _>("kind") {
-                "run_started" => {
-                    let payload: RunStartedPayload = decode(payload)?;
-                    LocalEvent::RunStarted {
-                        event_id,
-                        run_id,
-                        fencing_token: payload.fencing_token,
-                    }
-                }
+                // A start event is fully described by its ids, so it stores no payload of its own.
+                "run_started" => LocalEvent::RunStarted { event_id, run_id },
                 "delivery" => {
                     let payload: DeliveryPayload = decode(payload)?;
                     LocalEvent::Delivery {
@@ -267,7 +253,6 @@ impl SqliteAdapter {
                         run_id,
                         sequence: payload.sequence,
                         outcome: payload.outcome,
-                        fencing_token: payload.fencing_token,
                     }
                 }
                 "run_result" => {
@@ -279,7 +264,6 @@ impl SqliteAdapter {
                         item_outcomes: payload.item_outcomes,
                         continuation_note: payload.continuation_note,
                         error_code: payload.error_code,
-                        fencing_token: payload.fencing_token,
                     }
                 }
                 _ => return Err(ApplicationError::Internal),
@@ -338,15 +322,14 @@ impl SqliteAdapter {
             };
             sqlx::query(
                 "INSERT INTO local_runs \
-                 (run_id,agent_id,task_id,focus_thread_id,fencing_token, \
-                  ownership_lease_expires_at,state,run_json) VALUES (?,?,?,?,?,?,?,?)",
+                 (run_id,agent_id,task_id,focus_thread_id,run_secret,state,run_json) \
+                 VALUES (?,?,?,?,?,?,?)",
             )
             .bind(run.view().id.to_string())
             .bind(run.view().agent_id.to_string())
             .bind(run.view().task_id.map(|id| id.to_string()))
             .bind(run.view().focus_thread_id.to_string())
-            .bind(run.view().fencing_token.expose())
-            .bind(format_time(run.view().ownership_lease_expires_at)?)
+            .bind(run.view().run_secret.expose())
             .bind(run_state_name(run.view().state))
             .bind(encode(&payload)?)
             .execute(&mut self.connection)
@@ -398,22 +381,11 @@ impl SqliteAdapter {
         }
         for event in snapshot.events.values() {
             let (run_id, kind, payload) = match event {
-                LocalEvent::RunStarted {
-                    run_id,
-                    fencing_token,
-                    ..
-                } => (
-                    *run_id,
-                    "run_started",
-                    encode(&RunStartedPayload {
-                        fencing_token: fencing_token.clone(),
-                    })?,
-                ),
+                LocalEvent::RunStarted { run_id, .. } => (*run_id, "run_started", "{}".to_owned()),
                 LocalEvent::Delivery {
                     run_id,
                     sequence,
                     outcome,
-                    fencing_token,
                     ..
                 } => (
                     *run_id,
@@ -421,7 +393,6 @@ impl SqliteAdapter {
                     encode(&DeliveryPayload {
                         sequence: *sequence,
                         outcome: *outcome,
-                        fencing_token: fencing_token.clone(),
                     })?,
                 ),
                 LocalEvent::RunResult {
@@ -430,7 +401,6 @@ impl SqliteAdapter {
                     item_outcomes,
                     continuation_note,
                     error_code,
-                    fencing_token,
                     ..
                 } => (
                     *run_id,
@@ -440,7 +410,6 @@ impl SqliteAdapter {
                         item_outcomes: item_outcomes.clone(),
                         continuation_note: continuation_note.clone(),
                         error_code: *error_code,
-                        fencing_token: fencing_token.clone(),
                     })?,
                 ),
             };
@@ -838,18 +807,22 @@ fn map_sqlx(error: sqlx::Error) -> ApplicationError {
 
 #[cfg(test)]
 mod tests {
-    use time::{Duration, OffsetDateTime};
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
     use super::*;
     use crate::computer::application::{
-        AgentInput, ClaimedItemInput, ContextMessageInput, DriverKind, FencingToken, LocalRun,
-        NewRun, ProviderSession, ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority,
-        SessionFingerprint, SessionScope, SessionState, WorkInput, WorkStrength,
+        AgentInput, ContextMessageInput, DispatchedItemInput, DriverKind, LocalRun, NewRun,
+        ProviderSession, ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority,
+        RunSecret, SessionFingerprint, SessionScope, SessionState, WorkInput, WorkStrength,
         command::Command,
         ports::{CommandStatus, LocalEvent, StoredCommand},
     };
     use crate::ids::{CommandId, EventId, InboxItemId, MemberId, MessageId, SpaceId};
+
+    /// Distinct from every field name and type name in the Debug output, so a match proves the value
+    /// itself leaked rather than the label describing it.
+    const SECRET_VALUE: &str = "kFq7vX2pLm9Zt4Rw";
 
     #[tokio::test]
     async fn empty_directory_creates_wal_schema_and_survives_reopen() {
@@ -894,11 +867,7 @@ mod tests {
         let result = adapter
             .transact(async |transaction| {
                 transaction.save_run(run)?;
-                transaction.append_event(LocalEvent::RunStarted {
-                    event_id,
-                    run_id,
-                    fencing_token: FencingToken::new("secret".to_owned()),
-                })?;
+                transaction.append_event(LocalEvent::RunStarted { event_id, run_id })?;
                 Err::<(), _>(ApplicationError::Conflict)
             })
             .await;
@@ -914,7 +883,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_delivery_and_fencing_token_are_restored_without_debug_exposure() {
+    async fn run_delivery_and_run_secret_are_restored_without_debug_exposure() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("daemon.db");
         let mut adapter = SqliteAdapter::open(&path).await.unwrap();
@@ -932,8 +901,8 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(restored.view().fencing_token.expose(), "secret");
-        assert!(!format!("{restored:?}").contains("secret"));
+        assert_eq!(restored.view().run_secret.expose(), SECRET_VALUE);
+        assert!(!format!("{restored:?}").contains(SECRET_VALUE));
     }
 
     #[tokio::test]
@@ -1046,7 +1015,7 @@ mod tests {
         let thread_id = run.view().focus_thread_id;
         let json_item_id = InboxItemId::from_uuid(Uuid::now_v7());
         let column_item_id = InboxItemId::from_uuid(Uuid::now_v7());
-        let item = ClaimedItemInput {
+        let item = DispatchedItemInput {
             item_id: json_item_id,
             task_id: None,
             thread_id,
@@ -1100,11 +1069,11 @@ mod tests {
         let run = test_run();
         let focus_thread_id = run.view().focus_thread_id;
         let mut empty_token = serde_json::to_value(&run).unwrap();
-        empty_token["fencing_token"] = serde_json::json!("");
+        empty_token["run_secret"] = serde_json::json!("");
         assert!(serde_json::from_value::<LocalRun>(empty_token).is_err());
 
         let mut missing_delivery = serde_json::to_value(run).unwrap();
-        missing_delivery["input"]["context"]["claimed_items"] = serde_json::json!([{
+        missing_delivery["input"]["context"]["dispatched_items"] = serde_json::json!([{
             "item_id": InboxItemId::from_uuid(Uuid::now_v7()).to_string(),
             "task_id": null,
             "thread_id": focus_thread_id.to_string(),
@@ -1148,8 +1117,8 @@ mod tests {
     fn test_run_with_optional_item(item_id: Option<InboxItemId>) -> LocalRun {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
-        let claimed_items = item_id
-            .map(|item_id| ClaimedItemInput {
+        let dispatched_items = item_id
+            .map(|item_id| DispatchedItemInput {
                 item_id,
                 task_id: None,
                 thread_id,
@@ -1163,14 +1132,13 @@ mod tests {
             agent_id,
             task_id: None,
             focus_thread_id: thread_id,
-            fencing_token: FencingToken::new("secret".to_owned()),
+            run_secret: RunSecret::new(SECRET_VALUE.to_owned()),
             priority: RunPriority {
                 explicit_human_redirect: false,
                 strength: WorkStrength::Hard,
                 available_at: OffsetDateTime::now_utc(),
                 has_task_continuity: false,
             },
-            ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
             input: RunInput {
                 global_contract: "contract".to_owned(),
                 agent: AgentInput {
@@ -1194,7 +1162,7 @@ mod tests {
                         author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                         body: "body".to_owned(),
                     }],
-                    claimed_items,
+                    dispatched_items,
                 },
                 space_members: Vec::new(),
             },

@@ -36,7 +36,7 @@ describe("Agent detail", () => {
       if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
         current_task: { id: "task", title: "Rebuild WebUI" },
         focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" },
-        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" }, status: "running" },
+        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: space.general_channel_id, channel_slug: "general", root_message_id: "message", root_message_seq: 42, relation: "source" }, status: "working" },
         another_item_waiting: true,
         session_continuity: { state: "warm", generation: 2 },
       });
@@ -71,7 +71,7 @@ describe("Agent detail", () => {
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getAllByRole("img", { name: "Lin avatar" })[0]).toHaveAttribute("data-agent-identicon");
-    expect(screen.getAllByRole("status").find((status) => status.textContent === "Running")).toBeVisible();
+    expect(screen.getAllByRole("status").find((status) => status.textContent === "Working")).toBeVisible();
     expect(screen.getByRole("button", { name: "Message Lin" })).toBeVisible();
     expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
@@ -173,7 +173,7 @@ describe("Agent detail", () => {
       if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
         current_task: null,
         focus: { id: "thread", channel_id: "dm-channel", channel_slug: null, root_message_id: "message", root_message_seq: 7, relation: "source" },
-        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: "dm-channel", channel_slug: null, root_message_id: "message", root_message_seq: 7, relation: "source" }, status: "running" },
+        current_run: { id: "run", agent_member_id: agentId, agent_name: "Lin", focus: { id: "thread", channel_id: "dm-channel", channel_slug: null, root_message_id: "message", root_message_seq: 7, relation: "source" }, status: "working" },
         another_item_waiting: false,
         session_continuity: { state: "warm", generation: 1 },
       });
@@ -202,7 +202,7 @@ function agent(
     role_revision: 1,
     desired_lifecycle: desiredLifecycle,
     provision_status: provisionStatus,
-    activity_status: provisionStatus === "error" ? "error" : desiredLifecycle === "active" ? "running" : "suspended",
+    activity_status: provisionStatus === "error" ? "error" : desiredLifecycle === "active" ? "working" : "suspended",
     driver_kind: "codex",
     attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
     created_at: "2026-07-25T00:00:00Z",

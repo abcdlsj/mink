@@ -22,7 +22,7 @@ pub(in crate::computer) struct AuthorizedCapability {
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) run_id: RunId,
-    pub(in crate::computer) fencing_token: String,
+    pub(in crate::computer) run_secret: String,
     pub(in crate::computer) message_snapshot_sequence: u64,
 }
 
@@ -35,7 +35,7 @@ impl std::fmt::Debug for AuthorizedCapability {
             .field("task_id", &self.task_id)
             .field("focus_thread_id", &self.focus_thread_id)
             .field("run_id", &self.run_id)
-            .field("fencing_token", &"[REDACTED]")
+            .field("run_secret", &"[REDACTED]")
             .field("message_snapshot_sequence", &self.message_snapshot_sequence)
             .finish()
     }
@@ -90,7 +90,7 @@ impl CapabilityService {
                     .filter(|run| {
                         bool::from(
                             run.view()
-                                .fencing_token
+                                .run_secret
                                 .expose()
                                 .as_bytes()
                                 .ct_eq(run_token.as_bytes()),
@@ -103,9 +103,7 @@ impl CapabilityService {
                 }
             })
             .await?;
-        if run.view().state != LocalRunState::Running
-            || run.view().ownership_lease_expires_at <= time::OffsetDateTime::now_utc()
-        {
+        if run.view().state != LocalRunState::Running {
             return Err(ApplicationError::Unauthenticated);
         }
         if requirement == ScopeRequirement::BoundTask && run.view().task_id.is_none() {
@@ -117,7 +115,7 @@ impl CapabilityService {
             task_id: run.view().task_id,
             focus_thread_id: run.view().focus_thread_id,
             run_id: run.view().id,
-            fencing_token: run.view().fencing_token.expose().to_owned(),
+            run_secret: run.view().run_secret.expose().to_owned(),
             message_snapshot_sequence: run.view().input.context.message_snapshot_sequence,
         })
     }

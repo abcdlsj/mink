@@ -3,6 +3,19 @@ use crate::protocol::computer::{
     AgentConfiguration, DriverKind, RoleSnapshot, SpaceMemberSnapshot,
 };
 
+/// Maps the Inbox Item kind that produced the work onto the Run's Trigger. Both `direct` and `reply`
+/// arrive as explicit addressing, which is what `mention` and `direct_message` record.
+fn trigger_for_item_kind(kind: &str) -> Result<RunTrigger, ApplicationError> {
+    match kind {
+        "direct" => Ok(RunTrigger::DirectMessage),
+        "mention" | "reply" | "system" => Ok(RunTrigger::Mention),
+        "task_activity" => Ok(RunTrigger::TaskActivity),
+        "thread_activity" => Ok(RunTrigger::ThreadActivity),
+        "channel_activity" => Ok(RunTrigger::ChannelActivity),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+
 pub(super) fn command_kind(command: &Command) -> &'static str {
     match command {
         Command::AgentProvision(_) => "agent.provision",
@@ -73,51 +86,62 @@ impl PostgresTransaction {
         sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM agent_runs r JOIN agents a ON a.member_id=r.agent_id \
              WHERE r.id=$1 AND r.agent_id=$2 AND r.space_id=$3 AND r.task_id IS NOT DISTINCT FROM $4 \
-               AND r.focus_thread_id=$5 AND r.status='running' AND r.fencing_token_hash=$6 \
-               AND r.lease_expires_at>now() AND a.computer_id=$7)",
+               AND r.focus_thread_id=$5 AND r.status='working' AND a.computer_id=$6)",
         )
         .bind(proof.run_id.into_uuid())
         .bind(proof.agent_id.into_uuid())
         .bind(proof.space_id.into_uuid())
         .bind(proof.task_id.map(TaskId::into_uuid))
         .bind(proof.focus_thread_id.into_uuid())
-        .bind(&proof.fencing_token_hash)
         .bind(proof.computer_id.into_uuid())
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)
     }
-    pub(super) async fn next_claim_candidate(
+    /// Finds Agents with available work and no live Run, newest-starving first. Returns at most one
+    /// row per Agent, because the partial unique index allows one live Run per Agent.
+    pub(super) async fn dispatchable_work(
         &mut self,
-        computer_id: ComputerId,
-    ) -> Result<Option<ClaimCandidate>, ApplicationError> {
-        let row = sqlx::query(
-            "SELECT i.id,i.member_id,i.task_id,i.thread_id,i.message_id,t.channel_id FROM inbox_items i \
+        now: OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<DispatchCandidate>, ApplicationError> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT ON (i.member_id) \
+               i.id,i.member_id,i.task_id,i.thread_id,i.message_id,i.kind,a.computer_id,t.channel_id \
+             FROM inbox_items i \
              JOIN agents a ON a.member_id=i.member_id \
              JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
-             WHERE a.computer_id=$1 AND a.lifecycle='active' AND i.status='pending' \
-               AND i.available_at<=now() \
+             WHERE a.lifecycle='active' AND a.computer_id IS NOT NULL \
+               AND i.status='pending' AND i.available_at<=$1 \
                AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.member_id \
                  AND r.status NOT IN ('completed','yielded','failed','canceled')) \
-             ORDER BY (i.strength='hard') DESC,i.available_at,(i.task_id IS NOT NULL) DESC,i.id LIMIT 1",
+             ORDER BY i.member_id,(i.strength='hard') DESC,i.available_at,(i.task_id IS NOT NULL) DESC,i.id \
+             LIMIT $2",
         )
-        .bind(computer_id.into_uuid())
-        .fetch_optional(&mut *self.connection)
+        .bind(now)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        Ok(row.map(|row| ClaimCandidate {
-            item_id: InboxItemId::from_uuid(row.get("id")),
-            agent_id: MemberId::from_uuid(row.get("member_id")),
-            task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
-            thread_id: ThreadId::from_uuid(row.get("thread_id")),
-            message_id: row
-                .get::<Option<Uuid>, _>("message_id")
-                .map(MessageId::from_uuid),
-            channel_id: ChannelId::from_uuid(row.get("channel_id")),
-        }))
+        rows.into_iter()
+            .map(|row| {
+                Ok(DispatchCandidate {
+                    item_id: InboxItemId::from_uuid(row.get("id")),
+                    agent_id: MemberId::from_uuid(row.get("member_id")),
+                    computer_id: ComputerId::from_uuid(row.get("computer_id")),
+                    task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
+                    thread_id: ThreadId::from_uuid(row.get("thread_id")),
+                    message_id: row
+                        .get::<Option<Uuid>, _>("message_id")
+                        .map(MessageId::from_uuid),
+                    channel_id: ChannelId::from_uuid(row.get("channel_id")),
+                    trigger: trigger_for_item_kind(row.get("kind"))?,
+                })
+            })
+            .collect()
     }
 
-    pub(super) async fn record_claim_failure(
+    pub(super) async fn record_dispatch_failure(
         &mut self,
         item_id: InboxItemId,
         message_id: Option<MessageId>,
@@ -154,18 +178,19 @@ impl PostgresTransaction {
         }
         Ok(changed)
     }
-    pub(super) async fn runs_with_expired_lease(
+    /// Runs the Server believes are live on this Computer. Compared against what the Computer reports
+    /// on reconnect: anything the Computer no longer holds died with its previous daemon process.
+    pub(super) async fn nonterminal_runs_for_computer(
         &mut self,
-        now: OffsetDateTime,
-        limit: u32,
+        computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError> {
         sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM agent_runs \
-             WHERE status NOT IN ('completed','yielded','failed','canceled') \
-               AND lease_expires_at<=$1 ORDER BY lease_expires_at,id LIMIT $2",
+            "SELECT r.id FROM agent_runs r JOIN agents a ON a.member_id=r.agent_id \
+             WHERE a.computer_id=$1 \
+               AND r.status NOT IN ('completed','yielded','failed','canceled') \
+             ORDER BY r.created_at,r.id",
         )
-        .bind(now)
-        .bind(i64::from(limit))
+        .bind(computer_id.into_uuid())
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)
@@ -192,10 +217,10 @@ impl PostgresTransaction {
         let run = run.snapshot();
         sqlx::query(
             "INSERT INTO agent_runs (id,space_id,agent_id,task_id,focus_thread_id,status, \
-             fencing_token_hash,lease_expires_at,outcome_code,error_code,continuation_note,created_at,started_at,finished_at) \
+             trigger_kind,cancel_requested,outcome_code,error_code,continuation_note,created_at,started_at,finished_at) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13) \
              ON CONFLICT (id) DO UPDATE SET task_id=EXCLUDED.task_id,status=EXCLUDED.status, \
-             lease_expires_at=EXCLUDED.lease_expires_at,outcome_code=EXCLUDED.outcome_code, \
+             cancel_requested=EXCLUDED.cancel_requested,outcome_code=EXCLUDED.outcome_code, \
              error_code=EXCLUDED.error_code, \
              continuation_note=EXCLUDED.continuation_note,started_at=EXCLUDED.started_at,finished_at=EXCLUDED.finished_at",
         )
@@ -205,8 +230,8 @@ impl PostgresTransaction {
         .bind(run.task_id.map(TaskId::into_uuid))
         .bind(run.focus_thread_id.into_uuid())
         .bind(run_status_str(run.status))
-        .bind(&run.fencing_token_hash)
-        .bind(run.lease_expires_at)
+        .bind(run_trigger_str(run.trigger))
+        .bind(run.cancel_requested)
         .bind(run.outcome.map(run_outcome_str))
         .bind(run.error_code.map(run_error_code_str))
         .bind(&run.continuation_note)
@@ -367,13 +392,9 @@ impl PostgresTransaction {
         .map_err(map_sqlx)
     }
 
-    pub(super) async fn run_start(
-        &mut self,
-        run_id: RunId,
-        fencing_token: &str,
-    ) -> Result<RunStart, ApplicationError> {
+    pub(super) async fn run_start(&mut self, run_id: RunId) -> Result<RunStart, ApplicationError> {
         let row = sqlx::query(
-            "SELECT agent_id,task_id,focus_thread_id,lease_expires_at,space_id FROM agent_runs WHERE id=$1",
+            "SELECT agent_id,task_id,focus_thread_id,space_id FROM agent_runs WHERE id=$1",
         )
         .bind(run_id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -404,9 +425,9 @@ impl PostgresTransaction {
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        let mut claimed_items = Vec::with_capacity(item_ids.len());
+        let mut dispatched_items = Vec::with_capacity(item_ids.len());
         for item_id in item_ids {
-            claimed_items.push(self.inbox_snapshot(InboxItemId::from_uuid(item_id)).await?);
+            dispatched_items.push(self.inbox_snapshot(InboxItemId::from_uuid(item_id)).await?);
         }
         Ok(RunStart {
             run_id,
@@ -416,10 +437,8 @@ impl PostgresTransaction {
                 None => None,
             },
             focus: self.focus_snapshot(focus_thread_id).await?,
-            claimed_items,
+            dispatched_items,
             space_members,
-            fencing_token: FencingToken::new(fencing_token.to_owned()),
-            ownership_lease_expires_at: row.get("lease_expires_at"),
         })
     }
 
@@ -487,30 +506,30 @@ impl ExecutionTransaction for PostgresTransaction {
     ) -> Result<Option<RunId>, ApplicationError> {
         self.completed_run_for_event(event_id).await
     }
-    async fn runs_with_expired_lease(
+    async fn nonterminal_runs_for_computer(
         &mut self,
-        now: time::OffsetDateTime,
-        limit: u32,
+        computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError> {
-        self.runs_with_expired_lease(now, limit).await
+        self.nonterminal_runs_for_computer(computer_id).await
     }
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.save_run(run).await
     }
-    async fn next_claim_candidate(
+    async fn dispatchable_work(
         &mut self,
-        computer_id: ComputerId,
-    ) -> Result<Option<ClaimCandidate>, ApplicationError> {
-        self.next_claim_candidate(computer_id).await
+        now: time::OffsetDateTime,
+        limit: u32,
+    ) -> Result<Vec<DispatchCandidate>, ApplicationError> {
+        self.dispatchable_work(now, limit).await
     }
-    async fn record_claim_failure(
+    async fn record_dispatch_failure(
         &mut self,
         item_id: InboxItemId,
         message_id: Option<MessageId>,
         channel_id: ChannelId,
         error_code: &str,
     ) -> Result<bool, ApplicationError> {
-        self.record_claim_failure(item_id, message_id, channel_id, error_code)
+        self.record_dispatch_failure(item_id, message_id, channel_id, error_code)
             .await
     }
     async fn authorize_run_capability(

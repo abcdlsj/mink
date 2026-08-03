@@ -71,7 +71,7 @@ _Avoid_：Job、Agent Run、Inbox Item、Workflow、Message 标签
 _Avoid_：Task UUID、Task ID、Task #、#123
 
 **Task Status**：
-Task 的工作流位置，只取 TODO、In Progress、In Review、Done 或 Closed。Running 和 Waiting 属于执行状态，不是 Task Status。
+Task 的工作流位置，只取 TODO、In Progress、In Review、Done 或 Closed。Working 和 Waiting 属于执行状态，不是 Task Status。
 _Avoid_：Run Status、Activity Status
 
 **Source Thread**：
@@ -109,16 +109,24 @@ Computer 为一个 Agent 处理一个 Thread 或 Task 时保存的 Driver 对话
 _Avoid_：Agent Session、Task、Thread、Memory、Run
 
 **Run**：
-Agent 围绕一个 Focus 完成一次有界处理的执行。Run 可以在执行中从当前 Focus 原子创建并绑定 Task。
+Agent 围绕一个 Focus 完成一次有界处理的执行。Run 可以在执行中从当前 Focus 原子创建并绑定 Task。Run 不持有所有权凭据，也没有期限。
 _Avoid_：Agent Session、Job、Task、Turn
+
+**Trigger**：
+要求某个 Agent 开始工作的事件，记录种类和来源引用。Trigger 产生 Run，本身不是执行也不是持久队列项。
+_Avoid_：Inbox Item、Claim、Schedule
+
+**Waiting**：
+Agent 当前没有活跃 Run 的执行状态。Waiting 是正常状态，由新的 pending Inbox Item 结束。
+_Avoid_：Idle、Sleeping、Dormant、Suspended
 
 **Inbox**：
 Member 接收待关注信息的持久入口。
 _Avoid_：Event Queue、Notification Stream、Prompt Buffer
 
 **Inbox Item**：
-Inbox 中一条等待处理、延后或重试的注意力事实。
-_Avoid_：Job、Task、Trigger
+Inbox 中一条等待处理、延后或重试的注意力事实。它是持久事实，与产生它的 Trigger 不是同一概念。
+_Avoid_：Job、Task、Event
 
 **Hard Item**：
 需要 Agent 明确处理的 Inbox Item，例如 DM、mention、reply 或已关联 Task 的重要更新。

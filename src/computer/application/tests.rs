@@ -12,7 +12,7 @@ use crate::ids::{
 use crate::computer::core::{
     home::LocalAgent,
     input::{
-        AgentInput, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput,
+        AgentInput, AttentionNoticeInput, ContextMessageInput, DispatchedItemInput,
         NoticeLocationInput, RunContextInput, RunInput, TaskInput, WorkInput,
     },
     scheduler::{PendingRun, RunPriority, Scheduler, WorkStrength},
@@ -21,8 +21,7 @@ use crate::computer::core::{
         SessionState,
     },
     supervisor::{
-        DeliveryState, FencingToken, ItemDisposition, LocalRun, LocalRunState, NewRun,
-        TerminalStatus,
+        DeliveryState, ItemDisposition, LocalRun, LocalRunState, NewRun, RunSecret, TerminalStatus,
     },
 };
 
@@ -787,9 +786,8 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         agent_id,
         task_id: Some(task_id),
         focus_thread_id: thread_id,
-        fencing_token: FencingToken::new("first-token".to_owned()),
+        run_secret: RunSecret::new("first-token".to_owned()),
         priority: default_priority(true),
-        ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
     .unwrap();
@@ -819,9 +817,8 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         agent_id,
         task_id: Some(task_id),
         focus_thread_id: thread_id,
-        fencing_token: FencingToken::new("second-token".to_owned()),
+        run_secret: RunSecret::new("second-token".to_owned()),
         priority: default_priority(true),
-        ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
     .unwrap();
@@ -1351,23 +1348,27 @@ async fn restart_marks_uncontrolled_process_failed_and_keeps_result_for_retry() 
                 event,
                 LocalEvent::RunResult {
                     status: TerminalStatus::Failed,
-                    error_code: Some(LocalErrorCode::ProcessLost),
+                    error_code: Some(LocalErrorCode::ComputerRestarted),
                     ..
                 }
             ))
     );
 }
 
+/// Recovery must leave a Run alone while its Driver process is alive, no matter how long the turn has
+/// been running. Elapsed time is not evidence of anything, so nothing here may fail a live Run.
 #[tokio::test]
-async fn restart_stops_a_run_whose_ownership_lease_expired() {
+async fn recovery_leaves_a_run_whose_process_is_still_controlled() {
     let mut store = MemoryPort::default();
-    let mut driver = FakeDriver::default();
+    let mut driver = FakeDriver {
+        process_evidence: ProcessEvidence::Controlled,
+        ..FakeDriver::default()
+    };
     let thread_id = thread_id();
     let claimed = item_id();
     let mut run = local_run(None, thread_id, [(claimed, None, thread_id)]);
     run.begin_start().unwrap();
     run.started(SessionScope::Thread(thread_id), 1).unwrap();
-    run.set_lease_for_test(OffsetDateTime::now_utc() - Duration::seconds(1));
     let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
 
@@ -1375,10 +1376,90 @@ async fn restart_stops_a_run_whose_ownership_lease_expired() {
         .await
         .unwrap();
 
-    assert_eq!(driver.interrupt_count, 1);
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Running,
+        "a live Driver process keeps its Run"
+    );
+    assert_eq!(driver.interrupt_count, 0);
+    assert!(
+        !RecoveryService::pending_results(&mut store)
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| matches!(event, LocalEvent::RunResult { .. })),
+        "no terminal result is reported for a Run that is still working"
+    );
+}
+
+/// A Driver that dies mid-turn never delivers a completion, so the daemon must notice the dead process
+/// itself and report `driver_lost`. Nothing judges this Run by elapsed time on either side, so without
+/// this check it would stay mid-flight forever.
+#[tokio::test]
+async fn a_dead_driver_process_fails_its_run_with_driver_lost() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver {
+        process_evidence: ProcessEvidence::Lost,
+        ..FakeDriver::default()
+    };
+    let thread_id = thread_id();
+    let mut run = local_run(None, thread_id, [(item_id(), None, thread_id)]);
+    run.begin_start().unwrap();
+    run.started(SessionScope::Thread(thread_id), 1).unwrap();
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+
+    RecoveryService::fail_lost_drivers(&mut store, &mut driver)
+        .await
+        .unwrap();
+
     assert_eq!(
         store.state.runs[&run_id].view().state,
         LocalRunState::Failed
+    );
+    assert!(
+        RecoveryService::pending_results(&mut store)
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| matches!(
+                event,
+                LocalEvent::RunResult {
+                    status: TerminalStatus::Failed,
+                    error_code: Some(LocalErrorCode::DriverLost),
+                    ..
+                }
+            ))
+    );
+}
+
+/// A queued Run has no Driver process yet. Failing it for a missing process would break the documented
+/// guarantee that a Run waiting for a slot never fails for waiting.
+#[tokio::test]
+async fn a_queued_run_is_not_failed_for_having_no_driver_process() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver {
+        process_evidence: ProcessEvidence::Lost,
+        ..FakeDriver::default()
+    };
+    let thread_id = thread_id();
+    let run = local_run(None, thread_id, [(item_id(), None, thread_id)]);
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+
+    RecoveryService::fail_lost_drivers(&mut store, &mut driver)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Queued
+    );
+    assert!(
+        RecoveryService::pending_results(&mut store)
+            .await
+            .unwrap()
+            .is_empty()
     );
 }
 
@@ -1444,9 +1525,8 @@ fn local_run_with_id<const N: usize>(
         agent_id,
         task_id,
         focus_thread_id: thread_id,
-        fencing_token: FencingToken::new("secret-token".to_owned()),
+        run_secret: RunSecret::new("secret-token".to_owned()),
         priority: default_priority(task_id.is_some()),
-        ownership_lease_expires_at: OffsetDateTime::now_utc() + Duration::minutes(5),
         input: test_input(agent_id, task_id, thread_id, items),
     })
     .unwrap()
@@ -1486,7 +1566,7 @@ fn test_input<const N: usize>(
                 author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                 body: "message body".to_owned(),
             }],
-            claimed_items: items
+            dispatched_items: items
                 .into_iter()
                 .map(|(item_id, task_id, thread_id)| claimed_item(item_id, task_id, thread_id))
                 .collect(),
@@ -1499,8 +1579,8 @@ fn claimed_item(
     item_id: InboxItemId,
     task_id: Option<TaskId>,
     thread_id: ThreadId,
-) -> ClaimedItemInput {
-    ClaimedItemInput {
+) -> DispatchedItemInput {
+    DispatchedItemInput {
         item_id,
         task_id,
         thread_id,

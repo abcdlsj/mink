@@ -32,7 +32,7 @@ describe("ChannelPage", () => {
         return json([{ channel_id: "dm", space_id: spaceId, other_member: { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] }, created_at: "2026-07-25T00:00:00Z" }]);
       }
       if (path.endsWith("/agents") && !init?.method) {
-        return json([{ member_id: linId, activity_status: "running" }]);
+        return json([{ member_id: linId, activity_status: "working" }]);
       }
       if (path.endsWith("/computers") && !init?.method) return json([]);
       if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) {
@@ -69,11 +69,11 @@ describe("ChannelPage", () => {
     expect(channelComposer).toHaveAttribute("placeholder", "Message #general");
     expect(channelComposer).toHaveAttribute("rows", "1");
     expect(channelComposer.closest("form")).toHaveClass("composer");
-    expect(screen.getAllByLabelText("Lin is Running").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByLabelText("Lin is Working").length).toBeGreaterThanOrEqual(2);
     const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
     expect(linIdenticons.every(Boolean)).toBe(true);
     expect(new Set(linIdenticons)).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Running.*Lin.*Running/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
+    expect(screen.getByRole("link", { name: /Lin avatar.*Lin is Working.*Lin.*Working/ })).toHaveAttribute("href", `/s/sumi-lab/dm/${linId}`);
 
     const shell = screen.getByRole("main");
     const navigation = screen.getByRole("complementary", { name: "Space navigation" });

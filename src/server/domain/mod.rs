@@ -38,8 +38,6 @@ pub(in crate::server) enum DomainError {
     RunNotAcceptingItems,
     #[error("run item disposition is incomplete")]
     IncompleteItemDisposition,
-    #[error("fencing token is stale")]
-    StaleFencingToken,
     #[error("action messages must be replies")]
     ActionMustBeReply,
     #[error("message cannot be edited or deleted in its current state")]

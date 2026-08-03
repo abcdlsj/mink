@@ -9,9 +9,8 @@ use url::Url;
 use crate::server::application::attention::{RequeueDeadItem, RequeueDeadItemInput};
 use crate::server::application::conversation::{CreateAgentAction, CreateAgentActionInput};
 use crate::server::application::execution::{
-    ClaimRun, ClaimRunInput, ReclaimExpiredLeases, ReclaimExpiredLeasesInput,
+    DispatchRun, DispatchRunInput, SyncComputerRuns, SyncComputerRunsInput,
 };
-use crate::server::application::ports::RawFencingToken;
 use crate::server::application::task::{CreateTaskFromRootMessage, CreateTaskInput, TaskSource};
 
 #[test]
@@ -267,10 +266,10 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
 }
 
 #[tokio::test]
-async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread_activity() {
+async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thread_activity() {
     let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
-    let database_name = format!("sumi_lease_reclaim_{}", Uuid::now_v7().simple());
+    let database_name = format!("sumi_orphan_sync_{}", Uuid::now_v7().simple());
     let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
         .await
         .unwrap();
@@ -307,8 +306,8 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
                  INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0),('{channel}','{space}','{subscriber}',now(),0);
                  INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
                  INSERT INTO thread_subscriptions (thread_id,space_id,member_id,created_at) VALUES ('{root}','{space}','{subscriber}',now());
-                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','running','hash',now()-interval '5 minutes',now(),now());
-                 INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,lease_run_id,lease_expires_at,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','leased',now(),'{stale_run}',now()-interval '5 minutes',0,now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at,started_at) VALUES ('{stale_run}','{space}','{agent}','{root}','working','mention',now(),now());
+                 INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,assigned_run_id,retry_count,created_at) VALUES ('{stale_item}','{space}','{agent}','{root}','{root}','mention','hard','assigned',now(),'{stale_run}',0,now());
                  INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{stale_run}','{stale_item}',1,now());
                  COMMIT;"
             ))
@@ -316,12 +315,14 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             .await
             .unwrap();
 
-            let reclaimed = ReclaimExpiredLeases::execute(
+            let reclaimed = SyncComputerRuns::execute(
                 &mut adapter,
-                ReclaimExpiredLeasesInput {
-                    now: OffsetDateTime::now_utc(),
-                    limit: 10,
+                SyncComputerRunsInput {
+                    computer_id: ComputerId::from_uuid(computer_id),
+                    // The Computer reconnected holding nothing, so the stale Run is gone with it.
+                    live_run_ids: Vec::new(),
                     max_retry_count: 5,
+                    now: OffsetDateTime::now_utc(),
                 },
             )
             .await
@@ -346,8 +347,8 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             // The Run is terminal, so the partial unique index now admits a new Run for that Agent.
             sqlx::query(
                 "INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,\
-                 fencing_token_hash,lease_expires_at,created_at) \
-                 VALUES ($1,$2,$3,$4,'queued','fresh',now()+interval '1 hour',now())",
+                 trigger_kind,created_at) \
+                 VALUES ($1,$2,$3,$4,'dispatched','mention',now())",
             )
             .bind(Uuid::now_v7())
             .bind(space)
@@ -355,7 +356,7 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             .bind(root)
             .execute(&pool)
             .await
-            .expect("reclaiming the abandoned Run unblocks the Agent");
+            .expect("failing the abandoned Run unblocks the Agent");
 
             // A reply routes thread_activity to the subscriber and channel_activity to the rest.
             adapter
@@ -396,17 +397,17 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             let retired_run = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
-                 UPDATE inbox_items SET status='dead',lease_run_id=NULL,lease_expires_at=NULL,retry_count=5 WHERE id='{stale_item}';
-                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,outcome_code,created_at,started_at,finished_at) VALUES ('{retired_run}','{space}','{agent}','{root}','completed','hash',now(),'completed',now(),now(),now());
+                 UPDATE inbox_items SET status='dead',assigned_run_id=NULL,retry_count=5 WHERE id='{stale_item}';
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,outcome_code,created_at,started_at,finished_at) VALUES ('{retired_run}','{space}','{agent}','{root}','completed','mention','completed',now(),now(),now());
                  COMMIT;"
             ))
             .execute(&pool)
             .await
             .unwrap();
-            // Terminate the queued Run inserted above so the Agent has capacity to claim again.
+            // Terminate the Run inserted above so the Agent has capacity to take work again.
             sqlx::query(
                 "UPDATE agent_runs SET status='canceled',outcome_code='canceled',finished_at=now() \
-                 WHERE agent_id=$1 AND status='queued'",
+                 WHERE agent_id=$1 AND status='dispatched'",
             )
             .bind(agent)
             .execute(&pool)
@@ -427,17 +428,15 @@ async fn expired_lease_reclaim_unblocks_the_agent_and_subscription_raises_thread
             assert_eq!((requeued.retry_count, requeued.requeue_count), (0, 1));
 
             // A fresh retry budget is what makes the requeue useful, so the Item must survive a claim.
-            ClaimRun::execute(
+            DispatchRun::execute(
                 &mut adapter,
-                ClaimRunInput {
+                DispatchRunInput {
                     run_id: RunId::from_uuid(Uuid::now_v7()),
                     agent_id: MemberId::from_uuid(agent),
-                    computer_id: ComputerId::from_uuid(computer_id),
                     task_id: None,
                     focus_thread_id: ThreadId::from_uuid(root),
+                    trigger: RunTrigger::Mention,
                     item_ids: vec![InboxItemId::from_uuid(stale_item)],
-                    fencing_token: RawFencingToken::new("requeued".into()),
-                    lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
                 },
             )
             .await
@@ -623,17 +622,15 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                 .await
                 .unwrap();
             let mut adapter = PostgresAdapter::new(pool.clone());
-            ClaimRun::execute(
+            DispatchRun::execute(
                 &mut adapter,
-                ClaimRunInput {
+                DispatchRunInput {
                     run_id: RunId::from_uuid(Uuid::now_v7()),
                     agent_id: MemberId::from_uuid(agent),
-                    computer_id: ComputerId::from_uuid(computer_id),
                     task_id: None,
                     focus_thread_id: ThreadId::from_uuid(root),
+                    trigger: RunTrigger::Mention,
                     item_ids: vec![InboxItemId::from_uuid(aggregate_id)],
-                    fencing_token: RawFencingToken::new("token".into()),
-                    lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
                 },
             )
             .await
@@ -644,7 +641,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                     .fetch_one(&pool)
                     .await
                     .unwrap();
-            assert_eq!(leased, ("leased".into(), None));
+            assert_eq!(leased, ("assigned".into(), None));
 
             pool.close().await;
         }
@@ -694,7 +691,7 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
              INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{member}',now(),0);
              INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{actor_agent}',now(),0);
              INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{member}','source',now());
-             INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,fencing_token_hash,lease_expires_at,created_at,started_at) VALUES ('{run_id}','{space}','{actor_agent}','{root}','running','hash',now()+interval '1 hour',now(),now());
+             INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at,started_at) VALUES ('{run_id}','{space}','{actor_agent}','{root}','working','mention',now(),now());
              COMMIT;"
         ))
         .execute(&pool)
@@ -746,8 +743,8 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
     );
     let parallel_run = sqlx::query(
         "INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status, \
-             fencing_token_hash,lease_expires_at,created_at) \
-             VALUES ($1,$2,$3,$4,'queued','other',now()+interval '1 hour',now())",
+             trigger_kind,created_at) \
+             VALUES ($1,$2,$3,$4,'dispatched','mention',now())",
     )
     .bind(Uuid::now_v7())
     .bind(space)
@@ -873,17 +870,15 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
         .unwrap();
 
     let run_id = RunId::from_uuid(Uuid::now_v7());
-    ClaimRun::execute(
+    DispatchRun::execute(
         &mut adapter,
-        ClaimRunInput {
+        DispatchRunInput {
             run_id,
             agent_id: MemberId::from_uuid(agent_id),
-            computer_id: ComputerId::from_uuid(computer_id),
             task_id: None,
             focus_thread_id: ThreadId::from_uuid(message_id),
+            trigger: RunTrigger::Mention,
             item_ids: vec![InboxItemId::from_uuid(item_id)],
-            fencing_token: RawFencingToken::new("claim-run-token".to_owned()),
-            lease_expires_at: OffsetDateTime::now_utc() + time::Duration::minutes(2),
         },
     )
     .await
@@ -894,13 +889,16 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
              (SELECT count(*) FROM run_items WHERE run_id=r.id), \
              (SELECT count(*) FROM computer_commands WHERE kind='run.start'), \
              (SELECT count(*) FROM outbox_events WHERE kind='message.updated') \
-             FROM agent_runs r JOIN inbox_items i ON i.lease_run_id=r.id WHERE r.id=$1",
+             FROM agent_runs r JOIN inbox_items i ON i.assigned_run_id=r.id WHERE r.id=$1",
     )
     .bind(run_id.into_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(facts, ("queued".into(), "leased".into(), None, 1, 1, 1));
+    assert_eq!(
+        facts,
+        ("dispatched".into(), "assigned".into(), None, 1, 1, 1)
+    );
 
     pool.close().await;
     sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))

@@ -61,7 +61,7 @@ pub(in crate::computer) struct RunContextInput {
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) message_snapshot_sequence: u64,
     pub(in crate::computer) focus_messages: Vec<ContextMessageInput>,
-    pub(in crate::computer) claimed_items: Vec<ClaimedItemInput>,
+    pub(in crate::computer) dispatched_items: Vec<DispatchedItemInput>,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -83,7 +83,7 @@ impl fmt::Debug for ContextMessageInput {
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub(in crate::computer) struct ClaimedItemInput {
+pub(in crate::computer) struct DispatchedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) thread_id: ThreadId,
@@ -109,7 +109,7 @@ pub(in crate::computer) enum NoticeLocationInput {
     },
 }
 
-impl ClaimedItemInput {
+impl DispatchedItemInput {
     pub(in crate::computer) fn content_hash(&self) -> String {
         let mut digest = Sha256::new();
         digest.update(self.item_id.to_string().as_bytes());
@@ -125,10 +125,10 @@ impl ClaimedItemInput {
     }
 }
 
-impl fmt::Debug for ClaimedItemInput {
+impl fmt::Debug for DispatchedItemInput {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ClaimedItemInput")
+            .debug_struct("DispatchedItemInput")
             .field("item_id", &self.item_id)
             .field("task_id", &self.task_id)
             .field("thread_id", &self.thread_id)
@@ -170,7 +170,7 @@ impl RunInput {
             digest.update(message.author_member_id.to_string().as_bytes());
             digest.update(message.body.as_bytes());
         }
-        for item in &self.context.claimed_items {
+        for item in &self.context.dispatched_items {
             digest.update(item.content_hash().as_bytes());
         }
         for member in &self.space_members {
@@ -209,9 +209,9 @@ impl RunInput {
 
         // Inject only the item identity when the source message is inside the window;
         // the body is already in focus_messages. Bodies outside the window are kept.
-        let claimed_items = self
+        let dispatched_items = self
             .context
-            .claimed_items
+            .dispatched_items
             .iter()
             .map(|item| {
                 let mut view = serde_json::Map::new();
@@ -265,8 +265,8 @@ impl RunInput {
             );
         }
         context.insert(
-            "claimed_items".to_owned(),
-            serde_json::Value::Array(claimed_items),
+            "dispatched_items".to_owned(),
+            serde_json::Value::Array(dispatched_items),
         );
 
         serde_json::json!({
@@ -297,7 +297,10 @@ impl fmt::Debug for RunInput {
             .field("task_id", &self.work.task.as_ref().map(|task| task.task_id))
             .field("focus_thread_id", &self.context.focus_thread_id)
             .field("message_count", &self.context.focus_messages.len())
-            .field("claimed_item_count", &self.context.claimed_items.len())
+            .field(
+                "dispatched_item_count",
+                &self.context.dispatched_items.len(),
+            )
             .finish()
     }
 }
@@ -317,8 +320,8 @@ mod tests {
         }
     }
 
-    fn item(item_sequence: u64, message_id: Option<MessageId>) -> ClaimedItemInput {
-        ClaimedItemInput {
+    fn item(item_sequence: u64, message_id: Option<MessageId>) -> DispatchedItemInput {
+        DispatchedItemInput {
             item_id: InboxItemId::from_uuid(Uuid::from_u128(200 + u128::from(item_sequence))),
             task_id: None,
             thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
@@ -329,7 +332,7 @@ mod tests {
 
     fn run_input(
         focus_messages: Vec<ContextMessageInput>,
-        claimed_items: Vec<ClaimedItemInput>,
+        dispatched_items: Vec<DispatchedItemInput>,
     ) -> RunInput {
         RunInput {
             global_contract: "contract".to_owned(),
@@ -350,7 +353,7 @@ mod tests {
                 focus_thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
                 message_snapshot_sequence: 7,
                 focus_messages,
-                claimed_items,
+                dispatched_items,
             },
             space_members: Vec::new(),
         }
@@ -390,7 +393,10 @@ mod tests {
                 .get("omitted_earlier_message_count")
                 .is_none()
         );
-        assert_eq!(view["run_context"]["claimed_items"], serde_json::json!([]));
+        assert_eq!(
+            view["run_context"]["dispatched_items"],
+            serde_json::json!([])
+        );
         assert_eq!(view["space_members"], serde_json::json!([]));
     }
 
@@ -444,7 +450,7 @@ mod tests {
         ];
         let view = run_input(messages, items.clone()).model_view();
 
-        let claimed = view["run_context"]["claimed_items"].as_array().unwrap();
+        let claimed = view["run_context"]["dispatched_items"].as_array().unwrap();
         assert!(claimed[0].get("content").is_none());
         assert!(claimed[1].get("content").is_some());
         assert!(claimed[2].get("content").is_none());

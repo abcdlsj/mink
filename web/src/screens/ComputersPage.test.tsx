@@ -165,7 +165,7 @@ const hostedAgent = {
   role_revision: 1,
   desired_lifecycle: "active",
   provision_status: "ready",
-  activity_status: "running",
+  activity_status: "working",
   driver_kind: "builtin",
   attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
   memory_files: [],

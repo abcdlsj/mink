@@ -8,16 +8,16 @@ use super::{
     task::Task,
 };
 
+/// A Run is one bounded execution. It carries no ownership credential and no deadline: the Trigger
+/// names the Agent, the Agent belongs to one Computer, and that Computer's Driver executes. No second
+/// candidate executor exists, so nothing has to prove its right to run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum RunStatus {
-    Queued,
-    Starting,
-    Running,
-    Finalizing,
+    Dispatched,
+    Working,
     Completed,
     Yielded,
     Failed,
-    Stopping,
     Canceled,
 }
 
@@ -39,14 +39,17 @@ pub(in crate::server) enum RunOutcome {
     Canceled,
 }
 
+/// Every variant names a failure the Computer observed directly and reported. The Server never infers
+/// a failure, so no code here stands for "the Server stopped hearing from the Computer": that is a
+/// Computer reachability fact, not a Run outcome.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) enum RunErrorCode {
-    InvalidCommand,
+    DriverError,
+    DriverLost,
+    ComputerRestarted,
+    SessionUnavailable,
     AgentUnavailable,
-    ProcessLost,
-    SessionLost,
-    SandboxUnavailable,
-    DriverUnavailable,
+    InvalidCommand,
     Internal,
 }
 
@@ -79,14 +82,26 @@ pub(in crate::server) struct Run {
     task_id: Option<TaskId>,
     focus_thread_id: ThreadId,
     status: RunStatus,
-    fencing_token_hash: String,
-    lease_expires_at: OffsetDateTime,
+    trigger: RunTrigger,
+    cancel_requested: bool,
     items: Vec<RunItem>,
     outcome: Option<RunOutcome>,
     error_code: Option<RunErrorCode>,
     continuation_note: Option<String>,
     started_at: Option<OffsetDateTime>,
     finished_at: Option<OffsetDateTime>,
+}
+
+/// Records why the Run exists. Run behaviour does not branch on the kind: it selects the Inbox Item
+/// strength upstream, so a new kind adds a value here and changes nothing else.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum RunTrigger {
+    Mention,
+    DirectMessage,
+    TaskActivity,
+    ThreadActivity,
+    ChannelActivity,
+    Schedule,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,8 +112,8 @@ pub(in crate::server) struct RunView<'a> {
     pub(in crate::server) task_id: Option<TaskId>,
     pub(in crate::server) focus_thread_id: ThreadId,
     pub(in crate::server) status: RunStatus,
-    pub(in crate::server) fencing_token_hash: &'a str,
-    pub(in crate::server) lease_expires_at: OffsetDateTime,
+    pub(in crate::server) trigger: RunTrigger,
+    pub(in crate::server) cancel_requested: bool,
     pub(in crate::server) outcome: Option<RunOutcome>,
     pub(in crate::server) error_code: Option<RunErrorCode>,
     pub(in crate::server) continuation_note: Option<&'a str>,
@@ -114,8 +129,8 @@ pub(in crate::server) struct RunSnapshot {
     pub(in crate::server) task_id: Option<TaskId>,
     pub(in crate::server) focus_thread_id: ThreadId,
     pub(in crate::server) status: RunStatus,
-    pub(in crate::server) fencing_token_hash: String,
-    pub(in crate::server) lease_expires_at: OffsetDateTime,
+    pub(in crate::server) trigger: RunTrigger,
+    pub(in crate::server) cancel_requested: bool,
     pub(in crate::server) items: Vec<RunItemSnapshot>,
     pub(in crate::server) outcome: Option<RunOutcome>,
     pub(in crate::server) error_code: Option<RunErrorCode>,
@@ -131,8 +146,7 @@ impl Run {
         agent_id: MemberId,
         task_id: Option<TaskId>,
         focus_thread_id: ThreadId,
-        fencing_token_hash: String,
-        lease_expires_at: OffsetDateTime,
+        trigger: RunTrigger,
     ) -> Self {
         Self {
             id,
@@ -140,9 +154,9 @@ impl Run {
             agent_id,
             task_id,
             focus_thread_id,
-            status: RunStatus::Queued,
-            fencing_token_hash,
-            lease_expires_at,
+            status: RunStatus::Dispatched,
+            trigger,
+            cancel_requested: false,
             items: Vec::new(),
             outcome: None,
             error_code: None,
@@ -160,8 +174,8 @@ impl Run {
             task_id: self.task_id,
             focus_thread_id: self.focus_thread_id,
             status: self.status,
-            fencing_token_hash: &self.fencing_token_hash,
-            lease_expires_at: self.lease_expires_at,
+            trigger: self.trigger,
+            cancel_requested: self.cancel_requested,
             outcome: self.outcome,
             error_code: self.error_code,
             continuation_note: self.continuation_note.as_deref(),
@@ -186,7 +200,7 @@ impl Run {
             .find(|item| item.delivery_sequence == delivery_sequence)
     }
 
-    pub(in crate::server) fn add_claimed_item(
+    pub(in crate::server) fn add_dispatched_item(
         &mut self,
         inbox_item_id: InboxItemId,
         delivery_sequence: u64,
@@ -215,8 +229,8 @@ impl Run {
             task_id: view.task_id,
             focus_thread_id: view.focus_thread_id,
             status: view.status,
-            fencing_token_hash: view.fencing_token_hash.to_owned(),
-            lease_expires_at: view.lease_expires_at,
+            trigger: view.trigger,
+            cancel_requested: view.cancel_requested,
             items: self
                 .items()
                 .map(|item| RunItemSnapshot {
@@ -239,14 +253,9 @@ impl Run {
             RunStatus::Yielded => Some(RunOutcome::Yielded),
             RunStatus::Failed => Some(RunOutcome::Failed),
             RunStatus::Canceled => Some(RunOutcome::Canceled),
-            RunStatus::Queued
-            | RunStatus::Starting
-            | RunStatus::Running
-            | RunStatus::Finalizing
-            | RunStatus::Stopping => None,
+            RunStatus::Dispatched | RunStatus::Working => None,
         };
-        if snapshot.fencing_token_hash.is_empty()
-            || snapshot.outcome != expected_outcome
+        if snapshot.outcome != expected_outcome
             || snapshot.finished_at.is_some() != expected_outcome.is_some()
             || (snapshot.error_code.is_some() && snapshot.outcome != Some(RunOutcome::Failed))
             || (expected_outcome.is_some()
@@ -270,8 +279,8 @@ impl Run {
             task_id: snapshot.task_id,
             focus_thread_id: snapshot.focus_thread_id,
             status: snapshot.status,
-            fencing_token_hash: snapshot.fencing_token_hash,
-            lease_expires_at: snapshot.lease_expires_at,
+            trigger: snapshot.trigger,
+            cancel_requested: snapshot.cancel_requested,
             items: snapshot
                 .items
                 .into_iter()
@@ -289,16 +298,13 @@ impl Run {
         })
     }
 
-    pub(in crate::server) fn start(
-        &mut self,
-        fencing_token_hash: &str,
-        now: OffsetDateTime,
-    ) -> Result<(), DomainError> {
-        self.validate_fencing(fencing_token_hash)?;
-        if !matches!(self.status, RunStatus::Queued | RunStatus::Starting) {
+    /// Reported by the Computer once the Driver is processing. Idempotent from `working` so a replayed
+    /// report is harmless.
+    pub(in crate::server) fn start(&mut self, now: OffsetDateTime) -> Result<(), DomainError> {
+        if !matches!(self.status, RunStatus::Dispatched | RunStatus::Working) {
             return Err(DomainError::InvalidTransition);
         }
-        self.status = RunStatus::Running;
+        self.status = RunStatus::Working;
         self.started_at.get_or_insert(now);
         Ok(())
     }
@@ -314,21 +320,8 @@ impl Run {
         Ok(())
     }
 
-    pub(in crate::server) fn renew_lease(
-        &mut self,
-        fencing_token_hash: &str,
-        expires_at: OffsetDateTime,
-    ) -> Result<(), DomainError> {
-        self.validate_fencing(fencing_token_hash)?;
-        if self.status != RunStatus::Running || expires_at <= self.lease_expires_at {
-            return Err(DomainError::InvalidTransition);
-        }
-        self.lease_expires_at = expires_at;
-        Ok(())
-    }
-
     pub(in crate::server) fn attach(&mut self, item: &InboxItem) -> Result<u64, DomainError> {
-        if self.status != RunStatus::Running {
+        if self.status != RunStatus::Working {
             return Err(DomainError::RunNotAcceptingItems);
         }
         let item_view = item.view();
@@ -349,19 +342,17 @@ impl Run {
             .items
             .last()
             .map_or(1, |item| item.delivery_sequence + 1);
-        self.add_claimed_item(item_view.id, sequence)?;
+        self.add_dispatched_item(item_view.id, sequence)?;
         Ok(sequence)
     }
 
-    pub(in crate::server) fn begin_finalizing(
-        &mut self,
-        fencing_token_hash: &str,
-    ) -> Result<(), DomainError> {
-        self.validate_fencing(fencing_token_hash)?;
-        if self.status != RunStatus::Running {
+    /// Marks a Human's stop request. The Run stays live: only the Computer's report moves it to
+    /// `canceled`, because only the Computer knows when the Driver actually stopped.
+    pub(in crate::server) fn request_cancel(&mut self) -> Result<(), DomainError> {
+        if self.is_terminal() {
             return Err(DomainError::InvalidTransition);
         }
-        self.status = RunStatus::Finalizing;
+        self.cancel_requested = true;
         Ok(())
     }
 
@@ -374,30 +365,6 @@ impl Run {
         self.outcome = Some(RunOutcome::Canceled);
         self.error_code = None;
         self.finished_at = Some(now);
-    }
-
-    /// Fails a Run whose ownership lease expired. Takes no fencing token: the point is that the
-    /// owning Computer stopped proving ownership, so its token must not gate the recovery. Any later
-    /// report from that Computer is rejected, because the Run is now terminal.
-    ///
-    /// Reachable from every non-terminal status, including `queued` and `starting`: a Computer that
-    /// goes offline before starting the Driver leaves the Run just as stuck as one that dies mid-turn.
-    pub(in crate::server) fn fail_expired_lease(
-        &mut self,
-        now: OffsetDateTime,
-    ) -> Result<(), DomainError> {
-        if self.is_terminal() {
-            return Err(DomainError::InvalidTransition);
-        }
-        for item in &mut self.items {
-            item.disposition
-                .get_or_insert(InboxItemDisposition::Released);
-        }
-        self.status = RunStatus::Failed;
-        self.outcome = Some(RunOutcome::Failed);
-        self.error_code = Some(RunErrorCode::ProcessLost);
-        self.finished_at = Some(now);
-        Ok(())
     }
 
     pub(in crate::server) fn is_terminal(&self) -> bool {
@@ -427,16 +394,16 @@ impl Run {
         Ok(())
     }
 
+    /// Applies the Computer's terminal report. Accepted from `dispatched` too: a Computer that fails
+    /// while opening the Session reports the failure without ever reaching `working`.
     pub(in crate::server) fn finish(
         &mut self,
-        fencing_token_hash: &str,
         outcome: RunOutcome,
         error_code: Option<RunErrorCode>,
         continuation_note: Option<String>,
         now: OffsetDateTime,
     ) -> Result<(), DomainError> {
-        self.validate_fencing(fencing_token_hash)?;
-        if self.status != RunStatus::Finalizing {
+        if self.is_terminal() {
             return Err(DomainError::InvalidTransition);
         }
         if self.items.iter().any(|item| item.disposition.is_none()) {
@@ -458,24 +425,15 @@ impl Run {
         self.finished_at = Some(now);
         Ok(())
     }
-
-    pub(in crate::server) fn validate_fencing(&self, token_hash: &str) -> Result<(), DomainError> {
-        if self.fencing_token_hash != token_hash {
-            return Err(DomainError::StaleFencingToken);
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const TOKEN: &str = "token-hash";
-
     #[test]
     fn rehydrate_accepts_a_consistent_snapshot_and_rejects_a_live_outcome() {
-        let snapshot = finalizing_run().snapshot();
+        let snapshot = working_run().snapshot();
         let restored = Run::rehydrate(snapshot.clone()).expect("snapshot is valid");
         assert_eq!(restored.snapshot(), snapshot);
 
@@ -485,19 +443,12 @@ mod tests {
             Run::rehydrate(invalid),
             Err(DomainError::InvalidPersistedState)
         );
-
-        let mut invalid = finalizing_run().snapshot();
-        invalid.fencing_token_hash.clear();
-        assert_eq!(
-            Run::rehydrate(invalid),
-            Err(DomainError::InvalidPersistedState)
-        );
     }
 
     #[test]
     fn rehydrate_rejects_a_terminal_run_with_an_unresolved_item() {
-        let mut run = finalizing_run();
-        run.add_claimed_item(InboxItemId::from_uuid(uuid::Uuid::from_u128(5)), 1)
+        let mut run = working_run();
+        run.add_dispatched_item(InboxItemId::from_uuid(uuid::Uuid::from_u128(5)), 1)
             .expect("item is unique");
         run.set_item_disposition(
             InboxItemId::from_uuid(uuid::Uuid::from_u128(5)),
@@ -505,7 +456,6 @@ mod tests {
         )
         .expect("item can be resolved");
         run.finish(
-            TOKEN,
             RunOutcome::Completed,
             None,
             None,
@@ -521,16 +471,16 @@ mod tests {
         );
     }
 
-    fn finalizing_run() -> Run {
+    fn working_run() -> Run {
         Run {
             id: RunId::from_uuid(uuid::Uuid::from_u128(1)),
             space_id: SpaceId::from_uuid(uuid::Uuid::from_u128(2)),
             agent_id: MemberId::from_uuid(uuid::Uuid::from_u128(3)),
             task_id: None,
             focus_thread_id: ThreadId::from_uuid(uuid::Uuid::from_u128(4)),
-            status: RunStatus::Finalizing,
-            fencing_token_hash: TOKEN.to_owned(),
-            lease_expires_at: OffsetDateTime::UNIX_EPOCH,
+            status: RunStatus::Working,
+            trigger: RunTrigger::Mention,
+            cancel_requested: false,
             items: Vec::new(),
             outcome: None,
             error_code: None,
@@ -543,17 +493,16 @@ mod tests {
     #[test]
     fn a_failed_run_records_the_reported_error_code() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut run = finalizing_run();
+        let mut run = working_run();
         run.finish(
-            TOKEN,
             RunOutcome::Failed,
-            Some(RunErrorCode::SessionLost),
+            Some(RunErrorCode::DriverError),
             None,
             now,
         )
         .expect("a failed run accepts an error code");
         assert_eq!(run.status, RunStatus::Failed);
-        assert_eq!(run.error_code, Some(RunErrorCode::SessionLost));
+        assert_eq!(run.error_code, Some(RunErrorCode::DriverError));
     }
 
     #[test]
@@ -564,93 +513,84 @@ mod tests {
             RunOutcome::Yielded,
             RunOutcome::Canceled,
         ] {
-            let mut run = finalizing_run();
+            let mut run = working_run();
             assert_eq!(
-                run.finish(TOKEN, outcome, Some(RunErrorCode::Internal), None, now),
+                run.finish(outcome, Some(RunErrorCode::Internal), None, now),
                 Err(DomainError::InvalidTransition)
             );
-            assert_eq!(run.status, RunStatus::Finalizing);
+            assert_eq!(run.status, RunStatus::Working);
             assert_eq!(run.error_code, None);
-            run.finish(TOKEN, outcome, None, None, now)
+            run.finish(outcome, None, None, now)
                 .expect("a non-failed outcome finishes without an error code");
             assert_eq!(run.error_code, None);
         }
     }
 
     #[test]
-    fn a_failed_run_may_omit_the_error_code() {
-        let now = OffsetDateTime::UNIX_EPOCH;
-        let mut run = finalizing_run();
-        run.finish(TOKEN, RunOutcome::Failed, None, None, now)
-            .expect("an error code is optional");
-        assert_eq!(run.error_code, None);
-    }
-
-    #[test]
     fn retirement_cancellation_leaves_no_error_code() {
-        let mut run = finalizing_run();
-        run.error_code = Some(RunErrorCode::ProcessLost);
+        let mut run = working_run();
+        run.error_code = Some(RunErrorCode::DriverLost);
         run.cancel_for_agent_retirement(OffsetDateTime::UNIX_EPOCH);
         assert_eq!(run.outcome, Some(RunOutcome::Canceled));
         assert_eq!(run.error_code, None);
     }
 
+    /// A Run that never reached `working` still has to accept a terminal report: opening the Provider
+    /// Session can fail before the Driver ever starts.
     #[test]
-    fn an_expired_lease_fails_the_run_from_any_live_status_and_only_once() {
+    fn a_dispatched_run_accepts_a_terminal_report_without_starting() {
         let now = OffsetDateTime::UNIX_EPOCH;
-        for status in [
-            RunStatus::Queued,
-            RunStatus::Starting,
-            RunStatus::Running,
-            RunStatus::Finalizing,
-            RunStatus::Stopping,
-        ] {
-            let mut run = finalizing_run();
-            run.status = status;
-            run.fail_expired_lease(now)
-                .expect("a live Run yields to lease expiry");
-            assert_eq!(run.status, RunStatus::Failed);
-            assert_eq!(run.outcome, Some(RunOutcome::Failed));
-            assert_eq!(run.error_code, Some(RunErrorCode::ProcessLost));
-            assert_eq!(run.finished_at, Some(now));
-            // Terminal now, so a late report from the old Computer cannot reopen it.
-            assert_eq!(
-                run.fail_expired_lease(now),
-                Err(DomainError::InvalidTransition)
-            );
-        }
+        let mut run = working_run();
+        run.status = RunStatus::Dispatched;
+        run.started_at = None;
+        run.finish(
+            RunOutcome::Failed,
+            Some(RunErrorCode::SessionUnavailable),
+            None,
+            now,
+        )
+        .expect("a dispatched Run can fail before starting");
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.started_at, None);
     }
 
     #[test]
-    fn reclaiming_an_expired_lease_preserves_a_disposition_the_agent_already_recorded() {
-        let mut run = finalizing_run();
-        let handled = InboxItemId::from_uuid(uuid::Uuid::from_u128(11));
-        let untouched = InboxItemId::from_uuid(uuid::Uuid::from_u128(12));
-        run.status = RunStatus::Running;
-        run.items = vec![
-            RunItem {
-                inbox_item_id: handled,
-                delivery_sequence: 1,
-                disposition: Some(InboxItemDisposition::Handled),
-            },
-            RunItem {
-                inbox_item_id: untouched,
-                delivery_sequence: 2,
-                disposition: None,
-            },
-        ];
-
-        run.fail_expired_lease(OffsetDateTime::UNIX_EPOCH)
-            .expect("a running Run yields to lease expiry");
-
+    fn a_terminal_run_rejects_a_second_report() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let mut run = working_run();
+        run.finish(RunOutcome::Completed, None, None, now)
+            .expect("first report applies");
         assert_eq!(
-            run.items[0].disposition,
-            Some(InboxItemDisposition::Handled),
-            "work the Agent reported as handled is not undone by expiry"
+            run.finish(RunOutcome::Failed, None, None, now),
+            Err(DomainError::InvalidTransition)
         );
-        assert_eq!(
-            run.items[1].disposition,
-            Some(InboxItemDisposition::Released)
-        );
+        assert_eq!(run.outcome, Some(RunOutcome::Completed));
+    }
+
+    /// A replayed `run_started` must not be an error: at-least-once delivery means the Computer can
+    /// report the same start twice.
+    #[test]
+    fn a_repeated_start_report_is_idempotent() {
+        let first = OffsetDateTime::UNIX_EPOCH;
+        let later = first + time::Duration::seconds(30);
+        let mut run = working_run();
+        run.status = RunStatus::Dispatched;
+        run.started_at = None;
+        run.start(first).expect("first start applies");
+        run.start(later).expect("a replayed start is accepted");
+        assert_eq!(run.started_at, Some(first));
+    }
+
+    #[test]
+    fn a_cancel_request_leaves_the_run_live_until_the_computer_confirms() {
+        let mut run = working_run();
+        run.request_cancel()
+            .expect("a live Run accepts the request");
+        assert!(run.cancel_requested);
+        assert_eq!(run.status, RunStatus::Working);
+
+        run.finish(RunOutcome::Canceled, None, None, OffsetDateTime::UNIX_EPOCH)
+            .expect("the Computer confirms the stop");
+        assert_eq!(run.status, RunStatus::Canceled);
     }
 }

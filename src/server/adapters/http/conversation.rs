@@ -653,7 +653,7 @@ pub(super) fn inbox_kind_code(kind: InboxItemKind) -> InboxKind {
 pub(super) fn inbox_status_code(status: InboxItemStatus) -> InboxStatus {
     match status {
         InboxItemStatus::Pending => InboxStatus::Pending,
-        InboxItemStatus::Leased => InboxStatus::Leased,
+        InboxItemStatus::Assigned => InboxStatus::Assigned,
         InboxItemStatus::Deferred => InboxStatus::Deferred,
         InboxItemStatus::Handled => InboxStatus::Handled,
         InboxItemStatus::Dead => InboxStatus::Dead,

@@ -311,18 +311,20 @@ CREATE TABLE agent_runs (
     agent_id UUID NOT NULL REFERENCES agents(member_id) ON DELETE RESTRICT,
     task_id UUID,
     focus_thread_id UUID NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('queued', 'starting', 'running', 'finalizing', 'completed', 'yielded', 'failed', 'stopping', 'canceled')),
-    fencing_token_hash TEXT NOT NULL,
-    lease_expires_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('dispatched', 'working', 'completed', 'yielded', 'failed', 'canceled')),
+    trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('mention', 'direct_message', 'task_activity', 'thread_activity', 'channel_activity', 'schedule')),
+    cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
     outcome_code TEXT CHECK (outcome_code IN ('completed', 'yielded', 'failed', 'canceled')),
+    -- Every value names a failure the Computer observed directly. No value stands for "the Server
+    -- stopped hearing from the Computer": that is Computer reachability, not a Run outcome.
     error_code TEXT CHECK (
         error_code IN (
-            'invalid_command',
+            'driver_error',
+            'driver_lost',
+            'computer_restarted',
+            'session_unavailable',
             'agent_unavailable',
-            'process_lost',
-            'session_lost',
-            'sandbox_unavailable',
-            'driver_unavailable',
+            'invalid_command',
             'internal'
         )
     ),
@@ -348,10 +350,11 @@ CREATE TABLE inbox_items (
     task_id UUID,
     kind TEXT NOT NULL CHECK (kind IN ('direct', 'mention', 'reply', 'task_activity', 'thread_activity', 'channel_activity', 'system')),
     strength TEXT NOT NULL CHECK (strength IN ('hard', 'ambient')),
-    status TEXT NOT NULL CHECK (status IN ('pending', 'leased', 'deferred', 'handled', 'dead')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'assigned', 'deferred', 'handled', 'dead')),
     available_at TIMESTAMPTZ NOT NULL,
-    lease_run_id UUID,
-    lease_expires_at TIMESTAMPTZ,
+    -- The Run processing this Item. A plain reference with no expiry: nothing reclaims an Item on a
+    -- timer, so the Item returns to the queue only when its Run reports an outcome.
+    assigned_run_id UUID,
     retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
     requeue_count INTEGER NOT NULL DEFAULT 0 CHECK (requeue_count >= 0),
     handled_at TIMESTAMPTZ,
@@ -365,8 +368,8 @@ CREATE TABLE inbox_items (
     FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (task_id, space_id) REFERENCES tasks(id, space_id) ON DELETE RESTRICT,
-    FOREIGN KEY (lease_run_id, space_id) REFERENCES agent_runs(id, space_id) ON DELETE RESTRICT,
-    CHECK ((status = 'leased') = (lease_run_id IS NOT NULL AND lease_expires_at IS NOT NULL)),
+    FOREIGN KEY (assigned_run_id, space_id) REFERENCES agent_runs(id, space_id) ON DELETE RESTRICT,
+    CHECK ((status = 'assigned') = (assigned_run_id IS NOT NULL)),
     CHECK (status <> 'handled' OR handled_at IS NOT NULL),
     -- The four aggregate columns describe one Message range, so they are present or absent together.
     CHECK (num_nonnulls(first_message_seq, last_message_seq, aggregated_count, force_at) IN (0, 4)),

@@ -161,15 +161,14 @@ impl RouteHardItem {
             let mut run = transaction.run(run_id).await?;
             let run_view = run.view();
             let run_id = run_view.id;
-            let lease_expires_at = run_view.lease_expires_at;
-            if run_view.status != RunStatus::Running {
+            if run_view.status != RunStatus::Working {
                 return Ok(HardItemRoute::Pending);
             }
             if run_view.task_id == item_view.task_id
                 && run_view.focus_thread_id == item_view.thread_id
             {
                 let sequence = run.attach(&item)?;
-                item.attach_to_active_run(run_id, lease_expires_at)?;
+                item.attach_to_active_run(run_id)?;
                 transaction.save_run(run.clone()).await?;
                 transaction.save_inbox_item(item).await?;
                 transaction.emit(Effect::ItemAttached {

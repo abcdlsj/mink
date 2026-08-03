@@ -227,7 +227,9 @@ pub(crate) enum DriverKind {
     Builtin,
 }
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+/// Identifies which Run a capability call belongs to. Carries no credential: the Computer's own token
+/// authenticates the caller, and the Run being `working` on that Computer authorizes the call.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RunContext {
     pub(crate) agent_id: AgentId,
@@ -235,23 +237,7 @@ pub(crate) struct RunContext {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) focus_thread_id: ThreadId,
     pub(crate) run_id: RunId,
-    pub(crate) fencing_token: String,
     pub(crate) message_snapshot_sequence: u64,
-}
-
-impl fmt::Debug for RunContext {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("RunContext")
-            .field("agent_id", &self.agent_id)
-            .field("space_id", &self.space_id)
-            .field("task_id", &self.task_id)
-            .field("focus_thread_id", &self.focus_thread_id)
-            .field("run_id", &self.run_id)
-            .field("fencing_token", &"[REDACTED]")
-            .field("message_snapshot_sequence", &self.message_snapshot_sequence)
-            .finish()
-    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

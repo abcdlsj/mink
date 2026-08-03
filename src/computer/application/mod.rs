@@ -9,8 +9,9 @@ pub(in crate::computer) mod scheduler;
 pub(in crate::computer) use crate::computer::core::{
     home::{LocalAgent, LocalAgentState, MemoryFile},
     input::{
-        AgentInput, AttentionNoticeInput, ClaimedItemInput, ContextMessageInput, MemoryEntryInput,
-        NoticeLocationInput, RunContextInput, RunInput, SpaceMemberInput, TaskInput, WorkInput,
+        AgentInput, AttentionNoticeInput, ContextMessageInput, DispatchedItemInput,
+        MemoryEntryInput, NoticeLocationInput, RunContextInput, RunInput, SpaceMemberInput,
+        TaskInput, WorkInput,
     },
     scheduler::{RunPriority, WorkStrength},
     session::{
@@ -18,8 +19,8 @@ pub(in crate::computer) use crate::computer::core::{
         SessionFingerprint, SessionScope, SessionState,
     },
     supervisor::{
-        Delivery, DeliveryState, FencingToken, ItemDisposition, LocalRun, LocalRunSnapshot,
-        LocalRunState, NewRun, NoticeDelivery, TerminalStatus,
+        Delivery, DeliveryState, ItemDisposition, LocalRun, LocalRunSnapshot, LocalRunState,
+        NewRun, NoticeDelivery, RunSecret, TerminalStatus,
     },
 };
 
