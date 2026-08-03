@@ -84,8 +84,26 @@ pg_bin="$(brew --prefix postgresql@17)/bin"
 if ! "$pg_bin/psql" --dbname postgres --tuples-only --no-align --command "SELECT 1 FROM pg_database WHERE datname = 'sumi_dev'" | grep -qx 1; then
   "$pg_bin/createdb" sumi_dev
 else
+  if ! schema_version="$(
+    awk '
+      $0 ~ /^[[:space:]]*INSERT INTO schema_meta[[:space:]]*\(version,[[:space:]]*applied_at\)[[:space:]]+VALUES[[:space:]]*\([0-9]+,[[:space:]]*now\(\)\);[[:space:]]*$/ {
+        line = $0
+        sub(/^[^0-9]*/, "", line)
+        sub(/[^0-9].*$/, "", line)
+        print line
+        found = 1
+        exit
+      }
+      END {
+        if (!found) exit 1
+      }
+    ' schema/postgres.sql
+  )"; then
+    echo "could not determine the PostgreSQL schema baseline version from schema/postgres.sql" >&2
+    exit 1
+  fi
   installed_version="$("$pg_bin/psql" --dbname sumi_dev --tuples-only --no-align --command "SELECT max(version) FROM schema_meta" 2>/dev/null || true)"
-  if [ "$installed_version" != "2" ]; then
+  if [ "$installed_version" != "$schema_version" ]; then
     echo "sumi_dev uses an incompatible schema baseline; recreating the development database" >&2
     "$pg_bin/dropdb" --force sumi_dev
     "$pg_bin/createdb" sumi_dev
