@@ -538,6 +538,12 @@ impl CreateAgentAction {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
+            if !transaction
+                .computer_accepts_agent(input.computer_id, run_view.space_id)
+                .await?
+            {
+                return Err(ApplicationError::Conflict);
+            }
             let member = Member {
                 id: input.agent_member_id,
                 space_id: run_view.space_id,
@@ -598,6 +604,44 @@ impl AddChannelAgents {
         port.transact(async |transaction| {
             transaction
                 .add_channel_agents(actor, channel_id, agent_ids, idempotency_key, now)
+                .await
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct RemoveChannelAgent;
+
+impl RemoveChannelAgent {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor: MemberId,
+        channel_id: ChannelId,
+        agent_id: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        port.transact(async |transaction| {
+            transaction
+                .remove_channel_agent(actor, channel_id, agent_id, now)
+                .await
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct LeaveChannel;
+
+impl LeaveChannel {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        port.transact(async |transaction| {
+            transaction
+                .leave_channel(agent_id, channel_id, idempotency_key, now)
                 .await
         })
         .await

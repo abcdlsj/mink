@@ -58,7 +58,7 @@ impl PostgresTransaction {
         item_id: InboxItemId,
     ) -> Result<InboxItemView, ApplicationError> {
         let row = sqlx::query(
-            "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+            "SELECT i.id,i.space_id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name,\
@@ -127,7 +127,7 @@ impl PostgresTransaction {
             InboxScope::Dead => &["dead"],
         };
         let rows = sqlx::query(
-            "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
+            "SELECT i.id,i.space_id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
                     m.author_member_id AS sender_member_id,sender.display_name AS sender_name,\

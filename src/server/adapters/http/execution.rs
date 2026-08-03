@@ -364,6 +364,49 @@ pub(super) async fn execute_agent_action(
             );
         }
     }
+    if let (Some(key), capability::Action::ChannelLeave { channel_id }) =
+        (request.idempotency_key, &request.action)
+    {
+        let replayed = sqlx::query_scalar::<_, Uuid>(
+            "SELECT records.resource_id FROM idempotency_records records \
+             JOIN agents ON agents.member_id=records.actor_member_id \
+             JOIN agent_runs runs ON runs.id=$5 \
+             WHERE records.actor_member_id=$1 AND records.action='channel.leave' \
+             AND records.idempotency_key=$2 AND agents.space_id=$3 AND agents.computer_id=$4 \
+             AND runs.agent_id=records.actor_member_id AND runs.space_id=$3 \
+             AND runs.task_id IS NOT DISTINCT FROM $6 AND runs.focus_thread_id=$7 \
+             AND runs.status='working'",
+        )
+        .bind(context.agent_id.into_uuid())
+        .bind(key.into_uuid())
+        .bind(context.space_id.into_uuid())
+        .bind(computer_id)
+        .bind(context.run_id.into_uuid())
+        .bind(context.task_id.map(TaskId::into_uuid))
+        .bind(context.focus_thread_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Channel leave replay could not be checked",
+                false,
+            )
+        })?;
+        if let Some(replayed_channel_id) = replayed {
+            if replayed_channel_id != channel_id.into_uuid() {
+                return Err(capability_error(
+                    capability::ErrorCode::Conflict,
+                    "Idempotency key belongs to another Channel",
+                    false,
+                ));
+            }
+            return Ok(json!({
+                "channel_id": replayed_channel_id,
+                "member_id": context.agent_id,
+            }));
+        }
+    }
     let mut storage = state.storage.clone();
     let valid = AuthorizeRunCapability::execute(
         &mut storage,
@@ -386,6 +429,9 @@ pub(super) async fn execute_agent_action(
         ));
     }
     match request.action {
+        capability::Action::Discover { operation } => {
+            discover_operation(state, context, &operation).await
+        }
         capability::Action::ContextCurrent => {
             let task = match context.task_id {
                 Some(id) => Some(
@@ -480,6 +526,21 @@ pub(super) async fn execute_agent_action(
                         })?
                 }
                 capability::MessageTarget::Channel(channel_id) => (channel_id.into_uuid(), None),
+                capability::MessageTarget::Member(member_id) => {
+                    let opened = OpenDirectMessage::execute(
+                        &mut storage,
+                        OpenDirectMessageInput {
+                            channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+                            space_id: context.space_id,
+                            actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                            other_member_id: member_id,
+                            now: time::OffsetDateTime::now_utc(),
+                        },
+                    )
+                    .await
+                    .map_err(app_to_capability)?;
+                    (opened.view.channel_id.into_uuid(), None)
+                }
             };
             let mentions = agent_mention_ids(&state.pool, channel_id, &send.body)
                 .await
@@ -817,7 +878,43 @@ pub(super) async fn execute_agent_action(
             .await;
             Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
         }
-        capability::Action::AgentCreate { name, role, driver } => {
+        capability::Action::ChannelLeave { channel_id } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            LeaveChannel::execute(
+                &mut storage,
+                MemberId::from_uuid(context.agent_id.into_uuid()),
+                channel_id,
+                key,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "channel.leave",
+                json!({
+                    "run_id": context.run_id,
+                    "channel_id": channel_id,
+                }),
+            )
+            .await;
+            Ok(json!({"channel_id": channel_id, "member_id": context.agent_id}))
+        }
+        capability::Action::AgentCreate {
+            name,
+            role,
+            driver,
+            computer_id: target_computer_id,
+        } => {
             if !valid_display_name(&name) || name.chars().count() > 40 || role.trim().is_empty() {
                 return Err(capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -833,7 +930,7 @@ pub(super) async fn execute_agent_action(
                     agent_member_id: agent_id,
                     display_name: name.clone(),
                     role_text: role,
-                    computer_id: ComputerId::from_uuid(computer_id),
+                    computer_id: target_computer_id,
                     driver_kind: match driver {
                         capability::DriverKind::Codex => DriverKind::Codex,
                         capability::DriverKind::Builtin => DriverKind::Builtin,
@@ -1018,6 +1115,95 @@ pub(super) async fn record_agent_item_disposition(
     .await
     .map_err(app_to_capability)?;
     Ok(())
+}
+
+async fn discover_operation(
+    state: &RuntimeState,
+    context: &capability::RunContext,
+    operation: &str,
+) -> Result<Value, capability::Error> {
+    if operation != "agent.create" {
+        return Err(capability_error(
+            capability::ErrorCode::NotFound,
+            "Discovery operation is not available",
+            false,
+        ));
+    }
+
+    let computers = sqlx::query(
+        "SELECT id,name,hostname,os,connection_status FROM computers \
+         WHERE space_id=$1 AND deleted_at IS NULL AND connection_status='online' ORDER BY name,id",
+    )
+    .bind(context.space_id.into_uuid())
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Discovery options could not be read",
+            false,
+        )
+    })?;
+    let permission_granted = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM member_permissions \
+         WHERE member_id=$1 AND space_id=$2 AND action_code='agent.create')",
+    )
+    .bind(context.agent_id.into_uuid())
+    .bind(context.space_id.into_uuid())
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Discovery permission state could not be read",
+            false,
+        )
+    })?;
+
+    Ok(json!({
+        "operation": "agent.create",
+        "description": "Create an Agent in the current Space",
+        "input": {
+            "fields": [
+                {
+                    "name": "name",
+                    "value_type": "display_name",
+                    "required": true
+                },
+                {
+                    "name": "role_file",
+                    "value_type": "agent_role_file",
+                    "required": true
+                },
+                {
+                    "name": "computer_id",
+                    "value_type": "computer_id",
+                    "required": true,
+                    "available": computers.iter().map(|row| json!({
+                        "value": row.get::<Uuid, _>("id"),
+                        "label": row.get::<String, _>("name"),
+                        "hostname": row.get::<String, _>("hostname"),
+                        "os": row.get::<String, _>("os"),
+                        "status": row.get::<String, _>("connection_status"),
+                        "available": row.get::<&str, _>("connection_status") == "online"
+                    })).collect::<Vec<_>>()
+                },
+                {
+                    "name": "driver",
+                    "value_type": "driver_kind",
+                    "required": true,
+                    "available": [
+                        { "value": "codex", "label": "Codex" },
+                        { "value": "builtin", "label": "Builtin" }
+                    ]
+                }
+            ]
+        },
+        "permission": {
+            "action": "agent.create",
+            "granted": permission_granted
+        }
+    }))
 }
 
 pub(super) async fn agent_read_thread(

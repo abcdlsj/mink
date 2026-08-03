@@ -9,6 +9,7 @@ pub(super) fn message_from_row(row: &sqlx::postgres::PgRow) -> Result<Message, A
         "agent_created" => {
             MessageContent::AgentCreated(MemberId::from_uuid(row.get("action_agent_member_id")))
         }
+        "system_notice" => MessageContent::SystemNotice(row.get("body_markdown")),
         _ => return Err(ApplicationError::Internal),
     };
     Ok(Message {
@@ -143,6 +144,9 @@ pub(super) fn wire_message(
         "agent_created" => WireMessageContent::Action {
             action: ActionKind::AgentCreated,
             target: ActionTarget::Agent(AgentId::from_uuid(row.get("action_agent_member_id"))),
+        },
+        "system_notice" => WireMessageContent::Text {
+            markdown: row.get("body_markdown"),
         },
         _ => return Err(ApplicationError::Internal),
     };
@@ -363,6 +367,7 @@ pub(super) fn inbox_view_from_row(
 ) -> Result<InboxItemView, ApplicationError> {
     Ok(InboxItemView {
         id: InboxItemId::from_uuid(row.get("id")),
+        space_id: SpaceId::from_uuid(row.get("space_id")),
         member_id: MemberId::from_uuid(row.get("member_id")),
         kind: inbox_kind_from_str(row.get("kind"))?,
         strength: strength_from_str(row.get("strength"))?,

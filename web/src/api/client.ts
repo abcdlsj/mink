@@ -260,6 +260,10 @@ export function listDirectMessages(spaceId: string): Promise<DirectMessage[]> {
   return apiRequest<DirectMessage[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/dms`);
 }
 
+export function listMemberDirectMessages(memberId: string): Promise<DirectMessage[]> {
+  return apiRequest<DirectMessage[]>(`/api/v1/members/${encodeURIComponent(memberId)}/dms`);
+}
+
 export function createDirectMessage(spaceId: string, memberId: string): Promise<DirectMessage> {
   return mutate<DirectMessage>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/dms`, "POST", {
     member_id: memberId,

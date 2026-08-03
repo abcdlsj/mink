@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fmt};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{
-    AgentId, AttachmentId, ChannelId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId,
-    SpaceId, TaskId, ThreadId,
+    AgentId, AttachmentId, ChannelId, ComputerId, IdempotencyKey, InboxItemId, MemberId, MessageId,
+    RunId, SpaceId, TaskId, ThreadId,
 };
 
 pub(crate) const SCHEMA_VERSION: u16 = 1;
@@ -38,6 +38,9 @@ impl fmt::Debug for Request {
     deny_unknown_fields
 )]
 pub(crate) enum Action {
+    Discover {
+        operation: String,
+    },
     ContextCurrent,
     MessageRead(Page),
     ThreadRead {
@@ -105,16 +108,21 @@ pub(crate) enum Action {
         name: String,
         private: bool,
     },
+    ChannelLeave {
+        channel_id: ChannelId,
+    },
     AgentCreate {
         name: String,
         role: String,
         driver: DriverKind,
+        computer_id: ComputerId,
     },
 }
 
 impl Action {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Discover { .. } => "discover",
             Self::ContextCurrent => "context.current",
             Self::MessageRead(_) => "message.read",
             Self::ThreadRead { .. } => "thread.read",
@@ -136,6 +144,7 @@ impl Action {
             Self::MemoryRead { .. } => "memory.read",
             Self::MemoryWrite { .. } => "memory.write",
             Self::ChannelCreate { .. } => "channel.create",
+            Self::ChannelLeave { .. } => "channel.leave",
             Self::AgentCreate { .. } => "agent.create",
         }
     }
@@ -201,6 +210,7 @@ pub(crate) enum MessageTarget {
     Focus,
     Thread(ThreadId),
     Channel(ChannelId),
+    Member(MemberId),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

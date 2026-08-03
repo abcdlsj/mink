@@ -441,6 +441,11 @@ pub(super) async fn message_row(
                 },
             }
         }
+        "system_notice" => MessageContentResponse::SystemNotice {
+            body_markdown: row
+                .get::<Option<String>, _>("body_markdown")
+                .unwrap_or_default(),
+        },
         _ => return Err(ApiError::internal()),
     };
     Ok(MessageResponse {

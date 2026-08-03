@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Activity, Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef, useState } from "react";
 
-import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
+import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMemberDirectMessages, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
 import { activityLabel, useAgentActivity, type AgentActivityItem } from "../agentActivity";
 import { DialogFrame } from "../components/DialogFrame";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
@@ -45,6 +45,12 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
   const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false });
   const members = useQuery({ queryKey: ["members", spaceId], queryFn: () => listMembers(spaceId) });
+  const agentDirectMessages = useQuery({
+    queryKey: ["agent-direct-messages", agentId],
+    queryFn: () => listMemberDirectMessages(agentId),
+    enabled: canManage,
+    retry: false,
+  });
   const computers = useQuery({
     queryKey: ["computers", spaceId],
     queryFn: () => listComputers(spaceId),
@@ -178,6 +184,20 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
             </DetailSection>
             <DetailSection className="agent-identity" title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
             <DetailSection className="agent-runtime" title="Runtime"><dl className="detail-grid"><Field label="Provision">{capitalize(value.provision_status)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Last error">{value.last_error_code ? <code>{value.last_error_code}</code> : "None recorded"}</Field></dl></DetailSection>
+            {canManage ? <DetailSection className="agent-direct-messages" title="Agent DMs">
+              {agentDirectMessages.isPending ? <p>Loading Agent DMs...</p> : null}
+              {agentDirectMessages.error ? <p className="inline-notice" role="alert">Agent DMs are unavailable.</p> : null}
+              {!agentDirectMessages.isPending && !agentDirectMessages.error && agentDirectMessages.data?.length === 0 ? <p className="agent-direct-messages-empty">No Agent-Agent DMs yet.</p> : null}
+              {agentDirectMessages.data?.length ? <ul className="agent-direct-message-list" aria-label={`Agent DMs for ${value.name}`}>
+                {agentDirectMessages.data.map((dm) => (
+                  <li key={dm.channel_id}>
+                    <PresenceIdentity name={dm.other_member.display_name} kind="agent" seed={dm.other_member.id} />
+                    <span><Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: dm.other_member.id }}>{dm.other_member.display_name}</Link><small>Private Agent DM</small></span>
+                    <time dateTime={dm.created_at}>{activityTime(dm.created_at)}</time>
+                  </li>
+                ))}
+              </ul> : null}
+            </DetailSection> : null}
             <DetailSection className="agent-permissions" title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
@@ -271,6 +291,7 @@ const activityLabels: Record<AgentActivityItem["kind"], string> = {
   "task.done": "Completed task",
   "task.close": "Closed task",
   "channel.create": "Created channel",
+  "channel.leave": "Left channel",
   "agent.create": "Created agent",
   "inbox.ack": "Acknowledged an inbox item",
   "inbox.defer": "Deferred an inbox item",
@@ -316,7 +337,7 @@ function activityArguments(item: AgentActivityItem): Array<{ label: string; valu
 }
 
 function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {
-  if ((item.kind === "message.send" || item.kind === "channel.create") && item.channelId) {
+  if ((item.kind === "message.send" || item.kind === "channel.create" || item.kind === "channel.leave") && item.channelId) {
     const channel = channelById.get(item.channelId);
     if (!channel) return null;
     return <Link

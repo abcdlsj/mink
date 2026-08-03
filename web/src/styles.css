@@ -1188,6 +1188,10 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .inbox-kind { font-family: var(--font-sans); font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 2px 5px; background: var(--accent-soft); flex: 0 0 auto; line-height: 1.35; letter-spacing: 0; }
 .inbox-address { font-family: var(--font-sans); font-size: 10px; font-weight: 800; text-transform: uppercase; align-self: center; flex: 0 0 auto; padding: 2px 5px; background: transparent; line-height: 1.35; letter-spacing: 0; max-width: min(38vw, 260px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-message-preview { display: -webkit-box; min-width: 0; margin: 0; color: #55514a; font-size: 13px; line-height: 1.4; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+.inbox-item--stacked { position: relative; margin-bottom: 8px; border-bottom: 2px solid var(--ink); }
+.inbox-item--stacked::before { position: absolute; z-index: 0; right: 8px; bottom: -5px; left: 8px; height: 4px; border: 1px solid rgb(20 17 17 / 25%); border-top: 0; background: var(--panel); content: ""; }
+.inbox-item--stacked .inbox-open { position: relative; z-index: 1; background: var(--paper); }
+.inbox-item--stacked .inbox-kind { white-space: nowrap; }
 .inbox-item-copy > .inbox-kind { justify-self: start; margin-top: 2px; }
 .inbox-item .inbox-actions button:first-child { background: var(--green); }
 .inbox-empty { max-width: 720px; margin: clamp(28px, 7vh, 72px) auto 0; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); margin-top: clamp(24px, 6vh, 64px); }
@@ -1308,6 +1312,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-expand { margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .message-expand:hover { color: var(--ink); }
 .system-event { margin: 8px 0 2px; color: color-mix(in srgb, var(--red) 58%, var(--muted)); font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 500; }
+.system-event--message { margin: 6px 0; }
+.message-system-content { grid-column: 1 / -1; min-width: 0; }
 .system-event--standalone { margin: 14px 20px 6px; }
 .system-event-heading { display: flex; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: default; list-style: none; text-align: center; }
 summary.system-event-heading { cursor: pointer; }
@@ -1986,7 +1992,8 @@ pre {
 .agent-overview-grid > .agent-work { grid-column: 1 / -1; grid-row: 1; padding-inline: 0; }
 .agent-overview-grid > .agent-identity { grid-column: 1; grid-row: 2; padding-inline-start: 0; }
 .agent-overview-grid > .agent-runtime { grid-column: 2; grid-row: 2; padding-inline-end: 0; }
-.agent-overview-grid > .agent-permissions { grid-column: 1 / -1; grid-row: 3; padding: 28px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
+.agent-overview-grid > .agent-direct-messages { grid-column: 1 / -1; grid-row: 3; padding: 28px 0; border-top: 2px solid var(--ink); }
+.agent-overview-grid > .agent-permissions { grid-column: 1 / -1; grid-row: 4; padding: 28px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
 .agent-overview-grid > .detail-section > h2 { margin: 0 0 16px; color: var(--ink); font-size: 13px; letter-spacing: .12em; }
 .agent-work-facts > div { grid-template-columns: 96px minmax(0, 1fr); padding: 13px 0; }
 .agent-work-facts p { font-size: 15px; }
@@ -1998,6 +2005,15 @@ pre {
 .agent-activity-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 14px 0; border-bottom: 1px solid rgb(20 17 17 / 18%); }
 .agent-activity-row > p { min-width: 0; margin: 0; font-size: var(--text-body); line-height: 1.4; overflow-wrap: anywhere; }
 .agent-activity-row > time { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agent-direct-messages-empty { margin: 0; color: var(--muted); font-size: var(--text-system); }
+.agent-direct-message-list { display: grid; max-width: 680px; margin: 0; padding: 0; list-style: none; }
+.agent-direct-message-list > li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 52px; padding: 8px 0; border-bottom: 1px solid rgb(20 17 17 / 16%); }
+.agent-direct-message-list > li:last-child { border-bottom: 0; }
+.agent-direct-message-list .pixel-identity { width: 32px; height: 32px; flex-basis: 32px; }
+.agent-direct-message-list > li > span { display: grid; min-width: 0; gap: 2px; }
+.agent-direct-message-list a { overflow: hidden; color: var(--ink); font-size: var(--text-body); font-weight: 700; text-overflow: ellipsis; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.agent-direct-message-list small { color: var(--muted); font-size: var(--text-meta); }
+.agent-direct-message-list time { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .agent-activity-command { display: grid; grid-column: 1 / -1; gap: 6px; margin: 4px 0 0; padding: 10px 12px; border-inline-start: 4px solid var(--cyan); background: var(--panel); }
 .agent-activity-command > div { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: start; gap: 12px; min-width: 0; }
 .agent-activity-command dt { color: var(--muted); font-size: var(--text-meta); font-weight: 700; letter-spacing: .08em; }
@@ -2054,6 +2070,7 @@ pre {
   .agent-overview-grid > .agent-work,
   .agent-overview-grid > .agent-identity,
   .agent-overview-grid > .agent-runtime,
+  .agent-overview-grid > .agent-direct-messages,
   .agent-overview-grid > .agent-permissions { grid-column: 1; grid-row: auto; padding-inline: 0; border-inline-end: 0; }
   .agent-overview-grid > .agent-permissions { padding-top: 28px; }
 }

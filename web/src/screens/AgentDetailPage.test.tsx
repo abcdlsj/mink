@@ -209,6 +209,51 @@ describe("Agent detail", () => {
     expect(await screen.findByText("DM · message 7")).toBeVisible();
     expect(screen.queryByRole("link", { name: /#.*:7/ })).not.toBeInTheDocument();
   });
+
+  it("shows Agent-Agent DM metadata only in the Agent management view", async () => {
+    const peerId = "019c0000-0000-7000-8000-000000000091";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
+      if (path.endsWith("/dms") && !init?.method) {
+        if (path.endsWith(`/members/${agentId}/dms`)) {
+          return json([{
+            channel_id: "019c0000-0000-7000-8000-000000000092",
+            space_id: space.id,
+            other_member: { id: peerId, kind: "agent", display_name: "Mira", access_level: "member", permissions: [] },
+            created_at: "2026-08-03T00:00:00Z",
+          }]);
+        }
+        return json([]);
+      }
+      if (path.endsWith("/members") && !init?.method) return json([
+        { id: space.owner_member_id, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
+        { id: agentId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
+        { id: peerId, kind: "agent", display_name: "Mira", access_level: "member", permissions: [] },
+      ]);
+      if (path.endsWith(`/agents/${agentId}/runs/current`) && !init?.method) return json({
+        current_task: null,
+        focus: null,
+        current_run: null,
+        another_item_waiting: false,
+        session_continuity: { state: "unavailable", generation: 0 },
+      });
+      if (path.endsWith(`/agents/${agentId}`) && !init?.method) return json(agent("active", "ready"));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute(`/s/sumi-lab/agents/${agentId}`);
+
+    expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(await screen.findByRole("heading", { name: "Agent DMs" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Mira" })).toHaveAttribute("href", `/s/sumi-lab/agents/${peerId}`);
+    expect(screen.getByText("Private Agent DM")).toBeVisible();
+    expect(document.querySelectorAll(".dm-nav-item")).toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/members/${agentId}/dms`, expect.anything());
+  });
 });
 
 function agent(

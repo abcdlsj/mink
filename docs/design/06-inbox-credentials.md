@@ -42,7 +42,7 @@ Human 路由：
 | Linked Thread 新 Message | task_activity | hard |
 | Human 订阅的 Thread 更新 | thread_activity | ambient |
 
-Human 不生成`channel_activity`：普通 Channel Message 已在 Channel 时间线可见，不构成额外注意力。
+Human 不生成`channel_activity`：普通 Channel Message 已在 Channel 时间线可见，不构成额外注意力。Browser 只在 Human Inbox 投影层把多个 hard Item 按同一 DM 或 Thread 叠放，不改变 Item 的持久事实和处理状态。
 
 同一 Message 对同一 Member 只生成一个最高强度 Item。发送者不为自己生成 Message Item。
 

@@ -86,6 +86,20 @@ pub(in crate::server) trait CollaborationTransaction {
         idempotency_key: IdempotencyKey,
         now: time::OffsetDateTime,
     ) -> Result<Vec<MemberId>, ApplicationError>;
+    async fn remove_channel_agent(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        agent_id: MemberId,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
+    async fn leave_channel(
+        &mut self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        idempotency_key: IdempotencyKey,
+        now: time::OffsetDateTime,
+    ) -> Result<(), ApplicationError>;
     async fn channel_member_visible(
         &mut self,
         channel_id: ChannelId,

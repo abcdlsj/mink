@@ -18,6 +18,7 @@ struct CapabilityFixture {
     headers: HeaderMap,
     computer_id: Uuid,
     owner_id: Uuid,
+    peer_agent_id: Uuid,
     channel_id: Uuid,
     context: capability::RunContext,
     handled_item_id: InboxItemId,
@@ -46,6 +47,7 @@ impl CapabilityFixture {
         let space_id = Uuid::now_v7();
         let owner_id = Uuid::now_v7();
         let agent_id = Uuid::now_v7();
+        let peer_agent_id = Uuid::now_v7();
         let computer_id = Uuid::now_v7();
         let channel_id = Uuid::now_v7();
         let focus_id = Uuid::now_v7();
@@ -58,6 +60,7 @@ impl CapabilityFixture {
                  INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','#FE7DA8','{owner_id}',now());
                  INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner',now());
                  INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','member',now());
+                 INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{peer_agent_id}','{space_id}','agent','PeerAgent','member',now());
                  INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','{}','online',1,now());
                  INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent_id}','{space_id}','{computer_id}','Test',1,'active','codex',now());
                  INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel_id}','{space_id}','private','general',2,now());
@@ -101,6 +104,7 @@ impl CapabilityFixture {
             headers,
             computer_id,
             owner_id,
+            peer_agent_id,
             channel_id,
             context: capability::RunContext {
                 agent_id: AgentId::from_uuid(agent_id),
@@ -161,6 +165,66 @@ impl CapabilityFixture {
         .await
         .unwrap();
     }
+}
+
+#[tokio::test]
+async fn agent_capability_discovery_lists_creation_choices_and_permission_state() {
+    let fixture = CapabilityFixture::create().await;
+    let discovery = fixture
+        .execute(capability::Action::Discover {
+            operation: "agent.create".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(discovery["operation"], "agent.create");
+    assert_eq!(discovery["permission"]["action"], "agent.create");
+    assert_eq!(discovery["permission"]["granted"], false);
+    let fields = discovery["input"]["fields"].as_array().unwrap();
+    let computer_field = fields
+        .iter()
+        .find(|field| field["name"] == "computer_id")
+        .unwrap();
+    assert_eq!(
+        computer_field["available"][0]["value"],
+        fixture.computer_id.to_string()
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field["name"] == "driver")
+            .unwrap()["available"][0]["value"],
+        "codex"
+    );
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn agent_capability_creation_rejects_an_unavailable_computer() {
+    let fixture = CapabilityFixture::create().await;
+    sqlx::query(
+        "INSERT INTO member_permissions (member_id,space_id,action_code,granted_by_member_id,created_at) \
+         VALUES ($1,$2,'agent.create',$3,now())",
+    )
+    .bind(fixture.context.agent_id.into_uuid())
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.owner_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+
+    let error = fixture
+        .execute(capability::Action::AgentCreate {
+            name: "Coder".into(),
+            role: "Write code".into(),
+            driver: capability::DriverKind::Codex,
+            computer_id: crate::ids::ComputerId::from_uuid(Uuid::now_v7()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, capability::ErrorCode::Conflict);
+
+    fixture.destroy().await;
 }
 
 #[tokio::test]
@@ -751,6 +815,159 @@ async fn agent_message_send_resolves_display_name_mentions_in_the_target_channel
 }
 
 #[tokio::test]
+async fn agent_message_send_can_open_an_agent_only_dm() {
+    let fixture = CapabilityFixture::create().await;
+    let result = fixture
+        .execute(capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Member(MemberId::from_uuid(fixture.peer_agent_id)),
+            body: "private Agent note".to_owned(),
+            attachment_ids: Vec::new(),
+            handle_item_id: None,
+            snapshot_sequence: None,
+        }))
+        .await
+        .unwrap();
+    let channel_id = result["channel_id"].as_str().unwrap();
+    let members: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT m.id,m.kind FROM channel_members cm JOIN members m ON m.id=cm.member_id \
+         WHERE cm.channel_id=$1 ORDER BY m.id",
+    )
+    .bind(Uuid::parse_str(channel_id).unwrap())
+    .fetch_all(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        members,
+        vec![
+            (fixture.context.agent_id.into_uuid(), "agent".to_owned()),
+            (fixture.peer_agent_id, "agent".to_owned()),
+        ]
+    );
+    let author: Uuid =
+        sqlx::query_scalar("SELECT author_member_id FROM messages WHERE channel_id=$1")
+            .bind(Uuid::parse_str(channel_id).unwrap())
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(author, fixture.context.agent_id.into_uuid());
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn agent_channel_leave_records_a_notice_and_replays_idempotently() {
+    let fixture = CapabilityFixture::create().await;
+    let key = IdempotencyKey::from_uuid(Uuid::now_v7());
+    let result = fixture
+        .execute_with_key(
+            capability::Action::ChannelLeave {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+            },
+            key,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["channel_id"], fixture.channel_id.to_string());
+    assert_eq!(result["member_id"], fixture.context.agent_id.to_string());
+
+    let member_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=$2",
+    )
+    .bind(fixture.channel_id)
+    .bind(fixture.context.agent_id.into_uuid())
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(member_count, 0);
+    let notice: (String, String, Uuid) = sqlx::query_as(
+        "SELECT content_kind,body_markdown,author_member_id FROM messages \
+         WHERE channel_id=$1 ORDER BY channel_seq DESC LIMIT 1",
+    )
+    .bind(fixture.channel_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        notice,
+        (
+            "system_notice".to_owned(),
+            "Agent left the channel".to_owned(),
+            fixture.context.agent_id.into_uuid(),
+        )
+    );
+    let events: Vec<String> = sqlx::query_scalar(
+        "SELECT kind FROM outbox_events WHERE space_id=$1 AND kind IN ('message.created','member.changed') ORDER BY created_at,id",
+    )
+    .bind(fixture.context.space_id.into_uuid())
+    .fetch_all(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(events, vec!["message.created", "member.changed"]);
+
+    fixture
+        .execute_with_key(
+            capability::Action::ChannelLeave {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+            },
+            key,
+        )
+        .await
+        .unwrap();
+    let notice_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+    )
+    .bind(fixture.channel_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(notice_count, 1);
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn agent_channel_leave_replay_requires_the_original_run_context() {
+    let fixture = CapabilityFixture::create().await;
+    let key = IdempotencyKey::from_uuid(Uuid::now_v7());
+    fixture
+        .execute_with_key(
+            capability::Action::ChannelLeave {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+            },
+            key,
+        )
+        .await
+        .unwrap();
+
+    let mut stale_context = fixture.context.clone();
+    stale_context.focus_thread_id = ThreadId::from_uuid(Uuid::now_v7());
+    let replay = execute_agent_action(
+        &fixture.state,
+        &fixture.headers,
+        fixture.computer_id,
+        AgentActionRequest {
+            context: stale_context,
+            action: capability::Action::ChannelLeave {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+            },
+            idempotency_key: Some(key),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(replay.code, capability::ErrorCode::ContextChanged);
+
+    let notice_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+    )
+    .bind(fixture.channel_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(notice_count, 1);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn capability_task_done_commits_collaboration_facts_and_replays() {
     let mut fixture = CapabilityFixture::create().await;
     let task_id = fixture.bind_task().await;
@@ -1236,6 +1453,7 @@ async fn agent_write_actions_emit_agent_activity_events() {
             name: "Coder".into(),
             role: "Write code".into(),
             driver: capability::DriverKind::Codex,
+            computer_id: crate::ids::ComputerId::from_uuid(fixture.computer_id),
         })
         .await
         .unwrap();

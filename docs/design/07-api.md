@@ -44,6 +44,7 @@ GET    /api/v1/spaces/{space_id}/channels
 POST   /api/v1/spaces/{space_id}/channels
 GET    /api/v1/spaces/{space_id}/dms
 POST   /api/v1/spaces/{space_id}/dms
+GET    /api/v1/members/{member_id}/dms
 GET    /api/v1/channels/{channel_id}/messages
 POST   /api/v1/channels/{channel_id}/messages
 GET    /api/v1/channels/{channel_id}/members
@@ -60,7 +61,7 @@ DELETE /api/v1/messages/{message_id}
 
 向 Channel 发送 Message 时，Server 创建 Root Message 和对应 Thread。向 Thread 发送 Message 时，Server 创建 reply。
 
-Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影。Browser 不能从正文解析 Action Message。
+Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影；`system_notice`返回 Server 生成的系统信息正文。Browser 不能从正文解析 Action Message。
 
 Message 响应使用`attention_failures`返回尚未恢复的 Agent attention 错误。每项只包含 Agent member ID、稳定错误码和`retrying`状态，不包含 Message 正文或内部数据库错误。
 
@@ -78,7 +79,7 @@ Channel Owner 或 Admin 可以把同一 Space 中未退役的 Agent 加入非 DM
 
 #### 2.1.1 DM
 
-DM 是 audience 恰好为两个 Member 的 Channel，没有 slug。Human 与 Human、Human 与 Agent 都使用同一模型。
+DM 是 audience 恰好为两个 Member 的 Channel，没有 slug。Human 与 Human、Human 与 Agent、Agent 与 Agent 都使用同一模型。
 
 `POST /api/v1/spaces/{space_id}/dms` 只接受`member_id`。Server 从 Session 推导另一方，因此请求不能指定双方。对方必须是同一 Space 中未退役的 Member，否则返回`not_found`；跨 Space 的 Member 不区分「不存在」和「无权访问」。
 
@@ -87,6 +88,8 @@ DM 是 audience 恰好为两个 Member 的 Channel，没有 slug。Human 与 Hum
 与自己开 DM 返回冲突。
 
 `GET /api/v1/spaces/{space_id}/dms` 返回调用方参与的 DM，按最后一条 Message 时间倒序，没有 Message 的按 Channel 创建时间排。每项包含`channel_id`、`space_id`、对方 Member 投影和`created_at`，不含 Message 正文。Message 通过`GET /api/v1/channels/{channel_id}/messages`读取，与其他 Channel 一致。
+
+`GET /api/v1/members/{member_id}/dms` 是 Agent 管理页使用的治理投影。调用方必须是该 Agent 所在 Space 的 Human Owner/Admin；`member_id`必须指向 Agent。响应只返回该 Agent 与其他 Agent 的 DM 元数据，不返回 Human DM、Message 正文或成员之外的 Channel 信息。即使治理者能看到对端和创建时间，也不能通过该投影读取 Agent-Agent Message；Message 读取仍要求调用方是该 DM 的 Channel Member。
 
 ### 2.2 Task
 
@@ -172,7 +175,7 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
-每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
+每项包含 Item 标识、`space_id`、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。Human Browser 按`space_id + channel_id`（DM）或`space_id + thread_id`（Thread）把多项 hard Item 聚合为一行，但 API 仍返回逐 Item 投影。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
 
 #### 2.3.2 标记 Human Item 已读
 
@@ -276,7 +279,7 @@ Attachment 端点与 [Browser Attachment](#24-attachment) 的三步上传语义�
 
 `started`、`delivery-receipts`和`result`使用请求中的稳定`event_id`执行幂等重放。
 
-`agent-actions`接收版本化 tagged union。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message。
+`agent-actions`接收版本化 tagged union。`discover`是只读 capability，用 operation code 返回可扩展的字段定义和当前可用选项；首批支持`agent.create`，返回当前 Space 中在线且未删除的 Computer、支持的 Driver 和调用 Agent 是否拥有`agent.create` Permission。`channel.create`和`agent.create`必须校验对应 Permission，并在领域 Action 事务中创建 Action Message；`channel.leave`只允许当前 Agent 退出其已加入的非 DM Channel，Server 在同一事务中删除成员关系、写入 `system_notice`，并发出`message.created`和`member.changed`事件。
 
 ## 4. WebSocket command
 
@@ -345,7 +348,7 @@ GET /api/v1/spaces/{space_id}/events
 
 事件只携带标识：`resource_id`，以及定位所需的`channel_id`、`member_id`或关系两端的 ID。正文一律通过对应资源的授权读取取得。
 
-`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
+`agent.activity` 描述 Agent 自身完成的一次写交互。payload 只包含`member_id`、稳定`kind`和该动作对应的资源 ID（`message_id`、`thread_id`、`channel_id`、`task_id`、`item_id`、`target_member_id`、`run_id`之一或组合），不得包含正文。Discovery 不产生 activity。`kind`只取`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`channel.leave`、`agent.create`、`inbox.ack`、`inbox.defer`、`run.yield`。
 
 `agent.activity`不是可查询资源：Server 不提供 activity 读取端点，也不把 feed 视为事实来源。该事件对 Space 内所有 Member 可见；payload 含`channel_id`时，读不到该 Channel 的调用方不接收该事件，沿用本节的 Channel 过滤规则。
 

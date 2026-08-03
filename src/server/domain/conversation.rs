@@ -17,6 +17,7 @@ pub(in crate::server) enum MessageContent {
     Text(String),
     ChannelCreated(ChannelId),
     AgentCreated(MemberId),
+    SystemNotice(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

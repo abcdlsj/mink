@@ -43,10 +43,9 @@ describe("Human Inbox", () => {
     expect(await screen.findByRole("heading", { name: "Nothing needs your attention" })).toBeVisible();
     expect(screen.getByText(/not your Message history/i)).toBeVisible();
     const groups = screen.getByRole("list", { name: "Empty Inbox groups" });
-    expect(groups).toHaveTextContent("DM & mentions");
-    expect(groups).toHaveTextContent("Replies");
-    expect(groups).toHaveTextContent("Channel activity");
-    expect(screen.getAllByText("0")).toHaveLength(3);
+    expect(groups).toHaveTextContent("Direct messages");
+    expect(groups).toHaveTextContent("Threads");
+    expect(screen.getAllByText("0")).toHaveLength(2);
   });
 
   it("groups attention in product priority order and identifies each sender", async () => {
@@ -66,8 +65,9 @@ describe("Human Inbox", () => {
       if (path.endsWith(`/members/${ownerId}/inbox`)) {
         return json([
           inboxItem("ambient", "channel_activity", "lin", "Lin", "Ambient update"),
-          inboxItem("reply", "reply", "grace", "Grace", "A reply"),
-          inboxItem("mention", "mention", "lin", "Lin", "Please review", "Please review the release checklist before continuing"),
+          inboxItem("dm", "direct", "grace", "Grace", "A DM", "A DM", "dm-channel"),
+          inboxItem("reply", "reply", "grace", "Grace", "A reply", "A reply", "thread-1"),
+          inboxItem("mention", "mention", "lin", "Lin", "Please review", "Please review the release checklist before continuing", "thread-1", "2026-07-25T00:00:01Z"),
         ]);
       }
       throw new Error(`Unexpected request: ${path}`);
@@ -79,12 +79,12 @@ describe("Human Inbox", () => {
     const workspace = screen.getAllByRole("heading", { name: "Inbox", level: 1 }).at(-1)!.closest(".inbox-workspace")!;
     const view = within(workspace as HTMLElement);
     const headings = view.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-    expect(headings).toEqual(["DM & mentions", "Replies", "Channel activity"]);
+    expect(headings).toEqual(["Direct messages", "Threads"]);
     const linIdenticons = view.getAllByRole("img", { name: "Lin avatar" });
-    expect(linIdenticons).toHaveLength(2);
-    expect(linIdenticons[0]).toHaveAttribute("data-agent-identicon", linIdenticons[1].getAttribute("data-agent-identicon"));
-    expect(view.getByRole("img", { name: "Grace avatar" })).toBeVisible();
-    expect(view.getAllByRole("button", { name: "Open #general from Lin" })).toHaveLength(2);
+    expect(linIdenticons).toHaveLength(1);
+    expect(view.getAllByRole("img", { name: "Grace avatar" })).toHaveLength(1);
+    expect(view.getByRole("button", { name: "Open DM from Grace; 1 new message" })).toBeVisible();
+    expect(view.getByRole("button", { name: "Open #general from Lin; 2 new messages" })).toBeVisible();
     expect(view.getByText("Please review the release checklist before continuing")).toHaveClass("inbox-message-preview");
     const styles = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
     expect(styles).toMatch(/\.inbox-message-preview\s*\{[^}]*overflow:\s*hidden/s);
@@ -114,15 +114,25 @@ describe("Human Inbox", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute("/s/sumi-lab/inbox");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open #general from Grace" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open #general from Grace; 1 new message" }));
     await waitFor(() => expect(reads).toEqual(["/api/v1/inbox-items/reply/read"]));
   });
 });
 
-function inboxItem(id: string, kind: string, senderId: string, senderName: string, summary: string, messagePreview = summary) {
+function inboxItem(
+  id: string,
+  kind: string,
+  senderId: string,
+  senderName: string,
+  summary: string,
+  messagePreview = summary,
+  threadId = id,
+  createdAt = "2026-07-25T00:00:00Z",
+) {
   return {
     id,
     member_id: ownerId,
+    space_id: space.id,
     kind,
     priority: kind === "channel_activity" ? "ambient" : "hard",
     channel_id: space.general_channel_id,
@@ -134,7 +144,8 @@ function inboxItem(id: string, kind: string, senderId: string, senderName: strin
     summary,
     status: "pending",
     available_at: "2026-07-25T00:00:00Z",
-    created_at: "2026-07-25T00:00:00Z",
+    created_at: createdAt,
+    thread_id: threadId,
   };
 }
 

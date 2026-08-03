@@ -426,6 +426,7 @@ pub(super) enum MessageContentResponse {
     Text { body_markdown: String },
     ChannelCreated { channel: ActionChannelResponse },
     AgentCreated { agent: ActionAgentResponse },
+    SystemNotice { body_markdown: String },
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct ActionChannelResponse {
@@ -549,6 +550,7 @@ pub(super) struct CompleteUploadRequest {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct InboxItemResponse {
     pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
     pub(super) member_id: Uuid,
     pub(super) kind: InboxKind,
     pub(super) priority: InboxPriority,

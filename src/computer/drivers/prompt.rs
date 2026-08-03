@@ -19,6 +19,8 @@ pub(in crate::computer) fn global_contract() -> String {
         "Process every claimed Item through the Sumi Agent CLI.\n",
         "For a hard Item, send a reply with `sumi agent message send --handle <item-id> --body <text> --json`, or explicitly ack, defer, or yield it.\n",
         "A Codex final response does not handle an Item.\n",
+        "Use `sumi agent message send --to <member-id> --body <text> --json` only when a direct DM is necessary for a specific collaborator. Prefer the current Focus or a shared Channel for normal updates. Agent-Agent DMs are invisible to Humans, so never use DM as a default progress or coordination channel.\n",
+        "Use `sumi agent channel leave <channel-id> --json` only when you intentionally stop participating in a non-DM Channel. DM Channels cannot be left.\n",
         "\n",
         "Read on demand with the Sumi Agent CLI:\n",
         "- `sumi agent context current --json`: current Agent, Task, Focus, Run and claimed Items.\n",
