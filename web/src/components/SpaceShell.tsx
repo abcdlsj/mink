@@ -60,7 +60,7 @@ export function SpaceShell({
   children,
 }: {
   spaceSlug: string;
-  active: "channel" | "dm" | "members" | "inbox" | "tasks" | "computers";
+  active: "channel" | "dm" | "members" | "agents" | "inbox" | "tasks" | "computers";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -311,7 +311,7 @@ export function SpaceShell({
           <RailItem
             icon={Users}
             label="Members"
-            active={active === "members"}
+            active={active === "members" || active === "agents"}
             href={`/s/${space.data.slug}/members`}
           />
           <RailItem
@@ -379,7 +379,7 @@ export function SpaceShell({
             <NavigationItem
               icon={Users}
               label="Members"
-              active={active === "members"}
+              active={active === "members" || active === "agents"}
               href={`/s/${space.data.slug}/members`}
             />
             <NavigationItem
@@ -395,7 +395,7 @@ export function SpaceShell({
               href={`/s/${space.data.slug}/computers`}
             />
           </div>
-          {active === "members" ? (
+          {active === "members" || active === "agents" ? (
             <MembersNavigation members={members.data} activityByMemberId={activityByMemberId} roleByMemberId={roleByMemberId} spaceSlug={space.data.slug} locationPath={location.pathname} />
           ) : active === "computers" ? (
             <ComputersNavigation
@@ -570,7 +570,7 @@ function MemberNavigationGroup({ label, members, activityByMemberId, roleByMembe
   return (
     <section className="member-navigation-group" aria-labelledby={`member-navigation-${label.toLowerCase()}`}>
       <h3 className="nav-label" id={`member-navigation-${label.toLowerCase()}`}>
-        {label}<span>{members.length}</span>
+        {label === "Agents" ? <Link className="member-navigation-heading-link" to="/s/$spaceSlug/agents" params={{ spaceSlug }}>{label}</Link> : label}<span>{members.length}</span>
       </h3>
       {members.length ? members.map((member) => member.kind === "agent" ? (
         <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}>

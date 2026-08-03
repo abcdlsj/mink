@@ -8,6 +8,7 @@ function routeTitle(pathname: string): string | undefined {
   if (pathname.startsWith("/invite/")) return "Invitation";
   if (pathname.startsWith("/pair-computer/")) return "Pair Computer";
   if (pathname.includes("/members")) return "Members";
+  if (pathname.endsWith("/agents")) return "Agents";
   if (pathname.includes("/inbox")) return "Inbox";
   if (pathname.includes("/tasks")) return "Tasks";
   if (pathname.includes("/computers")) return "Computers";

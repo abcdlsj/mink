@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef, useState } from "react";
 
 import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
 import { activityLabel, useAgentActivity, type AgentActivityItem } from "../agentActivity";
+import { DialogFrame } from "../components/DialogFrame";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
@@ -19,7 +20,7 @@ const agentTabs: { id: AgentTab; label: string; icon: LucideIcon }[] = [
 export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
   return (
-    <SpaceShell spaceSlug={spaceSlug} active="members">
+    <SpaceShell spaceSlug={spaceSlug} active="agents">
       {({ space, currentMember, channels }) => (
         <AgentWorkspace
           agentId={agentId}
@@ -38,6 +39,8 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
   const navigate = useNavigate();
   const [tab, setTab] = useState<AgentTab>("overview");
   const [cancelNow, setCancelNow] = useState(false);
+  const [retireConfirmOpen, setRetireConfirmOpen] = useState(false);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
   const runtime = useQuery({ queryKey: ["agent-runtime", agentId], queryFn: () => getAgentRuntime(agentId), retry: false });
   const members = useQuery({ queryKey: ["members", spaceId], queryFn: () => listMembers(spaceId) });
@@ -61,6 +64,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
       queryClient.setQueryData(["agent", agentId], retired);
       void queryClient.invalidateQueries({ queryKey: ["agents", retired.space_id] });
       void queryClient.invalidateQueries({ queryKey: ["members", retired.space_id] });
+      setRetireConfirmOpen(false);
     },
   });
   const memory = useMutation({ mutationFn: (path: string) => readAgentMemory(agentId, path) });
@@ -86,7 +90,20 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
     update.mutate({ role_text: String(form.get("role_text") ?? "") });
   }
 
-  if (agent.isPending) return <div className="detail-skeleton" aria-label="Loading Agent" />;
+  function moveTab(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? agentTabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + agentTabs.length) % agentTabs.length;
+    const nextTab = agentTabs[nextIndex].id;
+    setTab(nextTab);
+    tabRefs.current[nextIndex]?.focus();
+  }
+
+  if (agent.isPending) return <div className="detail-skeleton" role="status" aria-label="Loading Agent" />;
   if (agent.error || !agent.data) return <p className="route-status route-status--error">Agent unavailable. Check your permission and retry.</p>;
   const value = agent.data;
   const agentMember = members.data?.find((member) => member.id === value.member_id);
@@ -99,21 +116,44 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
           <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>
           <p>{value.role_text}</p>
         </div>
-        <span className={`agent-state agent-state--${value.activity_status}`} role="status" aria-label={`Activity: ${activityLabel(value.activity_status)}`} title={`Activity: ${activityLabel(value.activity_status)}`}><i aria-hidden="true" />{activityLabel(value.activity_status)}</span>
+        <div className="agent-header-signals">
+          <span className={`agent-state agent-state--${value.activity_status}`} role="status" aria-label={`Activity: ${activityLabel(value.activity_status)}`} title={`Activity: ${activityLabel(value.activity_status)}`}><i aria-hidden="true" />{activityLabel(value.activity_status)}</span>
+          <span className={`agent-connection-signal${value.computer_reachable ? " agent-connection-signal--online" : " agent-connection-signal--offline"}`} aria-label={value.computer_reachable ? "Computer online" : "Computer offline"} title={value.computer_reachable ? "Computer online" : "Computer offline"}>
+            <i aria-hidden="true" />{value.computer_reachable ? "Computer online" : "Computer offline"}
+          </span>
+        </div>
         <button className="agent-message-action icon-button" type="button" aria-label={`Message ${value.name}`} title={`Message ${value.name}`} disabled={directMessage.isPending} onClick={() => directMessage.mutate(value.member_id)}><MessageCircle /></button>
       </header>
-      <nav className="detail-tabs" aria-label="Agent detail">
-        {agentTabs.map(({ id, label, icon: Icon }) => (
-          <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+      <dl className="agent-fact-strip" aria-label="Agent summary">
+        <SummaryFact label="Lifecycle"><StateSignal tone={value.desired_lifecycle} label={humanize(value.desired_lifecycle)} /></SummaryFact>
+        <SummaryFact label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? "Assigned Computer"}</Link> : "Unassigned"}</SummaryFact>
+        <SummaryFact label="Driver"><span className="summary-value--mono">{humanize(value.driver_kind)}</span></SummaryFact>
+        <SummaryFact label="Session">{runtime.data ? <StateSignal tone={runtime.data.session_continuity.state} label={humanize(runtime.data.session_continuity.state)} /> : "Checking"}</SummaryFact>
+      </dl>
+      <nav className="detail-tabs" aria-label="Agent detail" role="tablist">
+        {agentTabs.map(({ id, label, icon: Icon }, index) => (
+          <button
+            key={id}
+            ref={(element) => { tabRefs.current[index] = element; }}
+            id={`agent-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`agent-panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            onClick={() => setTab(id)}
+            onKeyDown={(event) => moveTab(event, index)}
+          >
             <Icon aria-hidden="true" />{label}
           </button>
         ))}
       </nav>
       <div className="agent-detail-scroll">
-        {value.computer_reachable ? null : <p className="inline-notice">Computer unreachable. Work already in progress keeps its status until the Computer reports the outcome.</p>}
+        {!value.computer_id ? <p className="inline-notice">No Computer is assigned. Pair a Computer before starting work.</p> : !value.computer_reachable ? <p className="inline-notice">Computer unreachable. Work already in progress keeps its status until the Computer reports the outcome.</p> : null}
         {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "overview" ? (
-          <div className="agent-overview-grid">
+          <div className="agent-tab-panel" id="agent-panel-overview" role="tabpanel" aria-labelledby="agent-tab-overview" tabIndex={0}>
+            <div className="agent-overview-grid">
             <DetailSection className="agent-activity" title="Activity">
               <AgentActivityFeed agentId={value.member_id} spaceSlug={spaceSlug} channels={channels} />
             </DetailSection>
@@ -124,14 +164,14 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
                 <div className="agent-work-facts">
                   <div><span>Task</span><p>{runtime.data.current_task ? <Link to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: runtime.data.current_task.id }}>{runtime.data.current_task.title}</Link> : "None"}</p></div>
                   <div><span>Focus</span><p>{runtime.data.focus ? runtime.data.focus.channel_slug ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: runtime.data.focus.channel_slug }} hash={`message-${runtime.data.focus.root_message_id}`}>#{runtime.data.focus.channel_slug} @{runtime.data.focus.root_message_seq}</Link> : <span>DM @{runtime.data.focus.root_message_seq}</span> : "None"}</p></div>
-                  <div><span>Run</span><p>{runtime.data.current_run ? runtime.data.current_run.status.replace("_", " ") : "No active Run"}</p></div>
-                  <div><span>Session</span><p>{runtime.data.session_continuity.state.replace("_", " ")}</p></div>
+                  <div><span>Run</span><p>{runtime.data.current_run ? humanize(runtime.data.current_run.status) : "No active Run"}</p></div>
+                  <div><span>Session</span><p>{humanize(runtime.data.session_continuity.state)}</p></div>
                 </div>
               ) : null}
               {runtime.data?.another_item_waiting ? <p className="inline-notice" role="status">Another item is waiting. It is not part of the current Focus.</p> : null}
             </DetailSection>
             <DetailSection className="agent-identity" title="Identity"><dl className="detail-grid"><Field label="Access Level">{capitalize(value.access_level)}</Field><Field label="Created" tabular>{new Date(value.created_at).toLocaleDateString()}</Field></dl></DetailSection>
-            <DetailSection className="agent-runtime" title="Runtime"><dl className="detail-grid"><Field label="Driver" chip="runtime">{capitalize(value.driver_kind)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Lifecycle">{capitalize(value.desired_lifecycle)}</Field><Field label="Provision">{capitalize(value.provision_status)}</Field></dl></DetailSection>
+            <DetailSection className="agent-runtime" title="Runtime"><dl className="detail-grid"><Field label="Provision">{capitalize(value.provision_status)}</Field><Field label="Computer">{value.computer_id ? <Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={`computer-${value.computer_id}`}>{computers.data?.find((computer) => computer.id === value.computer_id)?.name ?? value.computer_id}</Link> : undefined}</Field><Field label="Last error">{value.last_error_code ? <code>{value.last_error_code}</code> : "None recorded"}</Field></dl></DetailSection>
             <DetailSection className="agent-permissions" title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
                 {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
@@ -153,10 +193,11 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
               {!canManage ? <p className="permission-hint">Only Owner or Admin can change permissions.</p> : null}
               {permission.error ? <p className="form-error" role="alert">Permission update failed.</p> : null}
             </DetailSection>
+            </div>
           </div>
         ) : null}
         {tab === "memory" ? (
-          <section className="agent-memory" aria-labelledby="memory-heading">
+          <section className="agent-tab-panel agent-memory" id="agent-panel-memory" role="tabpanel" aria-labelledby="agent-tab-memory" tabIndex={0}>
             <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
             <p className="inline-notice">Memory lives only on this Computer. If the Computer is lost, Sumi cannot recover it.</p>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can inspect Agent Memory metadata.</p> : null}
@@ -168,7 +209,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
           </section>
         ) : null}
         {tab === "settings" ? (
-          <>
+          <div className="agent-tab-panel" id="agent-panel-settings" role="tabpanel" aria-labelledby="agent-tab-settings" tabIndex={0}>
             {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}
             <form className="agent-settings" onSubmit={save}>
               <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.desired_lifecycle === "retired"} /></label>
@@ -176,21 +217,43 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
               <dl className="detail-grid"><Field label="Ambient attention">{value.attention_config.ambient_enabled ? "Enabled" : "Disabled"}</Field><Field label="Debounce" tabular>{`${value.attention_config.ambient_debounce_seconds}s`}</Field><Field label="Maximum wait" tabular>{`${value.attention_config.ambient_max_wait_seconds}s`}</Field><Field label="Maximum retries" tabular>{String(value.attention_config.max_retry_count)}</Field></dl>
               {canManage && value.desired_lifecycle !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
             </form>
-            {canManage && value.desired_lifecycle !== "retired" ? <section className="agent-lifecycle" aria-label="Agent lifecycle"><h2>Lifecycle</h2>{value.desired_lifecycle === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}{value.desired_lifecycle === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}{value.desired_lifecycle === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}{value.provision_status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}<button className="danger-button" type="button" disabled={update.isPending || retirement.isPending} onClick={() => retirement.mutate()}><Trash2 /> Retire permanently</button></section> : null}
+            {canManage && value.desired_lifecycle !== "retired" ? <section className="agent-lifecycle" aria-label="Agent lifecycle"><h2>Lifecycle</h2>{value.desired_lifecycle === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}{value.desired_lifecycle === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}{value.desired_lifecycle === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}{value.provision_status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}<button className="danger-button" type="button" disabled={update.isPending || retirement.isPending} onClick={() => setRetireConfirmOpen(true)}><Trash2 /> Retire permanently</button></section> : null}
             {update.error ? <p className="form-error" role="alert">The Agent update failed. Your changes remain on screen; retry when ready.</p> : null}
-          </>
+            {retirement.error ? <p className="form-error" role="alert">Unable to retire the Agent. No lifecycle change was applied.</p> : null}
+          </div>
         ) : null}
       </div>
+      {retireConfirmOpen ? (
+        <DialogFrame close={() => setRetireConfirmOpen(false)} labelId="retire-agent-title" className="confirm-dialog agent-retire-dialog">
+          <header>
+            <div><p className="section-kicker">AGENT LIFECYCLE</p><h2 id="retire-agent-title">Retire {value.name}?</h2></div>
+            <button className="icon-button" type="button" aria-label="Close retirement confirmation" title="Close retirement confirmation" onClick={() => setRetireConfirmOpen(false)}><X aria-hidden="true" /></button>
+          </header>
+          <p>Retirement cannot be undone. {value.name} will stop accepting new work and lose its Computer assignment.</p>
+          <p>Historical Messages, Tasks, Runs and Results remain available.</p>
+          <footer>
+            <button className="command-button" type="button" onClick={() => setRetireConfirmOpen(false)}>Cancel</button>
+            <button className="danger-button" type="button" disabled={retirement.isPending} onClick={() => retirement.mutate()}><Trash2 aria-hidden="true" /> Retire {value.name}</button>
+          </footer>
+        </DialogFrame>
+      ) : null}
     </section>
   );
 }
 
 function DetailSection({ title, className, children }: { title: string; className?: string; children: ReactNode }) { return <section className={className ? `detail-section ${className}` : "detail-section"}><h2>{title}</h2>{children}</section>; }
+function SummaryFact({ label, children }: { label: string; children: ReactNode }) {
+  return <div><dt>{label}</dt><dd>{children}</dd></div>;
+}
+function StateSignal({ tone, label }: { tone: string; label: string }) {
+  return <span className={`agent-summary-signal agent-summary-signal--${tone}`} role="status" aria-label={label} title={label}><i aria-hidden="true" />{label}</span>;
+}
 function Field({ label, children, tabular = false, chip }: { label: string; children?: ReactNode; tabular?: boolean; chip?: "runtime" | "model" | "reasoning" | "mode" }) {
   const body = chip ? <dd><span className={`chip chip--${chip}`}>{children}</span></dd> : <dd className={tabular ? "tabular" : undefined}>{children ?? "Unassigned"}</dd>;
   return <div><dt>{label}</dt>{body}</div>;
 }
 function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
+function humanize(value: string): string { return value.split("_").map(capitalize).join(" "); }
 
 const activityLabels: Record<AgentActivityItem["kind"], string> = {
   "message.send": "Sent a message",

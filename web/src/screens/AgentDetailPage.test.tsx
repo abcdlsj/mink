@@ -79,12 +79,12 @@ describe("Agent detail", () => {
     expect(channelPermission).toBeChecked();
     fireEvent.click(channelPermission);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining(`/permissions/channel.create`), expect.objectContaining({ method: "DELETE" })));
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Read MEMORY.md" }));
     expect(await screen.findByText(/Keep the boundary explicit/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Enforce the specification." } });
     fireEvent.click(screen.getByRole("button", { name: /save configuration/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -104,6 +104,13 @@ describe("Agent detail", () => {
       expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "retry" } }) }),
     ));
     fireEvent.click(screen.getByRole("button", { name: /retire permanently/i }));
+    expect(screen.getByRole("dialog", { name: "Retire Lin?" })).toBeVisible();
+    const deleteCallsBeforeCancel = fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE").length;
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Retire Lin?" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(deleteCallsBeforeCancel);
+    fireEvent.click(screen.getByRole("button", { name: /retire permanently/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Retire Lin" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`/agents/${agentId}`),
       expect.objectContaining({ method: "DELETE" }),

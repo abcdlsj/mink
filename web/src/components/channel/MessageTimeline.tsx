@@ -271,10 +271,14 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   if (message.deleted_at) return <p>Message deleted</p>;
   if (message.content.type === "text") {
     const mentionedMemberIds = new Set(message.mentions);
-    const mentionedNames = new Set(members.filter((member) => mentionedMemberIds.has(member.id)).map((member) => member.display_name.toLowerCase()));
-    if (message.mention_all) mentionedNames.add("all");
+    const mentionedMembers = new Map<string, Pick<Member, "id" | "kind" | "display_name">>(
+      members
+        .filter((member) => mentionedMemberIds.has(member.id))
+        .map((member) => [member.display_name.toLowerCase(), { id: member.id, kind: member.kind, display_name: member.display_name }] as const),
+    );
+    if (message.mention_all) mentionedMembers.set("all", { id: "all", kind: "human", display_name: "all" });
     const taskRefs = new Map((message.task_refs ?? []).map((ref) => [ref.seq, ref]));
-    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedNames={mentionedNames} taskRefs={taskRefs} spaceSlug={spaceSlug} />;
+    return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedMembers={mentionedMembers} taskRefs={taskRefs} spaceSlug={spaceSlug} />;
   }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
@@ -282,7 +286,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
 
-export function ExpandableMessageText({ messageId, body, mentionedNames, taskRefs, spaceSlug }: { messageId: string; body: string; mentionedNames: ReadonlySet<string>; taskRefs: ReadonlyMap<number, MessageTaskRef>; spaceSlug: string }) {
+export function ExpandableMessageText({ messageId, body, mentionedMembers, taskRefs, spaceSlug }: { messageId: string; body: string; mentionedMembers: ReadonlyMap<string, Pick<Member, "id" | "kind" | "display_name">>; taskRefs: ReadonlyMap<number, MessageTaskRef>; spaceSlug: string }) {
   const paragraph = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -302,7 +306,7 @@ export function ExpandableMessageText({ messageId, body, mentionedNames, taskRef
   return (
     <div className="message-body-wrap">
       <div ref={paragraph} id={bodyId} className={`message-body${expanded ? " message-body--expanded" : " message-body--collapsed"}`}>
-        {renderMessageBody(body, mentionedNames, taskRefs, spaceSlug)}
+        {renderMessageBody(body, mentionedMembers, taskRefs, spaceSlug)}
       </div>
       {overflowing || expanded ? (
         <button className="message-expand" type="button" aria-expanded={expanded} aria-controls={bodyId} onClick={() => setExpanded((value) => !value)}>
@@ -342,7 +346,7 @@ function AttentionFailureNotice({ message, members }: { message: Message; member
 
 function highlightMentions(
   body: string,
-  mentionedNames: ReadonlySet<string>,
+  mentionedMembers: ReadonlyMap<string, Pick<Member, "id" | "kind" | "display_name">>,
   taskRefs: ReadonlyMap<number, MessageTaskRef>,
   spaceSlug: string,
   keyPrefix: string,
@@ -358,10 +362,21 @@ function highlightMentions(
     nodes.push(
       ...highlightTaskRefs(body.slice(cursor, tokenStart), taskRefs, spaceSlug, `${keyPrefix}-r${cursor}`),
     );
+    const member = mentionedMembers.get(token.slice(1).toLowerCase());
     nodes.push(
-      mentionedNames.has(token.slice(1).toLowerCase())
-        ? <mark className="message-mention" key={`${keyPrefix}-mention-${tokenStart}`}>{token}</mark>
-        : token,
+      member?.kind === "agent" ? (
+        <a
+          key={`${keyPrefix}-mention-${tokenStart}`}
+          className="message-mention message-mention--agent"
+          href={`/s/${spaceSlug}/agents/${member.id}`}
+          aria-label={`Open ${member.display_name} Agent management`}
+          title={`Open ${member.display_name} Agent management`}
+        >
+          {token}
+        </a>
+      ) : member ? (
+        <mark className="message-mention" key={`${keyPrefix}-mention-${tokenStart}`}>{token}</mark>
+      ) : token,
     );
     cursor = tokenStart + token.length;
   }
@@ -418,12 +433,12 @@ const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 
 function renderMessageBody(
   body: string,
-  mentionedHandles: ReadonlySet<string>,
+  mentionedMembers: ReadonlyMap<string, Pick<Member, "id" | "kind" | "display_name">>,
   taskRefs: ReadonlyMap<number, MessageTaskRef>,
   spaceSlug: string,
 ): ReactNode[] {
   return splitMessageBlocks(body).map((block, index) =>
-    renderMessageBlock(block, mentionedHandles, taskRefs, spaceSlug, index),
+    renderMessageBlock(block, mentionedMembers, taskRefs, spaceSlug, index),
   );
 }
 
@@ -509,7 +524,7 @@ function startsMessageBlock(line: string): boolean {
 
 function renderMessageBlock(
   block: MessageBlock,
-  mentionedHandles: ReadonlySet<string>,
+  mentionedMembers: ReadonlyMap<string, Pick<Member, "id" | "kind" | "display_name">>,
   taskRefs: ReadonlyMap<number, MessageTaskRef>,
   spaceSlug: string,
   blockIndex: number,
@@ -520,7 +535,7 @@ function renderMessageBlock(
       const Heading = HEADING_TAGS[Math.min(block.level, HEADING_TAGS.length) - 1];
       return (
         <Heading key={key} className="message-heading">
-          {renderInline(block.line, mentionedHandles, taskRefs, spaceSlug, `heading-${blockIndex}`)}
+          {renderInline(block.line, mentionedMembers, taskRefs, spaceSlug, `heading-${blockIndex}`)}
         </Heading>
       );
     }
@@ -529,7 +544,7 @@ function renderMessageBlock(
         <ol key={key}>
           {block.items.map((item, itemIndex) => (
             <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedHandles, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
+              {renderInline(item, mentionedMembers, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
             </li>
           ))}
         </ol>
@@ -537,7 +552,7 @@ function renderMessageBlock(
         <ul key={key}>
           {block.items.map((item, itemIndex) => (
             <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedHandles, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
+              {renderInline(item, mentionedMembers, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
             </li>
           ))}
         </ul>
@@ -547,7 +562,7 @@ function renderMessageBlock(
         <blockquote key={key}>
           {block.lines.map((line, lineIndex) => (
             <p key={`${key}-${lineIndex}`}>
-              {renderInline(line, mentionedHandles, taskRefs, spaceSlug, `quote-${blockIndex}-${lineIndex}`)}
+              {renderInline(line, mentionedMembers, taskRefs, spaceSlug, `quote-${blockIndex}-${lineIndex}`)}
             </p>
           ))}
         </blockquote>
@@ -565,8 +580,8 @@ function renderMessageBlock(
         <p key={key}>
           {block.lines.map((line, lineIndex) =>
             lineIndex === 0
-              ? renderInline(line, mentionedHandles, taskRefs, spaceSlug, `paragraph-${blockIndex}`)
-              : renderInline(`\n${line}`, mentionedHandles, taskRefs, spaceSlug, `paragraph-${blockIndex}-${lineIndex}`),
+              ? renderInline(line, mentionedMembers, taskRefs, spaceSlug, `paragraph-${blockIndex}`)
+              : renderInline(`\n${line}`, mentionedMembers, taskRefs, spaceSlug, `paragraph-${blockIndex}-${lineIndex}`),
           )}
         </p>
       );
@@ -575,14 +590,14 @@ function renderMessageBlock(
 
 function renderInline(
   text: string,
-  mentionedHandles: ReadonlySet<string>,
+  mentionedMembers: ReadonlyMap<string, Pick<Member, "id" | "kind" | "display_name">>,
   taskRefs: ReadonlyMap<number, MessageTaskRef>,
   spaceSlug: string,
   keyPrefix: string,
   depth = 0,
 ): ReactNode[] {
   if (depth > MAX_INLINE_DEPTH) {
-    return highlightMentions(text, mentionedHandles, taskRefs, spaceSlug, keyPrefix);
+    return highlightMentions(text, mentionedMembers, taskRefs, spaceSlug, keyPrefix);
   }
   const codeMatch = /`([^`\n]+)`/.exec(text);
   const boldMatch = /\*\*([^*\n]+)\*\*/.exec(text);
@@ -601,14 +616,14 @@ function renderInline(
     )
     .sort((left, right) => (left.match.index ?? 0) - (right.match.index ?? 0));
   if (candidates.length === 0) {
-    return highlightMentions(text, mentionedHandles, taskRefs, spaceSlug, keyPrefix);
+    return highlightMentions(text, mentionedMembers, taskRefs, spaceSlug, keyPrefix);
   }
   const first = candidates[0];
   const match = first.match;
   const matchStart = match.index ?? 0;
   const nodes: ReactNode[] = [];
   nodes.push(
-    ...highlightMentions(text.slice(0, matchStart), mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-b`),
+    ...highlightMentions(text.slice(0, matchStart), mentionedMembers, taskRefs, spaceSlug, `${keyPrefix}-b`),
   );
   const innerKey = `${keyPrefix}-t`;
   switch (first.kind) {
@@ -622,21 +637,21 @@ function renderInline(
     case "bold":
       nodes.push(
         <strong key={innerKey}>
-          {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-s`, depth + 1)}
+          {renderInline(match[1], mentionedMembers, taskRefs, spaceSlug, `${keyPrefix}-s`, depth + 1)}
         </strong>,
       );
       break;
     case "italic":
       nodes.push(
         <em key={innerKey}>
-          {renderInline(match[1] ?? match[2], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-e`, depth + 1)}
+          {renderInline(match[1] ?? match[2], mentionedMembers, taskRefs, spaceSlug, `${keyPrefix}-e`, depth + 1)}
         </em>,
       );
       break;
     case "delete":
       nodes.push(
         <del key={innerKey}>
-          {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-d`, depth + 1)}
+          {renderInline(match[1], mentionedMembers, taskRefs, spaceSlug, `${keyPrefix}-d`, depth + 1)}
         </del>,
       );
       break;
@@ -645,7 +660,7 @@ function renderInline(
       nodes.push(
         href ? (
           <a key={innerKey} href={href} rel="noreferrer" target="_blank">
-            {renderInline(match[1], mentionedHandles, taskRefs, spaceSlug, `${keyPrefix}-l`, depth + 1)}
+            {renderInline(match[1], mentionedMembers, taskRefs, spaceSlug, `${keyPrefix}-l`, depth + 1)}
           </a>
         ) : (
           <span key={innerKey}>{match[0]}</span>
@@ -657,7 +672,7 @@ function renderInline(
   nodes.push(
     ...renderInline(
       text.slice(matchStart + match[0].length),
-      mentionedHandles,
+      mentionedMembers,
       taskRefs,
       spaceSlug,
       `${keyPrefix}-a`,

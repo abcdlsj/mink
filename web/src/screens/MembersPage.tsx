@@ -20,9 +20,11 @@ import {
   listAgents,
   listMembers,
   updateMember,
+  type Agent,
   type Member,
   type Space,
 } from "../api/client";
+import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
 export function MembersPage() {
@@ -31,19 +33,32 @@ export function MembersPage() {
   return (
     <SpaceShell spaceSlug={spaceSlug} active="members">
       {({ space }) => (
-        <MembersWorkspace space={space} />
+        <MembersWorkspace space={space} directory="members" />
       )}
     </SpaceShell>
   );
 }
 
-function MembersWorkspace({ space }: { space: Space }) {
+export function AgentsPage() {
+  const { spaceSlug } = useParams({ from: "/s/$spaceSlug/agents" });
+
+  return (
+    <SpaceShell spaceSlug={spaceSlug} active="agents">
+      {({ space }) => (
+        <MembersWorkspace space={space} directory="agents" />
+      )}
+    </SpaceShell>
+  );
+}
+
+function MembersWorkspace({ space, directory }: { space: Space; directory: "members" | "agents" }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const agentsPage = directory === "agents";
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState<string>();
   const [copied, setCopied] = useState(false);
-  const [kindFilter, setKindFilter] = useState<"all" | "human" | "agent">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | "human" | "agent">(agentsPage ? "agent" : "all");
   const members = useQuery({
     queryKey: ["members", space.id],
     queryFn: () => listMembers(space.id),
@@ -57,6 +72,9 @@ function MembersWorkspace({ space }: { space: Space }) {
   );
   const roleByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.role_text] as const),
+  );
+  const agentByMemberId = new Map(
+    (agents.data ?? []).map((agent) => [agent.member_id, agent] as const),
   );
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
@@ -89,8 +107,10 @@ function MembersWorkspace({ space }: { space: Space }) {
       });
     },
   });
-  const visibleMembers =
-    members.data?.filter((member) => kindFilter === "all" || member.kind === kindFilter) ?? [];
+  const visibleMembers = members.data?.filter((member) => {
+    if (agentsPage && member.kind !== "agent") return false;
+    return kindFilter === "all" || member.kind === kindFilter;
+  }) ?? [];
   const memberGroups = (['agent', 'human'] as const)
     .map((kind) => ({ kind, members: visibleMembers.filter((member) => member.kind === kind) }))
     .filter((group) => group.members.length > 0);
@@ -108,15 +128,12 @@ function MembersWorkspace({ space }: { space: Space }) {
   }
 
   return (
-    <section className="members-workspace" aria-labelledby="members-heading">
+    <section className={`members-workspace${agentsPage ? " members-workspace--agents" : ""}`} aria-labelledby="members-heading">
       <header className="members-header">
         <div className="members-title">
-          <h1 id="members-heading">Members</h1>
-          <p>Agents and Humans in this Space.</p>
+          <h1 id="members-heading">{agentsPage ? "Agents" : "Members"}</h1>
+          <p>{agentsPage ? "Persistent collaborators running in this Space." : "Agents and Humans in this Space."}</p>
         </div>
-        <span className="member-count" aria-label={`${members.data?.length ?? 0} Members`}>
-          {String(members.data?.length ?? 0).padStart(2, "0")}
-        </span>
         {canCreateAgent ? (
           <Link
             className="command-button command-button--accent compact-header-action"
@@ -127,10 +144,10 @@ function MembersWorkspace({ space }: { space: Space }) {
             title="Create Agent"
           >
             <Plus aria-hidden="true" />
-            <span>Agent</span>
+            <span>Create agent</span>
           </Link>
         ) : null}
-        {canInvite ? (
+        {canInvite && !agentsPage ? (
           <button
             className="command-button compact-header-action"
             type="button"
@@ -148,24 +165,42 @@ function MembersWorkspace({ space }: { space: Space }) {
         ) : null}
       </header>
 
-      <div className="member-filter" role="group" aria-label="Filter Members by kind">
-        {(["all", "human", "agent"] as const).map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            className={kindFilter === kind ? "member-filter--active" : undefined}
-            aria-pressed={kindFilter === kind}
-            onClick={() => setKindFilter(kind)}
-          >
-            {kind === "all" ? "All" : kind === "human" ? "Human" : "Agent"}
-            <span>
-              {kind === "all"
-                ? members.data?.length ?? 0
-                : members.data?.filter((member) => member.kind === kind).length ?? 0}
-            </span>
+      {agentsPage ? (
+        <dl className="agent-directory-summary" aria-label="Agent directory summary">
+          <DirectoryMetric label="Agents" value={agents.data?.length} loading={agents.isPending} />
+          <DirectoryMetric label="Working" value={agents.data ? agents.data.filter((agent) => ["dispatched", "working"].includes(agent.activity_status)).length : undefined} loading={agents.isPending} />
+          <DirectoryMetric label="Computers online" value={agents.data ? new Set(agents.data.filter((agent) => agent.computer_reachable && agent.computer_id).map((agent) => agent.computer_id)).size : undefined} loading={agents.isPending} />
+          <DirectoryMetric label="Needs attention" value={agents.data ? agents.data.filter((agent) => agent.last_error_code || agent.provision_status === "error").length : undefined} loading={agents.isPending} />
+        </dl>
+      ) : (
+        <div className="member-filter" role="group" aria-label="Filter Members by kind">
+          {(["all", "human", "agent"] as const).map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={kindFilter === kind ? "member-filter--active" : undefined}
+              aria-pressed={kindFilter === kind}
+              onClick={() => setKindFilter(kind)}
+            >
+              {kind === "all" ? "All" : kind === "human" ? "Human" : "Agent"}
+              <span>
+                {kind === "all"
+                  ? members.data?.length ?? 0
+                  : members.data?.filter((member) => member.kind === kind).length ?? 0}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {agentsPage && agents.error ? (
+        <div className="directory-status directory-status--error" role="alert">
+          <span>Unable to load Agent status.</span>
+          <button className="quiet-button" type="button" onClick={() => void agents.refetch()} disabled={agents.isFetching}>
+            {agents.isFetching ? "Retrying…" : "Retry"}
           </button>
-        ))}
-      </div>
+        </div>
+      ) : null}
 
       {inviteOpen ? (
         <section className="invite-band" aria-labelledby="invite-heading">
@@ -210,11 +245,6 @@ function MembersWorkspace({ space }: { space: Space }) {
         </section>
       ) : null}
 
-      <div className="member-list-heading" aria-hidden="true">
-        <span>Identity</span>
-        <span>Access</span>
-        <span>Explicit permissions</span>
-      </div>
       <div className="member-list" aria-live="polite">
         {members.isPending ? <div className="members-status">Loading Members...</div> : null}
         {members.error ? (
@@ -238,19 +268,17 @@ function MembersWorkspace({ space }: { space: Space }) {
                 </div>
                 <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (
-                  <button
+                  <Link
                     className="agent-detail-link"
-                    type="button"
-                    onClick={() =>
-                      void navigate({
-                        to: "/s/$spaceSlug/agents/$agentId",
-                        params: { spaceSlug: space.slug, agentId: member.id },
-                      })
-                    }
+                    to="/s/$spaceSlug/agents/$agentId"
+                    params={{ spaceSlug: space.slug, agentId: member.id }}
                   >
                     Manage
-                  </button>
+                  </Link>
                 ) : null}
+              </div>
+              <div className="member-presence">
+                {member.kind === "agent" ? <AgentPresence agent={agentByMemberId.get(member.id)} /> : <span className="member-presence-copy">Human member</span>}
               </div>
               <div className="access-control">
                 <ShieldCheck aria-hidden="true" />
@@ -299,11 +327,38 @@ function MembersWorkspace({ space }: { space: Space }) {
       {!members.isPending && visibleMembers.length === 0 ? (
         <div className="empty-members">
           <Users aria-hidden="true" />
-          <span>{members.data?.length ? `No ${kindFilter} Members.` : "No active Members."}</span>
+          <div>
+            <strong>{agentsPage ? "No Agents yet" : members.data?.length ? "No matching members" : "No members yet"}</strong>
+            <p>{agentsPage ? "Create an Agent to give this Space a persistent collaborator." : "Invite a Human or create an Agent to start collaborating."}</p>
+            {agentsPage && canCreateAgent ? (
+              <Link className="command-button command-button--accent" to="/s/$spaceSlug/computers" params={{ spaceSlug: space.slug }} hash="create-agent">
+                <Plus aria-hidden="true" /> Create agent
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </section>
   );
+}
+
+function AgentPresence({ agent }: { agent?: Agent }) {
+  if (!agent) return <span className="member-presence-copy">Agent status unavailable</span>;
+  const activity = activityLabel(agent.activity_status);
+  const connection = agent.computer_reachable ? "Computer online" : "Computer offline";
+  return (
+    <span className="agent-presence-stack" aria-label={`${activity}; ${agent.computer_id ? connection : "No Computer assigned"}`}>
+      <span className={`agent-presence-signal agent-presence-signal--${agent.activity_status}`} aria-hidden="true" />
+      <span>
+        <strong>{activity}</strong>
+        <small>{agent.computer_id ? connection : "No Computer assigned"}</small>
+      </span>
+    </span>
+  );
+}
+
+function DirectoryMetric({ label, value, loading }: { label: string; value?: number; loading: boolean }) {
+  return <div><dt>{label}</dt><dd aria-label={loading ? `Loading ${label}` : `${value ?? 0} ${label}`}>{loading ? "—" : value}</dd></div>;
 }
 
 function capitalize(value: string): string {

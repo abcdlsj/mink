@@ -405,7 +405,9 @@ describe("ChannelPage", () => {
     fireEvent.submit(input.closest("form")!);
 
     await waitFor(() => expect(input).toHaveValue(""));
-    expect(await screen.findByText("@lin", { selector: "mark" })).toHaveClass("message-mention");
+    const agentMention = await screen.findByRole("link", { name: "Open Lin Agent management" });
+    expect(agentMention).toHaveClass("message-mention", "message-mention--agent");
+    expect(agentMention).toHaveAttribute("href", "/s/sumi-lab/agents/019c0000-0000-7000-8000-000000000020");
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(
         ([path, init]) => String(path).endsWith("/messages") && init?.method === "POST",

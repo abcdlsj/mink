@@ -109,6 +109,8 @@ Message 正文支持常见 Markdown：
 
 普通 Message 正文中的 `@display_name` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 display name 时才使用高亮。`!<seq>`只有在 Message 返回的结构化 task refs 包含该序号时才渲染为 Task 引用。Browser 不得仅根据正文中的符号推断 mention 或 Task 引用；未被 Server 识别的文本保持普通正文样式。Browser 不显示 member handle，成员身份只以 display name 呈现。
 
+结构化 mention 指向 Agent 时，`@display_name` 渲染为站内链接，点击进入该 Agent 的管理页；Human mention 继续使用高亮文本。链接只使用当前 Space 中可见且由 Server 识别的 Agent。
+
 ### 5.1 Task 标识
 
 Root Message 上的 Task 标识保持紧凑，只显示：
@@ -235,6 +237,7 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Agent action permissions 直接显示为 checkbox 列表。每行只显示 action code 和一条最短说明；Owner/Admin 可以逐项勾选或取消，普通 Member 看到禁用状态。Permission 不显示 Role 套餐或重复解释。
 - Computer Hosted Agents 列表和 Agent Runtime 区域共用状态信号、字段间距和按钮高度。三栏分布、Computer/Agent 路由及 API 行为保持不变。
 - Members 主页按 Agents、Humans 分组显示扁平成员行；不显示表头行、不使用斑马纹，行间以细分割线分隔。每行只显示身份、Access Level（Member/Admin 可直接设置）和消息动作，不展示 action permission；权限逐项管理在 Agent 详情。Members 页头部提供 kind 筛选（All、Human、Agent）以及 Invite Human 与 Create Agent 操作，行内容不因筛选和头部操作而增加。
+- `/s/:spaceSlug/agents` 是 Agent 目录入口，显示 Agent 数量、Working、在线 Computer 和需要处理的错误摘要；列表复用 Agent 成员行并提供进入单个 Agent 管理页的链接。
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题 13px 大写、字段值 16px/600、字段标签 10px 大写，页面标题保持 18px。
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。

@@ -18,7 +18,7 @@ describe("ExpandableMessageText", () => {
       <ExpandableMessageText
         messageId="message-1"
         body={Array.from({ length: 10 }, (_, index) => `Line ${index + 1}`).join("\n")}
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -48,7 +48,7 @@ describe("highlightMentions", () => {
       <ExpandableMessageText
         messageId="message-mentions"
         body="@Lin please check email@lin, @lincoln, and (@Lin)."
-        mentionedNames={new Set(["lin"])} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map([["lin", { id: "human-lin", kind: "human", display_name: "Lin" }]])} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -62,12 +62,28 @@ describe("highlightMentions", () => {
       <ExpandableMessageText
         messageId="message-unrecognized-mention"
         body="Please check @lin."
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
     expect(container.querySelector("mark.message-mention")).not.toBeInTheDocument();
     expect(container).toHaveTextContent("Please check @lin.");
+  });
+
+  it("links a structured Agent mention to Agent management", () => {
+    const { container } = render(
+      <ExpandableMessageText
+        messageId="message-agent-mention"
+        body="Please check @Lin."
+        mentionedMembers={new Map([["lin", { id: "agent-lin", kind: "agent", display_name: "Lin" }]])}
+        taskRefs={new Map()}
+        spaceSlug="sumi-lab"
+      />,
+    );
+
+    const link = container.querySelector("a.message-mention--agent");
+    expect(link).toHaveAttribute("href", "/s/sumi-lab/agents/agent-lin");
+    expect(link).toHaveAccessibleName("Open Lin Agent management");
   });
 });
 
@@ -77,7 +93,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-inline-code"
         body="Run `sumi server --help`, then check @lin and `@lin` inside code."
-        mentionedNames={new Set(["lin"])} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map([["lin", { id: "human-lin", kind: "human", display_name: "lin" }]])} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -95,7 +111,7 @@ describe("inline code", () => {
       <ExpandableMessageText
         messageId="message-unclosed-code"
         body="A lone `backtick stays plain"
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -110,7 +126,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-bold"
         body="Use **strong** and *emphasis* together."
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -124,7 +140,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-headings"
         body={"# One\n## Two\n### Three\nbody text"}
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -138,7 +154,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-lists"
         body={"- first\n- second\n\n1. one\n2. two"}
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -151,7 +167,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-links"
         body="See [docs](https://example.test/docs) and [bad](javascript:alert(1))."
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -166,7 +182,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-code-block"
         body={"```\nsumi server --help\n```"}
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -178,7 +194,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-nested"
         body="Run **`sumi server`** now."
-        mentionedNames={new Set()} taskRefs={new Map()} spaceSlug="sumi-lab"
+        mentionedMembers={new Map()} taskRefs={new Map()} spaceSlug="sumi-lab"
       />,
     );
 
@@ -192,7 +208,7 @@ describe("markdown rendering", () => {
       <ExpandableMessageText
         messageId="message-taskrefs"
         body="Work on !3 and mention !99 later."
-        mentionedNames={new Set()}
+        mentionedMembers={new Map()}
         taskRefs={new Map([[3, { seq: 3, task_id: "task-3", title: "Rebuild WebUI", status: "in_progress" }]])}
         spaceSlug="sumi-lab"
       />,
