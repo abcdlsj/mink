@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -64,7 +67,7 @@ describe("Human Inbox", () => {
         return json([
           inboxItem("ambient", "channel_activity", "lin", "Lin", "Ambient update"),
           inboxItem("reply", "reply", "grace", "Grace", "A reply"),
-          inboxItem("mention", "mention", "lin", "Lin", "Please review"),
+          inboxItem("mention", "mention", "lin", "Lin", "Please review", "Please review the release checklist before continuing"),
         ]);
       }
       throw new Error(`Unexpected request: ${path}`);
@@ -72,7 +75,7 @@ describe("Human Inbox", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute("/s/sumi-lab/inbox");
 
-    expect(await screen.findByText("Please review")).toBeVisible();
+    expect(await screen.findByText("Please review the release checklist before continuing")).toBeVisible();
     const workspace = screen.getAllByRole("heading", { name: "Inbox", level: 1 }).at(-1)!.closest(".inbox-workspace")!;
     const view = within(workspace as HTMLElement);
     const headings = view.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
@@ -82,6 +85,10 @@ describe("Human Inbox", () => {
     expect(linIdenticons[0]).toHaveAttribute("data-agent-identicon", linIdenticons[1].getAttribute("data-agent-identicon"));
     expect(view.getByRole("img", { name: "Grace avatar" })).toBeVisible();
     expect(view.getAllByRole("button", { name: "Open #general from Lin" })).toHaveLength(2);
+    expect(view.getByText("Please review the release checklist before continuing")).toHaveClass("inbox-message-preview");
+    const styles = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    expect(styles).toMatch(/\.inbox-message-preview\s*\{[^}]*overflow:\s*hidden/s);
+    expect(styles).toMatch(/\.inbox-message-preview\s*\{[^}]*-webkit-line-clamp:\s*1/s);
   });
 
   it("marks an Item read when its source is opened", async () => {
@@ -112,7 +119,7 @@ describe("Human Inbox", () => {
   });
 });
 
-function inboxItem(id: string, kind: string, senderId: string, senderName: string, summary: string) {
+function inboxItem(id: string, kind: string, senderId: string, senderName: string, summary: string, messagePreview = summary) {
   return {
     id,
     member_id: ownerId,
@@ -123,6 +130,7 @@ function inboxItem(id: string, kind: string, senderId: string, senderName: strin
     message_id: `${id}-message`,
     sender_member_id: senderId,
     sender_display_name: senderName,
+    message_preview: messagePreview,
     summary,
     status: "pending",
     available_at: "2026-07-25T00:00:00Z",

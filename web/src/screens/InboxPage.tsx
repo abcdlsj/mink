@@ -152,7 +152,9 @@ function InboxWorkspace({
                         <span className="inbox-address">{address}</span>
                         <time dateTime={item.created_at}>{formatInboxTime(item.created_at)}</time>
                       </span>
-                      <span className="inbox-summary">{item.summary ?? "Attention required"}</span>
+                      <span className="inbox-message-preview">
+                        {formatInboxMessagePreview(item.message_preview) || item.summary || "Attention required"}
+                      </span>
                       <span className="inbox-kind">{formatInboxKind(item.kind)}</span>
                     </span>
                   </button>
@@ -194,6 +196,10 @@ function formatInboxKind(kind: InboxItem["kind"]): string {
   if (kind === "thread_activity") return "thread activity";
   if (kind === "channel_activity") return "channel activity";
   return kind;
+}
+
+function formatInboxMessagePreview(value: string | null | undefined): string {
+  return value?.replace(/\\n/g, "\n").replace(/\s+/g, " ").trim() ?? "";
 }
 
 function formatInboxTime(value: string): string {

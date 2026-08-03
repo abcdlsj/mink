@@ -935,7 +935,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .message-content header { gap: 6px; }
   .message-content header strong { font-size: 14px; }
   .message-content time { font-size: 11px; }
-  .message-content p { font-size: var(--text-body); }
+  .message-content p { font-size: var(--text-message); }
   .composer { grid-template-columns: 40px minmax(0, 1fr) auto; padding-right: 10px; padding-left: 10px; }
   .composer .send-button { min-width: 44px; width: 44px; padding: 0; }
   .send-button span { display: none; }
@@ -1187,7 +1187,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .inbox-address { flex: 0 0 auto; padding: 2px 5px; background: var(--accent-soft); font-family: var(--font-sans); font-size: 10px; line-height: 1.35; letter-spacing: 0; text-transform: uppercase; }
 .inbox-kind { font-family: var(--font-sans); font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 2px 5px; background: var(--accent-soft); flex: 0 0 auto; line-height: 1.35; letter-spacing: 0; }
 .inbox-address { font-family: var(--font-sans); font-size: 10px; font-weight: 800; text-transform: uppercase; align-self: center; flex: 0 0 auto; padding: 2px 5px; background: transparent; line-height: 1.35; letter-spacing: 0; max-width: min(38vw, 260px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inbox-summary { min-width: 0; margin: 0; color: #55514a; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.inbox-message-preview { display: -webkit-box; min-width: 0; margin: 0; color: #55514a; font-size: 13px; line-height: 1.4; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
 .inbox-item-copy > .inbox-kind { justify-self: start; margin-top: 2px; }
 .inbox-item .inbox-actions button:first-child { background: var(--green); }
 .inbox-empty { max-width: 720px; margin: clamp(28px, 7vh, 72px) auto 0; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); margin-top: clamp(24px, 6vh, 64px); }
@@ -1273,9 +1273,9 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-content { min-width: 0; position: static; padding-right: 116px; width: min(100%, 80ch); }
 .message-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; padding: 8px 20px; position: relative; }
 .message-content p,
-.thread-message p { font-size: var(--text-body); }
-.message-content p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; margin-top: 2px; }
-.thread-message p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; }
+.thread-message p { font-size: var(--text-message); }
+.message-content p { margin: 4px 0 0; overflow-wrap: anywhere; font-size: var(--text-message); line-height: 1.4; white-space: pre-wrap; margin-top: 2px; }
+.thread-message p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: var(--text-message); line-height: 1.4; white-space: pre-wrap; }
 .message-content > header,
 .message-row--grouped .message-content > p,
 .message-row--grouped .message-body { padding-right: 50px; }
@@ -1291,7 +1291,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-action-error { position: absolute; top: calc(100% + 6px); right: -2px; width: max-content; max-width: 220px; padding: 5px 7px; border: 2px solid var(--ink); background: color-mix(in srgb, var(--red) 30%, var(--paper)); color: var(--ink); font-size: var(--text-system); font-weight: 600; }
 .message-mention { padding: 0 2px; background: var(--accent-soft); color: var(--ink); font-weight: 700; text-decoration: none; }
 .message-body-wrap { min-width: 0; }
-.message-body { font-size: var(--text-body); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-body { font-size: var(--text-message); line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-inline-code {
   font-family: var(--font-mono);
   font-size: 1em;
@@ -1976,13 +1976,13 @@ pre {
 .agent-workspace .detail-tabs button { min-width: 112px; }
 .agent-workspace .detail-tabs button[aria-current="page"] { color: var(--ink); background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
 .agent-detail-scroll { width: 100%; max-width: none; padding: 30px 28px 64px; }
+.agent-activity-panel { width: min(100%, 980px); }
 .agent-overview-grid { width: min(100%, 1120px); grid-template-columns: minmax(300px, .9fr) minmax(420px, 1.1fr); gap: 0; }
 .agent-overview-grid > .detail-section { padding: 0 28px 32px; border-bottom: 1px solid rgb(20 17 17 / 18%); }
-.agent-overview-grid > .agent-activity { grid-column: 1; grid-row: 1 / span 3; padding-inline-start: 0; padding-inline-end: 32px; border-inline-end: 2px solid var(--ink); }
-.agent-overview-grid > .agent-work { grid-column: 2; grid-row: 1; padding-inline-end: 0; }
-.agent-overview-grid > .agent-identity { grid-column: 2; grid-row: 2; padding-inline-end: 0; }
-.agent-overview-grid > .agent-runtime { grid-column: 2; grid-row: 3; padding-inline-end: 0; }
-.agent-overview-grid > .agent-permissions { grid-column: 1 / -1; grid-row: 4; padding: 28px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
+.agent-overview-grid > .agent-work { grid-column: 1 / -1; grid-row: 1; padding-inline: 0; }
+.agent-overview-grid > .agent-identity { grid-column: 1; grid-row: 2; padding-inline-start: 0; }
+.agent-overview-grid > .agent-runtime { grid-column: 2; grid-row: 2; padding-inline-end: 0; }
+.agent-overview-grid > .agent-permissions { grid-column: 1 / -1; grid-row: 3; padding: 28px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
 .agent-overview-grid > .detail-section > h2 { margin: 0 0 16px; color: var(--ink); font-size: 13px; letter-spacing: .12em; }
 .agent-work-facts > div { grid-template-columns: 96px minmax(0, 1fr); padding: 13px 0; }
 .agent-work-facts p { font-size: 15px; }
@@ -1990,8 +1990,15 @@ pre {
 .agent-detail-scroll .detail-grid { gap: 18px 32px; }
 .agent-detail-scroll .detail-grid dd { font-size: 16px; font-weight: 600; }
 .agent-detail-scroll .detail-grid dd code { font: 600 12px/1.3 var(--font-mono); overflow-wrap: anywhere; }
-.agent-activity-list { max-height: 450px; overflow: auto; padding-inline-end: 8px; }
-.agent-activity-row { gap: 12px; padding: 12px 0; }
+.agent-activity-list { max-height: min(68vh, 680px); margin: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 0 0; scrollbar-color: rgb(20 17 17 / 32%) transparent; scrollbar-gutter: stable; scrollbar-width: thin; }
+.agent-activity-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 14px 0; border-bottom: 1px solid rgb(20 17 17 / 18%); }
+.agent-activity-row > p { min-width: 0; margin: 0; font-size: var(--text-body); line-height: 1.4; overflow-wrap: anywhere; }
+.agent-activity-row > time { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.agent-activity-command { display: grid; grid-column: 1 / -1; gap: 6px; margin: 4px 0 0; padding: 10px 12px; border-inline-start: 4px solid var(--cyan); background: var(--panel); }
+.agent-activity-command > div { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: start; gap: 12px; min-width: 0; }
+.agent-activity-command dt { color: var(--muted); font-size: var(--text-meta); font-weight: 700; letter-spacing: .08em; }
+.agent-activity-command dd { min-width: 0; margin: 0; }
+.agent-activity-command code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font: 11px/1.45 var(--font-mono); }
 .agent-activity-row a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .agent-settings,
 .agent-memory,
@@ -2003,7 +2010,8 @@ pre {
   padding: 0;
   background: transparent;
   color: var(--muted);
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--accent) 55%, var(--muted));
   text-decoration-thickness: 1px;
@@ -2039,7 +2047,6 @@ pre {
   .agent-detail-scroll { padding-inline: 14px; }
   .agent-workspace .detail-tabs { padding-inline: 10px; }
   .agent-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-  .agent-overview-grid > .agent-activity,
   .agent-overview-grid > .agent-work,
   .agent-overview-grid > .agent-identity,
   .agent-overview-grid > .agent-runtime,

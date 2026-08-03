@@ -61,7 +61,8 @@ impl PostgresTransaction {
             "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
-                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
+                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name,\
+                    left(m.body_markdown, 512) AS message_preview \
              FROM inbox_items i \
              JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              JOIN channels c ON c.id=t.channel_id \
@@ -129,7 +130,8 @@ impl PostgresTransaction {
             "SELECT i.id,i.member_id,i.kind,i.strength,i.status,i.available_at,i.created_at,\
                     i.retry_count,i.requeue_count,\
                     i.thread_id,i.message_id,t.channel_id,c.slug AS channel_slug,\
-                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name \
+                    m.author_member_id AS sender_member_id,sender.display_name AS sender_name,\
+                    left(m.body_markdown, 512) AS message_preview \
              FROM inbox_items i \
              JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              JOIN channels c ON c.id=t.channel_id \

@@ -316,6 +316,10 @@ async fn run_human_inbox_flow(database: &TestDatabase) -> Result<()> {
     ensure!(inbox.len() == 1, "{inbox:?}");
     ensure!(inbox[0]["kind"] == "reply", "{inbox:?}");
     ensure!(inbox[0]["sender_member_id"] == grace_member_id, "{inbox:?}");
+    ensure!(
+        inbox[0]["message_preview"] == "I can take this",
+        "Inbox preview projection mismatch"
+    );
     let reply_item_id = inbox[0]["id"].as_str().context("Item ID")?.to_owned();
     let sender_inbox: Value = client
         .get(server_url.join(&format!("/api/v1/members/{grace_member_id}/inbox"))?)

@@ -247,6 +247,7 @@ pub(in crate::server) struct InboxItemView {
     pub(in crate::server) message_id: Option<MessageId>,
     pub(in crate::server) sender_member_id: Option<MemberId>,
     pub(in crate::server) sender_display_name: Option<String>,
+    pub(in crate::server) message_preview: Option<String>,
     pub(in crate::server) available_at: time::OffsetDateTime,
     pub(in crate::server) created_at: time::OffsetDateTime,
     pub(in crate::server) retry_count: u32,

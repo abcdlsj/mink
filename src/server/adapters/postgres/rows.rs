@@ -377,6 +377,7 @@ pub(super) fn inbox_view_from_row(
             .get::<Option<Uuid>, _>("sender_member_id")
             .map(MemberId::from_uuid),
         sender_display_name: row.get("sender_name"),
+        message_preview: row.get("message_preview"),
         available_at: row.get("available_at"),
         created_at: row.get("created_at"),
         retry_count: u32::try_from(row.get::<i32, _>("retry_count"))

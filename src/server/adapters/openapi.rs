@@ -558,6 +558,8 @@ pub(super) struct InboxItemResponse {
     pub(super) message_id: Option<Uuid>,
     pub(super) sender_member_id: Option<Uuid>,
     pub(super) sender_display_name: Option<String>,
+    /// A bounded preview of the source Message body. Full content is read through the Message API.
+    pub(super) message_preview: Option<String>,
     pub(super) summary: String,
     pub(super) status: InboxStatus,
     pub(super) available_at: String,

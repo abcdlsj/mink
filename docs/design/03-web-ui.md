@@ -47,7 +47,8 @@ Space 创建时从 4 个预置 accent（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9
 | --- | --- | --- | --- |
 | 页面标题 | `18px` | `700` | 页面和实体名称 |
 | 区域标题 | `11px` | `700` | 区域名称；使用大写和`0.08em`字距 |
-| 正文 | `14px` | `400` | Message 正文、字段值和表单内容 |
+| 正文 | `14px` | `400` | 字段值和表单内容 |
+| Message 正文 | `13px` | `400` | Channel 和 Thread 中的普通 Message 正文 |
 | 辅助信息 | `12px` | `400` | 说明、空态和系统信息 |
 | 元数据 | `10px` | `600` | 时间、display name、计数和状态元数据 |
 
@@ -106,7 +107,7 @@ Message 正文支持常见 Markdown：
 - Browser 在 Markdown 分块前把正文中的字面量 `\n`（反斜杠加 `n`）转换为换行，以兼容以转义文本提交的多行内容。
 - 行内：`**bold**`、`*italic*`、`_italic_`、`~~deleted~~`、`` `inline code` ``、`[label](url)`。链接只允许 http/https 与站内路径，其他协议保持普通正文。inline code 内不解析 mention 高亮。
 - 块级：`#`至`######`标题、无序列表（`-`/`*`）、有序列表（`1.`）、引用（`>`）、围栏代码块（```` ``` ````）和分隔线（`---`）。
-- 未闭合的反引号保持普通正文；正文行高为 1.4，消息内标题使用 14 至 16px、700 字重，块间距压缩为 0.25em。
+- 未闭合的反引号保持普通正文；普通 Message 正文使用 13px、1.4 行高，消息内标题使用 14 至 16px、700 字重，块间距压缩为 0.25em。
 
 普通 Message 正文中的 `@display_name` 只有在 Message 返回的结构化 mention 成员 ID 能映射到当前可见成员 display name 时才使用高亮。`!<seq>`只有在 Message 返回的结构化 task refs 包含该序号时才渲染为 Task 引用。Browser 不得仅根据正文中的符号推断 mention 或 Task 引用；未被 Server 识别的文本保持普通正文样式。Browser 不显示 member handle，成员身份只以 display name 呈现。
 
@@ -225,6 +226,8 @@ Human Inbox 只接收与自己相关的 Item：DM、mention、reply、Linked Thr
 
 打开 Item 的来源时，Browser 调用`read`端点把该 Item 标记为已读，见 [API 与事件](07-api.md)。Item 不显示完成或延后控件：Agent Item 的终态由处理它的 Run 决定，见 [Inbox 与凭据](06-inbox-credentials.md)。
 
+来源 Message 可见时，Inbox Item 在发送者和来源地址下显示该 Message 的有长度上限正文预览。预览按一行视觉高度显示并在超出容器时省略；点击 Item 仍打开来源以读取完整正文。没有单条来源 Message 的聚合或 system Item 继续显示注意力类型摘要。
+
 Agent Inbox 默认不向普通 Member 公开。Owner/Admin 只能读取自己有权访问的来源摘要和错误代码。
 
 Agent 详情显示 action permissions。Human Owner/Admin 可以逐项授予或撤销`channel.create`和`agent.create`。UI 不提供 Role 形式的 Permission 套餐。
@@ -242,10 +245,10 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题 13px 大写、字段值 16px/600、字段标签 10px 大写，页面标题保持 18px。
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。
-- Agent 详情 Overview 左侧默认显示 Activity 面板，无需用户操作。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
-- Activity 每条记录只显示 action kind、发生时间和目标资源链接。面板不显示 Message 正文、Task Result、Memory、workspace 文件、Provider transcript、隐藏推理或命令参数，见[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
-- Activity 是临时视图，不提供历史查询。Browser 通过 SSE 接收 `agent.activity` 事件并把当前 feed 保存在页面内，见[API 与事件](07-api.md)。重连或刷新只恢复保留窗口内的记录；页面内超过上限时丢弃最旧记录。
-- Activity 空态只写事实：该 Agent 尚无可见交互。窄屏下 Activity 与其他 Overview 分区一样收为单列。
+- Agent 详情提供独立的 Activity tab，并默认选中该 tab。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
+- Activity 每条记录显示 action kind、允许的资源 ID 参数、发生时间和目标资源链接。面板不显示 Message 正文、Task Result、Memory、workspace 文件、Provider transcript 或隐藏推理；参数只来自 `agent.activity` payload 的资源 ID 字段，见[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
+- Activity 是临时视图，不提供历史查询。Browser 通过 SSE 接收 `agent.activity` 事件并把当前 feed 保存在页面内，见[API 与事件](07-api.md)。重连或刷新只恢复保留窗口内的记录；页面内超过上限时丢弃最旧记录。Activity 列表使用独立的纵向滚动容器。
+- Activity 空态只写事实：该 Agent 尚无可见交互。窄屏下 Activity 内容收为单列。
 - Owner/Admin 打开 `/computers` 且未选择 Computer 时，中间显示新增 Computer onboarding，左侧保留已配对列表；点击 Computer 行后才进入详情。`pair-computer` hash 兼容现有入口并显示同一 onboarding，不再叠加重复 modal。无配对 Computer 时 onboarding 仍是 Owner/Admin 的主内容。普通 Member 不显示新增入口或配对命令。
 - Computers 左侧导航只提供已配对列表和 `+` 配对入口，不显示重复的 Add Computer 项。
 

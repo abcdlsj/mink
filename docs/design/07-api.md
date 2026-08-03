@@ -172,7 +172,7 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
-每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。正文通过 Message API 按调用方自身权限读取。
+每项包含 Item 标识、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
 
 #### 2.3.2 标记 Human Item 已读
 

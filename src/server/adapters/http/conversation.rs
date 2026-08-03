@@ -617,6 +617,7 @@ pub(super) fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
         message_id: item.message_id.map(MessageId::into_uuid),
         sender_member_id: item.sender_member_id.map(MemberId::into_uuid),
         sender_display_name: item.sender_display_name.clone(),
+        message_preview: item.message_preview.clone(),
         summary: inbox_summary(item).to_owned(),
         status: inbox_status_code(item.status),
         available_at: timestamp(item.available_at),

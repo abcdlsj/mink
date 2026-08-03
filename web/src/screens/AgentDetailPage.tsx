@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
+import { Activity, Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef, useState } from "react";
 
 import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
@@ -9,9 +9,10 @@ import { DialogFrame } from "../components/DialogFrame";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
 
-type AgentTab = "overview" | "memory" | "settings";
+type AgentTab = "activity" | "overview" | "memory" | "settings";
 
 const agentTabs: { id: AgentTab; label: string; icon: LucideIcon }[] = [
+  { id: "activity", label: "Activity", icon: Activity },
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "memory", label: "Memory", icon: Brain },
   { id: "settings", label: "Settings", icon: Settings2 },
@@ -37,7 +38,7 @@ export function AgentDetailPage() {
 function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { agentId: string; spaceId: string; spaceSlug: string; channels: Channel[]; canManage: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AgentTab>("overview");
+  const [tab, setTab] = useState<AgentTab>("activity");
   const [cancelNow, setCancelNow] = useState(false);
   const [retireConfirmOpen, setRetireConfirmOpen] = useState(false);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -151,12 +152,16 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
       <div className="agent-detail-scroll">
         {!value.computer_id ? <p className="inline-notice">No Computer is assigned. Pair a Computer before starting work.</p> : !value.computer_reachable ? <p className="inline-notice">Computer unreachable. Work already in progress keeps its status until the Computer reports the outcome.</p> : null}
         {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
-        {tab === "overview" ? (
-          <div className="agent-tab-panel" id="agent-panel-overview" role="tabpanel" aria-labelledby="agent-tab-overview" tabIndex={0}>
-            <div className="agent-overview-grid">
+        {tab === "activity" ? (
+          <div className="agent-tab-panel agent-activity-panel" id="agent-panel-activity" role="tabpanel" aria-labelledby="agent-tab-activity" tabIndex={0}>
             <DetailSection className="agent-activity" title="Activity">
               <AgentActivityFeed agentId={value.member_id} spaceSlug={spaceSlug} channels={channels} />
             </DetailSection>
+          </div>
+        ) : null}
+        {tab === "overview" ? (
+          <div className="agent-tab-panel" id="agent-panel-overview" role="tabpanel" aria-labelledby="agent-tab-overview" tabIndex={0}>
+            <div className="agent-overview-grid">
             <DetailSection className="agent-work" title="Current work">
               {runtime.isPending ? <p>Loading current Run…</p> : null}
               {runtime.error ? <p className="inline-notice">Current Run is unavailable. Agent identity and Task facts remain available.</p> : null}
@@ -285,11 +290,27 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
           <li className="agent-activity-row" key={item.eventId}>
             <p>{activityLabels[item.kind]}{link ? <> {link}</> : null}</p>
             <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
+            <dl className="agent-activity-command" aria-label={`${item.kind} command details`}>
+              <div><dt>CMD</dt><dd><code>{item.kind}</code></dd></div>
+              <div><dt>ARGS</dt><dd><code>{activityArguments(item)}</code></dd></div>
+            </dl>
           </li>
         );
       })}
     </ol>
   );
+}
+
+function activityArguments(item: AgentActivityItem): string {
+  return JSON.stringify({
+    run_id: item.runId,
+    channel_id: item.channelId,
+    thread_id: item.threadId,
+    message_id: item.messageId,
+    task_id: item.taskId,
+    item_id: item.itemId,
+    target_member_id: item.targetMemberId,
+  });
 }
 
 function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {

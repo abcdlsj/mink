@@ -3093,6 +3093,7 @@ fn inbox_view(item: &InboxItem) -> InboxItemView {
         message_id: item.message_id,
         sender_member_id: None,
         sender_display_name: None,
+        message_preview: None,
         available_at: item.available_at,
         created_at: item.available_at,
         retry_count: item.retry_count,

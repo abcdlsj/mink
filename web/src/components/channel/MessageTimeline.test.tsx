@@ -87,6 +87,28 @@ describe("highlightMentions", () => {
   });
 });
 
+describe("Agent mention style", () => {
+  it("keeps Agent links at the compact message size and regular weight", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    const rule = css.match(/\.message-mention--agent\s*\{([^}]*)\}/)?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/font-size:\s*13px/);
+    expect(rule).toMatch(/font-weight:\s*400/);
+  });
+});
+
+describe("message body typography", () => {
+  it("uses the same 13px base size in Channel and Thread messages", () => {
+    const tokens = readFileSync(join(process.cwd(), "src/styles/tokens.css"), "utf8");
+    const styles = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    const channelStyles = readFileSync(join(process.cwd(), "src/components/channel/channel.css"), "utf8");
+    expect(tokens).toMatch(/--text-message:\s*13px/);
+    expect(styles).toMatch(/\.message-body\s*\{[^}]*font-size:\s*var\(--text-message\)/s);
+    expect(styles).toMatch(/\.message-content p,\s*\.thread-message p \{\s*font-size:\s*var\(--text-message\);\s*\}/);
+    expect(channelStyles).toMatch(/\.thread-message p\s*\{[^}]*font-size:\s*13px/s);
+  });
+});
+
 describe("inline code", () => {
   it("renders backtick spans as code and keeps mentions inside them unhighlighted", () => {
     const { container } = render(

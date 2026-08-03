@@ -73,6 +73,7 @@ describe("Agent detail", () => {
     expect(screen.getAllByRole("img", { name: "Lin avatar" })[0]).toHaveAttribute("data-agent-identicon");
     expect(screen.getAllByRole("status").find((status) => status.textContent === "Working")).toBeVisible();
     expect(screen.getByRole("button", { name: "Message Lin" })).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
     const channelPermission = screen.getByRole("checkbox", { name: "channel.create permission" });
@@ -117,7 +118,7 @@ describe("Agent detail", () => {
     ));
   });
 
-  it("shows the Activity feed on Overview by default", async () => {
+  it("shows Activity in its default tab with command arguments", async () => {
     const channel = {
       id: space.general_channel_id,
       space_id: space.id,
@@ -150,7 +151,9 @@ describe("Agent detail", () => {
       data: {
         member_id: agentId,
         kind: "message.send",
+        run_id: "run-1",
         channel_id: space.general_channel_id,
+        thread_id: "thread-1",
         message_id: "message-1",
       },
     });
@@ -162,11 +165,23 @@ describe("Agent detail", () => {
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "Activity" })).toBeVisible();
     expect(screen.getByText("Completed task")).toBeVisible();
     expect(screen.getByRole("link", { name: "View task" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Sent a message")).toBeVisible();
     expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
+    expect(screen.getByText("message.send")).toBeVisible();
+    expect(screen.getByText(/"run_id":"run-1"/)).toBeVisible();
+    expect(screen.getByRole("list", { name: "Agent activity" })).toHaveClass("agent-activity-list");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("heading", { name: "Activity" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Current work" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(screen.getByRole("heading", { name: "Activity" })).toBeVisible();
   });
 
   it("renders a DM Focus without a channel link", async () => {
@@ -190,6 +205,7 @@ describe("Agent detail", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
+    fireEvent.click(await screen.findByRole("tab", { name: "Overview" }));
     expect(await screen.findByText("DM @7")).toBeVisible();
     expect(screen.queryByRole("link", { name: /#.* @7/ })).not.toBeInTheDocument();
   });

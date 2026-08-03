@@ -270,6 +270,8 @@ export interface components {
             member_id: string;
             /** Format: uuid */
             message_id?: string | null;
+            /** @description A bounded preview of the source Message body. Full content is read through the Message API. */
+            message_preview?: string | null;
             priority: components["schemas"]["InboxPriority"];
             /**
              * Format: int32
