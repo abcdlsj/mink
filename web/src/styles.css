@@ -2990,9 +2990,16 @@ pre {
   border-left: 1px solid rgb(20 17 17 / 18%);
 }
 
-.agent-overview-grid > .agent-permissions {
+.agent-overview-grid > .agent-direct-messages {
   grid-column: 1 / -1;
   grid-row: 3;
+  padding: 28px 0;
+  border-top: 2px solid var(--ink);
+}
+
+.agent-overview-grid > .agent-permissions {
+  grid-column: 1 / -1;
+  grid-row: 4;
   padding-top: 28px;
   border-bottom: 0;
   border-top: 2px solid var(--ink);
@@ -3507,6 +3514,7 @@ pre {
   .agent-overview-grid > .agent-work,
   .agent-overview-grid > .agent-identity,
   .agent-overview-grid > .agent-runtime,
+  .agent-overview-grid > .agent-direct-messages,
   .agent-overview-grid > .agent-permissions {
     grid-column: 1;
     grid-row: auto;

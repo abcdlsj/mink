@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clearAgentActivity, recordAgentActivity } from "../agentActivity";
@@ -24,6 +26,18 @@ afterEach(() => {
 });
 
 describe("Agent detail", () => {
+  it("keeps Agent DMs and permissions in separate Overview rows", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    const start = css.indexOf(".agent-overview-grid {\n  width: min(100%, 1080px);");
+    const end = css.indexOf("@media (max-width: 780px)", start);
+    const desktopOverviewRules = css.slice(start, end);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(desktopOverviewRules).toMatch(/\.agent-overview-grid > \.agent-direct-messages\s*\{[^}]*grid-row:\s*3/s);
+    expect(desktopOverviewRules).toMatch(/\.agent-overview-grid > \.agent-permissions\s*\{[^}]*grid-row:\s*4/s);
+  });
+
   it("edits Role and controls lifecycle while warning about local-only Memory", async () => {
     let current = agent("active", "ready");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
