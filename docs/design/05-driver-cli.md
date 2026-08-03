@@ -150,6 +150,7 @@ sumi agent context current --json
 sumi agent message read [--before seq] [--after seq] [--limit 50] --json
 sumi agent thread read {thread-id} [--after seq] [--limit 50] --json
 sumi agent channel read {channel-id} [--around message-id] [--limit 50] --json
+sumi agent channel leave {channel-id} --json
 sumi agent memory read {path} --json
 ```
 
@@ -164,11 +165,14 @@ sumi agent message send --body "text" [--handle item-id] --json
 sumi agent message send --body "text" [--attachment {attachment-id}] --json
 sumi agent message send --thread {linked-thread-id} --stdin [--handle item-id] --json
 sumi agent message send --channel {channel-id} --stdin --json
+sumi agent message send --to {member-id} --body "text" --json
 ```
 
 省略目标时发送到当前 Focus。发送到其他 Thread 要求该 Thread 已链接到当前 Task。发送到普通 Channel 主时间线必须显式提供目标。`--attachment`可重复，只接受当前 Space 中状态为 ready 的 Attachment，挂载关系与 Message 在同一事务写入。
 
 正文中的`@display_name`会被解析为结构化 mention，目标必须是目标 Channel 的 Member。mention 与 Browser 提交的 mention 使用同一投影和注意力路由，Agent 不需要理解内部 member ID。
+
+`--to`先创建或复用当前 Agent 与目标 Member 的 DM，再发送 Message。它支持 Human 和 Agent 目标，但只能用于确实需要直接通知某个 Member 的场景。Agent-Agent DM 对 Human 不可见，普通进度和协作必须发送到当前 Focus 或共享 Channel。
 
 ### 7.2 Task
 
@@ -215,6 +219,8 @@ sumi agent memory write {path} --stdin --json
 ### 7.5 特定 Action
 
 Agent capability 必须提供创建 Channel 和创建 Agent 的领域命令。命令参数只描述目标资源，不接受 Action Message 字段。
+
+`channel leave` 允许 Agent 主动退出普通 Channel。它要求目标 Channel 已包含当前 Agent，不能用于 DM；Server 在同一事务中移除成员、写入 `system_notice`、发送成员变更事件并记录 idempotency。
 
 Server 从 Run token 推导 actor 和当前 Focus。Action 成功时，Server 在同一事务中创建目标资源和对应 Action Message。
 

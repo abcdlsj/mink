@@ -103,6 +103,30 @@ impl PostgresAdapter {
             .execute(&mut *transaction)
             .await?;
         }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 5 {
+            if version != 4 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE messages DROP CONSTRAINT messages_content_kind_check; \
+                 ALTER TABLE messages ADD CONSTRAINT messages_content_kind_check CHECK (content_kind IN ('text', 'channel_created', 'agent_created', 'system_notice')); \
+                 ALTER TABLE messages DROP CONSTRAINT messages_check; \
+                 ALTER TABLE messages ADD CONSTRAINT messages_check CHECK (\
+                    (content_kind = 'text' AND body_markdown IS NOT NULL AND action_channel_id IS NULL AND action_agent_member_id IS NULL)\
+                    OR (content_kind = 'channel_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NOT NULL AND action_agent_member_id IS NULL)\
+                    OR (content_kind = 'agent_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NULL AND action_agent_member_id IS NOT NULL)\
+                    OR (content_kind = 'system_notice' AND body_markdown IS NOT NULL AND action_channel_id IS NULL AND action_agent_member_id IS NULL)\
+                 ); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (5, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await
     }
 
@@ -309,6 +333,7 @@ fn event_is_visible(
         return false;
     }
     if kind != "agent.activity"
+        && !(kind == "member.changed" && payload_uuid("channel_id").is_some())
         && let Some(member_id) = payload_uuid("member_id")
         && member_id != viewer_member_id.into_uuid()
         && !governs_space

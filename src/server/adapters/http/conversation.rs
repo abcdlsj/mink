@@ -160,6 +160,27 @@ pub(super) async fn add_channel_agents(
     ))
 }
 
+pub(super) async fn remove_channel_agent(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path((channel_id, member_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<ChannelMembersResponse>, ApiError> {
+    let actor_id = channel_member(&state, &jar, channel_id).await?;
+    let mut storage = state.storage.clone();
+    RemoveChannelAgent::execute(
+        &mut storage,
+        MemberId::from_uuid(actor_id),
+        ChannelId::from_uuid(channel_id),
+        MemberId::from_uuid(member_id),
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(
+        channel_members_response(&state.pool, channel_id, actor_id).await?,
+    ))
+}
+
 pub(super) async fn create_root_message(
     State(state): State<RuntimeState>,
     jar: CookieJar,
@@ -449,6 +470,35 @@ pub(super) async fn list_direct_messages(
     .map_err(application_error)?;
     Ok(Json(
         conversations.iter().map(direct_message_response).collect(),
+    ))
+}
+
+/// Returns the redacted Agent-to-Agent DM directory for one governed Agent.
+/// Message content remains protected by the channel membership check; this endpoint only exposes
+/// the two-Agent conversation metadata needed by the Agent management page.
+pub(super) async fn list_agent_direct_messages(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(member_id): Path<Uuid>,
+) -> Result<Json<Vec<DirectMessageResponse>>, ApiError> {
+    let target = MemberId::from_uuid(member_id);
+    let _governor = require_agent_governor(&state, &jar, member_id).await?;
+    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
+        .bind(member_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(map_sqlx)?;
+    let mut storage = state.storage.clone();
+    let conversations =
+        ListDirectMessages::execute(&mut storage, target, SpaceId::from_uuid(space_id))
+            .await
+            .map_err(application_error)?;
+    Ok(Json(
+        conversations
+            .iter()
+            .filter(|conversation| conversation.other_member.kind == MemberKind::Agent)
+            .map(direct_message_response)
+            .collect(),
     ))
 }
 

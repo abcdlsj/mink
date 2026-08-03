@@ -81,8 +81,9 @@ export function MessageTimeline({
         {page?.messages.map((message, index, all) => {
           const previous = index > 0 ? all[index - 1] : undefined;
           const showDivider = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
+          const systemNotice = message.content.type === "system_notice";
           // A day divider always restarts the visual grouping.
-          const grouped = !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
+          const grouped = !systemNotice && !showDivider && !message.task && message.reply_count === 0 && !startsNewGroup(message, previous);
           return (
             <div className="message-block" id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1} key={message.id}>
               {showDivider ? (
@@ -91,14 +92,18 @@ export function MessageTimeline({
                 </div>
               ) : null}
               <article className={`message-row${grouped ? " message-row--grouped" : ""}${message.reply_count > 0 ? " message-row--has-thread" : ""}`}>
-                {grouped ? (
+                {systemNotice ? (
+                  <div className="message-system-content">
+                    <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+                  </div>
+                ) : grouped ? (
                   <time className="message-gutter-time" dateTime={message.created_at}>
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
                   <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityByMemberId.get(message.author.id)} />
                 )}
-                <div className="message-content">
+                {!systemNotice ? <div className="message-content">
                   {grouped ? null : (
                     <header>
                       <strong>{message.author.display_name}</strong>
@@ -124,8 +129,8 @@ export function MessageTimeline({
                       open={(trigger) => openThread(message.thread_id!, trigger)}
                     />
                   ) : null}
-                </div>
-                {!message.deleted_at ? (
+                </div> : null}
+                {!systemNotice && !message.deleted_at ? (
                   <MessageActions
                     message={message}
                     channelId={channelId}
@@ -282,6 +287,9 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
   }
   if (message.content.type === "channel_created") {
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
+  }
+  if (message.content.type === "system_notice") {
+    return <div className="system-event system-event--message" role="status"><div className="system-event-heading"><span>{message.content.body_markdown}</span></div></div>;
   }
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
 }
@@ -709,6 +717,7 @@ function textBody(message: Message): string {
 function messagePreview(message: Message): string {
   if (message.content.type === "text") return message.content.body_markdown;
   if (message.content.type === "channel_created") return `Created channel #${message.content.channel.name}`;
+  if (message.content.type === "system_notice") return message.content.body_markdown;
   return `Created agent ${message.content.agent.name} · ${message.content.agent.lifecycle}`;
 }
 

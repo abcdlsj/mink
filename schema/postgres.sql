@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (4, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (5, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -183,7 +183,7 @@ CREATE TABLE messages (
     thread_id UUID NOT NULL,
     channel_seq BIGINT NOT NULL CHECK (channel_seq > 0),
     placement TEXT NOT NULL CHECK (placement IN ('root', 'reply')),
-    content_kind TEXT NOT NULL CHECK (content_kind IN ('text', 'channel_created', 'agent_created')),
+    content_kind TEXT NOT NULL CHECK (content_kind IN ('text', 'channel_created', 'agent_created', 'system_notice')),
     reply_to_message_id UUID,
     author_member_id UUID NOT NULL,
     body_markdown TEXT,
@@ -205,6 +205,7 @@ CREATE TABLE messages (
         (content_kind = 'text' AND body_markdown IS NOT NULL AND action_channel_id IS NULL AND action_agent_member_id IS NULL)
         OR (content_kind = 'channel_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NOT NULL AND action_agent_member_id IS NULL)
         OR (content_kind = 'agent_created' AND placement = 'reply' AND body_markdown IS NULL AND action_channel_id IS NULL AND action_agent_member_id IS NOT NULL)
+        OR (content_kind = 'system_notice' AND body_markdown IS NOT NULL AND action_channel_id IS NULL AND action_agent_member_id IS NULL)
     ),
     CHECK ((placement = 'root' AND id = thread_id AND reply_to_message_id IS NULL) OR placement = 'reply')
 );

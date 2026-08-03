@@ -426,6 +426,7 @@ pub(super) enum MessageContentResponse {
     Text { body_markdown: String },
     ChannelCreated { channel: ActionChannelResponse },
     AgentCreated { agent: ActionAgentResponse },
+    SystemNotice { body_markdown: String },
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub(super) struct ActionChannelResponse {

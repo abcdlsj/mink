@@ -123,12 +123,221 @@ impl PostgresTransaction {
                 .bind(Uuid::now_v7()).bind(space_id).bind(actor.into_uuid()).bind(channel_id.into_uuid()).bind(serde_json::json!({"added_count": inserted.len()})).bind(now)
                 .execute(&mut *self.connection).await.map_err(map_sqlx)?;
             for member_id in &inserted {
+                let display_name: String =
+                    sqlx::query_scalar("SELECT display_name FROM members WHERE id=$1")
+                        .bind(member_id)
+                        .fetch_one(&mut *self.connection)
+                        .await
+                        .map_err(map_sqlx)?;
+                self.insert_system_notice(
+                    channel_id,
+                    actor,
+                    format!("{display_name} joined the channel"),
+                    now,
+                )
+                .await?;
                 sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'member.changed',$3,$4)")
-                    .bind(Uuid::now_v7()).bind(space_id).bind(serde_json::json!({"resource_id":member_id})).bind(now)
+                    .bind(Uuid::now_v7()).bind(space_id).bind(serde_json::json!({"resource_id":member_id, "channel_id":channel_id.into_uuid()})).bind(now)
                     .execute(&mut *self.connection).await.map_err(map_sqlx)?;
             }
         }
         Ok(inserted.into_iter().map(MemberId::from_uuid).collect())
+    }
+
+    async fn insert_system_notice(
+        &mut self,
+        channel_id: ChannelId,
+        author: MemberId,
+        body: String,
+        now: OffsetDateTime,
+    ) -> Result<MessageId, ApplicationError> {
+        let message_id = MessageId::from_uuid(Uuid::now_v7());
+        let sequence: i64 = sqlx::query_scalar(
+            "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
+        )
+        .bind(channel_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,reply_to_message_id,author_member_id,body_markdown,created_at) \
+             SELECT $1,$2,$3,$1,$4,'root','system_notice',NULL,$5,$6,$7 FROM channels WHERE id=$3",
+        )
+        .bind(message_id.into_uuid())
+        .bind(sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM channels WHERE id=$1").bind(channel_id.into_uuid()).fetch_one(&mut *self.connection).await.map_err(map_sqlx)?)
+        .bind(channel_id.into_uuid())
+        .bind(sequence)
+        .bind(author.into_uuid())
+        .bind(&body)
+        .bind(now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'message.created',$3,$4)")
+            .bind(Uuid::now_v7())
+            .bind(sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM channels WHERE id=$1").bind(channel_id.into_uuid()).fetch_one(&mut *self.connection).await.map_err(map_sqlx)?)
+            .bind(serde_json::json!({"channel_id": channel_id.into_uuid(), "message_id": message_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(message_id)
+    }
+
+    pub(super) async fn remove_channel_agent(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        agent_id: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        let channel = sqlx::query(
+            "SELECT c.space_id,c.kind,m.access_level FROM channels c \
+             JOIN members m ON m.id=$2 AND m.space_id=c.space_id \
+             JOIN channel_members cm ON cm.channel_id=c.id AND cm.member_id=m.id \
+             WHERE c.id=$1 FOR UPDATE OF c",
+        )
+        .bind(channel_id.into_uuid())
+        .bind(actor.into_uuid())
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(ApplicationError::NotFound)?;
+        if !matches!(channel.get::<&str, _>("access_level"), "owner" | "admin")
+            || channel.get::<&str, _>("kind") == "direct"
+        {
+            return Err(ApplicationError::PermissionDenied);
+        }
+        let space_id: Uuid = channel.get("space_id");
+        let display_name: String = sqlx::query_scalar(
+            "SELECT m.display_name FROM members m JOIN agents a ON a.member_id=m.id \
+             WHERE m.id=$1 AND m.space_id=$2 AND m.kind='agent' AND a.lifecycle<>'retired'",
+        )
+        .bind(agent_id.into_uuid())
+        .bind(space_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(ApplicationError::NotFound)?;
+        let deleted =
+            sqlx::query("DELETE FROM channel_members WHERE channel_id=$1 AND member_id=$2")
+                .bind(channel_id.into_uuid())
+                .bind(agent_id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        if deleted.rows_affected() == 0 {
+            return Err(ApplicationError::NotFound);
+        }
+        self.insert_system_notice(
+            channel_id,
+            actor,
+            format!("{display_name} left the channel"),
+            now,
+        )
+        .await?;
+        sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) VALUES($1,$2,$3,'channel.member_removed','channel',$4,$5,$6)")
+            .bind(Uuid::now_v7())
+            .bind(space_id)
+            .bind(actor.into_uuid())
+            .bind(channel_id.into_uuid())
+            .bind(serde_json::json!({"member_id": agent_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'member.changed',$3,$4)")
+            .bind(Uuid::now_v7())
+            .bind(space_id)
+            .bind(serde_json::json!({"resource_id":agent_id.into_uuid(), "channel_id":channel_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    pub(super) async fn leave_channel(
+        &mut self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if let Some(resource_id) = self
+            .resource_for_idempotency(agent_id, "channel.leave", idempotency_key)
+            .await?
+        {
+            if resource_id != channel_id.into_uuid() {
+                return Err(ApplicationError::Conflict);
+            }
+            return Ok(());
+        }
+        let channel = sqlx::query("SELECT space_id,kind FROM channels WHERE id=$1 FOR UPDATE")
+            .bind(channel_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+            .ok_or(ApplicationError::NotFound)?;
+        if channel.get::<&str, _>("kind") == "direct" {
+            return Err(ApplicationError::Conflict);
+        }
+        let space_id: Uuid = channel.get("space_id");
+        let display_name: String = sqlx::query_scalar(
+            "SELECT m.display_name FROM members m JOIN agents a ON a.member_id=m.id \
+             JOIN channel_members cm ON cm.channel_id=$2 AND cm.member_id=m.id \
+             WHERE m.id=$1 AND m.space_id=$3 AND m.kind='agent' AND a.lifecycle<>'retired'",
+        )
+        .bind(agent_id.into_uuid())
+        .bind(channel_id.into_uuid())
+        .bind(space_id)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(ApplicationError::NotFound)?;
+        let deleted =
+            sqlx::query("DELETE FROM channel_members WHERE channel_id=$1 AND member_id=$2")
+                .bind(channel_id.into_uuid())
+                .bind(agent_id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        if deleted.rows_affected() == 0 {
+            return Err(ApplicationError::NotFound);
+        }
+        self.record_resource_idempotency(
+            agent_id,
+            "channel.leave",
+            idempotency_key,
+            channel_id.into_uuid(),
+        )
+        .await?;
+        self.insert_system_notice(
+            channel_id,
+            agent_id,
+            format!("{display_name} left the channel"),
+            now,
+        )
+        .await?;
+        sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) VALUES($1,$2,$3,'channel.member_left','channel',$4,$5,$6)")
+            .bind(Uuid::now_v7())
+            .bind(space_id)
+            .bind(agent_id.into_uuid())
+            .bind(channel_id.into_uuid())
+            .bind(serde_json::json!({"member_id": agent_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'member.changed',$3,$4)")
+            .bind(Uuid::now_v7())
+            .bind(space_id)
+            .bind(serde_json::json!({"resource_id":agent_id.into_uuid(), "channel_id":channel_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(())
     }
     pub(super) async fn channel_action_audience(
         &mut self,
@@ -556,6 +765,7 @@ impl PostgresTransaction {
                 ("channel_created", None, Some(id.into_uuid()), None)
             }
             MessageContent::AgentCreated(id) => ("agent_created", None, None, Some(id.into_uuid())),
+            MessageContent::SystemNotice(body) => ("system_notice", Some(body), None, None),
         };
         sqlx::query(
             "INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement, \
@@ -971,6 +1181,26 @@ impl CollaborationTransaction for PostgresTransaction {
         now: time::OffsetDateTime,
     ) -> Result<Vec<MemberId>, ApplicationError> {
         self.add_channel_agents(actor, channel_id, agent_ids, idempotency_key, now)
+            .await
+    }
+    async fn remove_channel_agent(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        agent_id: MemberId,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.remove_channel_agent(actor, channel_id, agent_id, now)
+            .await
+    }
+    async fn leave_channel(
+        &mut self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        self.leave_channel(agent_id, channel_id, idempotency_key, now)
             .await
     }
     async fn channel_member_visible(

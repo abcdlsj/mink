@@ -105,6 +105,9 @@ pub(crate) enum Action {
         name: String,
         private: bool,
     },
+    ChannelLeave {
+        channel_id: ChannelId,
+    },
     AgentCreate {
         name: String,
         role: String,
@@ -136,6 +139,7 @@ impl Action {
             Self::MemoryRead { .. } => "memory.read",
             Self::MemoryWrite { .. } => "memory.write",
             Self::ChannelCreate { .. } => "channel.create",
+            Self::ChannelLeave { .. } => "channel.leave",
             Self::AgentCreate { .. } => "agent.create",
         }
     }
@@ -201,6 +205,7 @@ pub(crate) enum MessageTarget {
     Focus,
     Thread(ThreadId),
     Channel(ChannelId),
+    Member(MemberId),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -50,6 +50,10 @@ _Avoid_：Prompt、Event、Agent Output
 Agent 完成一项需要协作者知晓的领域 Action 时，由同一事务创建的结构化 Message。Action Message 使用专用 UI，不是日志或 Audit Event。
 _Avoid_：System Message、Activity Log、Tool Output
 
+**System Notice**：
+Server 因 Channel 成员关系变化写入时间线的结构化 Message。System Notice 只描述可验证的系统动作，不代表 Member 的协作输出。
+_Avoid_：System Message、Audit Event、Bot Message
+
 **Root Message**：
 发布在 Channel 主时间线、且不属于其他 Thread 的 Message。每条 Root Message 都是一个 Thread 的根。
 _Avoid_：Channel Message、Top-level Message、Parent Message

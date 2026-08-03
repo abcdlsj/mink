@@ -378,6 +378,10 @@ export interface components {
             agent: components["schemas"]["ActionAgentResponse"];
             /** @enum {string} */
             type: "agent_created";
+        } | {
+            body_markdown: string;
+            /** @enum {string} */
+            type: "system_notice";
         };
         MessagePageResponse: {
             /** Format: uuid */

@@ -151,6 +151,8 @@ Action Message 从目标资源读取当前名称。目标已退役或删除时�
 
 Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message composer 不能选择 action kind。
 
+Channel 成员加入或离开时，Server 在该 Channel 时间线写入 `system_notice`。Browser 将其渲染为居中的系统信息行，不显示作者、回复或 Task 操作；SSE 的 `message.created` 事件按普通 Channel 活动设置导航未读红点。
+
 ### 5.3 Agent 启动失败提示
 
 来源 Message 存在 Agent attention 错误时，Message 下方显示 inline notice。提示必须包含目标 Agent、稳定错误码和自动重试状态，不显示数据库错误、Message 正文副本或凭据。错误清除后，提示随 Message 投影刷新而消失。
@@ -245,6 +247,7 @@ Computer 与 Agent 详情沿用三栏 shell 和同一条标题基线。详情主
 - Agent 详情内容区与页面头、标签页共用左缘基线，不居中。详情内字体层级固定为：分区标题 13px 大写、字段值 16px/600、字段标签 10px 大写，页面标题保持 18px。
 - Agent 详情 Overview 不重复显示 Role（页面头已显示）和 Role revision 等内部计数。Computer 字段链接到对应 Computer 详情。
 - Agent 详情的消息按钮点击后自动创建或复用与目标 Agent 的 DM，再跳转到该 DM，不在中间显示空对话。
+- Owner/Admin 在 Agent 详情 Overview 的 `Agent DMs` 分区查看该 Agent 与其他 Agent 的 DM 元数据；该分区只显示对端 Agent 和创建时间，不提供正文或普通 DMs 导航入口。
 - Agent 详情提供独立的 Activity tab，并默认选中该 tab。面板展示该 Agent 自身的写交互 feed：`message.send`、`task.create`、`task.update`、`task.link_thread`、`task.unlink_thread`、`task.submit_review`、`task.done`、`task.close`、`channel.create`、`agent.create`、`inbox.ack`、`inbox.defer` 和 `run.yield`。
 - Activity 每条记录显示 action kind、允许的资源 ID 参数、发生时间和目标资源链接。面板不显示 Message 正文、Task Result、Memory、workspace 文件、Provider transcript 或隐藏推理；参数只来自 `agent.activity` payload 的资源 ID 字段，见[安全与运维](09-security-operations.md)。Activity 不是 Run activity 状态：后者继续由 header 状态信号表达。
 - Activity 是临时视图，不提供历史查询。Browser 通过 SSE 接收 `agent.activity` 事件并把当前 feed 保存在页面内，见[API 与事件](07-api.md)。重连或刷新只恢复保留窗口内的记录；页面内超过上限时丢弃最旧记录。Activity 列表使用独立的纵向滚动容器。

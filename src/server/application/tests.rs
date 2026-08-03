@@ -44,8 +44,8 @@ use super::{
     conversation::{
         AddChannelAgents, CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
         CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
-        DeleteMessage, EditMessage, EditMessageInput, OpenDirectMessage, OpenDirectMessageInput,
-        PublishMessage,
+        DeleteMessage, EditMessage, EditMessageInput, LeaveChannel, OpenDirectMessage,
+        OpenDirectMessageInput, PublishMessage,
     },
     execution::{
         AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, CompleteRun,
@@ -245,6 +245,48 @@ async fn adding_channel_agents_replays_the_recorded_membership_result() {
 }
 
 #[tokio::test]
+async fn an_agent_can_leave_a_channel_and_replay_the_same_request() {
+    let mut port = MemoryPort::default();
+    let agent_id = member(935);
+    let channel_id = channel(936);
+    let key = idempotency(937);
+    port.state
+        .agent_channel_members
+        .insert((channel_id, agent_id));
+
+    LeaveChannel::execute(
+        &mut port,
+        agent_id,
+        channel_id,
+        key,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .expect("agent leaves the channel");
+    LeaveChannel::execute(
+        &mut port,
+        agent_id,
+        channel_id,
+        key,
+        OffsetDateTime::UNIX_EPOCH,
+    )
+    .await
+    .expect("same request replays");
+
+    assert!(
+        !port
+            .state
+            .agent_channel_members
+            .contains(&(channel_id, agent_id))
+    );
+    assert!(
+        port.state
+            .channel_agent_leaves
+            .contains(&(agent_id, channel_id, key))
+    );
+}
+
+#[tokio::test]
 async fn command_result_updates_only_its_target_agent_through_the_domain() {
     let mut port = MemoryPort::default();
     let computer_id = computer(940);
@@ -363,6 +405,7 @@ struct MemoryState {
     attachment_writes: Vec<(String, AttachmentId, String)>,
     claim_failures: HashMap<InboxItemId, (Option<MessageId>, ChannelId, String)>,
     channel_agent_additions: HashMap<(MemberId, ChannelId, IdempotencyKey), Vec<MemberId>>,
+    channel_agent_leaves: HashSet<(MemberId, ChannelId, IdempotencyKey)>,
     agent_channel_members: HashSet<(ChannelId, MemberId)>,
     agent_provision_commands: HashMap<(ComputerId, CommandId, u64), Option<MemberId>>,
 }
@@ -1177,6 +1220,50 @@ impl CollaborationTransaction for MemoryTransaction {
             .channel_agent_additions
             .insert(idempotency, added.clone());
         Ok(added)
+    }
+    async fn remove_channel_agent(
+        &mut self,
+        _actor: MemberId,
+        channel_id: ChannelId,
+        agent_id: MemberId,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .state
+            .agent_channel_members
+            .remove(&(channel_id, agent_id))
+        {
+            Ok(())
+        } else {
+            Err(ApplicationError::NotFound)
+        }
+    }
+    async fn leave_channel(
+        &mut self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        idempotency_key: IdempotencyKey,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .state
+            .channel_agent_leaves
+            .contains(&(agent_id, channel_id, idempotency_key))
+        {
+            return Ok(());
+        }
+        if self
+            .state
+            .agent_channel_members
+            .remove(&(channel_id, agent_id))
+        {
+            self.state
+                .channel_agent_leaves
+                .insert((agent_id, channel_id, idempotency_key));
+            Ok(())
+        } else {
+            Err(ApplicationError::NotFound)
+        }
     }
     async fn channel_member_visible(
         &mut self,

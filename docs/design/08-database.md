@@ -183,7 +183,7 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 - `thread_id`
 - `channel_seq`
 - `placement=root|reply`
-- `content_kind=text|channel_created|agent_created`
+- `content_kind=text|channel_created|agent_created|system_notice`
 - `reply_to_message_id`
 - `author_member_id`
 - `body_markdown`
@@ -196,11 +196,13 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 
 `(channel_id, channel_seq)`必须唯一。Root Message 的`thread_id`等于自身 ID。Reply 必须与目标 Message 属于同一 Thread。`thread_id`引用`messages.id`，触发器保证目标必须是`placement='root'`的行。
 
-`text`具有`body_markdown`，且不具有 action target。Action Message 的`body_markdown`为空。`channel_created`只具有`action_channel_id`。`agent_created`只具有`action_agent_member_id`。CHECK 必须拒绝其他组合。
+`text`具有`body_markdown`，且不具有 action target。Action Message 的`body_markdown`为空。`channel_created`只具有`action_channel_id`。`agent_created`只具有`action_agent_member_id`。`system_notice`具有`body_markdown`，且不具有 action target。CHECK 必须拒绝其他组合。
 
 Action Message 的`placement`只能是`reply`。该约束避免 Action Message 成为 Thread root 或 Task source。
 
 Action Message 与目标资源在同一领域事务中创建。普通 Message 写入入口只能创建`text`。
+
+System Notice 与成员关系变化在同一事务中创建，允许作为 Root Message 出现在 Channel 主时间线。它不创建 Inbox Item，不携带协作正文之外的资源 target。
 
 ### 5.4 Thread 由 Root Message 表达
 

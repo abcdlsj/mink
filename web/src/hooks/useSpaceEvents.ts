@@ -64,6 +64,7 @@ export function useSpaceEvents(
       }
       if (payload.type === "member.changed") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["channel-members"] });
       }
       if (
         payload.type === "agent.activity" &&

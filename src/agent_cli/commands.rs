@@ -44,6 +44,7 @@ pub(crate) struct MessageArgs {
     #[command(subcommand)]
     command: MessageCommand,
 }
+
 #[derive(Debug, Subcommand)]
 enum MessageCommand {
     Send(MessageSendArgs),
@@ -60,6 +61,8 @@ struct MessageSendArgs {
     thread: Option<ThreadId>,
     #[arg(long, conflicts_with = "thread")]
     channel: Option<ChannelId>,
+    #[arg(long, conflicts_with_all = ["thread", "channel"])]
+    to: Option<MemberId>,
     #[arg(long)]
     attachment: Vec<AttachmentId>,
     #[arg(long)]
@@ -171,6 +174,9 @@ enum ChannelCommand {
         #[arg(long, default_value_t = 50)]
         limit: u16,
     },
+    Leave {
+        channel_id: ChannelId,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -280,6 +286,7 @@ impl AgentCli {
                     .thread
                     .map(MessageTarget::Thread)
                     .or_else(|| args.channel.map(MessageTarget::Channel))
+                    .or_else(|| args.to.map(MessageTarget::Member))
                     .unwrap_or(MessageTarget::Focus);
                 (
                     Action::MessageSend(MessageSend {
@@ -388,6 +395,9 @@ impl AgentCli {
                 },
                 false,
             ),
+            Command::Channel(ChannelArgs {
+                command: ChannelCommand::Leave { channel_id },
+            }) => (Action::ChannelLeave { channel_id }, true),
             Command::Agent(AgentArgs {
                 command:
                     AgentCommand::Create {
@@ -554,6 +564,56 @@ mod tests {
             panic!("expected message send");
         };
         assert_eq!(args.attachment, vec![first, second]);
+    }
+
+    #[tokio::test]
+    async fn message_send_accepts_member_target_without_a_dm_subcommand() {
+        let target = MemberId::from_uuid(uuid::Uuid::from_u128(9));
+        let target_str = target.to_string();
+        let cli = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "message",
+            "send",
+            "--to",
+            &target_str,
+            "--body",
+            "private note",
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (action, _) = cli.action(None).await.unwrap();
+        assert_eq!(action.name(), "message.send");
+        assert!(matches!(
+            action,
+            Action::MessageSend(MessageSend {
+                target: MessageTarget::Member(id),
+                ..
+            }) if id == target
+        ));
+    }
+
+    #[tokio::test]
+    async fn channel_leave_uses_the_agent_capability_without_a_dm_command() {
+        let channel = ChannelId::from_uuid(uuid::Uuid::from_u128(10));
+        let channel_str = channel.to_string();
+        let cli = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "channel",
+            "leave",
+            &channel_str,
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (action, _) = cli.action(None).await.unwrap();
+        assert_eq!(action.name(), "channel.leave");
+        assert_eq!(
+            action,
+            Action::ChannelLeave {
+                channel_id: channel
+            }
+        );
     }
 
     #[tokio::test]

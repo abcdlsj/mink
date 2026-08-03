@@ -9,6 +9,7 @@ pub(super) fn message_from_row(row: &sqlx::postgres::PgRow) -> Result<Message, A
         "agent_created" => {
             MessageContent::AgentCreated(MemberId::from_uuid(row.get("action_agent_member_id")))
         }
+        "system_notice" => MessageContent::SystemNotice(row.get("body_markdown")),
         _ => return Err(ApplicationError::Internal),
     };
     Ok(Message {
@@ -143,6 +144,9 @@ pub(super) fn wire_message(
         "agent_created" => WireMessageContent::Action {
             action: ActionKind::AgentCreated,
             target: ActionTarget::Agent(AgentId::from_uuid(row.get("action_agent_member_id"))),
+        },
+        "system_notice" => WireMessageContent::Text {
+            markdown: row.get("body_markdown"),
         },
         _ => return Err(ApplicationError::Internal),
     };

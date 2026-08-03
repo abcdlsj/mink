@@ -364,6 +364,49 @@ pub(super) async fn execute_agent_action(
             );
         }
     }
+    if let (Some(key), capability::Action::ChannelLeave { channel_id }) =
+        (request.idempotency_key, &request.action)
+    {
+        let replayed = sqlx::query_scalar::<_, Uuid>(
+            "SELECT records.resource_id FROM idempotency_records records \
+             JOIN agents ON agents.member_id=records.actor_member_id \
+             JOIN agent_runs runs ON runs.id=$5 \
+             WHERE records.actor_member_id=$1 AND records.action='channel.leave' \
+             AND records.idempotency_key=$2 AND agents.space_id=$3 AND agents.computer_id=$4 \
+             AND runs.agent_id=records.actor_member_id AND runs.space_id=$3 \
+             AND runs.task_id IS NOT DISTINCT FROM $6 AND runs.focus_thread_id=$7 \
+             AND runs.status='working'",
+        )
+        .bind(context.agent_id.into_uuid())
+        .bind(key.into_uuid())
+        .bind(context.space_id.into_uuid())
+        .bind(computer_id)
+        .bind(context.run_id.into_uuid())
+        .bind(context.task_id.map(TaskId::into_uuid))
+        .bind(context.focus_thread_id.into_uuid())
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Channel leave replay could not be checked",
+                false,
+            )
+        })?;
+        if let Some(replayed_channel_id) = replayed {
+            if replayed_channel_id != channel_id.into_uuid() {
+                return Err(capability_error(
+                    capability::ErrorCode::Conflict,
+                    "Idempotency key belongs to another Channel",
+                    false,
+                ));
+            }
+            return Ok(json!({
+                "channel_id": replayed_channel_id,
+                "member_id": context.agent_id,
+            }));
+        }
+    }
     let mut storage = state.storage.clone();
     let valid = AuthorizeRunCapability::execute(
         &mut storage,
@@ -480,6 +523,21 @@ pub(super) async fn execute_agent_action(
                         })?
                 }
                 capability::MessageTarget::Channel(channel_id) => (channel_id.into_uuid(), None),
+                capability::MessageTarget::Member(member_id) => {
+                    let opened = OpenDirectMessage::execute(
+                        &mut storage,
+                        OpenDirectMessageInput {
+                            channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+                            space_id: context.space_id,
+                            actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                            other_member_id: member_id,
+                            now: time::OffsetDateTime::now_utc(),
+                        },
+                    )
+                    .await
+                    .map_err(app_to_capability)?;
+                    (opened.view.channel_id.into_uuid(), None)
+                }
             };
             let mentions = agent_mention_ids(&state.pool, channel_id, &send.body)
                 .await
@@ -816,6 +874,37 @@ pub(super) async fn execute_agent_action(
             )
             .await;
             Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
+        }
+        capability::Action::ChannelLeave { channel_id } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            LeaveChannel::execute(
+                &mut storage,
+                MemberId::from_uuid(context.agent_id.into_uuid()),
+                channel_id,
+                key,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "channel.leave",
+                json!({
+                    "run_id": context.run_id,
+                    "channel_id": channel_id,
+                }),
+            )
+            .await;
+            Ok(json!({"channel_id": channel_id, "member_id": context.agent_id}))
         }
         capability::Action::AgentCreate { name, role, driver } => {
             if !valid_display_name(&name) || name.chars().count() > 40 || role.trim().is_empty() {

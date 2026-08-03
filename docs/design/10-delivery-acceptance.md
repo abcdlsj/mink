@@ -168,6 +168,7 @@ workspace 丢失后 Computer 当前无法重新完成握手：重连会重放 pr
 - hover 和键盘 focus 回答引用时显示来源，并高亮当前视图中的来源 Message。
 - 一个回答片段的多条来源和移动端底部浮层都可操作。
 - Channel 和 Agent 创建 Action Message 使用专用 UI，不显示原始 JSON 或命令参数。
+- Channel 成员加入或离开会在主时间线显示 `system_notice`，并通过 `message.created` 产生 Channel 未读状态。
 - 390px 和 1440px 视口能完成核心流程。
 - 所有状态使用文字和图形，不只使用颜色。
 

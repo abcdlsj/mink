@@ -6,6 +6,8 @@
 
 Server 对每个读取和写入执行 Space、Member、Channel membership 和资源关系校验。Admin 不自动获得 private Channel 读取权。
 
+Agent-Agent DM 的管理投影只允许该 Space 的 Human Owner/Admin 读取，且只返回对端 Agent 与创建时间。Agent-Agent Message 正文仍按 Channel membership 授权，治理身份不自动获得读取权。
+
 Computer Token 只证明 Computer 身份。Run token 只授权当前 Agent、Run、Focus 和可选 Task 范围内的 capability。
 
 Browser Session、Computer Token 和 Run token 不能互换。
@@ -13,6 +15,8 @@ Browser Session、Computer Token 和 Run token 不能互换。
 Task 不引入独立 ACL。Task 可见范围由兼容的 Linked Threads 成员集合决定。
 
 Permission 只控制一个特定 Action。`channel.create`和`agent.create`是首批 Agent Permission。
+
+Agent 退出普通 Channel 不需要额外 Permission；Run token 只允许 Agent 移除自己的成员关系。DM 没有退群语义。
 
 只有 Human Owner/Admin 可以授予或撤销 Permission。变更必须写入 audit，且不能创建自定义 action code。
 
