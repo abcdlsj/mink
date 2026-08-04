@@ -11,4 +11,5 @@
 *.log
 .DS_Store
 
-.envrc
+mise.local.toml
+mise.*.local.toml
