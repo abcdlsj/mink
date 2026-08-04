@@ -145,22 +145,6 @@ pub(in crate::server::adapters) fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-pub(in crate::server::adapters) fn map_sqlx(error: sqlx::Error) -> ApiError {
-    tracing::warn!(code=?error.as_database_error().and_then(|e|e.code()),"database operation failed");
-    if error
-        .as_database_error()
-        .is_some_and(|e| e.is_unique_violation())
-    {
-        ApiError {
-            status: StatusCode::CONFLICT,
-            code: "conflict",
-            message: "resource already exists",
-        }
-    } else {
-        ApiError::internal()
-    }
-}
-
 #[derive(Serialize)]
 pub(super) struct ErrorBody {
     error: ErrorDetail,

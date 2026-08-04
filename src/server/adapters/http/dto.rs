@@ -1,4 +1,8 @@
 use super::*;
+use crate::server::adapters::postgres::{
+    ActionAgentRow, ActionChannelRow, AgentRow, AttachmentRow, ChannelRow, MemberRow, MessageRow,
+    MessageTaskRow, PostgresQueries, RunRow, SpaceRow, TaskRefRow, TaskRow, ThreadReferenceRow,
+};
 
 pub(super) const SPACE_ACCENTS: [&str; 4] = ["#FE7DA8", "#27CCF3", "#FFD440", "#A9D877"];
 
@@ -159,62 +163,55 @@ pub(super) fn space_response(
     }
 }
 
-pub(super) fn space_row(row: &sqlx::postgres::PgRow) -> SpaceResponse {
+pub(super) fn space_row(row: &SpaceRow) -> SpaceResponse {
     space_response(
-        row.get("id"),
-        row.get("name"),
-        row.get("slug"),
-        row.get("accent"),
-        row.get("owner_member_id"),
-        row.get("current_member_id"),
-        row.get("general_channel_id"),
+        row.id,
+        &row.name,
+        &row.slug,
+        &row.accent,
+        row.owner_member_id,
+        row.current_member_id,
+        row.general_channel_id,
     )
 }
 
-pub(super) fn channel_row(
-    row: &sqlx::postgres::PgRow,
-    creator: Uuid,
-) -> Result<ChannelResponse, ApiError> {
-    let kind = match row.get::<&str, _>("kind") {
+pub(super) fn channel_row(row: &ChannelRow, creator: Uuid) -> Result<ChannelResponse, ApiError> {
+    let kind = match row.kind.as_str() {
         "public" => ChannelKindCode::Public,
         "private" => ChannelKindCode::Private,
         _ => return Err(ApiError::internal()),
     };
-    let slug: String = row.try_get("slug").map_err(|_| ApiError::internal())?;
-    let topic: Option<String> = row.get("topic");
+    let slug = row.slug.clone().ok_or_else(ApiError::internal)?;
     Ok(ChannelResponse {
-        id: row.get("id"),
-        space_id: row.get("space_id"),
+        id: row.id,
+        space_id: row.space_id,
         slug,
-        topic,
+        topic: row.topic.clone(),
         kind,
         created_by_member_id: creator,
-        joined: row.get("joined"),
-        archived_at: optional_timestamp(row.get("archived_at")),
+        joined: row.joined,
+        archived_at: optional_timestamp(row.archived_at),
     })
 }
 
 pub(super) async fn member_row(
-    pool: &PgPool,
-    row: &sqlx::postgres::PgRow,
+    queries: &PostgresQueries,
+    row: &MemberRow,
 ) -> Result<MemberResponse, ApiError> {
-    let id: Uuid = row.get("id");
-    let permissions = sqlx::query_scalar::<_, String>(
-        "SELECT action_code FROM member_permissions WHERE member_id=$1 ORDER BY action_code",
-    )
-    .bind(id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let id = row.id;
+    let permissions = queries
+        .member_permissions(id)
+        .await
+        .map_err(application_error)?;
     Ok(MemberResponse {
         id,
-        kind: match row.get::<&str, _>("kind") {
+        kind: match row.kind.as_str() {
             "human" => MemberKindCode::Human,
             "agent" => MemberKindCode::Agent,
             _ => return Err(ApiError::internal()),
         },
-        display_name: row.get("display_name"),
-        access_level: match row.get::<&str, _>("access_level") {
+        display_name: row.display_name.clone(),
+        access_level: match row.access_level.as_str() {
             "owner" => AccessLevelCode::Owner,
             "admin" => AccessLevelCode::Admin,
             "member" => AccessLevelCode::Member,
@@ -237,33 +234,22 @@ fn task_status_code(value: &str) -> Result<TaskStatus, ApiError> {
 
 /// The one unfinished or finished Task bound to a Thread, preferring the Source Thread.
 pub(super) async fn message_task_summary(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     thread_id: Uuid,
 ) -> Result<Option<MessageTaskSummary>, ApiError> {
-    let row = sqlx::query(
-        "SELECT t.id, t.seq, t.title, t.status, t.assignee_agent_member_id, \
-                m.display_name AS assignee_name, \
-                (SELECT r.focus_thread_id FROM agent_runs r \
-                 WHERE r.task_id = t.id AND r.status IN ('dispatched','working') \
-                 ORDER BY r.created_at DESC LIMIT 1) AS active_focus_thread_id \
-         FROM tasks t LEFT JOIN members m ON m.id = t.assignee_agent_member_id \
-         WHERE t.source_thread_id = $1 OR EXISTS (SELECT 1 FROM task_threads tt \
-             WHERE tt.task_id = t.id AND tt.thread_id = $1) \
-         ORDER BY (t.source_thread_id = $1) DESC, t.created_at DESC LIMIT 1",
-    )
-    .bind(thread_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = queries
+        .task_for_thread(thread_id)
+        .await
+        .map_err(application_error)?;
     let Some(row) = row else { return Ok(None) };
-    let active_focus: Option<Uuid> = row.get("active_focus_thread_id");
+    let active_focus = row.active_focus_thread_id;
     Ok(Some(MessageTaskSummary {
-        id: row.get("id"),
-        seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
-        title: row.get("title"),
-        status: task_status_code(row.get("status"))?,
-        assignee_agent_member_id: row.get("assignee_agent_member_id"),
-        assignee_name: row.get("assignee_name"),
+        id: row.id,
+        seq: u64::try_from(row.seq).map_err(|_| ApiError::internal())?,
+        title: row.title,
+        status: task_status_code(&row.status)?,
+        assignee_agent_member_id: row.assignee_agent_member_id,
+        assignee_name: row.assignee_name,
         working_elsewhere: active_focus.is_some_and(|focus| focus != thread_id),
     }))
 }
@@ -302,7 +288,7 @@ fn parse_task_ref_seqs(body: &str) -> Vec<i64> {
 
 /// Resolves `!<seq>` tokens in a Message to Tasks of the same Space.
 pub(super) async fn task_refs_for_message(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     space_id: Uuid,
     body: Option<&str>,
 ) -> Result<Vec<MessageTaskRefResponse>, ApiError> {
@@ -313,21 +299,18 @@ pub(super) async fn task_refs_for_message(
     if seqs.is_empty() {
         return Ok(Vec::new());
     }
-    let rows =
-        sqlx::query("SELECT id, seq, title, status FROM tasks WHERE space_id=$1 AND seq = ANY($2)")
-            .bind(space_id)
-            .bind(&seqs)
-            .fetch_all(pool)
-            .await
-            .map_err(map_sqlx)?;
+    let rows = queries
+        .task_refs(space_id, &seqs)
+        .await
+        .map_err(application_error)?;
     let mut refs = rows
         .iter()
         .map(|row| {
             Ok(MessageTaskRefResponse {
-                seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
-                task_id: row.get("id"),
-                title: row.get("title"),
-                status: task_status_code(row.get("status"))?,
+                seq: u64::try_from(row.seq).map_err(|_| ApiError::internal())?,
+                task_id: row.id,
+                title: row.title.clone(),
+                status: task_status_code(&row.status)?,
             })
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
@@ -336,160 +319,136 @@ pub(super) async fn task_refs_for_message(
 }
 
 pub(super) async fn message_row(
-    pool: &PgPool,
-    row: &sqlx::postgres::PgRow,
+    queries: &PostgresQueries,
+    row: &MessageRow,
 ) -> Result<MessageResponse, ApiError> {
-    let id: Uuid = row.get("id");
-    let space_id: Uuid = row.get("space_id");
-    let placement_root = matches!(row.get::<&str, _>("placement"), "root");
-    let author = sqlx::query("SELECT id,kind,display_name FROM members WHERE id=$1")
-        .bind(row.get::<Uuid, _>("author_member_id"))
-        .fetch_one(pool)
+    let author = queries
+        .message_author(row.author_member_id)
         .await
-        .map_err(map_sqlx)?;
-    let replies: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM messages WHERE thread_id=$1 AND placement='reply'",
-    )
-    .bind(row.get::<Uuid, _>("thread_id"))
-    .fetch_one(pool)
-    .await
-    .map_err(map_sqlx)?;
-    let attachments=sqlx::query("SELECT a.* FROM attachments a JOIN message_attachments ma ON ma.attachment_id=a.id WHERE ma.message_id=$1 ORDER BY ma.position").bind(id).fetch_all(pool).await.map_err(map_sqlx)?;
+        .map_err(application_error)?;
+    let replies = queries
+        .reply_count(row.thread_id)
+        .await
+        .map_err(application_error)?;
+    let attachments = queries
+        .attachments_for_message(row.id)
+        .await
+        .map_err(application_error)?;
     let mut attachment_views = Vec::with_capacity(attachments.len());
     for attachment in &attachments {
         attachment_views.push(attachment_row(attachment)?);
     }
-    let attention_failures = sqlx::query(
-        "SELECT member_id,last_error_code FROM inbox_items WHERE message_id=$1 \
-         AND last_error_code IS NOT NULL ORDER BY member_id",
-    )
-    .bind(id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?
-    .iter()
-    .map(|failure| AttentionFailureResponse {
-        agent_member_id: failure.get("member_id"),
-        error_code: failure.get("last_error_code"),
-        retrying: true,
-    })
-    .collect::<Vec<_>>();
-    let mentions = sqlx::query_scalar::<_, Uuid>(
-        "SELECT member_id FROM message_mentions WHERE message_id=$1 ORDER BY member_id",
-    )
-    .bind(id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
-    let task = if placement_root {
-        message_task_summary(pool, row.get::<Uuid, _>("thread_id")).await?
+    let attention_failures = queries
+        .attention_failures(row.id)
+        .await
+        .map_err(application_error)?
+        .iter()
+        .map(|failure| AttentionFailureResponse {
+            agent_member_id: failure.member_id,
+            error_code: failure.last_error_code.clone(),
+            retrying: true,
+        })
+        .collect::<Vec<_>>();
+    let mentions = queries
+        .message_mentions(row.id)
+        .await
+        .map_err(application_error)?;
+    let task = if row.placement == "root" {
+        message_task_summary(queries, row.thread_id).await?
     } else {
         None
     };
-    let task_refs = task_refs_for_message(
-        pool,
-        space_id,
-        row.get::<Option<String>, _>("body_markdown").as_deref(),
-    )
-    .await?;
-    let content = match row.get::<&str, _>("content_kind") {
+    let task_refs =
+        task_refs_for_message(queries, row.space_id, row.body_markdown.as_deref()).await?;
+    let content = match row.content_kind.as_str() {
         "text" => MessageContentResponse::Text {
-            body_markdown: row
-                .get::<Option<String>, _>("body_markdown")
-                .unwrap_or_default(),
+            body_markdown: row.body_markdown.clone().unwrap_or_default(),
         },
         "channel_created" => {
-            let target = sqlx::query("SELECT id,slug,archived_at FROM channels WHERE id=$1")
-                .bind(row.get::<Uuid, _>("action_channel_id"))
-                .fetch_one(pool)
+            let target_id = row.action_channel_id.ok_or_else(ApiError::internal)?;
+            let target = queries
+                .channel_action(target_id)
                 .await
-                .map_err(map_sqlx)?;
-            let slug: String = target.get("slug");
+                .map_err(application_error)?;
             MessageContentResponse::ChannelCreated {
                 channel: ActionChannelResponse {
-                    id: target.get("id"),
-                    slug,
-                    available: target
-                        .get::<Option<OffsetDateTime>, _>("archived_at")
-                        .is_none(),
+                    id: target.id,
+                    slug: target.slug.unwrap_or_default(),
+                    available: target.archived_at.is_none(),
                 },
             }
         }
         "agent_created" => {
-            let target = sqlx::query("SELECT a.member_id,a.lifecycle,m.display_name,m.retired_at FROM agents a JOIN members m ON m.id=a.member_id WHERE a.member_id=$1")
-                .bind(row.get::<Uuid,_>("action_agent_member_id"))
-                .fetch_one(pool)
+            let target_id = row.action_agent_member_id.ok_or_else(ApiError::internal)?;
+            let target = queries
+                .agent_action(target_id)
                 .await
-                .map_err(map_sqlx)?;
+                .map_err(application_error)?;
             MessageContentResponse::AgentCreated {
                 agent: ActionAgentResponse {
-                    member_id: target.get("member_id"),
-                    name: target.get("display_name"),
-                    lifecycle: match target.get::<&str, _>("lifecycle") {
+                    member_id: target.member_id,
+                    name: target.display_name,
+                    lifecycle: match target.lifecycle.as_str() {
                         "suspended" => AgentLifecycle::Suspended,
                         "retired" => AgentLifecycle::Retired,
                         _ => AgentLifecycle::Active,
                     },
-                    available: target
-                        .get::<Option<OffsetDateTime>, _>("retired_at")
-                        .is_none(),
+                    available: target.retired_at.is_none(),
                 },
             }
         }
         "system_notice" => MessageContentResponse::SystemNotice {
-            body_markdown: row
-                .get::<Option<String>, _>("body_markdown")
-                .unwrap_or_default(),
+            body_markdown: row.body_markdown.clone().unwrap_or_default(),
         },
         _ => return Err(ApiError::internal()),
     };
     Ok(MessageResponse {
-        id,
-        channel_id: row.get("channel_id"),
-        thread_id: row.get("thread_id"),
-        seq: u64::try_from(row.get::<i64, _>("channel_seq")).map_err(|_| ApiError::internal())?,
-        placement: match row.get::<&str, _>("placement") {
+        id: row.id,
+        channel_id: row.channel_id,
+        thread_id: row.thread_id,
+        seq: u64::try_from(row.channel_seq).map_err(|_| ApiError::internal())?,
+        placement: match row.placement.as_str() {
             "root" => MessagePlacement::Root,
             "reply" => MessagePlacement::Reply,
             _ => return Err(ApiError::internal()),
         },
         author: MessageAuthor {
-            id: author.get("id"),
-            kind: match author.get::<&str, _>("kind") {
+            id: author.id,
+            kind: match author.kind.as_str() {
                 "human" => MemberKindCode::Human,
                 "agent" => MemberKindCode::Agent,
                 _ => return Err(ApiError::internal()),
             },
-            display_name: author.get("display_name"),
+            display_name: author.display_name,
         },
         content,
         mentions,
-        mention_all: row.get("mention_all"),
+        mention_all: row.mention_all,
         attachments: attachment_views,
         reply_count: u64::try_from(replies).map_err(|_| ApiError::internal())?,
         task,
         task_refs,
         attention_failures,
-        created_at: timestamp(row.get("created_at")),
-        edited_at: optional_timestamp(row.get("edited_at")),
-        deleted_at: optional_timestamp(row.get("deleted_at")),
+        created_at: timestamp(row.created_at),
+        edited_at: optional_timestamp(row.edited_at),
+        deleted_at: optional_timestamp(row.deleted_at),
     })
 }
 
-pub(super) fn attachment_row(row: &sqlx::postgres::PgRow) -> Result<AttachmentResponse, ApiError> {
+pub(super) fn attachment_row(row: &AttachmentRow) -> Result<AttachmentResponse, ApiError> {
     Ok(AttachmentResponse {
-        id: row.get("id"),
-        space_id: row.get("space_id"),
-        uploader_member_id: row.get("uploader_member_id"),
-        original_name: row.get("name"),
-        media_type: row.get("media_type"),
+        id: row.id,
+        space_id: row.space_id,
+        uploader_member_id: row.uploader_member_id,
+        original_name: row.name.clone(),
+        media_type: row.media_type.clone(),
         size: row
-            .get::<Option<i64>, _>("length")
+            .length
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ApiError::internal())?,
-        sha256: row.get::<Option<Vec<u8>>, _>("sha256").map(hex::encode),
-        status: match row.get::<&str, _>("status") {
+        sha256: row.sha256.clone().map(hex::encode),
+        status: match row.status.as_str() {
             "uploading" => AttachmentStatus::Uploading,
             "ready" => AttachmentStatus::Ready,
             "deleted" => AttachmentStatus::Deleted,
@@ -497,56 +456,53 @@ pub(super) fn attachment_row(row: &sqlx::postgres::PgRow) -> Result<AttachmentRe
         },
         upload_path: None,
         download_path: None,
-        created_at: timestamp(row.get("created_at")),
+        created_at: timestamp(row.created_at),
     })
 }
 
 pub(super) async fn task_projection(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     task_id: Uuid,
 ) -> Result<TaskResponse, ApiError> {
-    let row=sqlx::query("SELECT t.*,creator.display_name AS creator_name,assignee.display_name AS assignee_name FROM tasks t JOIN members creator ON creator.id=t.creator_member_id LEFT JOIN members assignee ON assignee.id=t.assignee_agent_member_id WHERE t.id=$1").bind(task_id).fetch_optional(pool).await.map_err(map_sqlx)?.ok_or_else(ApiError::not_found)?;
-    let source =
-        thread_reference(pool, row.get("source_thread_id"), ThreadRelation::Source).await?;
-    let related_ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT thread_id FROM task_threads WHERE task_id=$1 ORDER BY linked_at",
-    )
-    .bind(task_id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = queries
+        .task(task_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    let source = thread_reference(queries, row.source_thread_id, ThreadRelation::Source).await?;
+    let related_ids = queries
+        .task_related_threads(task_id)
+        .await
+        .map_err(application_error)?;
     let mut related = Vec::with_capacity(related_ids.len());
     for id in related_ids {
-        related.push(thread_reference(pool, id, ThreadRelation::Related).await?);
+        related.push(thread_reference(queries, id, ThreadRelation::Related).await?);
     }
-    let result_message = if let Some(message_id) = row.get::<Option<Uuid>, _>("result_message_id") {
-        let message = sqlx::query("SELECT * FROM messages WHERE id=$1")
-            .bind(message_id)
-            .fetch_one(pool)
+    let result_message = if let Some(message_id) = row.result_message_id {
+        let message = queries
+            .message(message_id)
             .await
-            .map_err(map_sqlx)?;
-        Some(message_row(pool, &message).await?)
+            .map_err(application_error)?
+            .ok_or_else(ApiError::not_found)?;
+        Some(message_row(queries, &message).await?)
     } else {
         None
     };
-    let run_ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM agent_runs WHERE task_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20",
-    )
-    .bind(task_id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let run_ids = queries
+        .task_run_ids(task_id)
+        .await
+        .map_err(application_error)?;
     let mut runs = Vec::with_capacity(run_ids.len());
     for run_id in run_ids {
-        runs.push(run_projection(pool, run_id).await?);
+        runs.push(run_projection(queries, run_id).await?);
     }
     let current_run = runs.iter().find(|run| run.outcome.is_none()).cloned();
     Ok(TaskResponse {
         id: task_id,
-        seq: u64::try_from(row.get::<i64, _>("seq")).map_err(|_| ApiError::internal())?,
-        space_id: row.get("space_id"),
-        title: row.get("title"),
-        status: match row.get::<&str, _>("status") {
+        seq: u64::try_from(row.seq).map_err(|_| ApiError::internal())?,
+        space_id: row.space_id,
+        title: row.title,
+        status: match row.status.as_str() {
             "todo" => TaskStatus::Todo,
             "in_progress" => TaskStatus::InProgress,
             "in_review" => TaskStatus::InReview,
@@ -554,14 +510,14 @@ pub(super) async fn task_projection(
             "closed" => TaskStatus::Closed,
             _ => return Err(ApiError::internal()),
         },
-        creator_member_id: row.get("creator_member_id"),
-        creator_name: row.get("creator_name"),
-        assignee_agent_member_id: row.get("assignee_agent_member_id"),
-        assignee_name: row.get("assignee_name"),
+        creator_member_id: row.creator_member_id,
+        creator_name: row.creator_name,
+        assignee_agent_member_id: row.assignee_agent_member_id,
+        assignee_name: row.assignee_name,
         source_thread: source,
         related_threads: related,
         result_message,
-        close_reason_code: match row.get::<Option<&str>, _>("close_reason_code") {
+        close_reason_code: match row.close_reason_code.as_deref() {
             None => None,
             Some("invalid") => Some(CloseReasonCode::Invalid),
             Some("duplicate") => Some(CloseReasonCode::Duplicate),
@@ -570,42 +526,39 @@ pub(super) async fn task_projection(
             Some("other") => Some(CloseReasonCode::Other),
             Some(_) => return Err(ApiError::internal()),
         },
-        close_reason_note: row.get("close_reason_note"),
+        close_reason_note: row.close_reason_note,
         current_run,
         recent_runs: runs,
         session_continuity: unavailable_continuity(),
         runtime_issue_code: None,
-        created_at: timestamp(row.get("created_at")),
-        updated_at: timestamp(row.get("updated_at")),
-        finished_at: optional_timestamp(row.get("finished_at")),
+        created_at: timestamp(row.created_at),
+        updated_at: timestamp(row.updated_at),
+        finished_at: optional_timestamp(row.finished_at),
     })
 }
 
-pub(super) async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<RunResponse, ApiError> {
-    let row = sqlx::query(
-        "SELECT r.*,m.display_name AS agent_name,\
-                CASE WHEN task.id IS NULL OR task.source_thread_id=r.focus_thread_id THEN 'source' ELSE 'related' END AS relation \
-         FROM agent_runs r JOIN members m ON m.id=r.agent_id \
-         LEFT JOIN tasks task ON task.id=r.task_id WHERE r.id=$1",
-    )
-    .bind(run_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
+pub(super) async fn run_projection(
+    queries: &PostgresQueries,
+    run_id: Uuid,
+) -> Result<RunResponse, ApiError> {
+    let row = queries
+        .run(run_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     let focus = thread_reference(
-        pool,
-        row.get("focus_thread_id"),
-        thread_relation(row.get("relation"))?,
+        queries,
+        row.focus_thread_id,
+        thread_relation(&row.relation)?,
     )
     .await?;
     Ok(RunResponse {
         id: run_id,
-        task_id: row.get("task_id"),
-        agent_member_id: row.get("agent_id"),
-        agent_name: row.get("agent_name"),
+        task_id: row.task_id,
+        agent_member_id: row.agent_id,
+        agent_name: row.agent_name,
         focus,
-        status: match row.get::<&str, _>("status") {
+        status: match row.status.as_str() {
             "dispatched" => RunStatus::Dispatched,
             "working" => RunStatus::Working,
             "completed" => RunStatus::Completed,
@@ -614,7 +567,7 @@ pub(super) async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<RunRes
             "canceled" => RunStatus::Canceled,
             _ => return Err(ApiError::internal()),
         },
-        outcome: match row.get::<Option<&str>, _>("outcome_code") {
+        outcome: match row.outcome_code.as_deref() {
             None => None,
             Some("completed") => Some(RunOutcome::Completed),
             Some("yielded") => Some(RunOutcome::Yielded),
@@ -622,10 +575,10 @@ pub(super) async fn run_projection(pool: &PgPool, run_id: Uuid) -> Result<RunRes
             Some("canceled") => Some(RunOutcome::Canceled),
             Some(_) => return Err(ApiError::internal()),
         },
-        continuation_note: row.get("continuation_note"),
-        error_code: row.get("error_code"),
-        started_at: optional_timestamp(row.get("started_at")),
-        finished_at: optional_timestamp(row.get("finished_at")),
+        continuation_note: row.continuation_note,
+        error_code: row.error_code,
+        started_at: optional_timestamp(row.started_at),
+        finished_at: optional_timestamp(row.finished_at),
     })
 }
 
@@ -638,18 +591,20 @@ pub(super) fn thread_relation(code: &str) -> Result<ThreadRelation, ApiError> {
 }
 
 pub(super) async fn thread_reference(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     thread_id: Uuid,
     relation: ThreadRelation,
 ) -> Result<ThreadReferenceResponse, ApiError> {
-    let row=sqlx::query("SELECT m.id,m.channel_id,c.slug,m.channel_seq FROM messages m JOIN channels c ON c.id=m.channel_id WHERE m.id=$1 AND m.placement='root'").bind(thread_id).fetch_one(pool).await.map_err(map_sqlx)?;
+    let row: ThreadReferenceRow = queries
+        .thread_reference(thread_id)
+        .await
+        .map_err(application_error)?;
     Ok(ThreadReferenceResponse {
         id: thread_id,
-        root_message_id: row.get("id"),
-        channel_id: row.get("channel_id"),
-        channel_slug: row.get::<Option<String>, _>("slug"),
-        root_message_seq: u64::try_from(row.get::<i64, _>("channel_seq"))
-            .map_err(|_| ApiError::internal())?,
+        root_message_id: row.id,
+        channel_id: row.channel_id,
+        channel_slug: row.slug,
+        root_message_seq: u64::try_from(row.channel_seq).map_err(|_| ApiError::internal())?,
         relation,
     })
 }

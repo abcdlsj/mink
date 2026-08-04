@@ -402,16 +402,11 @@ pub(super) async fn list_spaces(
     jar: CookieJar,
 ) -> Result<Json<Vec<SpaceResponse>>, ApiError> {
     let user = authenticate(&state, &jar).await?;
-    let rows = sqlx::query(
-        "SELECT s.id,s.name,s.slug,s.accent,s.owner_member_id,hm.member_id AS current_member_id, \
-         (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
-         FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
-         WHERE hm.user_id=$1 AND s.deleted_at IS NULL ORDER BY s.created_at",
-    )
-    .bind(user.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .spaces_for_user(user.user_id)
+        .await
+        .map_err(application_error)?;
     Ok(Json(rows.iter().map(space_row).collect()))
 }
 
@@ -421,18 +416,12 @@ pub(super) async fn space_by_slug(
     Path(slug): Path<String>,
 ) -> Result<Json<SpaceResponse>, ApiError> {
     let user = authenticate(&state, &jar).await?;
-    let row = sqlx::query(
-        "SELECT s.id,s.name,s.slug,s.accent,s.owner_member_id,hm.member_id AS current_member_id, \
-         (SELECT id FROM channels WHERE space_id=s.id AND slug='general' LIMIT 1) AS general_channel_id \
-         FROM spaces s JOIN human_members hm ON hm.space_id=s.id \
-         WHERE hm.user_id=$1 AND lower(s.slug)=lower($2) AND s.deleted_at IS NULL",
-    )
-    .bind(user.user_id)
-    .bind(slug)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
+    let row = state
+        .read
+        .space_for_user_slug(user.user_id, &slug)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok(Json(space_row(&row)))
 }
 
@@ -442,11 +431,14 @@ pub(super) async fn list_members(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<Vec<MemberResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
-    let rows = sqlx::query("SELECT id,kind,display_name,access_level FROM members WHERE space_id=$1 AND retired_at IS NULL ORDER BY created_at")
-        .bind(space_id).fetch_all(&state.pool).await.map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .members_in_space(space_id)
+        .await
+        .map_err(application_error)?;
     let mut values = Vec::with_capacity(rows.len());
     for row in rows {
-        values.push(member_row(&state.pool, &row).await?);
+        values.push(member_row(&state.read, &row).await?);
     }
     Ok(Json(values))
 }
@@ -467,11 +459,11 @@ pub(super) async fn set_permission(
     action_code: &str,
     enabled: bool,
 ) -> Result<Json<MemberResponse>, ApiError> {
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM members WHERE id=$1")
-        .bind(member_id)
-        .fetch_optional(&state.pool)
+    let space_id = state
+        .read
+        .member_space(member_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
     let actor = current_member(state, jar, space_id).await?;
     let mut storage = state.storage.clone();
@@ -486,12 +478,13 @@ pub(super) async fn set_permission(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query("SELECT id,kind,display_name,access_level FROM members WHERE id=$1")
-        .bind(member_id)
-        .fetch_one(&state.pool)
+    let row = state
+        .read
+        .member(member_id)
         .await
-        .map_err(map_sqlx)?;
-    Ok(Json(member_row(&state.pool, &row).await?))
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(Json(member_row(&state.read, &row).await?))
 }
 
 pub(super) async fn grant_permission(
@@ -592,13 +585,11 @@ pub(super) async fn update_space_member(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query(
-        "SELECT id,kind,display_name,access_level FROM members WHERE id=$1 AND space_id=$2",
-    )
-    .bind(member_id)
-    .bind(space_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
-    Ok(Json(member_row(&state.pool, &row).await?))
+    let row = state
+        .read
+        .member_in_space(member_id, space_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(Json(member_row(&state.read, &row).await?))
 }

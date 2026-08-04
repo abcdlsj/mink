@@ -92,8 +92,9 @@ impl CapabilityFixture {
         let objects = tempfile::tempdir().unwrap();
         let object_store = LocalFileSystem::new_with_prefix(objects.path()).unwrap();
         let state = RuntimeState {
-            pool,
+            pool: pool.clone(),
             storage,
+            read: PostgresQueries::new(pool),
             objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
             session_lifetime: SessionLifetime::from_hours(1).unwrap(),
             attachment_max_bytes: 100 * 1024 * 1024,
@@ -242,17 +243,7 @@ async fn agent_activity_and_last_error_code_come_from_run_and_inbox_facts() {
     let focus_id = fixture.context.focus_thread_id.into_uuid();
 
     async fn read_agent(fixture: &CapabilityFixture, agent_id: Uuid) -> AgentResponse {
-        let row = sqlx::query(&format!(
-            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-                 c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-                 FROM agents a JOIN members m ON m.id=a.member_id \
-                 LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} \
-                 WHERE a.member_id=$1"
-        ))
-        .bind(agent_id)
-        .fetch_one(&fixture.state.pool)
-        .await
-        .unwrap();
+        let row = fixture.state.read.agent(agent_id).await.unwrap().unwrap();
         agent_row(&row).unwrap()
     }
 
@@ -325,12 +316,14 @@ async fn message_projection_returns_persisted_mentions_and_mention_all() {
     .execute(&fixture.state.pool)
     .await
     .unwrap();
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&fixture.state.pool)
+    let row = fixture
+        .state
+        .read
+        .message(message_id)
         .await
+        .unwrap()
         .unwrap();
-    let projected = message_row(&fixture.state.pool, &row).await.unwrap();
+    let projected = message_row(&fixture.state.read, &row).await.unwrap();
     assert_eq!(
         projected.mentions,
         vec![fixture.context.agent_id.into_uuid()]
@@ -396,12 +389,14 @@ async fn run_claim_failure_is_projected_once_on_its_source_message() {
         .unwrap()
     );
 
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&fixture.state.pool)
+    let row = fixture
+        .state
+        .read
+        .message(message_id)
         .await
+        .unwrap()
         .unwrap();
-    let projected = message_row(&fixture.state.pool, &row).await.unwrap();
+    let projected = message_row(&fixture.state.read, &row).await.unwrap();
     let failures = &projected.attention_failures;
     assert_eq!(failures.len(), 1);
     assert_eq!(

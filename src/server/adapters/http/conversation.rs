@@ -13,16 +13,11 @@ pub(super) async fn list_channels(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<ChannelListResponse>, ApiError> {
     let member_id = current_member(&state, &jar, space_id).await?;
-    let rows = sqlx::query(
-        "SELECT c.id,c.space_id,c.kind,c.slug,c.topic,c.archived_at, \
-         EXISTS(SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.member_id=$2) AS joined \
-         FROM channels c WHERE c.space_id=$1 AND c.kind<>'direct' ORDER BY c.created_at",
-    )
-    .bind(space_id)
-    .bind(member_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .channels_in_space(space_id, member_id)
+        .await
+        .map_err(application_error)?;
     let mut channels = Vec::with_capacity(rows.len());
     for row in &rows {
         channels.push(channel_row(row, member_id)?);
@@ -100,33 +95,26 @@ pub(super) async fn list_channel_members(
 ) -> Result<Json<ChannelMembersResponse>, ApiError> {
     let viewer_id = channel_member(&state, &jar, channel_id).await?;
     Ok(Json(
-        channel_members_response(&state.pool, channel_id, viewer_id).await?,
+        channel_members_response(&state.read, channel_id, viewer_id).await?,
     ))
 }
 
 pub(super) async fn channel_members_response(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     channel_id: Uuid,
     viewer_id: Uuid,
 ) -> Result<ChannelMembersResponse, ApiError> {
-    let can_manage: bool =
-        sqlx::query_scalar("SELECT access_level IN ('owner','admin') FROM members WHERE id=$1")
-            .bind(viewer_id)
-            .fetch_one(pool)
-            .await
-            .map_err(map_sqlx)?;
-    let rows = sqlx::query(
-        "SELECT members.id,members.kind,members.display_name,members.access_level \
-         FROM channel_members JOIN members ON members.id=channel_members.member_id \
-         WHERE channel_members.channel_id=$1 ORDER BY channel_members.joined_at,members.id",
-    )
-    .bind(channel_id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let can_manage = queries
+        .member_is_governor(viewer_id)
+        .await
+        .map_err(application_error)?;
+    let rows = queries
+        .channel_members(channel_id)
+        .await
+        .map_err(application_error)?;
     let mut members = Vec::with_capacity(rows.len());
     for row in &rows {
-        members.push(member_row(pool, row).await?);
+        members.push(member_row(queries, row).await?);
     }
     Ok(ChannelMembersResponse {
         members,
@@ -160,7 +148,7 @@ pub(super) async fn add_channel_agents(
     .await
     .map_err(application_error)?;
     Ok(Json(
-        channel_members_response(&state.pool, channel_id, actor_id).await?,
+        channel_members_response(&state.read, channel_id, actor_id).await?,
     ))
 }
 
@@ -181,7 +169,7 @@ pub(super) async fn remove_channel_agent(
     .await
     .map_err(application_error)?;
     Ok(Json(
-        channel_members_response(&state.pool, channel_id, actor_id).await?,
+        channel_members_response(&state.read, channel_id, actor_id).await?,
     ))
 }
 
@@ -206,14 +194,15 @@ pub(super) async fn create_root_message(
         body,
     )
     .await?;
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&state.pool)
+    let row = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok((
         StatusCode::CREATED,
-        Json(message_row(&state.pool, &row).await?),
+        Json(message_row(&state.read, &row).await?),
     ))
 }
 
@@ -222,48 +211,42 @@ pub(super) async fn read_thread(
     jar: CookieJar,
     Path(thread_id): Path<Uuid>,
 ) -> Result<Json<ThreadReadResponse>, ApiError> {
-    let thread = sqlx::query("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
-        .bind(thread_id)
-        .fetch_optional(&state.pool)
+    let thread = state
+        .read
+        .root_thread(thread_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
-    let channel_id: Uuid = thread.get("channel_id");
+    let channel_id = thread.channel_id;
     let member_id = channel_member(&state, &jar, channel_id).await?;
-    let rows = sqlx::query("SELECT * FROM messages WHERE thread_id=$1 ORDER BY channel_seq")
-        .bind(thread_id)
-        .fetch_all(&state.pool)
+    let rows = state
+        .read
+        .messages_in_thread(thread_id)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(application_error)?;
     let mut projected = Vec::with_capacity(rows.len());
     for row in &rows {
-        projected.push(message_row(&state.pool, row).await?);
+        projected.push(message_row(&state.read, row).await?);
     }
     let root = projected.first().cloned().ok_or_else(ApiError::not_found)?;
-    let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
-        .bind(channel_id)
-        .fetch_one(&state.pool)
+    let snapshot = state
+        .read
+        .channel_snapshot(channel_id)
         .await
-        .map_err(map_sqlx)?;
-    let is_following: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM thread_subscriptions WHERE thread_id=$1 AND member_id=$2)",
-    )
-    .bind(thread_id)
-    .bind(member_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
-    let task = message_task_summary(&state.pool, thread_id).await?;
+        .map_err(application_error)?;
+    let is_following = state
+        .read
+        .thread_following(thread_id, member_id)
+        .await
+        .map_err(application_error)?;
+    let task = message_task_summary(&state.read, thread_id).await?;
     let task_relation = match task.as_ref() {
         Some(summary) => {
-            let is_source = sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS(SELECT 1 FROM tasks WHERE id=$1 AND source_thread_id=$2)",
-            )
-            .bind(summary.id)
-            .bind(thread_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(map_sqlx)?;
+            let is_source = state
+                .read
+                .task_is_source(summary.id, thread_id)
+                .await
+                .map_err(application_error)?;
             Some(if is_source {
                 ThreadRelation::Source
             } else {
@@ -291,13 +274,13 @@ pub(super) async fn create_thread_reply(
     Path(thread_id): Path<Uuid>,
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
-    let row = sqlx::query("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
-        .bind(thread_id)
-        .fetch_optional(&state.pool)
+    let row = state
+        .read
+        .root_thread(thread_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
-    let channel_id: Uuid = row.get("channel_id");
+    let channel_id = row.channel_id;
     let member_id = channel_member(&state, &jar, channel_id).await?;
     let message_id = insert_message(
         &state,
@@ -312,14 +295,15 @@ pub(super) async fn create_thread_reply(
         body,
     )
     .await?;
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&state.pool)
+    let row = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok((
         StatusCode::CREATED,
-        Json(message_row(&state.pool, &row).await?),
+        Json(message_row(&state.read, &row).await?),
     ))
 }
 
@@ -330,11 +314,12 @@ pub(super) async fn update_message(
     Path(message_id): Path<Uuid>,
     Json(body): Json<UpdateMessageBody>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_optional(&state.pool)
+    let channel_id = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
+        .map(|row| row.channel_id)
         .ok_or_else(ApiError::not_found)?;
     let actor = channel_member(&state, &jar, channel_id).await?;
     let mut storage = state.storage.clone();
@@ -352,12 +337,13 @@ pub(super) async fn update_message(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&state.pool)
+    let row = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?;
-    Ok(Json(message_row(&state.pool, &row).await?))
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(Json(message_row(&state.read, &row).await?))
 }
 
 pub(super) async fn delete_message(
@@ -366,11 +352,12 @@ pub(super) async fn delete_message(
     headers: HeaderMap,
     Path(message_id): Path<Uuid>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    let channel_id = sqlx::query_scalar::<_, Uuid>("SELECT channel_id FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_optional(&state.pool)
+    let channel_id = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
+        .map(|row| row.channel_id)
         .ok_or_else(ApiError::not_found)?;
     let actor = channel_member(&state, &jar, channel_id).await?;
     let mut storage = state.storage.clone();
@@ -383,12 +370,13 @@ pub(super) async fn delete_message(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query("SELECT * FROM messages WHERE id=$1")
-        .bind(message_id)
-        .fetch_one(&state.pool)
+    let row = state
+        .read
+        .message(message_id)
         .await
-        .map_err(map_sqlx)?;
-    Ok(Json(message_row(&state.pool, &row).await?))
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(Json(message_row(&state.read, &row).await?))
 }
 
 pub(super) async fn insert_message(
@@ -487,11 +475,13 @@ pub(super) async fn list_agent_direct_messages(
 ) -> Result<Json<Vec<DirectMessageResponse>>, ApiError> {
     let target = MemberId::from_uuid(member_id);
     let _governor = require_agent_governor(&state, &jar, member_id).await?;
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM agents WHERE member_id=$1")
-        .bind(member_id)
-        .fetch_one(&state.pool)
+    let space_id = state
+        .read
+        .agent(member_id)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?
+        .space_id;
     let mut storage = state.storage.clone();
     let conversations =
         ListDirectMessages::execute(&mut storage, target, SpaceId::from_uuid(space_id))
@@ -580,11 +570,11 @@ pub(super) async fn requeue_inbox_item(
 ) -> Result<Json<InboxItemResponse>, ApiError> {
     let item_id = InboxItemId::from_uuid(item_id);
     let mut storage = state.storage.clone();
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM inbox_items WHERE id=$1")
-        .bind(item_id.into_uuid())
-        .fetch_optional(&state.pool)
+    let space_id = state
+        .read
+        .inbox_space(item_id.into_uuid())
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
     let actor = current_member(&state, &jar, space_id).await?;
     let item = RequeueDeadItem::execute(
@@ -610,11 +600,11 @@ pub(super) async fn read_inbox_item(
 ) -> Result<Json<InboxItemResponse>, ApiError> {
     let item_id = InboxItemId::from_uuid(item_id);
     let mut storage = state.storage.clone();
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM inbox_items WHERE id=$1")
-        .bind(item_id.into_uuid())
-        .fetch_optional(&state.pool)
+    let space_id = state
+        .read
+        .inbox_space(item_id.into_uuid())
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
     let actor = current_member(&state, &jar, space_id).await?;
     let item = MarkInboxItemRead::execute(
@@ -766,11 +756,11 @@ pub(super) async fn space_of_channel(
     state: &RuntimeState,
     channel_id: Uuid,
 ) -> Result<Uuid, ApiError> {
-    sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM channels WHERE id=$1")
-        .bind(channel_id)
-        .fetch_optional(&state.pool)
+    state
+        .read
+        .channel_space(channel_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)
 }
 
@@ -779,16 +769,12 @@ pub(super) async fn read_channel_projection(
     channel_id: Uuid,
     viewer: Uuid,
 ) -> Result<Json<ChannelResponse>, ApiError> {
-    let row = sqlx::query(
-        "SELECT c.id,c.space_id,c.kind,c.slug,c.topic,c.archived_at,\
-         EXISTS(SELECT 1 FROM channel_members cm WHERE cm.channel_id=c.id AND cm.member_id=$2) \
-         AS joined FROM channels c WHERE c.id=$1",
-    )
-    .bind(channel_id)
-    .bind(viewer)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = state
+        .read
+        .channel(channel_id, viewer)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok(Json(channel_row(&row, viewer)?))
 }
 
@@ -814,14 +800,13 @@ pub(super) async fn set_subscription(
     thread_id: Uuid,
     following: bool,
 ) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
-    let row =
-        sqlx::query("SELECT space_id,channel_id FROM messages WHERE id=$1 AND placement='root'")
-            .bind(thread_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(map_sqlx)?
-            .ok_or_else(ApiError::not_found)?;
-    let actor_id = current_member(&state, &jar, row.get("space_id")).await?;
+    let row = state
+        .read
+        .root_thread(thread_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor_id = current_member(&state, &jar, row.space_id).await?;
     let mut storage = state.storage.clone();
     let is_following = SetThreadSubscription::execute(
         &mut storage,
@@ -834,7 +819,7 @@ pub(super) async fn set_subscription(
     .map_err(application_error)?;
     Ok(Json(ThreadSubscriptionResponse {
         thread_id,
-        channel_id: row.get("channel_id"),
+        channel_id: row.channel_id,
         is_following,
     }))
 }
@@ -845,22 +830,20 @@ pub(super) async fn list_messages(
     Path(channel_id): Path<Uuid>,
 ) -> Result<Json<MessagePageResponse>, ApiError> {
     channel_member(&state, &jar, channel_id).await?;
-    let rows = sqlx::query(
-        "SELECT * FROM messages WHERE channel_id=$1 AND placement='root' ORDER BY channel_seq",
-    )
-    .bind(channel_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .root_messages_in_channel(channel_id)
+        .await
+        .map_err(application_error)?;
     let mut messages = Vec::with_capacity(rows.len());
     for row in rows {
-        messages.push(message_row(&state.pool, &row).await?);
+        messages.push(message_row(&state.read, &row).await?);
     }
-    let snapshot: i64 = sqlx::query_scalar("SELECT next_seq-1 FROM channels WHERE id=$1")
-        .bind(channel_id)
-        .fetch_one(&state.pool)
+    let snapshot = state
+        .read
+        .channel_snapshot(channel_id)
         .await
-        .map_err(map_sqlx)?;
+        .map_err(application_error)?;
     Ok(Json(MessagePageResponse {
         channel_id,
         messages,

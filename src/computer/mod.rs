@@ -14,10 +14,9 @@ use adapters::{
 use anyhow::{Context, ensure};
 use application::{
     ApplicationError,
+    pipeline::RunPipelineService,
     ports::{AgentHomePort, DriverPort, TransactionPort},
     recovery::RecoveryService,
-    run::RunService,
-    scheduler::SchedulerService,
 };
 use backon::{BackoffBuilder, ExponentialBuilder};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -202,7 +201,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     );
     let mut driver =
         drivers::runtime(&computer_home, &config).map_err(|error| anyhow::anyhow!(error))?;
-    RecoveryService::recover(
+    RunPipelineService::recover(
         &mut storage,
         &mut driver,
         &mut homes,
@@ -521,7 +520,7 @@ where
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             Some(run_id) = yield_interrupts.recv() => {
-                handle_yield_interrupt(storage, driver, run_id, max_concurrent_runs)
+                RunPipelineService::interrupt_yielded(storage, driver, run_id, max_concurrent_runs)
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?;
                 send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
@@ -532,32 +531,27 @@ where
                 writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
             }
             _ = driver_observation.tick() => {
-                let mut changed = false;
-                for completion in driver.poll_completions().await.map_err(|error| anyhow::anyhow!(error))? {
-                    changed |= RunService::finish_driver_turn(
-                        storage,
-                        completion.run_id,
-                        completion.outcome,
-                    )
+                let completions = driver
+                    .poll_completions()
                     .await
-                    .map_err(|error| anyhow::anyhow!(error))?
-                    .is_some();
-                }
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                let changed = RunPipelineService::finish_driver_turns(
+                    storage,
+                    driver,
+                    completions,
+                    max_concurrent_runs,
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
                 if changed {
-                    SchedulerService::dispatch(storage, driver, max_concurrent_runs)
-                        .await
-                        .map_err(|error| anyhow::anyhow!(error))?;
                     send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
                 }
             }
             _ = lost_driver_check.tick() => {
-                if RecoveryService::fail_lost_drivers(storage, driver)
+                if RunPipelineService::fail_lost_drivers(storage, driver, max_concurrent_runs)
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?
                 {
-                    SchedulerService::dispatch(storage, driver, max_concurrent_runs)
-                        .await
-                        .map_err(|error| anyhow::anyhow!(error))?;
                     send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
                 }
             }
@@ -569,7 +563,7 @@ where
                         for frame in adapter.receive(storage,driver,homes,*envelope).await.map_err(|error|anyhow::anyhow!(error))?{
                             writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                         }
-                        SchedulerService::dispatch(
+                        RunPipelineService::dispatch(
                             storage,
                             driver,
                             max_concurrent_runs,
@@ -592,18 +586,6 @@ where
             }
         }
     }
-}
-
-async fn handle_yield_interrupt<P: TransactionPort, D: DriverPort>(
-    storage: &mut P,
-    driver: &mut D,
-    run_id: RunId,
-    max_concurrent_runs: usize,
-) -> Result<(), ApplicationError> {
-    if let Err(error) = RunService::interrupt_terminal(storage, driver, run_id).await {
-        tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
-    }
-    SchedulerService::dispatch(storage, driver, max_concurrent_runs).await
 }
 
 async fn send_next_pending_event<P>(

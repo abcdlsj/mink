@@ -74,6 +74,10 @@ impl PostgresAdapter {
         Self { pool }
     }
 
+    pub(super) fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
+
     pub(super) async fn initialize_schema(&self) -> Result<(), sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('sumi-schema-baseline', 0))")
@@ -489,9 +493,11 @@ mod attention;
 mod conversation;
 mod execution;
 mod identity;
+mod query;
 mod rows;
 mod task;
 
+pub(in crate::server::adapters) use query::*;
 use rows::*;
 
 impl PostgresTransaction {

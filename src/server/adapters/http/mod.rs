@@ -26,7 +26,8 @@ use futures_util::{StreamExt, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+#[cfg(test)]
+use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use tower_http::{
     services::{ServeDir, ServeFile},
@@ -139,7 +140,7 @@ use super::{
         ThreadReadResponse, ThreadReferenceResponse, ThreadRelation, ThreadSubscriptionResponse,
         UserResponse,
     },
-    postgres::PostgresAdapter,
+    postgres::{ChannelLeaveReplayQuery, PostgresAdapter, PostgresQueries},
     query::QueryRegistry,
 };
 
@@ -147,8 +148,10 @@ const SESSION_COOKIE: &str = "sumi_session";
 
 #[derive(Clone)]
 pub(super) struct RuntimeState {
+    #[cfg(test)]
     pub(super) pool: PgPool,
     pub(super) storage: PostgresAdapter,
+    pub(super) read: PostgresQueries,
     pub(super) objects: Arc<AttachmentObjectStore>,
     pub(super) session_lifetime: SessionLifetime,
     pub(super) attachment_max_bytes: u64,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::server::adapters::postgres::{AgentRow, ComputerAgentRow};
 use crate::server::adapters::websocket::computer_socket;
 use crate::server::domain::identity::valid_display_name;
 
@@ -18,7 +19,7 @@ pub(super) async fn connect_computer(
     .await
     .map_err(application_error)?;
     let storage = state.storage.clone();
-    let pool = state.pool.clone();
+    let pool = state.storage.pool();
     let queries = state.queries.clone();
     Ok(upgrade.on_upgrade(move |socket| {
         computer_socket(
@@ -82,29 +83,24 @@ pub(super) async fn computer_agents(
     Path(computer_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     authenticate_computer(&state, &headers, computer_id).await?;
-    let rows = sqlx::query(
-        "SELECT a.member_id,a.space_id,a.role_text,a.role_revision,a.lifecycle,a.driver_kind,\
-                a.driver_config_json,m.display_name,m.access_level \
-         FROM agents a JOIN members m ON m.id=a.member_id \
-         WHERE a.computer_id=$1 AND a.lifecycle<>'retired' ORDER BY a.created_at,a.member_id",
-    )
-    .bind(computer_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .computer_agents(computer_id)
+        .await
+        .map_err(application_error)?;
     Ok(Json(Value::Array(
         rows.iter()
             .map(|row| {
                 json!({
-                    "member_id": row.get::<Uuid,_>("member_id"),
-                    "space_id": row.get::<Uuid,_>("space_id"),
-                    "display_name": row.get::<String,_>("display_name"),
-                    "access_level": row.get::<String,_>("access_level"),
-                    "role_text": row.get::<String,_>("role_text"),
-                    "role_revision": row.get::<i64,_>("role_revision"),
-                    "lifecycle": row.get::<String,_>("lifecycle"),
-                    "driver_kind": row.get::<String,_>("driver_kind"),
-                    "driver_config": row.get::<Value,_>("driver_config_json"),
+                    "member_id": row.member_id,
+                    "space_id": row.space_id,
+                    "display_name": row.display_name,
+                    "access_level": row.access_level,
+                    "role_text": row.role_text,
+                    "role_revision": row.role_revision,
+                    "lifecycle": row.lifecycle,
+                    "driver_kind": row.driver_kind,
+                    "driver_config": row.driver_config_json,
                 })
             })
             .collect(),
@@ -130,18 +126,11 @@ pub(super) async fn list_agents(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<Vec<AgentResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
-    let rows = sqlx::query(
-        &format!(
-            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-             FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
-             {ACTIVITY_JOINS} WHERE a.space_id=$1 ORDER BY a.created_at"
-        ),
-    )
-    .bind(space_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let rows = state
+        .read
+        .agents_in_space(space_id)
+        .await
+        .map_err(application_error)?;
     let mut agents = Vec::with_capacity(rows.len());
     for row in &rows {
         agents.push(agent_row(row)?);
@@ -154,22 +143,15 @@ pub(super) async fn get_agent(
     jar: CookieJar,
     Path(agent_id): Path<Uuid>,
 ) -> Result<Json<AgentResponse>, ApiError> {
-    let row = sqlx::query(
-        &format!(
-            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-             FROM agents a JOIN members m ON m.id=a.member_id LEFT JOIN computers c ON c.id=a.computer_id \
-             {ACTIVITY_JOINS} WHERE a.member_id=$1"
-        ),
-    )
-    .bind(agent_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    current_member(&state, &jar, row.get("space_id")).await?;
+    let row = state
+        .read
+        .agent(agent_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    current_member(&state, &jar, row.space_id).await?;
     let mut agent = agent_row(&row)?;
-    agent.memory_files = memory_files(&state, row.get("computer_id"), agent_id).await;
+    agent.memory_files = memory_files(&state, row.computer_id, agent_id).await;
     Ok(Json(agent))
 }
 
@@ -198,9 +180,9 @@ pub(super) async fn current_agent_run(
             diagnostics,
         }));
     };
-    let run = run_projection(&state.pool, run_id.into_uuid()).await?;
+    let run = run_projection(&state.read, run_id.into_uuid()).await?;
     let current_task = match run.task_id {
-        Some(task_id) => Some(task_projection(&state.pool, task_id).await?),
+        Some(task_id) => Some(task_projection(&state.read, task_id).await?),
         None => None,
     };
     let scope = match run.task_id {
@@ -236,16 +218,12 @@ pub(super) async fn retire_agent(
     )
     .await
     .map_err(application_error)?;
-    let row = sqlx::query(&format!(
-        "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-             FROM agents a JOIN members m ON m.id=a.member_id \
-             LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"
-    ))
-    .bind(agent_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = state
+        .read
+        .agent(agent_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok(Json(agent_row(&row)?))
 }
 
@@ -322,47 +300,14 @@ pub(super) async fn create_agent(
     .await
     .map_err(application_error)?;
 
-    let row = sqlx::query(
-        &format!(
-            "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-             c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-             FROM agents a JOIN members m ON m.id=a.member_id JOIN computers c ON c.id=a.computer_id \
-             {ACTIVITY_JOINS} WHERE a.member_id=$1"
-        ),
-    )
-    .bind(agent_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = state
+        .read
+        .agent(agent_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     Ok((StatusCode::CREATED, Json(agent_row(&row)?)))
 }
-
-pub(super) const ACTIVITY_COLUMNS: &str = "\
-    active_run.status AS run_status,\
-    active_run.task_id AS run_task_id,\
-    active_task.title AS run_task_title,\
-    focus_channel.slug AS run_focus_slug,\
-    focus_thread.channel_seq AS run_focus_seq,\
-    COALESCE(\
-        (SELECT r.error_code FROM agent_runs r \
-         WHERE r.agent_id=a.member_id AND r.outcome_code='failed' AND r.error_code IS NOT NULL \
-         ORDER BY r.finished_at DESC NULLS LAST,r.id DESC LIMIT 1),\
-        (SELECT i.last_error_code FROM inbox_items i \
-         WHERE i.member_id=a.member_id AND i.status='pending' AND i.last_error_code IS NOT NULL \
-         ORDER BY i.created_at DESC,i.id DESC LIMIT 1)\
-    ) AS last_error_code";
-
-pub(super) const ACTIVITY_JOINS: &str = "\
-    LEFT JOIN LATERAL (\
-        SELECT r.status,r.task_id,r.focus_thread_id FROM agent_runs r \
-        WHERE r.agent_id=a.member_id \
-          AND r.status NOT IN ('completed','yielded','failed','canceled') \
-        ORDER BY r.created_at DESC LIMIT 1\
-    ) active_run ON true \
-    LEFT JOIN tasks active_task ON active_task.id=active_run.task_id \
-    LEFT JOIN messages focus_thread ON focus_thread.id=active_run.focus_thread_id \
-        AND focus_thread.placement='root' \
-    LEFT JOIN channels focus_channel ON focus_channel.id=focus_thread.channel_id";
 
 /// Projects the limits the domain enforces, so the published policy cannot drift from the applied one.
 pub(super) fn attention_policy() -> AttentionConfig {
@@ -376,19 +321,21 @@ pub(super) fn attention_policy() -> AttentionConfig {
     }
 }
 
-pub(super) fn focus_address(row: &sqlx::postgres::PgRow) -> Option<String> {
-    let slug: Option<String> = row.get("run_focus_slug");
-    let seq: Option<i64> = row.get("run_focus_seq");
-    Some(format!("#{}:{}", slug?, seq?))
+pub(super) fn focus_address(row: &AgentRow) -> Option<String> {
+    Some(format!(
+        "#{}:{}",
+        row.run_focus_slug.as_ref()?,
+        row.run_focus_seq?
+    ))
 }
 
 pub(super) fn agent_activity(
-    row: &sqlx::postgres::PgRow,
+    row: &AgentRow,
     activity_status: AgentActivityStatus,
 ) -> Option<AgentActivityResponse> {
-    let run_status = row.get::<Option<String>, _>("run_status")?;
+    let run_status = row.run_status.clone()?;
     let address = focus_address(row);
-    let task_title: Option<String> = row.get("run_task_title");
+    let task_title = row.run_task_title.clone();
     let label = match (run_status.as_str(), address.as_deref()) {
         ("stopping", Some(address)) => format!("Stopping work on {address}"),
         ("stopping", None) => "Stopping the current Run".to_owned(),
@@ -417,10 +364,10 @@ pub(super) fn run_activity_status(status: Option<&str>) -> AgentActivityStatus {
     }
 }
 
-pub(super) fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, ApiError> {
-    let lifecycle: &str = row.get("lifecycle");
-    let connection: Option<String> = row.get("connection_status");
-    let run_status: Option<String> = row.get("run_status");
+pub(super) fn agent_row(row: &AgentRow) -> Result<AgentResponse, ApiError> {
+    let lifecycle = row.lifecycle.as_str();
+    let connection = row.connection_status.as_deref();
+    let run_status = row.run_status.as_deref();
     let retired = lifecycle == "retired";
     let desired_lifecycle = match lifecycle {
         "suspended" => AgentLifecycle::Suspended,
@@ -434,42 +381,41 @@ pub(super) fn agent_row(row: &sqlx::postgres::PgRow) -> Result<AgentResponse, Ap
     };
     // Reachability is reported alongside activity, not instead of it. A Run keeps its status while its
     // Computer is offline, because nothing about the Run changed: we simply cannot hear about it.
-    let computer_reachable = connection.as_deref() == Some("online");
+    let computer_reachable = connection == Some("online");
     let activity_status = match lifecycle {
         "error" => AgentActivityStatus::Error,
         "suspended" => AgentActivityStatus::Suspended,
-        _ => run_activity_status(run_status.as_deref()),
+        _ => run_activity_status(run_status),
     };
     Ok(AgentResponse {
-        member_id: row.get("member_id"),
-        space_id: row.get("space_id"),
-        computer_id: row.get("computer_id"),
-        name: row.get("display_name"),
-        access_level: match row.get::<&str, _>("access_level") {
+        member_id: row.member_id,
+        space_id: row.space_id,
+        computer_id: row.computer_id,
+        name: row.display_name.clone(),
+        access_level: match row.access_level.as_str() {
             "admin" => AgentAccessLevel::Admin,
             "member" => AgentAccessLevel::Member,
             _ => return Err(ApiError::internal()),
         },
-        role_text: row.get("role_text"),
-        role_revision: u64::try_from(row.get::<i64, _>("role_revision"))
-            .map_err(|_| ApiError::internal())?,
+        role_text: row.role_text.clone(),
+        role_revision: u64::try_from(row.role_revision).map_err(|_| ApiError::internal())?,
         desired_lifecycle,
         provision_status,
         activity_status,
         computer_reachable,
-        driver_kind: match row.get::<&str, _>("driver_kind") {
+        driver_kind: match row.driver_kind.as_str() {
             "codex" => DriverKindCode::Codex,
             "builtin" => DriverKindCode::Builtin,
             _ => return Err(ApiError::internal()),
         },
         attention_config: attention_policy(),
         activity: agent_activity(row, activity_status),
-        last_error_code: row.get("last_error_code"),
+        last_error_code: row.last_error_code.clone(),
         memory_files: Vec::new(),
-        created_at: timestamp(row.get("created_at")),
-        updated_at: timestamp(row.get("created_at")),
+        created_at: timestamp(row.created_at),
+        updated_at: timestamp(row.created_at),
         retired_at: if retired {
-            optional_timestamp(row.get("retired_at"))
+            optional_timestamp(row.retired_at)
         } else {
             None
         },
@@ -535,14 +481,7 @@ pub(super) async fn agent_continuity(
     agent_id: Uuid,
     scope: SessionScope,
 ) -> SessionContinuityResponse {
-    let computer_id =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
-            .bind(agent_id)
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten();
+    let computer_id = state.read.agent_computer(agent_id).await.ok().flatten();
     let Some(computer_id) = computer_id else {
         return continuity_response(QueryResult::Unavailable {
             code: QueryErrorCode::Unreachable,
@@ -565,14 +504,7 @@ pub(super) async fn agent_runtime_diagnostics(
     state: &RuntimeState,
     agent_id: Uuid,
 ) -> Option<RuntimeDiagnosticsResponse> {
-    let computer_id =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
-            .bind(agent_id)
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten()?;
+    let computer_id = state.read.agent_computer(agent_id).await.ok().flatten()?;
     let result = state
         .queries
         .ask(
@@ -690,18 +622,14 @@ pub(super) async fn read_agent_projection(
     state: &RuntimeState,
     agent_id: Uuid,
 ) -> Result<Json<AgentResponse>, ApiError> {
-    let row = sqlx::query(&format!(
-        "SELECT a.*,m.display_name,m.access_level,c.connection_status,\
-         c.deleted_at AS computer_deleted_at,{ACTIVITY_COLUMNS} \
-         FROM agents a JOIN members m ON m.id=a.member_id \
-         LEFT JOIN computers c ON c.id=a.computer_id {ACTIVITY_JOINS} WHERE a.member_id=$1"
-    ))
-    .bind(agent_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let row = state
+        .read
+        .agent(agent_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
     let mut agent = agent_row(&row)?;
-    agent.memory_files = memory_files(state, row.get("computer_id"), agent_id).await;
+    agent.memory_files = memory_files(state, row.computer_id, agent_id).await;
     Ok(Json(agent))
 }
 
@@ -744,14 +672,12 @@ pub(super) async fn read_agent_memory(
     Json(body): Json<ReadMemoryBody>,
 ) -> Result<Response, ApiError> {
     require_agent_governor(&state, &jar, agent_id).await?;
-    let computer_id =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT computer_id FROM agents WHERE member_id=$1")
-            .bind(agent_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(map_sqlx)?
-            .flatten()
-            .ok_or_else(ApiError::computer_unreachable)?;
+    let computer_id = state
+        .read
+        .agent_computer(agent_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::computer_unreachable)?;
     let result = state
         .queries
         .ask(

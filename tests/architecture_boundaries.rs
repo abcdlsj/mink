@@ -42,6 +42,7 @@ fn new_modules_do_not_cross_forbidden_dependency_boundaries() {
     assert_scoped_visibility("src/computer");
     assert_scoped_visibility("src/agent_cli");
     assert_http_handlers_do_not_own_write_transactions();
+    assert_http_handlers_delegate_postgres_reads();
     assert_websocket_does_not_apply_agent_lifecycle();
 }
 
@@ -88,6 +89,26 @@ fn assert_http_handlers_do_not_own_write_transactions() {
             assert!(
                 !source.contains(forbidden),
                 "{} contains HTTP-owned write transaction marker {forbidden}",
+                path.display()
+            );
+        }
+    });
+}
+
+fn assert_http_handlers_delegate_postgres_reads() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("src/server/adapters/http");
+    visit_rust_files(&root, &mut |path, source| {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "tests.rs" || name == "mod.rs")
+        {
+            return;
+        }
+        for forbidden in ["sqlx::", "PgPool", "PgRow", "state.pool"] {
+            assert!(
+                !source.contains(forbidden),
+                "{} reads PostgreSQL directly through forbidden marker {forbidden}; use PostgresQueries",
                 path.display()
             );
         }

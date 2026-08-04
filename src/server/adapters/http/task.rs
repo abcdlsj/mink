@@ -47,16 +47,14 @@ pub(super) async fn list_tasks(
     Path(space_id): Path<Uuid>,
 ) -> Result<Json<Vec<TaskResponse>>, ApiError> {
     current_member(&state, &jar, space_id).await?;
-    let ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM tasks WHERE space_id=$1 ORDER BY updated_at DESC,id DESC",
-    )
-    .bind(space_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let ids = state
+        .read
+        .task_ids(space_id)
+        .await
+        .map_err(application_error)?;
     let mut tasks = Vec::with_capacity(ids.len());
     for id in ids {
-        tasks.push(task_projection(&state.pool, id).await?);
+        tasks.push(task_projection(&state.read, id).await?);
     }
     Ok(Json(tasks))
 }
@@ -66,11 +64,11 @@ pub(super) async fn get_task(
     jar: CookieJar,
     Path(task_id): Path<Uuid>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM tasks WHERE id=$1")
-        .bind(task_id)
-        .fetch_optional(&state.pool)
+    let space_id = state
+        .read
+        .task_space(task_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
     current_member(&state, &jar, space_id).await?;
     Ok(Json(task_detail(&state, task_id).await?))
@@ -82,16 +80,14 @@ pub(super) async fn task_runs(
     Path(task_id): Path<Uuid>,
 ) -> Result<Json<Vec<RunResponse>>, ApiError> {
     task_actor(&state, &jar, task_id).await?;
-    let ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM agent_runs WHERE task_id=$1 ORDER BY created_at DESC,id DESC",
-    )
-    .bind(task_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let ids = state
+        .read
+        .task_run_list(task_id)
+        .await
+        .map_err(application_error)?;
     let mut runs = Vec::with_capacity(ids.len());
     for id in ids {
-        runs.push(run_projection(&state.pool, id).await?);
+        runs.push(run_projection(&state.read, id).await?);
     }
     Ok(Json(runs))
 }
@@ -103,21 +99,21 @@ pub(super) async fn create_task(
     Path(message_id): Path<Uuid>,
     Json(body): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
-    let source = sqlx::query(
-        "SELECT m.space_id,m.thread_id,m.body_markdown FROM messages m WHERE m.id=$1 AND m.placement='root'",
-    )
-    .bind(message_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::not_found)?;
-    let actor = current_member(&state, &jar, source.get("space_id")).await?;
+    let source = state
+        .read
+        .task_source(message_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::not_found)?;
+    let actor = current_member(&state, &jar, source.space_id).await?;
     let title = body
         .title
         .filter(|title| !title.trim().is_empty())
         .unwrap_or_else(|| {
             source
-                .get::<String, _>("body_markdown")
+                .body_markdown
+                .as_deref()
+                .unwrap_or_default()
                 .chars()
                 .take(120)
                 .collect()
@@ -380,26 +376,18 @@ pub(super) async fn task_actor(
     jar: &CookieJar,
     task_id: Uuid,
 ) -> Result<Uuid, ApiError> {
-    let space_id = sqlx::query_scalar::<_, Uuid>("SELECT space_id FROM tasks WHERE id=$1")
-        .bind(task_id)
-        .fetch_optional(&state.pool)
+    let space_id = state
+        .read
+        .task_space(task_id)
         .await
-        .map_err(map_sqlx)?
+        .map_err(application_error)?
         .ok_or_else(ApiError::not_found)?;
     let actor = current_member(state, jar, space_id).await?;
-    let can_read: bool = sqlx::query_scalar(
-        "SELECT EXISTS(\
-           SELECT 1 FROM tasks task \
-           JOIN messages source ON source.id=task.source_thread_id AND source.placement='root' \
-           JOIN channel_members membership ON membership.channel_id=source.channel_id \
-           WHERE task.id=$1 AND membership.member_id=$2\
-         )",
-    )
-    .bind(task_id)
-    .bind(actor)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(map_sqlx)?;
+    let can_read = state
+        .read
+        .task_readable(task_id, actor)
+        .await
+        .map_err(application_error)?;
     if !can_read {
         return Err(ApiError::not_found());
     }
@@ -410,7 +398,7 @@ pub(super) async fn task_detail(
     state: &RuntimeState,
     task_id: Uuid,
 ) -> Result<TaskResponse, ApiError> {
-    let mut task = task_projection(&state.pool, task_id).await?;
+    let mut task = task_projection(&state.read, task_id).await?;
     if let Some(agent_id) = task.assignee_agent_member_id {
         task.session_continuity = agent_continuity(
             state,

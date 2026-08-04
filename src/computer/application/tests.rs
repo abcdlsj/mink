@@ -28,6 +28,7 @@ use crate::computer::core::{
 use super::{
     ApplicationError, MemoryFile,
     command::{Command, CommandService},
+    pipeline::RunPipelineService,
     ports::{
         AgentHomePort, CommandStatus, ComputerTransaction, DriverCompletion, DriverPort,
         DriverTurnOutcome, LocalErrorCode, LocalEvent, OpenSessionRequest, OpenedSession,
@@ -833,6 +834,68 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
 }
 
 #[tokio::test]
+async fn run_pipeline_finishes_driver_turn_and_dispatches_next_queued_run() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let first = local_run(None, thread_id(), []);
+    let second = local_run(None, thread_id(), []);
+    let first_id = first.view().id;
+    let second_id = second.view().id;
+    for (sequence, run) in [(1, first), (2, second)] {
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut MemoryHome::default(),
+            command_id(),
+            sequence,
+            Command::Start {
+                run: Box::new(run),
+                fingerprint: fingerprint(1, "workspace-a"),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    RunPipelineService::dispatch(&mut store, &mut driver, 1)
+        .await
+        .unwrap();
+    let running_id = if store.state.runs[&first_id].view().state == LocalRunState::Running {
+        first_id
+    } else {
+        second_id
+    };
+    let queued_id = if running_id == first_id {
+        second_id
+    } else {
+        first_id
+    };
+
+    let changed = RunPipelineService::finish_driver_turns(
+        &mut store,
+        &mut driver,
+        [DriverCompletion {
+            run_id: running_id,
+            outcome: DriverTurnOutcome::Completed,
+        }],
+        1,
+    )
+    .await
+    .unwrap();
+
+    assert!(changed);
+    assert_eq!(
+        store.state.runs[&running_id].view().state,
+        LocalRunState::Completed
+    );
+    assert_eq!(
+        store.state.runs[&queued_id].view().state,
+        LocalRunState::Running
+    );
+    assert_eq!(driver.start_count, 2);
+}
+
+#[tokio::test]
 async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();
@@ -868,7 +931,7 @@ async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
     RunService::yield_run(&mut store, running_id, None)
         .await
         .unwrap();
-    crate::computer::handle_yield_interrupt(&mut store, &mut driver, running_id, 1)
+    RunPipelineService::interrupt_yielded(&mut store, &mut driver, running_id, 1)
         .await
         .unwrap();
 

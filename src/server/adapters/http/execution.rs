@@ -11,19 +11,14 @@ use crate::server::domain::{
 /// the Agent CLI sends plain Markdown, so the Server resolves mentions from the
 /// body at the single write entry point.
 async fn agent_mention_ids(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     channel_id: Uuid,
     body: &str,
 ) -> Result<Vec<Uuid>, ApiError> {
-    let members: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT m.id, m.display_name FROM channel_members cm \
-         JOIN members m ON m.id = cm.member_id \
-         WHERE cm.channel_id = $1 AND m.retired_at IS NULL",
-    )
-    .bind(channel_id)
-    .fetch_all(pool)
-    .await
-    .map_err(map_sqlx)?;
+    let members = queries
+        .agent_mention_members(channel_id)
+        .await
+        .map_err(application_error)?;
     let names: Vec<(String, Uuid)> = members
         .iter()
         .map(|(id, name)| (name.to_lowercase(), *id))
@@ -150,7 +145,7 @@ pub(super) async fn apply_run_result(
     .map_err(application_error)?;
     if result.status == RunTerminalStatus::Yielded {
         let run_view = run.view();
-        let focus = activity_thread_reference(&state.pool, run_view.focus_thread_id).await;
+        let focus = activity_thread_reference(&state.read, run_view.focus_thread_id).await;
         let arguments = focus
             .as_ref()
             .map(|reference| vec![("focus", reference.label.clone())])
@@ -314,7 +309,17 @@ pub(super) async fn execute_agent_action(
             false,
         )
     })?;
-    let authenticated:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM computers WHERE id=$1 AND token_hash=$2 AND deleted_at IS NULL)").bind(computer_id).bind(token_hash(raw)).fetch_one(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Computer authentication failed",false))?;
+    let authenticated = state
+        .read
+        .computer_authenticated(computer_id, &token_hash(raw))
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Computer authentication failed",
+                false,
+            )
+        })?;
     if !authenticated {
         return Err(capability_error(
             capability::ErrorCode::Unauthenticated,
@@ -331,32 +336,27 @@ pub(super) async fn execute_agent_action(
                 | capability::Action::TaskClose { .. }
         )
     {
-        let replayed = sqlx::query_scalar::<_, Uuid>(
-            "SELECT records.resource_id FROM idempotency_records records \
-             JOIN tasks ON tasks.id=records.resource_id \
-             JOIN agents ON agents.member_id=records.actor_member_id \
-             WHERE records.actor_member_id=$1 AND records.action=$2 \
-             AND records.idempotency_key=$3 AND tasks.id=$4 AND tasks.space_id=$5 \
-             AND agents.computer_id=$6",
-        )
-        .bind(context.agent_id.into_uuid())
-        .bind(request.action.name())
-        .bind(key.into_uuid())
-        .bind(context.task_id.map(TaskId::into_uuid))
-        .bind(context.space_id.into_uuid())
-        .bind(computer_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| {
-            capability_error(
-                capability::ErrorCode::Internal,
-                "Task action replay could not be checked",
-                false,
+        let replayed = state
+            .read
+            .task_action_replay(
+                context.agent_id.into_uuid(),
+                request.action.name(),
+                key.into_uuid(),
+                context.task_id.map(TaskId::into_uuid),
+                context.space_id.into_uuid(),
+                computer_id,
             )
-        })?;
+            .await
+            .map_err(|_| {
+                capability_error(
+                    capability::ErrorCode::Internal,
+                    "Task action replay could not be checked",
+                    false,
+                )
+            })?;
         if let Some(task_id) = replayed {
             return capability_value(
-                &task_projection(&state.pool, task_id)
+                &task_projection(&state.read, task_id)
                     .await
                     .map_err(api_to_capability)?,
             );
@@ -365,32 +365,25 @@ pub(super) async fn execute_agent_action(
     if let (Some(key), capability::Action::ChannelLeave { channel_id }) =
         (request.idempotency_key, &request.action)
     {
-        let replayed = sqlx::query_scalar::<_, Uuid>(
-            "SELECT records.resource_id FROM idempotency_records records \
-             JOIN agents ON agents.member_id=records.actor_member_id \
-             JOIN agent_runs runs ON runs.id=$5 \
-             WHERE records.actor_member_id=$1 AND records.action='channel.leave' \
-             AND records.idempotency_key=$2 AND agents.space_id=$3 AND agents.computer_id=$4 \
-             AND runs.agent_id=records.actor_member_id AND runs.space_id=$3 \
-             AND runs.task_id IS NOT DISTINCT FROM $6 AND runs.focus_thread_id=$7 \
-             AND runs.status='working'",
-        )
-        .bind(context.agent_id.into_uuid())
-        .bind(key.into_uuid())
-        .bind(context.space_id.into_uuid())
-        .bind(computer_id)
-        .bind(context.run_id.into_uuid())
-        .bind(context.task_id.map(TaskId::into_uuid))
-        .bind(context.focus_thread_id.into_uuid())
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|_| {
-            capability_error(
-                capability::ErrorCode::Internal,
-                "Channel leave replay could not be checked",
-                false,
-            )
-        })?;
+        let replayed = state
+            .read
+            .channel_leave_replay(ChannelLeaveReplayQuery {
+                agent_id: context.agent_id.into_uuid(),
+                key: key.into_uuid(),
+                space_id: context.space_id.into_uuid(),
+                computer_id,
+                run_id: context.run_id.into_uuid(),
+                task_id: context.task_id.map(TaskId::into_uuid),
+                focus_thread_id: context.focus_thread_id.into_uuid(),
+            })
+            .await
+            .map_err(|_| {
+                capability_error(
+                    capability::ErrorCode::Internal,
+                    "Channel leave replay could not be checked",
+                    false,
+                )
+            })?;
         if let Some(replayed_channel_id) = replayed {
             if replayed_channel_id != channel_id.into_uuid() {
                 return Err(capability_error(
@@ -433,20 +426,30 @@ pub(super) async fn execute_agent_action(
         capability::Action::ContextCurrent => {
             let task = match context.task_id {
                 Some(id) => Some(
-                    task_projection(&state.pool, id.into_uuid())
+                    task_projection(&state.read, id.into_uuid())
                         .await
                         .map_err(api_to_capability)?,
                 ),
                 None => None,
             };
-            let items=sqlx::query("SELECT i.id,i.kind,i.strength,i.status,i.available_at FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id WHERE ri.run_id=$1 ORDER BY ri.delivery_seq").bind(context.run_id.into_uuid()).fetch_all(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Run Items could not be read",false))?;
+            let items = state
+                .read
+                .run_items(context.run_id.into_uuid())
+                .await
+                .map_err(|_| {
+                    capability_error(
+                        capability::ErrorCode::Internal,
+                        "Run Items could not be read",
+                        false,
+                    )
+                })?;
             let scope = match context.task_id {
                 Some(task_id) => SessionScope::Task(task_id),
                 None => SessionScope::Thread(context.focus_thread_id),
             };
             let continuity = agent_continuity(state, context.agent_id.into_uuid(), scope).await;
             Ok(
-                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at"))})).collect::<Vec<_>>(),"session_continuity":continuity}),
+                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at)})).collect::<Vec<_>>(),"session_continuity":continuity}),
             )
         }
         capability::Action::MessageRead(page) => {
@@ -544,7 +547,7 @@ pub(super) async fn execute_agent_action(
                     (opened.view.channel_id.into_uuid(), None)
                 }
             };
-            let mentions = agent_mention_ids(&state.pool, channel_id, &send.body)
+            let mentions = agent_mention_ids(&state.read, channel_id, &send.body)
                 .await
                 .map_err(api_to_capability)?;
             let message_id = insert_message(
@@ -613,26 +616,25 @@ pub(super) async fn execute_agent_action(
                     false,
                 )
             })?;
-            let default_title: String =
-                sqlx::query_scalar("SELECT body_markdown FROM messages WHERE id=$1")
-                    .bind(context.focus_thread_id.into_uuid())
-                    .fetch_one(&state.pool)
-                    .await
-                    .map_err(|_| {
-                        capability_error(
-                            capability::ErrorCode::NotFound,
-                            "Focus Root Message was not found",
-                            false,
-                        )
-                    })?;
+            let default_title = state
+                .read
+                .focus_body(context.focus_thread_id.into_uuid())
+                .await
+                .map_err(|_| {
+                    capability_error(
+                        capability::ErrorCode::NotFound,
+                        "Focus Root Message was not found",
+                        false,
+                    )
+                })?;
             let title = title.unwrap_or_else(|| default_title.chars().take(120).collect());
             let assignee_label = match assignee.as_ref() {
-                Some(member_id) => activity_member_label(state, *member_id)
+                Some(member_id) => activity_member_label(&state.read, *member_id)
                     .await
                     .unwrap_or_else(|| "Assigned Agent".to_owned()),
                 None => "Unassigned".to_owned(),
             };
-            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
+            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
             let mut storage = state.storage.clone();
             let task = CreateTaskFromRootMessage::execute(
                 &mut storage,
@@ -667,13 +669,13 @@ pub(super) async fn execute_agent_action(
             )
             .await;
             capability_value(
-                &task_projection(&state.pool, task_id.into_uuid())
+                &task_projection(&state.read, task_id.into_uuid())
                     .await
                     .map_err(api_to_capability)?,
             )
         }
         capability::Action::TaskLinkThread { thread_id } => {
-            let target = activity_thread_reference(&state.pool, thread_id).await;
+            let target = activity_thread_reference(&state.read, thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -725,13 +727,13 @@ pub(super) async fn execute_agent_action(
             )
             .await;
             capability_value(
-                &task_projection(&state.pool, task_id.into_uuid())
+                &task_projection(&state.read, task_id.into_uuid())
                     .await
                     .map_err(api_to_capability)?,
             )
         }
         capability::Action::TaskUnlinkThread { thread_id } => {
-            let target = activity_thread_reference(&state.pool, thread_id).await;
+            let target = activity_thread_reference(&state.read, thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -783,14 +785,14 @@ pub(super) async fn execute_agent_action(
             )
             .await;
             capability_value(
-                &task_projection(&state.pool, task_id.into_uuid())
+                &task_projection(&state.read, task_id.into_uuid())
                     .await
                     .map_err(api_to_capability)?,
             )
         }
         capability::Action::TaskUpdate { title } => {
             let activity_title = title.clone();
-            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
+            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -836,7 +838,7 @@ pub(super) async fn execute_agent_action(
             )
             .await;
             capability_value(
-                &task_projection(&state.pool, task_id.into_uuid())
+                &task_projection(&state.read, task_id.into_uuid())
                     .await
                     .map_err(api_to_capability)?,
             )
@@ -901,7 +903,7 @@ pub(super) async fn execute_agent_action(
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty());
             let activity_topic = topic.clone();
-            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
+            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
             let channel_id = ChannelId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let channel = CreateChannelAction::execute(
@@ -961,7 +963,7 @@ pub(super) async fn execute_agent_action(
             }))
         }
         capability::Action::ChannelLeave { channel_id } => {
-            let channel_label = activity_channel_address(state, channel_id)
+            let channel_label = activity_channel_address(&state.read, channel_id)
                 .await
                 .unwrap_or_else(|| "Channel".to_owned());
             let key = request.idempotency_key.ok_or_else(|| {
@@ -1018,10 +1020,10 @@ pub(super) async fn execute_agent_action(
                 capability::DriverKind::Codex => "codex",
                 capability::DriverKind::Builtin => "builtin",
             };
-            let activity_computer = activity_computer_label(state, target_computer_id)
+            let activity_computer = activity_computer_label(&state.read, target_computer_id)
                 .await
                 .unwrap_or_else(|| "Computer".to_owned());
-            let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
+            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
             let agent_id = MemberId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
             let agent = CreateAgentAction::execute(
@@ -1075,13 +1077,23 @@ pub(super) async fn execute_agent_action(
             Ok(json!({"agent_id":agent.member_id,"lifecycle":"provisioning"}))
         }
         capability::Action::InboxCurrent => {
-            let rows=sqlx::query("SELECT i.id,i.kind,i.strength,i.status,i.available_at,ri.disposition FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id WHERE ri.run_id=$1 ORDER BY ri.delivery_seq").bind(context.run_id.into_uuid()).fetch_all(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Run Items could not be read",false))?;
+            let rows = state
+                .read
+                .run_items(context.run_id.into_uuid())
+                .await
+                .map_err(|_| {
+                    capability_error(
+                        capability::ErrorCode::Internal,
+                        "Run Items could not be read",
+                        false,
+                    )
+                })?;
             Ok(
-                json!({"run_id":context.run_id,"items":rows.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"kind":row.get::<String,_>("kind"),"strength":row.get::<String,_>("strength"),"status":row.get::<String,_>("status"),"available_at":timestamp(row.get("available_at")),"disposition":row.get::<Option<String>,_>("disposition")})).collect::<Vec<_>>(),"notices":[]}),
+                json!({"run_id":context.run_id,"items":rows.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at),"disposition":row.disposition})).collect::<Vec<_>>(),"notices":[]}),
             )
         }
         capability::Action::InboxAck { item_id, reason } => {
-            let source = activity_inbox_thread_reference(&state.pool, item_id).await;
+            let source = activity_inbox_thread_reference(&state.read, item_id).await;
             let mut activity_arguments = source
                 .as_ref()
                 .map(|reference| vec![("source", reference.label.clone())])
@@ -1119,7 +1131,7 @@ pub(super) async fn execute_agent_action(
             Ok(json!({"item_id":item_id,"disposition":"handled"}))
         }
         capability::Action::InboxDefer { item_id, until } => {
-            let source = activity_inbox_thread_reference(&state.pool, item_id).await;
+            let source = activity_inbox_thread_reference(&state.read, item_id).await;
             let mut activity_arguments = source
                 .as_ref()
                 .map(|reference| vec![("source", reference.label.clone())])
@@ -1234,12 +1246,12 @@ pub(super) async fn finish_agent_task(
     };
     let activity_thread_id = match activity_post_target {
         Some(TaskPostTarget::Focus) | None => context.focus_thread_id,
-        Some(TaskPostTarget::Source) => activity_task_source_thread(state, task_id)
+        Some(TaskPostTarget::Source) => activity_task_source_thread(&state.read, task_id)
             .await
             .unwrap_or(context.focus_thread_id),
         Some(TaskPostTarget::Thread(thread_id)) => thread_id,
     };
-    let activity_thread = activity_thread_reference(&state.pool, activity_thread_id).await;
+    let activity_thread = activity_thread_reference(&state.read, activity_thread_id).await;
     let mut storage = state.storage.clone();
     RecordTaskOutcome::execute(
         &mut storage,
@@ -1275,7 +1287,7 @@ pub(super) async fn finish_agent_task(
     )
     .await;
     capability_value(
-        &task_projection(&state.pool, task_id.into_uuid())
+        &task_projection(&state.read, task_id.into_uuid())
             .await
             .map_err(api_to_capability)?,
     )
@@ -1319,35 +1331,32 @@ async fn discover_operation(
         ));
     }
 
-    let computers = sqlx::query(
-        "SELECT id,name,hostname,os,connection_status FROM computers \
-         WHERE space_id=$1 AND deleted_at IS NULL AND connection_status='online' ORDER BY name,id",
-    )
-    .bind(context.space_id.into_uuid())
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| {
-        capability_error(
-            capability::ErrorCode::Internal,
-            "Discovery options could not be read",
-            false,
+    let computers = state
+        .read
+        .computer_options(context.space_id.into_uuid())
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Discovery options could not be read",
+                false,
+            )
+        })?;
+    let permission_granted = state
+        .read
+        .permission_granted(
+            context.agent_id.into_uuid(),
+            context.space_id.into_uuid(),
+            "agent.create",
         )
-    })?;
-    let permission_granted = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM member_permissions \
-         WHERE member_id=$1 AND space_id=$2 AND action_code='agent.create')",
-    )
-    .bind(context.agent_id.into_uuid())
-    .bind(context.space_id.into_uuid())
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| {
-        capability_error(
-            capability::ErrorCode::Internal,
-            "Discovery permission state could not be read",
-            false,
-        )
-    })?;
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Discovery permission state could not be read",
+                false,
+            )
+        })?;
 
     Ok(json!({
         "operation": "agent.create",
@@ -1369,12 +1378,12 @@ async fn discover_operation(
                     "value_type": "computer_id",
                     "required": true,
                     "available": computers.iter().map(|row| json!({
-                        "value": row.get::<Uuid, _>("id"),
-                        "label": row.get::<String, _>("name"),
-                        "hostname": row.get::<String, _>("hostname"),
-                        "os": row.get::<String, _>("os"),
-                        "status": row.get::<String, _>("connection_status"),
-                        "available": row.get::<&str, _>("connection_status") == "online"
+                        "value": row.id,
+                        "label": row.name,
+                        "hostname": row.hostname,
+                        "os": row.os,
+                        "status": row.connection_status,
+                        "available": row.connection_status == "online"
                     })).collect::<Vec<_>>()
                 },
                 {
@@ -1401,9 +1410,24 @@ pub(super) async fn agent_read_thread(
     page: capability::Page,
 ) -> Result<Value, capability::Error> {
     let limit = i64::from(page.limit);
-    let rows=sqlx::query("SELECT id,channel_seq,author_member_id,content_kind,body_markdown,created_at FROM messages WHERE thread_id=$1 AND ($2::bigint IS NULL OR channel_seq<$2) AND ($3::bigint IS NULL OR channel_seq>$3) ORDER BY channel_seq LIMIT $4").bind(thread_id).bind(page.before.map(|v|v as i64)).bind(page.after.map(|v|v as i64)).bind(limit).fetch_all(&state.pool).await.map_err(|_|capability_error(capability::ErrorCode::Internal,"Messages could not be read",false))?;
+    let rows = state
+        .read
+        .agent_thread_messages(
+            thread_id,
+            page.before.map(|value| value as i64),
+            page.after.map(|value| value as i64),
+            limit,
+        )
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Messages could not be read",
+                false,
+            )
+        })?;
     Ok(
-        json!({"thread_id":thread_id,"messages":rows.iter().map(|row|json!({"id":row.get::<Uuid,_>("id"),"seq":row.get::<i64,_>("channel_seq"),"author_member_id":row.get::<Uuid,_>("author_member_id"),"content":{"type":"text","body_markdown":row.get::<Option<String>,_>("body_markdown").unwrap_or_default()},"created_at":timestamp(row.get("created_at"))})).collect::<Vec<_>>()}),
+        json!({"thread_id":thread_id,"messages":rows.iter().map(|row|json!({"id":row.id,"seq":row.channel_seq,"author_member_id":row.author_member_id,"content":{"type":"text","body_markdown":row.body_markdown.clone().unwrap_or_default()},"created_at":timestamp(row.created_at)})).collect::<Vec<_>>()}),
     )
 }
 
@@ -1448,39 +1472,27 @@ pub(super) async fn agent_read_channel(
         ),
         None => None,
     };
-    let rows = if let Some(sequence) = around_sequence {
-        sqlx::query(
-            "SELECT * FROM messages WHERE channel_id=$1 AND deleted_at IS NULL \
-             ORDER BY abs(channel_seq-$2),channel_seq LIMIT $3",
+    let rows = state
+        .read
+        .channel_messages(
+            channel_id,
+            around_sequence.map(|value| value as i64),
+            i64::from(limit),
         )
-        .bind(channel_id)
-        .bind(sequence as i64)
-        .bind(i64::from(limit))
-        .fetch_all(&state.pool)
         .await
-    } else {
-        sqlx::query(
-            "SELECT * FROM messages WHERE channel_id=$1 AND deleted_at IS NULL \
-             ORDER BY channel_seq DESC LIMIT $2",
-        )
-        .bind(channel_id)
-        .bind(i64::from(limit))
-        .fetch_all(&state.pool)
-        .await
-    }
-    .map_err(|_| {
-        capability_error(
-            capability::ErrorCode::Internal,
-            "Channel Messages could not be read",
-            false,
-        )
-    })?;
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Channel Messages could not be read",
+                false,
+            )
+        })?;
     let mut rows = rows;
-    rows.sort_by_key(|row| row.get::<i64, _>("channel_seq"));
+    rows.sort_by_key(|row| row.channel_seq);
     let mut messages = Vec::with_capacity(rows.len());
     for row in &rows {
         messages.push(
-            message_row(&state.pool, row)
+            message_row(&state.read, row)
                 .await
                 .map_err(api_to_capability)?,
         );
@@ -1542,21 +1554,12 @@ pub(super) async fn require_active_agent_run(
     run_id: Uuid,
 ) -> Result<Uuid, ApiError> {
     let computer_token = bearer_token(headers)?;
-    sqlx::query_scalar(
-        "SELECT runs.space_id FROM agent_runs runs \
-         JOIN agents ON agents.member_id=runs.agent_id \
-         JOIN computers ON computers.id=agents.computer_id \
-         WHERE computers.id=$1 AND computers.token_hash=$2 AND computers.deleted_at IS NULL \
-         AND agents.member_id=$3 AND runs.id=$4 AND runs.status='working'",
-    )
-    .bind(computer_id)
-    .bind(token_hash(computer_token))
-    .bind(agent_id)
-    .bind(run_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(map_sqlx)?
-    .ok_or_else(ApiError::unauthenticated)
+    state
+        .read
+        .active_run_proof(computer_id, &token_hash(computer_token), agent_id, run_id)
+        .await
+        .map_err(application_error)?
+        .ok_or_else(ApiError::unauthenticated)
 }
 
 pub(super) fn capability_value(value: &impl serde::Serialize) -> Result<Value, capability::Error> {
@@ -1630,24 +1633,17 @@ struct ActivityThreadReference {
 }
 
 async fn activity_thread_reference(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     thread_id: ThreadId,
 ) -> Option<ActivityThreadReference> {
-    let row = sqlx::query(
-        "SELECT messages.channel_id,messages.channel_seq,channels.slug \
-         FROM messages JOIN channels ON channels.id=messages.channel_id \
-         WHERE messages.id=$1 AND messages.placement='root'",
-    )
-    .bind(thread_id.into_uuid())
-    .fetch_optional(pool)
-    .await
-    .ok()??;
-    let sequence: i64 = row.get("channel_seq");
-    let slug: Option<String> = row.get("slug");
+    let row = queries
+        .activity_thread(thread_id.into_uuid())
+        .await
+        .ok()??;
     Some(ActivityThreadReference {
         thread_id,
-        channel_id: row.get("channel_id"),
-        label: activity_thread_label(slug.as_deref(), sequence),
+        channel_id: row.channel_id,
+        label: activity_thread_label(row.slug.as_deref(), row.channel_seq),
     })
 }
 
@@ -1661,50 +1657,51 @@ pub(in crate::server::adapters) fn activity_thread_label(
     )
 }
 
-async fn activity_channel_address(state: &RuntimeState, channel_id: ChannelId) -> Option<String> {
-    let slug = sqlx::query_scalar::<_, Option<String>>("SELECT slug FROM channels WHERE id=$1")
-        .bind(channel_id.into_uuid())
-        .fetch_optional(&state.pool)
+async fn activity_channel_address(
+    queries: &PostgresQueries,
+    channel_id: ChannelId,
+) -> Option<String> {
+    let slug = queries
+        .channel_slug(channel_id.into_uuid())
         .await
         .ok()
         .flatten()?;
-    slug.map(|value| format!("#{value}"))
+    Some(format!("#{slug}"))
 }
 
-async fn activity_member_label(state: &RuntimeState, member_id: MemberId) -> Option<String> {
-    sqlx::query_scalar("SELECT display_name FROM members WHERE id=$1")
-        .bind(member_id.into_uuid())
-        .fetch_optional(&state.pool)
+async fn activity_member_label(queries: &PostgresQueries, member_id: MemberId) -> Option<String> {
+    queries
+        .member_name(member_id.into_uuid())
         .await
         .ok()
         .flatten()
 }
 
-async fn activity_computer_label(state: &RuntimeState, computer_id: ComputerId) -> Option<String> {
-    sqlx::query_scalar("SELECT name FROM computers WHERE id=$1")
-        .bind(computer_id.into_uuid())
-        .fetch_optional(&state.pool)
+async fn activity_computer_label(
+    queries: &PostgresQueries,
+    computer_id: ComputerId,
+) -> Option<String> {
+    queries
+        .computer_name(computer_id.into_uuid())
         .await
         .ok()
         .flatten()
 }
 
 async fn activity_inbox_thread_reference(
-    pool: &PgPool,
+    queries: &PostgresQueries,
     item_id: InboxItemId,
 ) -> Option<ActivityThreadReference> {
-    let thread_id: Uuid = sqlx::query_scalar("SELECT thread_id FROM inbox_items WHERE id=$1")
-        .bind(item_id.into_uuid())
-        .fetch_optional(pool)
-        .await
-        .ok()??;
-    activity_thread_reference(pool, ThreadId::from_uuid(thread_id)).await
+    let thread_id = queries.inbox_thread(item_id.into_uuid()).await.ok()??;
+    activity_thread_reference(queries, ThreadId::from_uuid(thread_id)).await
 }
 
-async fn activity_task_source_thread(state: &RuntimeState, task_id: TaskId) -> Option<ThreadId> {
-    sqlx::query_scalar::<_, Uuid>("SELECT source_thread_id FROM tasks WHERE id=$1")
-        .bind(task_id.into_uuid())
-        .fetch_optional(&state.pool)
+async fn activity_task_source_thread(
+    queries: &PostgresQueries,
+    task_id: TaskId,
+) -> Option<ThreadId> {
+    queries
+        .task_source_thread(task_id.into_uuid())
         .await
         .ok()
         .flatten()
@@ -1726,26 +1723,28 @@ async fn activity_message_target(
 ) -> String {
     match target {
         capability::MessageTarget::Focus => {
-            activity_thread_reference(&state.pool, context.focus_thread_id)
+            activity_thread_reference(&state.read, context.focus_thread_id)
                 .await
                 .map(|reference| reference.label)
                 .unwrap_or_else(|| "Current Focus".to_owned())
         }
         capability::MessageTarget::Thread(thread_id) => {
-            activity_thread_reference(&state.pool, *thread_id)
+            activity_thread_reference(&state.read, *thread_id)
                 .await
                 .map(|reference| reference.label)
                 .unwrap_or_else(|| "Thread".to_owned())
         }
         capability::MessageTarget::Channel(channel_id) => {
-            activity_channel_address(state, *channel_id)
+            activity_channel_address(&state.read, *channel_id)
                 .await
                 .unwrap_or_else(|| "Channel".to_owned())
         }
-        capability::MessageTarget::Member(member_id) => activity_member_label(state, *member_id)
-            .await
-            .map(|name| format!("DM with {name}"))
-            .unwrap_or_else(|| "Direct message".to_owned()),
+        capability::MessageTarget::Member(member_id) => {
+            activity_member_label(&state.read, *member_id)
+                .await
+                .map(|name| format!("DM with {name}"))
+                .unwrap_or_else(|| "Direct message".to_owned())
+        }
     }
 }
 

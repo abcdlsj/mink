@@ -1,5 +1,6 @@
 pub(in crate::computer) mod capability;
 pub(in crate::computer) mod command;
+pub(in crate::computer) mod pipeline;
 pub(in crate::computer) mod ports;
 pub(in crate::computer) mod query;
 pub(in crate::computer) mod recovery;

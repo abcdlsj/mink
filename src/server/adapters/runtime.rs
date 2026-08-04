@@ -1,5 +1,8 @@
 use super::{
-    http, object_storage::AttachmentObjectStore, postgres::PostgresAdapter, query::QueryRegistry,
+    http,
+    object_storage::AttachmentObjectStore,
+    postgres::{PostgresAdapter, PostgresQueries},
+    query::QueryRegistry,
 };
 use crate::config::ServerConfig;
 use crate::server::domain::access::SessionLifetime;
@@ -29,8 +32,10 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         object_store::local::LocalFileSystem::new_with_prefix(&config.attachment_dir)
             .context("failed to open Attachment directory")?;
     let state = http::RuntimeState {
-        pool,
+        #[cfg(test)]
+        pool: pool.clone(),
         storage,
+        read: PostgresQueries::new(pool.clone()),
         objects: std::sync::Arc::new(AttachmentObjectStore::new(std::sync::Arc::new(
             object_store,
         ))),
