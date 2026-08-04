@@ -25,6 +25,7 @@ const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi"
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
 const SEED_MARKER = "[dev-seed]";
+export const CODEX_COMMAND = process.env.SUMI_SEED_CODEX_COMMAND || "codex";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev", slug: "sumi-dev", accent: "#FE7DA8" });
 export const DEV_CHANNEL_SLUG = "general";
 export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi-dev-seed", "computer");
@@ -286,6 +287,7 @@ function spawnCodexDaemon(stateDir, expectPairing) {
     {
       env: {
         ...process.env,
+        SUMI_CODEX_COMMAND: CODEX_COMMAND,
         RUST_LOG: "sumi=warn,sumi::computer=info,tower_http=warn",
       },
       stdio: ["ignore", "inherit", "pipe"],

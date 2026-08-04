@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   AGENT_PROFILES,
+  CODEX_COMMAND,
   DEV_CHANNEL_SLUG,
   DEV_SPACE,
   buildSeedComputerConfig,
@@ -17,6 +18,15 @@ import {
   findComputerStateForSpace,
   prepareComputerStateDirectory,
 } from "./dev-seed.mjs";
+
+test("development seed defaults to codex and accepts a local command override", () => {
+  assert.equal(typeof CODEX_COMMAND, "string");
+  assert.ok(CODEX_COMMAND.length > 0);
+
+  const taskScript = readFileSync(new URL("./dev-seed-task.sh", import.meta.url), "utf8");
+  assert.match(taskScript, /SUMI_SEED_CODEX_COMMAND=\"\$1\" mise run dev/);
+  assert.match(readFileSync(new URL("./dev-seed.mjs", import.meta.url), "utf8"), /SUMI_CODEX_COMMAND: CODEX_COMMAND/);
+});
 
 test("development seed copies local Computer configuration with isolated runtime overrides", () => {
   const config = buildSeedComputerConfig(

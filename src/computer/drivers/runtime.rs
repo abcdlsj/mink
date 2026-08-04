@@ -41,7 +41,10 @@ pub(super) struct CodexRuntimeClient {
 
 impl CodexRuntimeClient {
     pub(super) fn new(computer_home: PathBuf) -> Self {
-        Self::with_executable(computer_home, OsString::from("codex"))
+        let executable = std::env::var_os("SUMI_CODEX_COMMAND")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| OsString::from("codex"));
+        Self::with_executable(computer_home, executable)
     }
 
     fn with_executable(computer_home: PathBuf, executable: OsString) -> Self {

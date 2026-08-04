@@ -26,7 +26,11 @@ case "${1:-}" in
     echo "Development seed data was removed. Run 'mise run dev-seed' to recreate it."
     ;;
   *)
-    echo "usage: mise run dev-seed [clean]" >&2
-    exit 2
+    if [ "$#" -ne 1 ] || [ -z "$1" ]; then
+      echo "usage: mise run dev-seed [clean|codex-command]" >&2
+      exit 2
+    fi
+    SUMI_SEED_CODEX_COMMAND="$1" mise run db-start
+    SUMI_SEED_CODEX_COMMAND="$1" mise run dev
     ;;
 esac
