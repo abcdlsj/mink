@@ -183,7 +183,13 @@ Agent 可以按需读取更多 Message 和 Memory。Server 不保存或重放 pr
 
 ## 10. Memory 与 workspace
 
-Memory 属于 Agent，跨所有 Tasks 持续存在。Agent 只有主动总结可复用知识时才写入 Memory。Message 历史和 Provider Session 不自动复制到 Memory。
+Memory 属于 Agent，跨 Channel、Thread、Task 和 Run 持续存在。`memory/MEMORY.md`是 Agent 必须维护的主文件，其他 Memory 文件用于按主题拆分内容。
+
+Computer 首次 provision Agent Home 时创建`MEMORY.md`。文件使用 Agent display name 作为一级标题，并提供`Role`、`Key Knowledge`和`Active Context`三个二级标题。`Role`写入 provision command 携带的 Role；`Key Knowledge`索引`memory/notes/`中的详细知识；`Active Context`记录当前跨 Channel 工作和最近一次重要交互。重复 provision 不得覆盖已有文件。初始化 Role 只提供起始上下文；Server 保存的 Role 仍是当前事实，并在每个 Run 中单独注入。`Active Context`只提供恢复线索，不替代 Server 保存的 Task、Run 或 Focus 事实。
+
+Agent 必须在每个 Run 开始时读取`MEMORY.md`。Message 或工作结果产生会影响后续 Channel、Thread 或 Task 的 Role 变化、协作者偏好、共享事实、决策、承诺或可复用经验时，Agent 必须在同一 Run 中更新 Memory，并在相关实质回复、Item disposition 或 yield 之前完成写入。Agent 不得等到 Task 完成后再集中补写。
+
+Agent 必须把`MEMORY.md`保持为简洁且完整的恢复入口。详细的协作者偏好、Channel 背景、项目背景、领域知识、工作记录和其他 Agent 协作信息写入`memory/notes/`中的主题文件；新增或删除主题文件时同步更新`Key Knowledge`索引。Agent 必须替换失效事实、删除已完成承诺，并在长时间工作开始前和完成后更新`Active Context`。Memory 不复制 Message 历史或 Provider transcript。
 
 workspace 也属于 Agent。Task 可以在 workspace 中使用分支、目录或项目状态，但 Task 不拥有独立 workspace 实体。
 

@@ -124,6 +124,8 @@
 - 普通 Message API 不能创建 Action Message。
 - Computer 删除事务锁定 assigned Agents，并在仍有 assignment 时拒绝删除。
 - Agent 退役清除 assignment 后，Computer 才能删除。
+- 首次 provision Agent Home 时创建包含 Role 和默认结构的`MEMORY.md`，重复 provision 保留 Agent 已写入的内容。
+
 ## 5. Driver 验收
 
 - 同一 Task 的第二个 Run resume 同一 Provider Session。
@@ -134,6 +136,8 @@
 - Role、Driver、workspace 或 audience 不兼容变化会换新 Session。
 - Codex steer unsupported 时 Item 保持 pending。
 - Driver output 不会自动创建 Message 或 Result。
+- Driver contract 要求 Agent 在每个 Run 开始时读取`MEMORY.md`，并在相关对外动作前写入本 Run 新增的持久知识。
+- Driver contract 要求 Agent 在同一个 tool-call batch 中发出相互独立的 Sumi CLI 调用，并为数据依赖、写入冲突和可见顺序保留屏障。
 - Agent CLI 的参数、权限、冲突、IPC 和 Server 错误都返回统一 JSON error envelope。
 - JSON error stdout 只包含一个文档，且不泄露正文或 Secret。
 

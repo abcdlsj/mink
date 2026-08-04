@@ -30,3 +30,25 @@ pub(in crate::computer) struct LocalAgent {
     pub(in crate::computer) driver: DriverKind,
     pub(in crate::computer) state: LocalAgentState,
 }
+
+impl LocalAgent {
+    pub(in crate::computer) const PRIMARY_MEMORY_PATH: &'static str = "MEMORY.md";
+
+    pub(in crate::computer) fn initial_memory_document(&self) -> String {
+        format!(
+            concat!(
+                "# {}\n\n",
+                "## Role\n\n",
+                "{}\n\n",
+                "## Key Knowledge\n\n",
+                "<!-- Add `- Read notes/<topic>.md for <scope>` entries here. -->\n",
+                "<!-- Cover collaborator preferences, Channels, projects, domains, work history, and other Agents. -->\n\n",
+                "## Active Context\n\n",
+                "- Current focus: No active work recorded.\n",
+                "- Last interaction: No significant interaction recorded.\n",
+            ),
+            self.name.trim(),
+            self.role.trim()
+        )
+    }
+}
