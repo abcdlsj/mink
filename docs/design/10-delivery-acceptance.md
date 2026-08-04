@@ -54,7 +54,7 @@
 
 ### 阶段五：Agent capability
 
-- 注入 Run token 中的 Focus 和可选 Task。
+- 注入 Driver token 解析出的当前 Run、Focus 和可选 Task。
 - 实现一步 Task 创建、默认 Focus 发送、Task 完成和 yield。
 - 删除 bind、settle 和重复上下文参数。
 

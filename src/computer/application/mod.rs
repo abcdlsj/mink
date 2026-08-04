@@ -21,7 +21,7 @@ pub(in crate::computer) use crate::computer::core::{
     },
     supervisor::{
         Delivery, DeliveryState, ItemDisposition, LocalRun, LocalRunSnapshot, LocalRunState,
-        NewRun, NoticeDelivery, RunSecret, TerminalStatus,
+        NewRun, NoticeDelivery, TerminalStatus,
     },
 };
 

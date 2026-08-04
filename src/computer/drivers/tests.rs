@@ -19,7 +19,7 @@ use crate::{
             input::{AgentInput, DispatchedItemInput, RunContextInput, RunInput, WorkInput},
             scheduler::{RunPriority, WorkStrength},
             session::{DriverKind, SessionFingerprint, SessionScope},
-            supervisor::{LocalRun, NewRun, RunSecret},
+            supervisor::{LocalRun, NewRun},
         },
     },
     ids::{AgentId, InboxItemId, RunId, SpaceId, ThreadId},
@@ -54,7 +54,7 @@ impl StructuredProviderClient for FakeClient {
         Ok(())
     }
 
-    async fn create_session(&mut self, _: AgentId, _: &str) -> Result<String, ApplicationError> {
+    async fn create_session(&mut self, _: AgentId) -> Result<String, ApplicationError> {
         let locator = format!("{}-{}", self.prefix, self.sessions.len() + 1);
         self.sessions.insert(locator.clone());
         Ok(locator)
@@ -64,7 +64,6 @@ impl StructuredProviderClient for FakeClient {
         &mut self,
         _: AgentId,
         locator: &str,
-        _: &str,
     ) -> Result<bool, ApplicationError> {
         Ok(self.sessions.contains(locator))
     }
@@ -74,7 +73,6 @@ impl StructuredProviderClient for FakeClient {
         run_id: RunId,
         _: &str,
         _: &RunInput,
-        _: &str,
     ) -> Result<(), ApplicationError> {
         self.turns_started += 1;
         self.runs.insert(run_id);
@@ -197,7 +195,6 @@ fn open_request(driver: DriverKind, resume_locator: Option<String>) -> OpenSessi
         generation: 1,
         fingerprint: fingerprint(driver),
         resume_locator,
-        run_token: crate::computer::core::supervisor::RunSecret::new("run-token".into()),
     }
 }
 
@@ -218,7 +215,6 @@ fn test_run(driver: DriverKind) -> LocalRun {
         agent_id,
         task_id: None,
         focus_thread_id: thread_id,
-        run_secret: RunSecret::new("secret".to_owned()),
         priority: RunPriority {
             explicit_human_redirect: false,
             strength: WorkStrength::Hard,

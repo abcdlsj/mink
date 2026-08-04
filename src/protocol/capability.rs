@@ -13,7 +13,7 @@ pub(crate) const SCHEMA_VERSION: u16 = 1;
 #[serde(deny_unknown_fields)]
 pub(crate) struct Request {
     pub(crate) schema_version: u16,
-    pub(crate) run_token: String,
+    pub(crate) driver_token: String,
     pub(crate) idempotency_key: Option<IdempotencyKey>,
     pub(crate) action: Action,
 }
@@ -23,7 +23,7 @@ impl fmt::Debug for Request {
         formatter
             .debug_struct("Request")
             .field("schema_version", &self.schema_version)
-            .field("run_token", &"[REDACTED]")
+            .field("driver_token", &"[REDACTED]")
             .field("idempotency_key", &self.idempotency_key)
             .field("action", &self.action.name())
             .finish()
@@ -320,7 +320,7 @@ mod tests {
     fn request_debug_excludes_token_and_content() {
         let request = Request {
             schema_version: SCHEMA_VERSION,
-            run_token: "secret-token".to_owned(),
+            driver_token: "secret-token".to_owned(),
             idempotency_key: None,
             action: Action::MessageSend(MessageSend {
                 target: MessageTarget::Focus,

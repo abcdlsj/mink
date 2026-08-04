@@ -12,13 +12,13 @@ pub(crate) async fn call(
     idempotency_key: Option<IdempotencyKey>,
 ) -> Result<Response<serde_json::Value>, ClientError> {
     let socket = std::env::var_os("SUMI_SOCKET").ok_or(ClientError::Unauthenticated)?;
-    let token = std::env::var("SUMI_RUN_TOKEN").map_err(|_| ClientError::Unauthenticated)?;
+    let token = std::env::var("SUMI_DRIVER_TOKEN").map_err(|_| ClientError::Unauthenticated)?;
     call_with(Path::new(&socket), token, action, idempotency_key).await
 }
 
 pub(crate) async fn call_with(
     socket: &Path,
-    run_token: String,
+    driver_token: String,
     action: capability::Action,
     idempotency_key: Option<IdempotencyKey>,
 ) -> Result<Response<serde_json::Value>, ClientError> {
@@ -27,7 +27,7 @@ pub(crate) async fn call_with(
         .map_err(|_| ClientError::Unavailable)?;
     let request = capability::Request {
         schema_version: capability::SCHEMA_VERSION,
-        run_token,
+        driver_token,
         idempotency_key,
         action,
     };

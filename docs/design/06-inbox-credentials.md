@@ -139,6 +139,7 @@ Server 不接收、不保存模型 API key。以下 Secret 只存在于 Computer
 - raw Computer Token。
 - Codex 本地认证。
 - Builtin provider 认证。
+- Driver token：daemon 启动时生成 capability secret 并为每个 Agent 派生，只注入该 Agent 的 app-server 进程环境；不出本机、不落盘，工具子进程不能读取其他 Agent 的 Driver token。
 
 Server 只保存 Computer Token hash。Browser 不提供模型 Secret 表单。Agent CLI 和 Driver 工具进程不能读取 Computer Token。Builtin 工具进程不能读取模型 API key。
 

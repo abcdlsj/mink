@@ -92,6 +92,7 @@ impl LocalIpcAdapter {
         &self,
         store: &mut P,
         homes: &mut H,
+        driver_secret: [u8; 32],
         on_yield: impl FnOnce(RunId),
         forward: impl AsyncFnOnce(
             wire::RunContext,
@@ -126,11 +127,17 @@ impl LocalIpcAdapter {
             } else {
                 ScopeRequirement::CurrentRun
             };
-            let context =
-                match CapabilityService::authorize(store, &request.run_token, requirement).await {
-                    Ok(context) => context,
-                    Err(error) => return application_failure(error),
-                };
+            let context = match CapabilityService::authorize(
+                store,
+                &request.driver_token,
+                requirement,
+                &driver_secret,
+            )
+            .await
+            {
+                Ok(context) => context,
+                Err(error) => return application_failure(error),
+            };
             let action = request.action;
             match &action {
                 wire::Action::MemoryRead { path } => {
@@ -268,8 +275,9 @@ mod tests {
             adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::{
                 AgentInput, DispatchedItemInput, DriverKind, LocalAgent, LocalAgentState, LocalRun,
-                LocalRunState, NewRun, RunContextInput, RunInput, RunPriority, RunSecret,
-                SessionScope, TaskInput, WorkInput, WorkStrength,
+                LocalRunState, NewRun, RunContextInput, RunInput, RunPriority, SessionScope,
+                TaskInput, WorkInput, WorkStrength,
+                capability::CapabilityService,
                 ports::{AgentHomePort, ComputerTransaction, LocalEvent, TransactionPort},
             },
         },
@@ -314,6 +322,8 @@ mod tests {
             .await
             .unwrap();
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let driver_secret = [7_u8; 32];
+        let driver_token = CapabilityService::driver_token(&driver_secret, agent_id);
         let space_id = SpaceId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
@@ -323,7 +333,6 @@ mod tests {
             agent_id,
             task_id: Some(task_id),
             focus_thread_id: thread_id,
-            run_secret: RunSecret::new("run-secret".to_owned()),
             priority: RunPriority {
                 explicit_human_redirect: false,
                 strength: WorkStrength::Hard,
@@ -383,6 +392,7 @@ mod tests {
         let server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |_| {},
             |context: RunContext, action: Action, _idempotency_key| async move {
                 assert_eq!(context.agent_id, agent_id);
@@ -397,7 +407,7 @@ mod tests {
         );
         let client = client::call_with(
             &socket_path,
-            "run-secret".to_owned(),
+            driver_token.clone(),
             Action::TaskUpdate {
                 title: "new title".to_owned(),
             },
@@ -412,6 +422,7 @@ mod tests {
         let rejected_server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |_| {},
             |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("unauthenticated capability must not be forwarded")
@@ -435,6 +446,7 @@ mod tests {
         let path_server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |_| {},
             |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("unsafe local path must not be forwarded")
@@ -442,7 +454,7 @@ mod tests {
         );
         let path_client = client::call_with(
             &socket_path,
-            "run-secret".to_owned(),
+            driver_token.clone(),
             Action::MemoryRead {
                 path: "../other-agent/memory.md".to_owned(),
             },
@@ -459,6 +471,7 @@ mod tests {
         let memory_write_server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |_| {},
             |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("Memory writes must stay on the Computer")
@@ -466,7 +479,7 @@ mod tests {
         );
         let memory_write_client = client::call_with(
             &socket_path,
-            "run-secret".to_owned(),
+            driver_token.clone(),
             Action::MemoryWrite {
                 path: "projects/sumi.md".to_owned(),
                 content: "Only local Memory".to_owned(),
@@ -482,6 +495,7 @@ mod tests {
         let memory_read_server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |_| {},
             |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("Memory reads must stay on the Computer")
@@ -489,7 +503,7 @@ mod tests {
         );
         let memory_read_client = client::call_with(
             &socket_path,
-            "run-secret".to_owned(),
+            driver_token.clone(),
             Action::MemoryRead {
                 path: "projects/sumi.md".to_owned(),
             },
@@ -517,6 +531,7 @@ mod tests {
         let yield_server = adapter.serve_capability(
             &mut store,
             &mut homes,
+            driver_secret,
             |yielded_run_id| interrupted.set(Some(yielded_run_id)),
             |_: RunContext, _: Action, _idempotency_key| async move {
                 panic!("run yield must be committed locally before Server result delivery")
@@ -524,7 +539,7 @@ mod tests {
         );
         let yield_client = client::call_with(
             &socket_path,
-            "run-secret".to_owned(),
+            driver_token,
             Action::RunYield {
                 note: Some("continue later".to_owned()),
             },

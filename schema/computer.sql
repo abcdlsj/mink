@@ -7,7 +7,7 @@ CREATE TABLE schema_meta (
 ) STRICT;
 
 INSERT INTO schema_meta (version, applied_at)
-VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 CREATE TABLE local_commands (
     command_id TEXT PRIMARY KEY,
@@ -23,9 +23,6 @@ CREATE TABLE local_runs (
     agent_id TEXT NOT NULL,
     task_id TEXT,
     focus_thread_id TEXT NOT NULL,
-    -- Secret handed to the Driver process so a local IPC capability call can name its Run. Local to
-    -- this machine; the Server neither knows nor checks it.
-    run_secret TEXT NOT NULL,
     -- Local Driver phases. Finer than the Server's status because this side starts and stops the
     -- process. No phase carries a deadline: nothing here expires.
     state TEXT NOT NULL CHECK (state IN (

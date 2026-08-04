@@ -65,7 +65,7 @@ Computer 可以缓存 Server 下发的 Run 快照。该快照只用于执行，�
 
 Agent CLI 是当前 Run 的本地客户端。它只向 Computer 请求读取上下文或执行能力。
 
-CLI 不保存领域状态。CLI 不要求 Agent 提交可由 Run token、Focus 或资源关系推导的字段。
+CLI 不保存领域状态。CLI 不要求 Agent 提交可由 Driver token、Focus 或资源关系推导的字段。
 
 ### 2.4 Driver
 

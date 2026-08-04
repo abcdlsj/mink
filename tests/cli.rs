@@ -23,7 +23,7 @@ fn agent_commands_reject_unscoped_processes() {
         .unwrap()
         .args(["agent", "whoami", "--json"])
         .env_remove("SUMI_SOCKET")
-        .env_remove("SUMI_RUN_TOKEN")
+        .env_remove("SUMI_DRIVER_TOKEN")
         .assert()
         .failure();
     for args in [
@@ -45,7 +45,7 @@ fn agent_commands_reject_unscoped_processes() {
             .unwrap()
             .args(args)
             .env_remove("SUMI_SOCKET")
-            .env_remove("SUMI_RUN_TOKEN")
+            .env_remove("SUMI_DRIVER_TOKEN")
             .assert()
             .failure();
     }
@@ -56,7 +56,7 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
     let invalid_arguments = Command::cargo_bin("sumi")
         .unwrap()
         .args(["agent", "message", "send", "#general", "--json"])
-        .env("SUMI_RUN_TOKEN", "run-token")
+        .env("SUMI_DRIVER_TOKEN", "run-token")
         .env("SUMI_SOCKET", "/definitely/missing/sumi.sock")
         .output()
         .unwrap();
@@ -74,7 +74,7 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
     let missing_capability = Command::cargo_bin("sumi")
         .unwrap()
         .args(["agent", "context", "current", "--json"])
-        .env_remove("SUMI_RUN_TOKEN")
+        .env_remove("SUMI_DRIVER_TOKEN")
         .env_remove("SUMI_SOCKET")
         .output()
         .unwrap();
@@ -84,7 +84,7 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
     let unavailable = Command::cargo_bin("sumi")
         .unwrap()
         .args(["agent", "context", "current", "--json"])
-        .env("SUMI_RUN_TOKEN", "run-token")
+        .env("SUMI_DRIVER_TOKEN", "run-token")
         .env("SUMI_SOCKET", "/definitely/missing/sumi.sock")
         .output()
         .unwrap();
@@ -135,13 +135,13 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
             std::io::BufReader::new(stream.try_clone().unwrap())
                 .read_line(&mut request)
                 .unwrap();
-            assert!(request.contains("\"run_token\":\"run-token\""));
+            assert!(request.contains("\"driver_token\":\"run-token\""));
             writeln!(stream, "{response}").unwrap();
         });
         let output = Command::cargo_bin("sumi")
             .unwrap()
             .args(["agent", "context", "current", "--json"])
-            .env("SUMI_RUN_TOKEN", "run-token")
+            .env("SUMI_DRIVER_TOKEN", "run-token")
             .env("SUMI_SOCKET", &socket)
             .output()
             .unwrap();

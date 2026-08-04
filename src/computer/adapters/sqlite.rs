@@ -7,8 +7,8 @@ use crate::{
     computer::application::{
         ApplicationError, Delivery, DeliveryState, DispatchedItemInput, DriverKind,
         ItemDisposition, LocalRun, LocalRunSnapshot, LocalRunState, NoticeDelivery,
-        ProviderSession, ProviderSessionSnapshot, RunInput, RunPriority, RunSecret,
-        SessionFingerprint, SessionScope, SessionState, TerminalStatus,
+        ProviderSession, ProviderSessionSnapshot, RunInput, RunPriority, SessionFingerprint,
+        SessionScope, SessionState, TerminalStatus,
         command::Command,
         ports::{
             CommandStatus, ComputerTransaction, LocalErrorCode, LocalEvent, StoredCommand,
@@ -88,11 +88,22 @@ impl SqliteAdapter {
                 .await
                 .map_err(map_sqlx)?;
         }
-        let version: i64 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+        let mut version: i64 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
             .fetch_one(&mut connection)
             .await
             .map_err(map_sqlx)?;
-        if version != 1 {
+        if version == 1 {
+            sqlx::raw_sql(
+                "ALTER TABLE local_runs DROP COLUMN run_secret; \
+                 INSERT INTO schema_meta (version, applied_at) \
+                 VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+            )
+            .execute(&mut connection)
+            .await
+            .map_err(map_sqlx)?;
+            version = 2;
+        }
+        if version != 2 {
             return Err(ApplicationError::Internal);
         }
         Ok(Self { connection })
@@ -125,7 +136,7 @@ impl SqliteAdapter {
 
         let mut run_snapshots = BTreeMap::new();
         for row in sqlx::query(
-            "SELECT run_id,agent_id,task_id,focus_thread_id,run_secret,state,run_json \
+            "SELECT run_id,agent_id,task_id,focus_thread_id,state,run_json \
              FROM local_runs ORDER BY run_id",
         )
         .fetch_all(&mut self.connection)
@@ -144,7 +155,6 @@ impl SqliteAdapter {
                         .map(parse_id)
                         .transpose()?,
                     focus_thread_id: parse_id(row.get("focus_thread_id"))?,
-                    run_secret: RunSecret::new(row.get("run_secret")),
                     priority: payload.priority,
                     input: payload.input,
                     state: run_state(row.get("state"))?,
@@ -323,14 +333,13 @@ impl SqliteAdapter {
             };
             sqlx::query(
                 "INSERT INTO local_runs \
-                 (run_id,agent_id,task_id,focus_thread_id,run_secret,state,run_json) \
-                 VALUES (?,?,?,?,?,?,?)",
+                 (run_id,agent_id,task_id,focus_thread_id,state,run_json) \
+                 VALUES (?,?,?,?,?,?)",
             )
             .bind(run.view().id.to_string())
             .bind(run.view().agent_id.to_string())
             .bind(run.view().task_id.map(|id| id.to_string()))
             .bind(run.view().focus_thread_id.to_string())
-            .bind(run.view().run_secret.expose())
             .bind(run_state_name(run.view().state))
             .bind(encode(&payload)?)
             .execute(&mut self.connection)
@@ -831,15 +840,11 @@ mod tests {
     use crate::computer::application::{
         AgentInput, ContextMessageInput, DispatchedItemInput, DriverKind, LocalRun, NewRun,
         ProviderSession, ProviderSessionSnapshot, RunContextInput, RunInput, RunPriority,
-        RunSecret, SessionFingerprint, SessionScope, SessionState, WorkInput, WorkStrength,
+        SessionFingerprint, SessionScope, SessionState, WorkInput, WorkStrength,
         command::Command,
         ports::{CommandStatus, LocalEvent, StoredCommand},
     };
     use crate::ids::{CommandId, EventId, InboxItemId, MemberId, MessageId, SpaceId};
-
-    /// Distinct from every field name and type name in the Debug output, so a match proves the value
-    /// itself leaked rather than the label describing it.
-    const SECRET_VALUE: &str = "kFq7vX2pLm9Zt4Rw";
 
     #[tokio::test]
     async fn empty_directory_creates_wal_schema_and_survives_reopen() {
@@ -870,6 +875,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored.unwrap().view().id, run_id);
+    }
+
+    #[tokio::test]
+    async fn version_1_database_drops_the_run_secret_column() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let mut connection = SqliteConnection::connect_with(&options).await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE schema_meta (
+                 version INTEGER PRIMARY KEY CHECK (version > 0),
+                 applied_at TEXT NOT NULL
+             ) STRICT;
+             INSERT INTO schema_meta (version, applied_at) VALUES (1, 'v1');
+             CREATE TABLE local_runs (
+                 run_id TEXT PRIMARY KEY,
+                 agent_id TEXT NOT NULL,
+                 task_id TEXT,
+                 focus_thread_id TEXT NOT NULL,
+                 run_secret TEXT NOT NULL,
+                 state TEXT NOT NULL,
+                 run_json TEXT NOT NULL
+             ) STRICT;",
+        )
+        .execute(&mut connection)
+        .await
+        .unwrap();
+        drop(connection);
+
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        let columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('local_runs') ORDER BY cid")
+                .fetch_all(&mut adapter.connection)
+                .await
+                .unwrap();
+        assert!(!columns.contains(&"run_secret".to_owned()));
+        let version: i64 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut adapter.connection)
+            .await
+            .unwrap();
+        assert_eq!(version, 2);
     }
 
     #[tokio::test]
@@ -923,7 +971,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_delivery_and_run_secret_are_restored_without_debug_exposure() {
+    async fn run_identity_and_deliveries_are_restored_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("daemon.db");
         let mut adapter = SqliteAdapter::open(&path).await.unwrap();
@@ -941,8 +989,8 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(restored.view().run_secret.expose(), SECRET_VALUE);
-        assert!(!format!("{restored:?}").contains(SECRET_VALUE));
+        assert_eq!(restored.view().id, run_id);
+        assert_eq!(restored.view().state, LocalRunState::Queued);
     }
 
     #[tokio::test]
@@ -1105,13 +1153,9 @@ mod tests {
     }
 
     #[test]
-    fn local_run_deserialization_rejects_empty_token_and_missing_initial_delivery() {
+    fn local_run_deserialization_rejects_missing_initial_delivery() {
         let run = test_run();
         let focus_thread_id = run.view().focus_thread_id;
-        let mut empty_token = serde_json::to_value(&run).unwrap();
-        empty_token["run_secret"] = serde_json::json!("");
-        assert!(serde_json::from_value::<LocalRun>(empty_token).is_err());
-
         let mut missing_delivery = serde_json::to_value(run).unwrap();
         missing_delivery["input"]["context"]["dispatched_items"] = serde_json::json!([{
             "item_id": InboxItemId::from_uuid(Uuid::now_v7()).to_string(),
@@ -1172,7 +1216,6 @@ mod tests {
             agent_id,
             task_id: None,
             focus_thread_id: thread_id,
-            run_secret: RunSecret::new(SECRET_VALUE.to_owned()),
             priority: RunPriority {
                 explicit_human_redirect: false,
                 strength: WorkStrength::Hard,

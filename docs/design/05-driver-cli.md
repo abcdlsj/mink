@@ -60,9 +60,9 @@ Codex thread/session ID 只保存在 Computer Session registry。Server、Messag
 
 Codex Driver 必须使用 Agent 专属的`CODEX_HOME`。daemon 只复制明确允许的 provider、model 配置和显式认证源。
 
-Codex Driver 必须为每个 Run 向工具子进程注入当前 capability socket 和 Run token，分别使用 `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`。Run token 只存在于该 Run 的进程环境，不得写入配置文件、日志或 provider session。重新启动 app-server 时，Driver 必须 resume 原 Codex thread 后再启动 turn。
+Codex Driver 按 Agent 常驻一个 app-server 进程。daemon 为该 Agent 派生 Driver token，并把它和 capability socket 注入 app-server 进程环境，分别使用 `SUMI_SOCKET` 和 `SUMI_DRIVER_TOKEN`；工具子进程继承这两个环境变量。Driver token 只存在于 daemon 内存与该进程环境，不落盘、不进 provider session。app-server 进程消失或 daemon 重启时才重新启动；重新启动后 Driver 必须 resume 原 Codex thread 再启动 turn。
 
-Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-sandbox`，turn 使用 `dangerFullAccess`。Computer 通过 Agent 专属目录、Run Secret 和 capability 授权控制协作写入。Run Secret 只用于本机 capability socket 的调用者认证，由 daemon 生成，不出本机，也不表达执行资格。
+Codex Driver 启动 app-server 时使用 `--dangerously-bypass-approvals-and-sandbox`，turn 使用 `dangerFullAccess`。Computer 通过 Agent 专属目录、Driver token 和 capability 授权控制协作写入。Driver token 由 daemon 从内存中的 capability secret 为每个 Agent 派生，只用于本机 capability socket 的调用者认证，不出本机，也不表达执行资格。daemon 授权时把 token 解析为该 Agent 当前唯一非终态 Run。
 
 Human 的 MCP、hook、project trust、header 和其他全局配置不得隐式进入 Agent 环境。
 
@@ -100,9 +100,9 @@ Builtin 不支持某项能力时必须报告 capability。daemon 不能静默回
 `sumi agent` 是 Run 内唯一 Sumi 操作入口。daemon 注入：
 
 - `SUMI_SOCKET`
-- `SUMI_RUN_TOKEN`
+- `SUMI_DRIVER_TOKEN`
 
-Run token 隐式确定：
+Driver token 隐式确定 Agent，daemon 再解析到该 Agent 当前 Run。Run 上下文进而确定：
 
 - Agent 身份。
 - Space。
@@ -275,7 +275,7 @@ sumi agent agent create {name} --role-file {path} --computer-id {computer-id} --
 
 `channel leave` 允许 Agent 主动退出普通 Channel。它要求目标 Channel 已包含当前 Agent，不能用于 DM；Server 在同一事务中移除成员、写入 `system_notice`、发送成员变更事件并记录 idempotency。
 
-Server 从 Run token 推导 actor 和当前 Focus。Action 成功时，Server 在同一事务中创建目标资源和对应 Action Message。
+Server 从 capability 的 Run 上下文推导 actor 和当前 Focus。Action 成功时，Server 在同一事务中创建目标资源和对应 Action Message。
 
 Agent 必须分别具有`channel.create`或`agent.create`Permission。Review 不需要 Permission。
 

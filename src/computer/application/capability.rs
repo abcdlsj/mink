@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use crate::ids::{AgentId, RunId, SpaceId, TaskId, ThreadId};
@@ -22,7 +23,6 @@ pub(in crate::computer) struct AuthorizedCapability {
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) run_id: RunId,
-    pub(in crate::computer) run_secret: String,
     pub(in crate::computer) message_snapshot_sequence: u64,
 }
 
@@ -35,7 +35,6 @@ impl std::fmt::Debug for AuthorizedCapability {
             .field("task_id", &self.task_id)
             .field("focus_thread_id", &self.focus_thread_id)
             .field("run_id", &self.run_id)
-            .field("run_secret", &"[REDACTED]")
             .field("message_snapshot_sequence", &self.message_snapshot_sequence)
             .finish()
     }
@@ -44,6 +43,18 @@ impl std::fmt::Debug for AuthorizedCapability {
 pub(in crate::computer) struct CapabilityService;
 
 impl CapabilityService {
+    /// Derives the Driver token for one Agent from the daemon's in-memory capability secret.
+    ///
+    /// The token is injected into that Agent's app-server process environment so tool subprocesses
+    /// inherit it. The daemon never persists it; a restart generates a fresh secret and respawns
+    /// every Driver process, so old tokens die with their processes.
+    pub(in crate::computer) fn driver_token(secret: &[u8], agent_id: AgentId) -> String {
+        let mut digest = Sha256::new();
+        digest.update(secret);
+        digest.update(agent_id.to_string().as_bytes());
+        hex::encode(digest.finalize())
+    }
+
     pub(in crate::computer) async fn record_success<P: TransactionPort>(
         store: &mut P,
         run_id: RunId,
@@ -79,26 +90,21 @@ impl CapabilityService {
 
     pub(in crate::computer) async fn authorize<P: TransactionPort>(
         store: &mut P,
-        run_token: &str,
+        driver_token: &str,
         requirement: ScopeRequirement,
+        driver_secret: &[u8],
     ) -> Result<AuthorizedCapability, ApplicationError> {
         let run = store
             .transact(async |transaction| {
-                let matches = transaction
-                    .nonterminal_runs()?
-                    .into_iter()
-                    .filter(|run| {
-                        bool::from(
-                            run.view()
-                                .run_secret
-                                .expose()
-                                .as_bytes()
-                                .ct_eq(run_token.as_bytes()),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                match matches.as_slice() {
-                    [run] => Ok(run.clone()),
+                let mut matches = transaction.nonterminal_runs()?.into_iter().filter(|run| {
+                    bool::from(
+                        Self::driver_token(driver_secret, run.view().agent_id)
+                            .as_bytes()
+                            .ct_eq(driver_token.as_bytes()),
+                    )
+                });
+                match (matches.next(), matches.next()) {
+                    (Some(run), None) => Ok(run),
                     _ => Err(ApplicationError::Unauthenticated),
                 }
             })
@@ -115,7 +121,6 @@ impl CapabilityService {
             task_id: run.view().task_id,
             focus_thread_id: run.view().focus_thread_id,
             run_id: run.view().id,
-            run_secret: run.view().run_secret.expose().to_owned(),
             message_snapshot_sequence: run.view().input.context.message_snapshot_sequence,
         })
     }

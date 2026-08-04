@@ -71,12 +71,11 @@ impl Command {
             } => format!("suspend:{agent_id}:{cancel_current}"),
             Self::Retire { agent_id } => format!("retire:{agent_id}"),
             Self::Start { run, fingerprint } => format!(
-                "start:{}:{}:{:?}:{}:{}:{}:{}:{}:{:?}:{}",
+                "start:{}:{}:{:?}:{}:{}:{}:{}:{:?}:{}",
                 run.view().id,
                 run.view().agent_id,
                 run.view().task_id,
                 run.view().focus_thread_id,
-                run.view().run_secret.expose(),
                 fingerprint.workspace,
                 fingerprint.role_revision,
                 fingerprint.audience,

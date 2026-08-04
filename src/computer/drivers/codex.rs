@@ -30,13 +30,9 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         self.client.validate(agent).await
     }
 
-    async fn open(
-        &mut self,
-        agent_id: AgentId,
-        run_token: &str,
-    ) -> Result<ProviderOpen, ApplicationError> {
+    async fn open(&mut self, agent_id: AgentId) -> Result<ProviderOpen, ApplicationError> {
         self.client
-            .create_session(agent_id, run_token)
+            .create_session(agent_id)
             .await
             .map(ProviderOpen::Opened)
     }
@@ -45,13 +41,8 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         &mut self,
         agent_id: AgentId,
         locator: &str,
-        run_token: &str,
     ) -> Result<ProviderOpen, ApplicationError> {
-        if self
-            .client
-            .resume_session(agent_id, locator, run_token)
-            .await?
-        {
+        if self.client.resume_session(agent_id, locator).await? {
             Ok(ProviderOpen::Resumed(locator.to_owned()))
         } else {
             Ok(ProviderOpen::Lost)
@@ -63,11 +54,8 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
-        run_token: &str,
     ) -> Result<(), ApplicationError> {
-        self.client
-            .start_turn(run_id, locator, input, run_token)
-            .await
+        self.client.start_turn(run_id, locator, input).await
     }
 
     async fn steer(

@@ -39,10 +39,18 @@ use self::{
 pub(in crate::computer) fn runtime(
     computer_home: &std::path::Path,
     config: &crate::config::ComputerConfig,
+    driver_secret: [u8; 32],
 ) -> Result<impl DriverPort, ApplicationError> {
     Ok(DriverAdapter::new(
-        codex::CodexAdapter::new(CodexRuntimeClient::new(computer_home.to_owned())),
-        builtin::BuiltinAdapter::new(BuiltinRuntimeClient::new(computer_home.to_owned(), config)?),
+        codex::CodexAdapter::new(CodexRuntimeClient::new(
+            computer_home.to_owned(),
+            driver_secret,
+        )),
+        builtin::BuiltinAdapter::new(BuiltinRuntimeClient::new(
+            computer_home.to_owned(),
+            config,
+            driver_secret,
+        )?),
     ))
 }
 
@@ -90,13 +98,9 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
     ) -> Result<OpenedSession, ApplicationError> {
         let backend = self.backend_mut(request.fingerprint.driver);
         let opened = if let Some(locator) = request.resume_locator.as_deref() {
-            backend
-                .resume(request.agent_id, locator, request.run_token.expose())
-                .await?
+            backend.resume(request.agent_id, locator).await?
         } else {
-            backend
-                .open(request.agent_id, request.run_token.expose())
-                .await?
+            backend.open(request.agent_id).await?
         };
         match opened {
             ProviderOpen::Opened(locator) => Ok(OpenedSession {
@@ -121,12 +125,7 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
             .ok_or(ApplicationError::Conflict)?
             .driver;
         self.backend_mut(kind)
-            .start_turn(
-                run.view().id,
-                locator,
-                run.view().input,
-                run.view().run_secret.expose(),
-            )
+            .start_turn(run.view().id, locator, run.view().input)
             .await?;
         self.turns.insert(
             run.view().id,

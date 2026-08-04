@@ -28,29 +28,36 @@ use crate::{
 };
 
 use super::{contract::StructuredProviderClient, prompt};
+use crate::computer::application::capability::CapabilityService;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) struct CodexRuntimeClient {
     computer_home: PathBuf,
     executable: OsString,
+    driver_secret: [u8; 32],
     processes: BTreeMap<AgentId, CodexProcess>,
     locator_owners: BTreeMap<String, AgentId>,
     run_owners: BTreeMap<RunId, AgentId>,
 }
 
 impl CodexRuntimeClient {
-    pub(super) fn new(computer_home: PathBuf) -> Self {
+    pub(super) fn new(computer_home: PathBuf, driver_secret: [u8; 32]) -> Self {
         let executable = std::env::var_os("SUMI_CODEX_COMMAND")
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| OsString::from("codex"));
-        Self::with_executable(computer_home, executable)
+        Self::with_executable(computer_home, executable, driver_secret)
     }
 
-    fn with_executable(computer_home: PathBuf, executable: OsString) -> Self {
+    fn with_executable(
+        computer_home: PathBuf,
+        executable: OsString,
+        driver_secret: [u8; 32],
+    ) -> Self {
         Self {
             computer_home,
             executable,
+            driver_secret,
             processes: BTreeMap::new(),
             locator_owners: BTreeMap::new(),
             run_owners: BTreeMap::new(),
@@ -62,11 +69,7 @@ impl CodexRuntimeClient {
     }
 
     async fn process(&mut self, agent_id: AgentId) -> Result<&mut CodexProcess, ApplicationError> {
-        if !self.processes.contains_key(&agent_id) {
-            let agent_home = self.agent_home(agent_id);
-            let process = CodexProcess::spawn(self.executable.clone(), agent_home, None).await?;
-            self.processes.insert(agent_id, process);
-        }
+        self.ensure_process(agent_id).await?;
         self.processes
             .get_mut(&agent_id)
             .ok_or(ApplicationError::Internal)
@@ -79,24 +82,30 @@ impl CodexRuntimeClient {
             .ok_or(ApplicationError::SessionLost)
     }
 
-    async fn prepare_for_run(
-        &mut self,
-        agent_id: AgentId,
-        run_token: &str,
-    ) -> Result<(), ApplicationError> {
-        if let Some(mut previous) = self.processes.remove(&agent_id) {
-            previous
-                .child
-                .kill()
-                .await
-                .map_err(|_| ApplicationError::DriverUnavailable)?;
+    async fn prepare_for_run(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        self.ensure_process(agent_id).await?;
+        Ok(())
+    }
+
+    /// Starts or reuses the app-server for one Agent. The process is kept alive across Runs because
+    /// its environment carries the Agent's stable Driver token; a restart is needed only when the
+    /// process is gone.
+    async fn ensure_process(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        let alive = self
+            .processes
+            .get_mut(&agent_id)
+            .is_some_and(|process| process.is_running());
+        if alive {
+            return Ok(());
         }
+        self.processes.remove(&agent_id);
         let agent_home = self.agent_home(agent_id);
         let socket_path = crate::config::runtime_dir_for(&self.computer_home).join("daemon.sock");
+        let driver_token = CapabilityService::driver_token(&self.driver_secret, agent_id);
         let process = CodexProcess::spawn(
             self.executable.clone(),
             agent_home,
-            Some((&socket_path, run_token)),
+            Some((&socket_path, &driver_token)),
         )
         .await?;
         self.processes.insert(agent_id, process);
@@ -137,7 +146,7 @@ impl CodexProcess {
             .arg("shell_environment_policy.ignore_default_excludes=true")
             .arg("-c")
             .arg(
-                "shell_environment_policy.include_only=[\"PATH\",\"HOME\",\"SUMI_SOCKET\",\"SUMI_RUN_TOKEN\"]",
+                "shell_environment_policy.include_only=[\"PATH\",\"HOME\",\"SUMI_SOCKET\",\"SUMI_DRIVER_TOKEN\"]",
             )
             .current_dir(&workspace)
             .env_clear()
@@ -162,10 +171,10 @@ impl CodexProcess {
         if let Some(language) = std::env::var_os("LANG") {
             command.env("LANG", language);
         }
-        if let Some((socket, run_token)) = capability {
+        if let Some((socket, driver_token)) = capability {
             command
                 .env("SUMI_SOCKET", socket)
-                .env("SUMI_RUN_TOKEN", run_token);
+                .env("SUMI_DRIVER_TOKEN", driver_token);
         }
         let mut child = command
             .spawn()
@@ -335,12 +344,8 @@ impl StructuredProviderClient for CodexRuntimeClient {
         }
     }
 
-    async fn create_session(
-        &mut self,
-        agent_id: AgentId,
-        run_token: &str,
-    ) -> Result<String, ApplicationError> {
-        self.prepare_for_run(agent_id, run_token).await?;
+    async fn create_session(&mut self, agent_id: AgentId) -> Result<String, ApplicationError> {
+        self.prepare_for_run(agent_id).await?;
         let workspace = self.agent_home(agent_id).join("workspace");
         let result = self
             .process(agent_id)
@@ -369,9 +374,8 @@ impl StructuredProviderClient for CodexRuntimeClient {
         &mut self,
         agent_id: AgentId,
         locator: &str,
-        run_token: &str,
     ) -> Result<bool, ApplicationError> {
-        self.prepare_for_run(agent_id, run_token).await?;
+        self.prepare_for_run(agent_id).await?;
         let result = self
             .process(agent_id)
             .await?
@@ -394,7 +398,6 @@ impl StructuredProviderClient for CodexRuntimeClient {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
-        _: &str,
     ) -> Result<(), ApplicationError> {
         let agent_id = input.agent.agent_id;
         if self.owner_for_locator(locator)? != agent_id {
@@ -573,26 +576,32 @@ mod tests {
         std::fs::create_dir_all(agent_home.join("drivers/codex")).unwrap();
         std::fs::create_dir_all(agent_home.join("workspace")).unwrap();
         let executable = directory.path().join("fake-codex");
+        let spawn_log = directory.path().join("spawns.log");
         std::fs::write(
             &executable,
-            r#"#!/bin/sh
+            format!(
+                r#"#!/bin/sh
 if [ "$1" = "--version" ]; then exit 0; fi
+printf '%s\n' "$SUMI_DRIVER_TOKEN" >> "{}"
+[ -n "$SUMI_DRIVER_TOKEN" ] || exit 9
+[ -n "$SUMI_SOCKET" ] || exit 10
 while IFS= read -r line; do
+  id="${{line#*\"id\":}}"; id="${{id%%,*}}"
   case "$line" in
-    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"initialize"'*) printf '%s\n' '{{"id":'"$id"',"result":{{}}}}' ;;
     *'"method":"thread/start"'*)
       [ "$1" = "--dangerously-bypass-approvals-and-sandbox" ] || exit 11
-      [ "$SUMI_RUN_TOKEN" = "run-token" ] || exit 9
-      [ -n "$SUMI_SOCKET" ] || exit 10
-      printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+      printf '%s\n' '{{"id":'"$id"',"result":{{"thread":{{"id":"thread-1"}}}}}}'
       ;;
-    *'"method":"thread/resume"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
-    *'"method":"turn/start"'*) printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}' ;;
-    *'"method":"turn/steer"'*) printf '%s\n' '{"id":4,"result":{"turnId":"turn-1"}}' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
-    *'"method":"thread/archive"'*) printf '%s\n' '{"id":5,"result":{}}' ;;
+    *'"method":"thread/resume"'*) printf '%s\n' '{{"id":'"$id"',"result":{{"thread":{{"id":"thread-1"}}}}}}' ;;
+    *'"method":"turn/start"'*) printf '%s\n' '{{"id":'"$id"',"result":{{"turn":{{"id":"turn-1"}}}}}}' ;;
+    *'"method":"turn/steer"'*) printf '%s\n' '{{"id":'"$id"',"result":{{"turnId":"turn-1"}}}}' '{{"method":"turn/completed","params":{{"threadId":"thread-1","turn":{{"id":"turn-1","status":"completed"}}}}}}' ;;
+    *'"method":"thread/archive"'*) printf '%s\n' '{{"id":'"$id"',"result":{{}}}}' ;;
   esac
 done
 "#,
+                spawn_log.display()
+            ),
         )
         .unwrap();
         let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
@@ -608,11 +617,21 @@ done
             driver: DriverKind::Codex,
             state: LocalAgentState::Active,
         };
-        let mut client =
-            CodexRuntimeClient::with_executable(computer_home, executable.into_os_string());
+        let driver_secret = [7_u8; 32];
+        let mut client = CodexRuntimeClient::with_executable(
+            computer_home,
+            executable.into_os_string(),
+            driver_secret,
+        );
         client.validate(&agent).await.unwrap();
-        let locator = client.create_session(agent_id, "run-token").await.unwrap();
+        let locator = client.create_session(agent_id).await.unwrap();
         assert_eq!(locator, "thread-1");
+        assert!(client.resume_session(agent_id, &locator).await.unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&spawn_log).unwrap().lines().count(),
+            1,
+            "app-server must stay resident across Runs of the same Agent"
+        );
 
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
         let input = RunInput {
@@ -643,10 +662,7 @@ done
             space_members: Vec::new(),
         };
         let run_id = RunId::from_uuid(Uuid::now_v7());
-        client
-            .start_turn(run_id, &locator, &input, "run-token")
-            .await
-            .unwrap();
+        client.start_turn(run_id, &locator, &input).await.unwrap();
         assert_eq!(
             client
                 .steer(

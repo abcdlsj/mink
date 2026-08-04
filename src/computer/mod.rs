@@ -100,6 +100,8 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         "Computer local baseline is ready"
     );
     SandboxAdapter::validate().map_err(|error| anyhow::anyhow!(error))?;
+    let mut driver_secret = [0_u8; 32];
+    OsRng.fill_bytes(&mut driver_secret);
     let mut capability_store = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
@@ -132,6 +134,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
                 .serve_capability(
                     &mut capability_store,
                     &mut capability_homes,
+                    driver_secret,
                     |run_id| {
                         let _ = yield_interrupt_tx.send(run_id);
                     },
@@ -199,8 +202,8 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
         config.codex_config_source.clone(),
         config.codex_auth_source.clone(),
     );
-    let mut driver =
-        drivers::runtime(&computer_home, &config).map_err(|error| anyhow::anyhow!(error))?;
+    let mut driver = drivers::runtime(&computer_home, &config, driver_secret)
+        .map_err(|error| anyhow::anyhow!(error))?;
     RunPipelineService::recover(
         &mut storage,
         &mut driver,

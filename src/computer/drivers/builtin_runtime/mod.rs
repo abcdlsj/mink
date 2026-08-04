@@ -25,6 +25,7 @@ use crate::{
         adapters::SandboxAdapter,
         application::{
             ApplicationError,
+            capability::CapabilityService,
             ports::{DriverCompletion, DriverTurnOutcome, ProcessEvidence, SteerOutcome},
         },
         core::{
@@ -52,6 +53,7 @@ const MAX_TOOL_OUTPUT_BYTES: usize = 1024 * 1024;
 pub(super) struct BuiltinRuntimeClient {
     computer_home: PathBuf,
     socket_path: PathBuf,
+    driver_secret: [u8; 32],
     provider: Option<BuiltinProviderConfig>,
     sessions: BTreeMap<String, AgentId>,
     turns: BTreeMap<RunId, BuiltinTurn>,
@@ -67,12 +69,14 @@ impl BuiltinRuntimeClient {
     pub(super) fn new(
         computer_home: PathBuf,
         config: &ComputerConfig,
+        driver_secret: [u8; 32],
     ) -> Result<Self, ApplicationError> {
         let provider = config::load(config).map_err(|_| ApplicationError::DriverUnavailable)?;
         let socket_path = crate::config::runtime_dir_for(&computer_home).join("daemon.sock");
         Ok(Self {
             computer_home,
             socket_path,
+            driver_secret,
             provider,
             sessions: BTreeMap::new(),
             turns: BTreeMap::new(),
@@ -151,11 +155,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         }
     }
 
-    async fn create_session(
-        &mut self,
-        agent_id: AgentId,
-        _: &str,
-    ) -> Result<String, ApplicationError> {
+    async fn create_session(&mut self, agent_id: AgentId) -> Result<String, ApplicationError> {
         let locator = Uuid::now_v7().to_string();
         let directory = self.agent_home(agent_id).join("drivers/builtin/sessions");
         tokio::fs::create_dir_all(&directory)
@@ -175,7 +175,6 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         &mut self,
         agent_id: AgentId,
         locator: &str,
-        _: &str,
     ) -> Result<bool, ApplicationError> {
         match self.load_session(agent_id, locator).await {
             Ok(_) => {
@@ -192,7 +191,6 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         run_id: RunId,
         locator: &str,
         input: &RunInput,
-        run_token: &str,
     ) -> Result<(), ApplicationError> {
         let agent_id = self.owner_for_locator(locator)?;
         if input.agent.agent_id != agent_id || self.turns.contains_key(&run_id) {
@@ -209,13 +207,13 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         let socket_path = self.socket_path.clone();
         let locator_owned = locator.to_owned();
         let session_path = self.session_path(agent_id, locator);
-        let run_token = run_token.to_owned();
+        let driver_token = CapabilityService::driver_token(&self.driver_secret, agent_id);
         let input_owned = input.clone();
         let task = tokio::spawn(async move {
             let tools = Arc::new(BuiltinTools {
                 agent_home,
                 socket_path,
-                run_token,
+                driver_token,
             });
             let engine = match OpenAiProvider::new(provider) {
                 Ok(provider) => Engine::new(
@@ -426,7 +424,7 @@ fn tool_definition(name: &str, description: &str, required: &[&str]) -> ToolDef 
 struct BuiltinTools {
     agent_home: PathBuf,
     socket_path: PathBuf,
-    run_token: String,
+    driver_token: String,
 }
 
 #[async_trait]
@@ -466,7 +464,7 @@ impl BuiltinTools {
             &self.agent_home,
             &self.agent_home.join("drivers/builtin"),
             &self.socket_path,
-            &self.run_token,
+            &self.driver_token,
         )
         .map_err(|_| anyhow::anyhow!("sandbox unavailable"))?;
         #[cfg(unix)]
@@ -578,15 +576,13 @@ mod tests {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }
         let config = builtin_config(&format!("http://{address}/v1"));
-        let mut client = BuiltinRuntimeClient::new(computer_home.clone(), &config).unwrap();
-        let locator = client.create_session(agent_id, "run-secret").await.unwrap();
+        let mut client =
+            BuiltinRuntimeClient::new(computer_home.clone(), &config, [7_u8; 32]).unwrap();
+        let locator = client.create_session(agent_id).await.unwrap();
         let input = run_input(agent_id);
         let run_id = RunId::from_uuid(Uuid::now_v7());
 
-        client
-            .start_turn(run_id, &locator, &input, "run-secret")
-            .await
-            .unwrap();
+        client.start_turn(run_id, &locator, &input).await.unwrap();
         let completion = loop {
             let completions = client.poll_completions().await.unwrap();
             if let Some(completion) = completions.into_iter().next() {
@@ -623,13 +619,8 @@ mod tests {
         let stored = fs::read_to_string(&session_path).unwrap();
         assert!(stored.contains("completed"));
         assert!(!stored.contains("provider-secret"));
-        let mut resumed = BuiltinRuntimeClient::new(computer_home, &config).unwrap();
-        assert!(
-            resumed
-                .resume_session(agent_id, &locator, "run-secret")
-                .await
-                .unwrap()
-        );
+        let mut resumed = BuiltinRuntimeClient::new(computer_home, &config, [7_u8; 32]).unwrap();
+        assert!(resumed.resume_session(agent_id, &locator).await.unwrap());
         resumed.delete_session(&locator).await.unwrap();
         assert!(!session_path.exists());
     }
@@ -644,11 +635,11 @@ mod tests {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }
         let config = builtin_config("http://127.0.0.1:9/v1");
-        let mut client = BuiltinRuntimeClient::new(computer_home, &config).unwrap();
-        let locator = client.create_session(agent_id, "run-secret").await.unwrap();
+        let mut client = BuiltinRuntimeClient::new(computer_home, &config, [7_u8; 32]).unwrap();
+        let locator = client.create_session(agent_id).await.unwrap();
         let run_id = RunId::from_uuid(Uuid::now_v7());
         client
-            .start_turn(run_id, &locator, &run_input(agent_id), "run-secret")
+            .start_turn(run_id, &locator, &run_input(agent_id))
             .await
             .unwrap();
 

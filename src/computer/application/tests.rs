@@ -20,9 +20,7 @@ use crate::computer::core::{
         self, DriverKind, ProviderSession, ResolveDecision, SessionFingerprint, SessionScope,
         SessionState,
     },
-    supervisor::{
-        DeliveryState, ItemDisposition, LocalRun, LocalRunState, NewRun, RunSecret, TerminalStatus,
-    },
+    supervisor::{DeliveryState, ItemDisposition, LocalRun, LocalRunState, NewRun, TerminalStatus},
 };
 
 use super::{
@@ -563,7 +561,6 @@ async fn start_command_rejects_a_second_active_run_for_the_same_agent() {
         agent_id,
         task_id: None,
         focus_thread_id: second_thread,
-        run_secret: RunSecret::new("second-secret".to_owned()),
         priority: default_priority(false),
         input: test_input(agent_id, None, second_thread, []),
     })
@@ -959,7 +956,6 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         agent_id,
         task_id: Some(task_id),
         focus_thread_id: thread_id,
-        run_secret: RunSecret::new("first-token".to_owned()),
         priority: default_priority(true),
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
@@ -990,7 +986,6 @@ async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation(
         agent_id,
         task_id: Some(task_id),
         focus_thread_id: thread_id,
-        run_secret: RunSecret::new("second-token".to_owned()),
         priority: default_priority(true),
         input: test_input(agent_id, Some(task_id), thread_id, []),
     })
@@ -1875,7 +1870,6 @@ fn local_run_with_id<const N: usize>(
         agent_id,
         task_id,
         focus_thread_id: thread_id,
-        run_secret: RunSecret::new("secret-token".to_owned()),
         priority: default_priority(task_id.is_some()),
         input: test_input(agent_id, task_id, thread_id, items),
     })

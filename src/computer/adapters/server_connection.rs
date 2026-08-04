@@ -1,13 +1,12 @@
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 use crate::{
     computer::application::{
         AgentInput, ApplicationError, AttentionNoticeInput, ContextMessageInput, ContinuityState,
         DeliveryState, DispatchedItemInput, DriverKind, ItemDisposition, LocalAgent,
         LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput, MemoryFile, NewRun,
-        NoticeLocationInput, RunContextInput, RunInput, RunPriority, RunSecret, SessionFingerprint,
+        NoticeLocationInput, RunContextInput, RunInput, RunPriority, SessionFingerprint,
         SessionScope, SpaceMemberInput, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
@@ -259,13 +258,6 @@ impl ServerConnectionAdapter {
                     agent_id: start.agent_id,
                     task_id,
                     focus_thread_id,
-                    // Generated here, not received: this secret only ever authenticates the Driver
-                    // process this daemon is about to start.
-                    run_secret: RunSecret::new(format!(
-                        "{}{}",
-                        Uuid::now_v7().simple(),
-                        Uuid::now_v7().simple()
-                    )),
                     priority: RunPriority {
                         explicit_human_redirect: false,
                         strength,
