@@ -27,6 +27,17 @@ pub(in crate::server) enum ChannelKind {
     Direct,
 }
 
+pub(in crate::server) fn valid_channel_slug(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct Channel {
     pub(in crate::server) id: ChannelId,
@@ -52,14 +63,17 @@ impl Channel {
         let valid_slug = match kind {
             ChannelKind::Direct => slug.is_none(),
             ChannelKind::Public | ChannelKind::Private => {
-                slug.as_ref().is_some_and(|value| !value.trim().is_empty())
+                slug.as_deref().is_some_and(valid_channel_slug)
             }
         };
         let valid_audience = match kind {
             ChannelKind::Direct => audience.len() == 2,
             ChannelKind::Public | ChannelKind::Private => !audience.is_empty(),
         };
-        if !valid_audience || !valid_slug {
+        if !valid_slug {
+            return Err(DomainError::InvalidChannelSlug);
+        }
+        if !valid_audience {
             return Err(DomainError::InvalidChannel);
         }
         Ok(Self {
@@ -223,6 +237,19 @@ mod tests {
             Err(DomainError::InvalidChannel)
         );
         assert!(channel(ChannelKind::Public, &[member(3)]).is_ok());
+    }
+
+    #[test]
+    fn channel_slug_has_one_explicit_address_form() {
+        assert!(valid_channel_slug("product-discussion"));
+        assert!(valid_channel_slug("release-2"));
+        assert!(!valid_channel_slug("产品讨论"));
+        assert!(!valid_channel_slug("Product-Discussion"));
+        assert!(!valid_channel_slug("product_discussion"));
+        assert!(!valid_channel_slug("-product"));
+        assert!(!valid_channel_slug("product-"));
+        assert!(!valid_channel_slug("product--discussion"));
+        assert!(!valid_channel_slug(&"a".repeat(33)));
     }
 
     #[test]

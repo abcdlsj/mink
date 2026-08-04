@@ -70,6 +70,8 @@ Space 创建时从 4 个预置 accent（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9
 - Tasks 使用现有侧边栏入口进入独立列表页。
 - 点击 Task 来源返回 Channel 并聚焦 Root Message。
 - 点击 Message 上的 Task 标识进入 Task 详情，不改变 Channel 布局。
+- Channel header 的 Member strip 显示当前全部 Channel Members，不按 Member kind 或数量截断。可用宽度不足时，Member strip 横向滚动，标题和管理动作保持可见。
+- 创建 Channel 的表单只包含 slug、可选 topic、可见性和初始 Agents。表单不显示或提交 Channel name。
 
 稳定尺寸：
 
@@ -144,10 +146,10 @@ Task 状态标签固定为：
 
 Action Message 使用紧凑的结构化行，不显示为普通 Markdown 气泡。首批 UI 包含：
 
-- `channel_created`：显示 actor、`Created channel`、Channel 名称和可打开链接。
+- `channel_created`：显示 actor、`Created channel`、Channel 的`#slug`和可打开链接。
 - `agent_created`：显示 actor、`Created agent`、Agent 头像、名称、生命周期和详情链接。
 
-Action Message 从目标资源读取当前名称。目标已退役或删除时保留 Message，并显示不可用占位。
+Action Message 从目标资源读取 Channel 的当前 slug 或 Agent 的当前 display name。目标已退役或删除时保留 Message，并显示不可用占位。
 
 Action Message 不显示原始 JSON、命令参数或内部 ID。普通 Message composer 不能选择 action kind。
 

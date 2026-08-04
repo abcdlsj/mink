@@ -15,7 +15,7 @@ test("completes the Task list and detail flow without viewport overflow", async 
     const body = (() => {
       if (path.includes("/spaces/by-slug/")) return space;
       if (path === "/api/v1/auth/me") return { id: "human", display_name: "Ada", email: "ada@example.test" };
-      if (path.endsWith("/channels")) return { can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", name: "general", slug: "general", created_by_member_id: ownerId, joined: true }] };
+      if (path.endsWith("/channels")) return { can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true }] };
       if (path.endsWith("/dms")) return [];
       if (path.endsWith("/computers")) return [];
       if (path.endsWith("/members")) return [owner, agentMember];

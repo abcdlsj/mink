@@ -109,7 +109,6 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
             .header("idempotency-key", channel_key.to_string())
             .header(header::COOKIE, &cookie)
             .json(&serde_json::json!({
-                "name": "Design",
                 "slug": "design",
                 "kind": "private",
                 "agent_member_ids": []
@@ -350,6 +349,20 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     ensure!(exact_conflict.status() == StatusCode::CONFLICT);
 
     let pool = PgPool::connect_with(PgConnectOptions::from_str(&database.url)?).await?;
+    let initialized_channel_id: Uuid = channel["id"]
+        .as_str()
+        .context("initialized Channel ID")?
+        .parse()?;
+    let initial_notice_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+    )
+    .bind(initialized_channel_id)
+    .fetch_one(&pool)
+    .await?;
+    ensure!(
+        initial_notice_count == 0,
+        "initial Channel members must not create System Notices"
+    );
     let computer_id = Uuid::now_v7();
     let agent_id = Uuid::now_v7();
     sqlx::query("INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES($1,$2,'Test Computer','localhost','linux','test-token-hash','online',1,now())")
@@ -392,12 +405,13 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
             .iter()
             .any(|member| member["id"] == agent_id.to_string())
     }));
-    let membership_facts: (i64, i64, i64, i64) = sqlx::query_as(
+    let membership_facts: (i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT \
            (SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=$2), \
            (SELECT count(*) FROM idempotency_records WHERE actor_member_id=$3 AND action='channel.members.add' AND idempotency_key=$4), \
            (SELECT count(*) FROM audit_events WHERE actor_member_id=$3 AND action='channel.members_added' AND subject_id=$1), \
-           (SELECT count(*) FROM outbox_events WHERE kind='member.changed' AND payload_json->>'resource_id'=$2::text)",
+           (SELECT count(*) FROM outbox_events WHERE kind='member.changed' AND payload_json->>'resource_id'=$2::text), \
+           (SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice' AND body_markdown='Lin joined the channel')",
     )
     .bind(created.general_channel_id)
     .bind(agent_id)
@@ -405,7 +419,7 @@ async fn run_registration_space_flow(database: &TestDatabase) -> Result<()> {
     .bind(add_member_key)
     .fetch_one(&pool)
     .await?;
-    ensure!(membership_facts == (1, 1, 1, 1));
+    ensure!(membership_facts == (1, 1, 1, 1, 1));
 
     let facts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT \

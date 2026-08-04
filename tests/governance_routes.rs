@@ -104,18 +104,43 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .await?;
     ensure!(grant_owner.status() == StatusCode::BAD_REQUEST);
 
+    let invalid_channel = client
+        .post(server_url.join(&format!("/api/v1/spaces/{space_id}/channels"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &owner)
+        .json(&serde_json::json!({
+            "slug": "产品讨论",
+            "topic": "产品讨论",
+            "kind": "public",
+            "agent_member_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(invalid_channel.status() == StatusCode::BAD_REQUEST);
+    let invalid_channel_error: Value = invalid_channel.json().await?;
+    ensure!(invalid_channel_error["error"]["code"] == "invalid_argument");
+    ensure!(
+        invalid_channel_error["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Use topic") && message.contains("Unicode")),
+        "{invalid_channel_error}"
+    );
+
     let private: Value = client
         .post(server_url.join(&format!("/api/v1/spaces/{space_id}/channels"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .header(header::COOKIE, &owner)
         .json(&serde_json::json!({
-            "name": "Private", "slug": "private", "kind": "private", "agent_member_ids": []
+            "slug": "private", "topic": "产品讨论", "kind": "private", "agent_member_ids": []
         }))
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
+    ensure!(private["slug"] == "private", "{private}");
+    ensure!(private["topic"] == "产品讨论", "{private}");
+    ensure!(private.get("name").is_none(), "{private}");
     let private_id = private["id"].as_str().context("private Channel ID")?;
 
     let public: Value = client
@@ -123,7 +148,7 @@ async fn run_governance_flow(database: &TestDatabase) -> Result<()> {
         .header("idempotency-key", Uuid::now_v7().to_string())
         .header(header::COOKIE, &owner)
         .json(&serde_json::json!({
-            "name": "Lounge", "slug": "lounge", "kind": "public", "agent_member_ids": []
+            "slug": "lounge", "kind": "public", "agent_member_ids": []
         }))
         .send()
         .await?

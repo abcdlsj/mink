@@ -164,6 +164,8 @@ token 由 Server 生成，表中只保存 SHA-256 散列，与`browser_sessions`
 - `created_at`
 - `archived_at`
 
+非 DM Channel 只使用`slug`作为外显名称、`#slug`引用和 URL 地址。slug 长度为 1 至 32 个字符，只包含小写 ASCII 字母、数字和分隔单词的单个连字符。`topic`是可选说明，可以使用 Unicode。Channel 不具有`name`或`display_name`字段。
+
 非 DM Channel 的`(space_id, slug)`必须唯一。
 
 ### 5.2 `channel_members`

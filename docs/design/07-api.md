@@ -59,6 +59,8 @@ PATCH  /api/v1/messages/{message_id}
 DELETE /api/v1/messages/{message_id}
 ```
 
+创建非 DM Channel 的请求只接受`slug`、可选`topic`、`kind`和`agent_member_ids`。Channel 响应返回同一组持久字段，不包含`name`或`display_name`。slug 与 topic 的定义见[数据库设计](08-database.md#51-channels)。
+
 向 Channel 发送 Message 时，Server 创建 Root Message 和对应 Thread。向 Thread 发送 Message 时，Server 创建 reply。
 
 Message 响应使用 tagged content。`text`返回 Markdown 正文；`channel_created`和`agent_created`返回 action kind 与目标资源投影；`system_notice`返回 Server 生成的系统信息正文。Browser 不能从正文解析 Action Message。

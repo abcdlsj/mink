@@ -27,7 +27,6 @@ export function DirectMessagePage() {
           id: dm.channel_id,
           space_id: dm.space_id,
           kind: "private",
-          name: dm.other_member.display_name,
           slug: dm.other_member.display_name,
           created_by_member_id: "",
           joined: true,

@@ -449,12 +449,12 @@ export function SpaceShell({
                 .map((channel) => (
                   <div className="discover-channel" key={channel.id}>
                     <Hash aria-hidden="true" />
-                    <span title={channel.name}>{channel.slug}</span>
+                    <span title={channel.topic ?? channel.slug}>{channel.slug}</span>
                     <button
                       type="button"
                       disabled={channelJoin.isPending}
-                      aria-label={`Join ${channel.name}`}
-                      title={`Join ${channel.name}`}
+                      aria-label={`Join #${channel.slug}`}
+                      title={`Join #${channel.slug}`}
                       onClick={() => channelJoin.mutate(channel.id)}
                     >
                       JOIN
@@ -676,7 +676,6 @@ function ChannelDialog({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     onSubmit({
-      name: String(form.get("name") ?? ""),
       slug: String(form.get("slug") ?? ""),
       kind: String(form.get("kind") ?? "public") as "public" | "private",
       topic: String(form.get("topic") ?? ""),
@@ -691,8 +690,7 @@ function ChannelDialog({
           <button className="icon-button" type="button" aria-label="Close Create Channel" onClick={close}><X /></button>
         </header>
         <form className="channel-create-form" onSubmit={submit}>
-          <label>Name<input name="name" required maxLength={80} data-dialog-initial-focus /></label>
-          <label>Slug<input name="slug" required maxLength={32} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" /></label>
+          <label>Slug<input name="slug" required maxLength={32} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" data-dialog-initial-focus /></label>
           <label>Visibility<select name="kind" defaultValue="public"><option value="public">Public</option><option value="private">Private</option></select></label>
           <label>Topic<input name="topic" maxLength={200} /></label>
           <fieldset className="channel-agent-picker">

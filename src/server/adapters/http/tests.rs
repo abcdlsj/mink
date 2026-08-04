@@ -1416,6 +1416,44 @@ fn task_create_dto_rejects_system_derived_source_fields() {
 }
 
 #[tokio::test]
+async fn agent_channel_create_rejects_topic_text_used_as_a_slug() {
+    let fixture = CapabilityFixture::create().await;
+    sqlx::query(
+        "INSERT INTO member_permissions (member_id,space_id,action_code,granted_by_member_id,created_at) \
+         VALUES ($1,$2,'channel.create',$3,now())",
+    )
+    .bind(fixture.context.agent_id.into_uuid())
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.owner_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+
+    let error = fixture
+        .execute(capability::Action::ChannelCreate {
+            slug: "产品讨论".into(),
+            topic: Some("产品讨论".into()),
+            private: false,
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, capability::ErrorCode::InvalidArgument);
+    assert!(error.message.contains("lowercase ASCII"));
+    assert!(error.message.contains("Use topic"));
+    assert!(error.message.contains("topic supports Unicode"));
+    assert!(!error.retryable);
+    let channel_count: i64 = sqlx::query_scalar("SELECT count(*) FROM channels WHERE space_id=$1")
+        .bind(fixture.context.space_id.into_uuid())
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(channel_count, 1);
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn agent_write_actions_emit_agent_activity_events() {
     let mut fixture = CapabilityFixture::create().await;
     let agent_id = fixture.context.agent_id.into_uuid();
@@ -1451,11 +1489,26 @@ async fn agent_write_actions_emit_agent_activity_events() {
         .unwrap();
     let created_channel = fixture
         .execute(capability::Action::ChannelCreate {
-            name: "News".into(),
+            slug: "news".into(),
+            topic: Some("团队动态".into()),
             private: false,
         })
         .await
         .unwrap();
+    assert_eq!(created_channel["slug"], "news");
+    assert_eq!(created_channel["topic"], "团队动态");
+    assert_eq!(created_channel["kind"], "public");
+    assert!(created_channel.get("name").is_none());
+    let created_channel_id =
+        Uuid::parse_str(created_channel["channel_id"].as_str().unwrap()).unwrap();
+    let initial_notice_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+    )
+    .bind(created_channel_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(initial_notice_count, 0);
     let created_agent = fixture
         .execute(capability::Action::AgentCreate {
             name: "Coder".into(),
@@ -1535,6 +1588,14 @@ async fn agent_write_actions_emit_agent_activity_events() {
         serde_json::json!(task_id.into_uuid())
     );
     assert_eq!(payloads[3]["channel_id"], created_channel["channel_id"]);
+    assert_eq!(
+        payloads[3]["arguments"],
+        serde_json::json!([
+            {"name": "slug", "value": "news"},
+            {"name": "topic", "value": "团队动态"},
+            {"name": "private", "value": "false"}
+        ])
+    );
     assert_eq!(payloads[4]["target_member_id"], created_agent["agent_id"]);
     assert_eq!(
         payloads[5]["item_id"],

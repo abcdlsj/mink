@@ -83,7 +83,7 @@ for (const [width, height, label] of viewports) {
   const triggerElement = await trigger.elementHandle();
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Create Channel" });
-  await assertDialog(dialog, "Create Channel", label, dialog.getByLabel("Name"));
+  await assertDialog(dialog, "Create Channel", label, dialog.getByLabel("Slug"));
   await page.keyboard.press("Escape");
   if (triggerElement && !(await triggerElement.evaluate((element) => !element.isConnected || document.activeElement === element))) throw new Error(`Create Channel did not restore focus at ${label}`);
 }
@@ -92,8 +92,8 @@ await page.setViewportSize({ width: 1440, height: 900 });
 const channelSlug = `dialog-check-${Date.now().toString(36)}`;
 await page.getByRole("button", { name: "Create Channel" }).click();
 const createDialog = page.getByRole("dialog", { name: "Create Channel" });
-await createDialog.getByLabel("Name").fill("Dialog Check");
 await createDialog.getByLabel("Slug").fill(channelSlug);
+await createDialog.getByLabel("Topic").fill("Dialog Check");
 await createDialog.getByLabel("Visibility").selectOption("private");
 await createDialog.getByRole("button", { name: "Create Channel", exact: true }).click();
 await page.waitForURL(new RegExp(`/channels/${channelSlug}$`));

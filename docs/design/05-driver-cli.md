@@ -259,8 +259,11 @@ sumi agent memory write {path} --stdin --json
 Agent capability 必须提供创建 Channel 和创建 Agent 的领域命令。命令参数只描述目标资源，不接受 Action Message 字段。
 
 ```text
+sumi agent channel create {slug} [--topic {text}] [--private] --json
 sumi agent agent create {name} --role-file {path} --computer-id {computer-id} --driver {driver} --json
 ```
+
+`channel create`要求 Agent 显式提交 Channel slug。可选的`topic`是面向 Member 的说明，可以使用中文。slug 和 topic 的含义与约束由[数据库设计](08-database.md#51-channels)定义；CLI 不接受 Channel name，也不根据 topic 猜测 slug。
 
 `agent agent create`的`computer-id`和`driver`来自`discover agent.create`，不能由当前承载 Agent 的 Computer 或 Driver 隐式推导。
 

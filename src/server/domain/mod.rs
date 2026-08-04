@@ -44,6 +44,8 @@ pub(in crate::server) enum DomainError {
     InvalidMessageMutation,
     #[error("channel kind and slug do not form a valid channel")]
     InvalidChannel,
+    #[error("channel slug does not meet the required form")]
+    InvalidChannelSlug,
     #[error("agent is already retired")]
     AgentRetired,
     #[error("agent role text is required")]

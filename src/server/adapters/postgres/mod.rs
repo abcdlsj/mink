@@ -127,6 +127,27 @@ impl PostgresAdapter {
             .execute(&mut *transaction)
             .await?;
         }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 6 {
+            if version != 5 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE channels ADD CONSTRAINT channels_slug_form_check CHECK ( \
+                    kind = 'direct' OR ( \
+                        char_length(slug) BETWEEN 1 AND 32 \
+                        AND slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' \
+                    ) \
+                 ); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (6, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await
     }
 

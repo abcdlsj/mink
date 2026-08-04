@@ -368,7 +368,6 @@ pub(super) struct CreatedInvitationResponse {
 pub(super) struct ChannelResponse {
     pub(super) id: Uuid,
     pub(super) space_id: Uuid,
-    pub(super) name: String,
     pub(super) slug: String,
     pub(super) topic: Option<String>,
     pub(super) kind: ChannelKind,
@@ -405,7 +404,6 @@ pub(super) struct CreateDirectMessageRequest {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateChannelRequest {
-    name: String,
     slug: String,
     kind: ChannelKind,
     topic: Option<String>,
@@ -434,7 +432,6 @@ pub(super) enum MessageContentResponse {
 pub(super) struct ActionChannelResponse {
     pub(super) id: Uuid,
     pub(super) slug: String,
-    pub(super) name: String,
     pub(super) available: bool,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]

@@ -46,9 +46,11 @@ pub(super) async fn create_channel(
         "private" => ChannelKind::Private,
         _ => return Err(ApiError::invalid("Channel kind and slug are invalid")),
     };
-    if body.slug.trim().is_empty() {
-        return Err(ApiError::invalid("Channel kind and slug are invalid"));
-    }
+    let slug = body.slug.trim().to_owned();
+    let topic = body
+        .topic
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     let channel_id = ChannelId::from_uuid(Uuid::now_v7());
     let now = OffsetDateTime::now_utc();
     let mut audience = BTreeSet::from([MemberId::from_uuid(member_id)]);
@@ -61,8 +63,8 @@ pub(super) async fn create_channel(
             space_id: SpaceId::from_uuid(space_id),
             audience,
             kind,
-            slug: Some(body.slug.trim().to_owned()),
-            topic: body.topic.clone(),
+            slug: Some(slug.clone()),
+            topic: topic.clone(),
             actor_member_id: MemberId::from_uuid(member_id),
             idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             now,
@@ -70,21 +72,23 @@ pub(super) async fn create_channel(
     )
     .await
     .map_err(application_error)?;
+    let response_slug = channel.slug.clone().ok_or_else(ApiError::internal)?;
+    let response_kind = match channel.kind {
+        ChannelKind::Public => ChannelKindCode::Public,
+        ChannelKind::Private => ChannelKindCode::Private,
+        ChannelKind::Direct => return Err(ApiError::internal()),
+    };
     Ok((
         StatusCode::CREATED,
         Json(ChannelResponse {
             id: channel.id.into_uuid(),
-            space_id,
-            name: body.name,
-            slug: body.slug,
-            topic: body.topic,
-            kind: match kind {
-                ChannelKind::Public => ChannelKindCode::Public,
-                _ => ChannelKindCode::Private,
-            },
+            space_id: channel.space_id.into_uuid(),
+            slug: response_slug,
+            topic: channel.topic,
+            kind: response_kind,
             created_by_member_id: member_id,
             joined: true,
-            archived_at: None,
+            archived_at: channel.archived_at.map(timestamp),
         }),
     ))
 }

@@ -16,7 +16,6 @@ export interface components {
             available: boolean;
             /** Format: uuid */
             id: string;
-            name: string;
             slug: string;
         };
         AddChannelAgentsRequest: {
@@ -129,7 +128,6 @@ export interface components {
             id: string;
             joined: boolean;
             kind: components["schemas"]["ChannelKind"];
-            name: string;
             slug: string;
             /** Format: uuid */
             space_id: string;
@@ -185,7 +183,6 @@ export interface components {
         CreateChannelRequest: {
             agent_member_ids: string[];
             kind: components["schemas"]["ChannelKind"];
-            name: string;
             slug: string;
             topic?: string | null;
         };

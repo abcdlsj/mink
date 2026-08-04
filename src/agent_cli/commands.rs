@@ -166,8 +166,19 @@ pub(crate) struct ChannelArgs {
 }
 #[derive(Debug, Subcommand)]
 enum ChannelCommand {
+    /// Create a Channel with an explicit #slug and optional human-readable topic.
     Create {
-        name: String,
+        #[arg(
+            value_name = "SLUG",
+            help = "Channel #slug: 1-32 lowercase ASCII letters or numbers separated by single hyphens"
+        )]
+        slug: String,
+        #[arg(
+            long,
+            value_name = "TEXT",
+            help = "Optional human-readable Channel description; Unicode is allowed"
+        )]
+        topic: Option<String>,
         #[arg(long)]
         private: bool,
     },
@@ -390,8 +401,20 @@ impl AgentCli {
                 (Action::InboxDefer { item_id, until }, true)
             }
             Command::Channel(ChannelArgs {
-                command: ChannelCommand::Create { name, private },
-            }) => (Action::ChannelCreate { name, private }, true),
+                command:
+                    ChannelCommand::Create {
+                        slug,
+                        topic,
+                        private,
+                    },
+            }) => (
+                Action::ChannelCreate {
+                    slug,
+                    topic,
+                    private,
+                },
+                true,
+            ),
             Command::Channel(ChannelArgs {
                 command:
                     ChannelCommand::Read {
@@ -534,7 +557,7 @@ mod tests {
 
     use super::*;
 
-    #[derive(Parser)]
+    #[derive(Debug, Parser)]
     struct TestAgentCli {
         #[command(flatten)]
         agent: AgentCli,
@@ -635,6 +658,42 @@ mod tests {
                 channel_id: channel
             }
         );
+    }
+
+    #[tokio::test]
+    async fn channel_create_keeps_slug_and_unicode_topic_separate() {
+        let cli = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "channel",
+            "create",
+            "product-discussion",
+            "--topic",
+            "产品讨论",
+            "--private",
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (action, _) = cli.action(None).await.unwrap();
+        assert_eq!(
+            action,
+            Action::ChannelCreate {
+                slug: "product-discussion".into(),
+                topic: Some("产品讨论".into()),
+                private: true,
+            }
+        );
+    }
+
+    #[test]
+    fn channel_create_help_names_slug_and_topic_constraints() {
+        let error = TestAgentCli::try_parse_from(["sumi-agent", "channel", "create", "--help"])
+            .unwrap_err();
+        let help = error.to_string();
+        assert!(help.contains("Create a Channel with an explicit #slug"));
+        assert!(help.contains("Channel #slug: 1-32 lowercase ASCII"));
+        assert!(help.contains("--topic <TEXT>"));
+        assert!(help.contains("Unicode is allowed"));
     }
 
     #[tokio::test]

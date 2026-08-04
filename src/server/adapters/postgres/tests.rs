@@ -129,10 +129,8 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
     database_url.set_path(&format!("/{database_name}"));
     let result = async {
         let pool = PgPool::connect(database_url.as_str()).await.unwrap();
-        PostgresAdapter::new(pool.clone())
-            .initialize_schema()
-            .await
-            .unwrap();
+        let adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
 
         let active_index: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM pg_indexes \
@@ -165,11 +163,46 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .fetch_one(&pool)
         .await
         .unwrap();
+        let slug_constraint: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_constraint \
+                 WHERE conname='channels_slug_form_check')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let schema_version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
         assert!(active_index);
         assert!(no_threads_table);
         assert!(messages_self_fk);
         assert!(!legacy_session_table);
+        assert!(slug_constraint);
+        assert_eq!(schema_version, 6);
+
+        sqlx::raw_sql(
+            "ALTER TABLE channels DROP CONSTRAINT channels_slug_form_check; \
+             UPDATE schema_meta SET version=5 WHERE version=6;",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        adapter.initialize_schema().await.unwrap();
+        let migrated_version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let migrated_constraint: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_constraint \
+                 WHERE conname='channels_slug_form_check')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(migrated_version, 6);
+        assert!(migrated_constraint);
         pool.close().await;
     }
     .await;

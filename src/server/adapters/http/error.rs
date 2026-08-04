@@ -94,6 +94,9 @@ pub(in crate::server::adapters) fn application_error(
         ApplicationError::Domain(DomainError::InvalidPairing) => {
             ApiError::invalid("Computer pairing request is invalid")
         }
+        ApplicationError::Domain(DomainError::InvalidChannelSlug) => ApiError::invalid(
+            "Use 1-32 lowercase ASCII letters or numbers separated by single hyphens for the Channel slug. Use topic for the human-readable description; topic supports Unicode.",
+        ),
         ApplicationError::Domain(DomainError::PairingLapsed) => ApiError {
             status: StatusCode::CONFLICT,
             code: "pairing_lapsed",

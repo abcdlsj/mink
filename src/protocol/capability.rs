@@ -105,7 +105,8 @@ pub(crate) enum Action {
         content: String,
     },
     ChannelCreate {
-        name: String,
+        slug: String,
+        topic: Option<String>,
         private: bool,
     },
     ChannelLeave {

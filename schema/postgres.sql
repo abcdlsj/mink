@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (5, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (6, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -160,7 +160,14 @@ CREATE TABLE channels (
     created_at TIMESTAMPTZ NOT NULL,
     archived_at TIMESTAMPTZ,
     UNIQUE (id, space_id),
-    CHECK ((kind = 'direct' AND slug IS NULL) OR (kind <> 'direct' AND slug IS NOT NULL))
+    CHECK ((kind = 'direct' AND slug IS NULL) OR (kind <> 'direct' AND slug IS NOT NULL)),
+    CONSTRAINT channels_slug_form_check CHECK (
+        kind = 'direct'
+        OR (
+            char_length(slug) BETWEEN 1 AND 32
+            AND slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'
+        )
+    )
 );
 CREATE UNIQUE INDEX channels_space_slug_unique
     ON channels (space_id, lower(slug)) WHERE kind <> 'direct';

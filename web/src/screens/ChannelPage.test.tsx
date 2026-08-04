@@ -16,6 +16,14 @@ describe("ChannelPage", () => {
     const spaceId = "019c0000-0000-7000-8000-000000000001";
     const ownerId = "019c0000-0000-7000-8000-000000000002";
     const linId = "019c0000-0000-7000-8000-000000000020";
+    const channelMembers = [
+      { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
+      { id: "019c0000-0000-7000-8000-000000000021", kind: "human", display_name: "Bea", access_level: "member", permissions: [] },
+      { id: "019c0000-0000-7000-8000-000000000022", kind: "human", display_name: "Cy", access_level: "member", permissions: [] },
+      { id: "019c0000-0000-7000-8000-000000000023", kind: "human", display_name: "Dee", access_level: "member", permissions: [] },
+      { id: "019c0000-0000-7000-8000-000000000024", kind: "human", display_name: "Eve", access_level: "member", permissions: [] },
+      { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
+    ] as const;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/spaces/by-slug/")) {
@@ -23,10 +31,10 @@ describe("ChannelPage", () => {
       }
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) {
-        return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", name: "general", slug: "general", created_by_member_id: ownerId, joined: true }] });
+        return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true }] });
       }
       if (path.endsWith("/channels") && init?.method === "POST") {
-        return json({ id: "019c0000-0000-7000-8000-000000000030", space_id: spaceId, kind: "private", name: "Design", slug: "design", topic: "Decisions", created_by_member_id: ownerId, joined: true }, 201);
+        return json({ id: "019c0000-0000-7000-8000-000000000030", space_id: spaceId, kind: "private", slug: "design", topic: "Decisions", created_by_member_id: ownerId, joined: true }, 201);
       }
       if (path.endsWith("/dms") && !init?.method) {
         return json([{ channel_id: "dm", space_id: spaceId, other_member: { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] }, created_at: "2026-07-25T00:00:00Z" }]);
@@ -37,18 +45,12 @@ describe("ChannelPage", () => {
       if (path.endsWith("/computers") && !init?.method) return json([]);
       if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) {
         return json({
-          members: [
-            { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
-            { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
-          ],
+          members: channelMembers,
           can_manage: true,
         });
       }
       if (path.endsWith("/members") && !init?.method) {
-        return json([
-          { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] },
-          { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] },
-        ]);
+        return json(channelMembers);
       }
       if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) {
         return json({ channel_id: channelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
@@ -69,6 +71,10 @@ describe("ChannelPage", () => {
     expect(channelComposer).toHaveAttribute("placeholder", "Message #general");
     expect(channelComposer).toHaveAttribute("rows", "1");
     expect(channelComposer.closest("form")).toHaveClass("composer");
+    const memberList = await screen.findByRole("list", { name: "Channel members" });
+    for (const member of channelMembers) {
+      expect(within(memberList).getByRole("img", { name: `${member.display_name} avatar` })).toBeVisible();
+    }
     expect(screen.getAllByLabelText("Lin is Working").length).toBeGreaterThanOrEqual(2);
     const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
     expect(linIdenticons.every(Boolean)).toBe(true);
@@ -87,7 +93,6 @@ describe("ChannelPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create Channel" }));
     const dialog = screen.getByRole("dialog", { name: "Create Channel" });
-    fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Design" } });
     fireEvent.change(within(dialog).getByLabelText("Slug"), { target: { value: "design" } });
     fireEvent.change(within(dialog).getByLabelText("Visibility"), { target: { value: "private" } });
     fireEvent.change(within(dialog).getByLabelText("Topic"), { target: { value: "Decisions" } });
@@ -99,7 +104,6 @@ describe("ChannelPage", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            name: "Design",
             slug: "design",
             kind: "private",
             topic: "Decisions",
@@ -126,7 +130,7 @@ describe("ChannelPage", () => {
       const path = String(input);
       if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
-      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", name: "general", slug: "general", created_by_member_id: ownerId, joined: true }] });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true }] });
       if (path.endsWith("/dms") && !init?.method) return json(directMessageCreated ? [createdDirectMessage] : []);
       if (path.endsWith("/dms") && init?.method === "POST") {
         directMessageCreated = true;
@@ -209,7 +213,6 @@ describe("ChannelPage", () => {
               id: channelId,
               space_id: "019c0000-0000-7000-8000-000000000001",
               kind: "public",
-              name: "general",
               slug: "general",
               topic: "Shared work",
               created_by_member_id: "019c0000-0000-7000-8000-000000000002",

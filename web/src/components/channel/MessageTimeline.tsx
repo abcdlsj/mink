@@ -345,7 +345,7 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
     return <ExpandableMessageText messageId={message.id} body={message.content.body_markdown} mentionedMembers={mentionedMembers} taskRefs={taskRefs} spaceSlug={spaceSlug} />;
   }
   if (message.content.type === "channel_created") {
-    return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.name}</Link> : <span>Unavailable channel</span>}</p>;
+    return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.slug}</Link> : <span>Unavailable channel</span>}</p>;
   }
   if (message.content.type === "system_notice") {
     return <p className="system-event system-event--message">{message.content.body_markdown}</p>;
@@ -775,7 +775,7 @@ function textBody(message: Message): string {
 
 function messagePreview(message: Message): string {
   if (message.content.type === "text") return message.content.body_markdown;
-  if (message.content.type === "channel_created") return `Created channel #${message.content.channel.name}`;
+  if (message.content.type === "channel_created") return `Created channel #${message.content.channel.slug}`;
   if (message.content.type === "system_notice") return message.content.body_markdown;
   return `Created agent ${message.content.agent.name} · ${message.content.agent.lifecycle}`;
 }

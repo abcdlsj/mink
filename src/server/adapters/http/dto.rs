@@ -33,7 +33,6 @@ pub(super) struct CreateSpaceBody {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CreateChannelBody {
-    pub(super) name: String,
     pub(super) slug: String,
     pub(super) kind: String,
     pub(super) topic: Option<String>,
@@ -186,7 +185,6 @@ pub(super) fn channel_row(
     Ok(ChannelResponse {
         id: row.get("id"),
         space_id: row.get("space_id"),
-        name: topic.clone().unwrap_or_else(|| slug.clone()),
         slug,
         topic,
         kind,
@@ -401,7 +399,7 @@ pub(super) async fn message_row(
                 .unwrap_or_default(),
         },
         "channel_created" => {
-            let target = sqlx::query("SELECT id,slug,topic,archived_at FROM channels WHERE id=$1")
+            let target = sqlx::query("SELECT id,slug,archived_at FROM channels WHERE id=$1")
                 .bind(row.get::<Uuid, _>("action_channel_id"))
                 .fetch_one(pool)
                 .await
@@ -410,9 +408,6 @@ pub(super) async fn message_row(
             MessageContentResponse::ChannelCreated {
                 channel: ActionChannelResponse {
                     id: target.get("id"),
-                    name: target
-                        .get::<Option<String>, _>("topic")
-                        .unwrap_or_else(|| slug.clone()),
                     slug,
                     available: target
                         .get::<Option<OffsetDateTime>, _>("archived_at")

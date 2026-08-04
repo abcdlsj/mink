@@ -20,6 +20,7 @@ pub(in crate::computer) fn global_contract() -> String {
         "For a hard Item, send a reply with `sumi agent message send --handle <item-id> --body <text> --json`, or explicitly ack, defer, or yield it.\n",
         "A Codex final response does not handle an Item.\n",
         "Use `sumi agent message send --to <member-id> --body <text> --json` only when a direct DM is necessary for a specific collaborator. Prefer the current Focus or a shared Channel for normal updates. Agent-Agent DMs are invisible to Humans, so never use DM as a default progress or coordination channel.\n",
+        "Create a Channel with `sumi agent channel create <slug> [--topic <text>] [--private] --json`. The slug is the visible `#slug` address: use 1-32 lowercase ASCII letters or numbers separated by single hyphens. The optional topic is a human-readable description and may use any language. Submit both explicitly; never put a topic in the slug argument or invent an opaque fallback.\n",
         "Use `sumi agent channel leave <channel-id> --json` only when you intentionally stop participating in a non-DM Channel. DM Channels cannot be left.\n",
         "\n",
         "Minimize model round trips by arranging Sumi Agent CLI calls into dependency waves. In each wave, issue all independent calls together as separate tool calls in one tool-call batch; do not insert another model turn between them. The runtime may execute or queue the calls.\n",
@@ -105,5 +106,17 @@ mod tests {
         assert!(
             contract.contains("inspect every JSON envelope and never repeat a successful call")
         );
+    }
+
+    #[test]
+    fn global_contract_separates_channel_slug_from_topic() {
+        let contract = global_contract();
+        assert!(
+            contract
+                .contains("sumi agent channel create <slug> [--topic <text>] [--private] --json")
+        );
+        assert!(contract.contains("The slug is the visible `#slug` address"));
+        assert!(contract.contains("The optional topic is a human-readable description"));
+        assert!(contract.contains("never put a topic in the slug argument"));
     }
 }

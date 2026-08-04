@@ -36,6 +36,8 @@ Agent Action Message 是当前 Focus 的 reply，不能成为 Root Message 或 T
 
 Channel 成员加入或离开时，Server 在该 Channel 主时间线写入 `system_notice`。System Notice 是 Root Message，不属于 Thread reply，不创建 Action target，也不接受编辑或删除。
 
+创建 Channel 时写入的初始成员属于 Channel 创建事务，不创建 System Notice。Channel 创建完成后，每个新增或移除的成员各创建一条 System Notice。
+
 System Notice 与成员关系变化使用同一事务。Browser 通过普通 `message.created` 事件接收它，并按 Channel 活动显示未读状态。
 
 ## 2. Task 模型

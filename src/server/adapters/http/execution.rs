@@ -6,19 +6,6 @@ use crate::server::domain::{
     identity::valid_display_name,
 };
 
-fn channel_slug(name: &str, id: Uuid) -> String {
-    let base = name
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .collect::<String>()
-        .to_lowercase();
-    format!(
-        "{}-{}",
-        if base.is_empty() { "channel" } else { &base },
-        &id.simple().to_string()[24..]
-    )
-}
-
 /// Resolve `@display_name` tokens in an Agent message body against the target
 /// Channel Members. The Server never parses message bodies for consumers, but
 /// the Agent CLI sends plain Markdown, so the Server resolves mentions from the
@@ -903,8 +890,17 @@ pub(super) async fn execute_agent_action(
             )
             .await
         }
-        capability::Action::ChannelCreate { name, private } => {
-            let activity_name = name.clone();
+        capability::Action::ChannelCreate {
+            slug,
+            topic,
+            private,
+        } => {
+            let slug = slug.trim().to_owned();
+            let activity_slug = slug.clone();
+            let topic = topic
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+            let activity_topic = topic.clone();
             let focus = activity_thread_reference(&state.pool, context.focus_thread_id).await;
             let channel_id = ChannelId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
@@ -918,8 +914,8 @@ pub(super) async fn execute_agent_action(
                     } else {
                         ChannelKind::Public
                     },
-                    slug: Some(channel_slug(&name, channel_id.into_uuid())),
-                    topic: Some(name),
+                    slug: Some(slug),
+                    topic,
                     action_message_id: MessageId::from_uuid(Uuid::now_v7()),
                     actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
                     idempotency_key: request.idempotency_key.ok_or_else(|| {
@@ -935,6 +931,11 @@ pub(super) async fn execute_agent_action(
             )
             .await
             .map_err(app_to_capability)?;
+            let mut arguments = vec![("slug", activity_slug)];
+            if let Some(topic) = activity_topic {
+                arguments.push(("topic", topic));
+            }
+            arguments.push(("private", private.to_string()));
             record_agent_activity(
                 state,
                 context.space_id.into_uuid(),
@@ -947,15 +948,20 @@ pub(super) async fn execute_agent_action(
                         "thread_id": context.focus_thread_id,
                         "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
                     }),
-                    vec![("name", activity_name), ("private", private.to_string())],
+                    arguments,
                     None,
                 ),
             )
             .await;
-            Ok(json!({"channel_id":channel.id,"kind":if private{"private"}else{"public"}}))
+            Ok(json!({
+                "channel_id": channel.id,
+                "slug": channel.slug,
+                "topic": channel.topic,
+                "kind": if private { "private" } else { "public" }
+            }))
         }
         capability::Action::ChannelLeave { channel_id } => {
-            let channel_label = activity_channel_label(state, channel_id)
+            let channel_label = activity_channel_address(state, channel_id)
                 .await
                 .unwrap_or_else(|| "Channel".to_owned());
             let key = request.idempotency_key.ok_or_else(|| {
@@ -1507,6 +1513,9 @@ pub(super) fn api_to_capability(error: ApiError) -> capability::Error {
         capability::ErrorCode::ContextChanged
     } else {
         match error.status {
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => {
+                capability::ErrorCode::InvalidArgument
+            }
             StatusCode::NOT_FOUND => capability::ErrorCode::NotFound,
             StatusCode::FORBIDDEN => capability::ErrorCode::PermissionDenied,
             StatusCode::CONFLICT => capability::ErrorCode::Conflict,
@@ -1652,13 +1661,14 @@ pub(in crate::server::adapters) fn activity_thread_label(
     )
 }
 
-async fn activity_channel_label(state: &RuntimeState, channel_id: ChannelId) -> Option<String> {
-    sqlx::query_scalar("SELECT COALESCE(topic,slug,'Direct message') FROM channels WHERE id=$1")
+async fn activity_channel_address(state: &RuntimeState, channel_id: ChannelId) -> Option<String> {
+    let slug = sqlx::query_scalar::<_, Option<String>>("SELECT slug FROM channels WHERE id=$1")
         .bind(channel_id.into_uuid())
         .fetch_optional(&state.pool)
         .await
         .ok()
-        .flatten()
+        .flatten()?;
+    slug.map(|value| format!("#{value}"))
 }
 
 async fn activity_member_label(state: &RuntimeState, member_id: MemberId) -> Option<String> {
@@ -1728,9 +1738,8 @@ async fn activity_message_target(
                 .unwrap_or_else(|| "Thread".to_owned())
         }
         capability::MessageTarget::Channel(channel_id) => {
-            activity_channel_label(state, *channel_id)
+            activity_channel_address(state, *channel_id)
                 .await
-                .map(|name| format!("#{name}"))
                 .unwrap_or_else(|| "Channel".to_owned())
         }
         capability::MessageTarget::Member(member_id) => activity_member_label(state, *member_id)

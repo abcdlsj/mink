@@ -39,7 +39,6 @@ describe("Phase one Human flows", () => {
               id: space.general_channel_id,
               space_id: space.id,
               kind: "public",
-              name: "general",
               slug: "general",
               topic: null,
               created_by_member_id: space.owner_member_id,
@@ -200,7 +199,7 @@ describe("Phase one Human flows", () => {
         return json({ id: "user", display_name: "Ada Lovelace", email: "ada@example.test" });
       }
       if (path.endsWith("/channels") && !init?.method) {
-        return json({ can_create: true, channels: [{ id: space.general_channel_id, space_id: space.id, kind: "public", name: "general", slug: "general", created_by_member_id: space.owner_member_id, joined: true }] });
+        return json({ can_create: true, channels: [{ id: space.general_channel_id, space_id: space.id, kind: "public", slug: "general", created_by_member_id: space.owner_member_id, joined: true }] });
       }
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
