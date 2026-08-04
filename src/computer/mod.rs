@@ -521,9 +521,9 @@ where
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             Some(run_id) = yield_interrupts.recv() => {
-                if let Err(error) = RunService::interrupt_terminal(storage, driver, run_id).await {
-                    tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
-                }
+                handle_yield_interrupt(storage, driver, run_id, max_concurrent_runs)
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error))?;
                 send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
             }
             _ = heartbeat.tick() => {
@@ -592,6 +592,18 @@ where
             }
         }
     }
+}
+
+async fn handle_yield_interrupt<P: TransactionPort, D: DriverPort>(
+    storage: &mut P,
+    driver: &mut D,
+    run_id: RunId,
+    max_concurrent_runs: usize,
+) -> Result<(), ApplicationError> {
+    if let Err(error) = RunService::interrupt_terminal(storage, driver, run_id).await {
+        tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
+    }
+    SchedulerService::dispatch(storage, driver, max_concurrent_runs).await
 }
 
 async fn send_next_pending_event<P>(

@@ -127,7 +127,7 @@ Yield 不是 cancel，不是 Session reset。
 
 ## 10. 并发上限
 
-`computer.max_concurrent_runs` 是内存保护阈值，防止一台 Computer 同时运行过多 Driver 进程耗尽内存。默认 32。
+`computer.max_concurrent_runs` 是内存保护阈值，防止一台 Computer 同时运行过多 Driver 进程耗尽内存。默认 1000。
 
 它不是调度器，不用于性能调优，取值不依据 CPU 核数。Agent 执行以等待 Driver 返回为主，不以本机计算为主。
 

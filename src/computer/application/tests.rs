@@ -833,6 +833,58 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
 }
 
 #[tokio::test]
+async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let first = local_run(None, thread_id(), []);
+    let second = local_run(None, thread_id(), []);
+    let first_id = first.view().id;
+    let second_id = second.view().id;
+    for (sequence, run) in [(1, first), (2, second)] {
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut MemoryHome::default(),
+            command_id(),
+            sequence,
+            Command::Start {
+                run: Box::new(run),
+                fingerprint: fingerprint(1, "workspace-a"),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    SchedulerService::dispatch(&mut store, &mut driver, 1)
+        .await
+        .unwrap();
+    let (running_id, queued_id) =
+        if store.state.runs[&first_id].view().state == LocalRunState::Running {
+            (first_id, second_id)
+        } else {
+            (second_id, first_id)
+        };
+
+    RunService::yield_run(&mut store, running_id, None)
+        .await
+        .unwrap();
+    crate::computer::handle_yield_interrupt(&mut store, &mut driver, running_id, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.state.runs[&running_id].view().state,
+        LocalRunState::Yielded
+    );
+    assert_eq!(
+        store.state.runs[&queued_id].view().state,
+        LocalRunState::Running
+    );
+    assert_eq!(driver.interrupt_count, 1);
+    assert_eq!(driver.start_count, 2);
+}
+
+#[tokio::test]
 async fn second_run_resumes_task_session_and_resume_loss_creates_new_generation() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();

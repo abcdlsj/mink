@@ -148,9 +148,7 @@ impl Default for ComputerConfig {
             codex_config_source: None,
             codex_auth_source: None,
             builtin: None,
-            max_concurrent_runs: std::thread::available_parallelism()
-                .map(|count| (count.get() / 2).max(1))
-                .unwrap_or(1),
+            max_concurrent_runs: 1000,
             per_agent_timeout_seconds: 30 * 60,
             shutdown_grace_period_seconds: 20,
         }
@@ -376,6 +374,7 @@ mod tests {
     fn local_defaults_use_sumi_home_with_separate_boundaries() {
         let config = SumiConfig::default();
         assert_eq!(config.server.database_url, "postgres://localhost/sumi_prod");
+        assert_eq!(config.computer.max_concurrent_runs, 1000);
         let home = std::env::var_os("HOME").map(PathBuf::from);
         if let Some(home) = home {
             assert_eq!(default_config_path(), home.join(".sumi/config.toml"));
