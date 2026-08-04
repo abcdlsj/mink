@@ -1,0 +1,13 @@
+.git
+.gitignore
+.claude
+.sumi
+target
+web/dist
+web/node_modules
+web/test-results
+web/playwright-report
+*.log
+.env
+.env.*
+
