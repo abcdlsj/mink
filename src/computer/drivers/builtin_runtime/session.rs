@@ -5,11 +5,85 @@ use super::types::{Message, TokenUsage};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Session {
     pub(super) messages: Vec<Message>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    compaction: Option<Compaction>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Compaction {
+    through: usize,
+    summary: String,
 }
 
 impl Session {
     pub(super) fn add(&mut self, message: Message) {
         self.messages.push(message);
+    }
+
+    pub(super) fn model_messages(&self) -> Vec<Message> {
+        let mut messages = Vec::new();
+        if let Some(compaction) = &self.compaction {
+            messages.push(Message::system(format!(
+                "Previous conversation summary (provider context only):\n{}",
+                compaction.summary
+            )));
+        }
+        let start = self
+            .compaction
+            .as_ref()
+            .map_or(0, |compaction| compaction.through.min(self.messages.len()));
+        messages.extend(self.messages[start..].iter().cloned());
+        messages
+    }
+
+    pub(super) fn estimated_model_tokens(&self) -> usize {
+        self.model_messages()
+            .iter()
+            .map(|message| serde_json::to_string(message).map_or(0, |value| value.len()))
+            .sum::<usize>()
+            .div_ceil(4)
+    }
+
+    pub(super) fn compaction_boundary(&self, recent_messages: usize) -> usize {
+        let target = self.messages.len().saturating_sub(recent_messages);
+        let compacted_through = self.compacted_through();
+        let start = target.max(compacted_through.saturating_add(1));
+        (start..self.messages.len())
+            .find(|&index| self.messages[index].role == "user")
+            .unwrap_or(0)
+    }
+
+    pub(super) fn compaction_source(&self, through: usize) -> Vec<Message> {
+        let start = self
+            .compaction
+            .as_ref()
+            .map_or(0, |compaction| compaction.through.min(through));
+        let mut source = Vec::new();
+        if let Some(compaction) = &self.compaction {
+            source.push(Message::system(format!(
+                "Existing summary of earlier conversation:\n{}",
+                compaction.summary
+            )));
+        }
+        source.extend(
+            self.messages[start..through.min(self.messages.len())]
+                .iter()
+                .cloned(),
+        );
+        source
+    }
+
+    pub(super) fn apply_compaction(&mut self, through: usize, summary: String) {
+        self.compaction = Some(Compaction {
+            through: through.min(self.messages.len()),
+            summary,
+        });
+    }
+
+    pub(super) fn compacted_through(&self) -> usize {
+        self.compaction
+            .as_ref()
+            .map_or(0, |compaction| compaction.through.min(self.messages.len()))
     }
 
     pub(super) fn token_usage(&self) -> TokenUsage {
@@ -83,5 +157,45 @@ mod tests {
         assert_eq!(usage.output_tokens, 200);
         assert_eq!(usage.cached_input_tokens, 3700);
         assert_eq!(usage.cache_write_tokens, 300);
+    }
+
+    #[test]
+    fn compaction_keeps_append_only_history_and_projects_summary_with_recent_tail() {
+        let mut session = Session::default();
+        session.add(Message::user("old request"));
+        session.add(Message {
+            role: "assistant".into(),
+            content: "old response".into(),
+            ..Default::default()
+        });
+        session.add(Message::user("recent request"));
+        session.apply_compaction(2, "The old work is complete.".into());
+
+        let encoded = serde_json::to_vec(&session).unwrap();
+        let session: Session = serde_json::from_slice(&encoded).unwrap();
+
+        assert_eq!(session.messages.len(), 3);
+        let projected = session.model_messages();
+        assert_eq!(projected[0].role, "system");
+        assert!(projected[0].content.contains("The old work is complete."));
+        assert_eq!(projected[1].content, "recent request");
+    }
+
+    #[test]
+    fn compaction_boundary_must_advance_past_the_existing_summary() {
+        let mut session = Session::default();
+        for index in 0..7 {
+            session.add(Message::user(format!("request {index}")));
+            session.add(Message {
+                role: "assistant".into(),
+                content: format!("response {index}"),
+                ..Default::default()
+            });
+        }
+        session.apply_compaction(2, "summary".into());
+
+        assert_eq!(session.compaction_boundary(12), 4);
+        session.apply_compaction(4, "new summary".into());
+        assert_eq!(session.compaction_boundary(12), 6);
     }
 }

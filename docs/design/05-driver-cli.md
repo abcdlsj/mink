@@ -87,6 +87,12 @@ Builtin 的模型凭据只存在于 Computer。文件和 shell tool 只能访问
 
 工具子进程不能获得 Computer Token 或模型 API key。
 
+Builtin 把 append-only provider conversation history 与发送给模型的 active context 分开保存。active context 接近实现阈值时，Builtin 使用同一 provider 把较早历史压缩为 provider-only summary，并保留最近消息作为尾部。summary、压缩边界和完整历史都只属于 Provider Session 缓存，不成为 Message、Memory 或 Task 事实。压缩遵守[Computer 与 Agent](04-computer-agent.md)定义的 Session generation 规则。
+
+Provider 明确返回 context limit 错误时，Builtin 可以在同一个 Turn 内执行一次压缩并重试。该恢复不创建新 Run 或 Session generation。压缩失败、重试仍失败或没有可压缩历史时，Turn 失败。
+
+Chat Completions stream 只有在收到正常`finish_reason`后才能完成。连接提前结束、输出因长度截断或异常终止时，Builtin 必须报告 Driver 失败。Computer 为压缩和失败记录不含 Message、Memory、tool output 或 Provider transcript 正文的诊断码。
+
 Builtin 不支持某项能力时必须报告 capability。daemon 不能静默回退到 Codex，也不能改变 Run 语义。
 
 ## 5. Agent capability

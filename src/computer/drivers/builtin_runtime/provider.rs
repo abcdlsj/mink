@@ -134,7 +134,7 @@ impl Provider for OpenAiProvider {
                     .await;
                 return;
             }
-            let _ = tx.send(Chunk::Done { usage: state.usage }).await;
+            let _ = tx.send(completion_chunk(state)).await;
         });
         Ok(rx)
     }
@@ -255,6 +255,7 @@ fn build_openai_request(
 struct OpenAiStreamState {
     tool_calls: BTreeMap<usize, PendingToolCall>,
     usage: Option<TokenUsage>,
+    finish_reason: Option<String>,
 }
 
 #[derive(Default)]
@@ -262,6 +263,21 @@ struct PendingToolCall {
     id: String,
     name: String,
     arguments: String,
+}
+
+fn completion_chunk(state: OpenAiStreamState) -> Chunk {
+    match state.finish_reason.as_deref() {
+        Some("stop" | "tool_calls") => Chunk::Done { usage: state.usage },
+        Some("length") => Chunk::Error {
+            message: "provider_output_truncated".into(),
+        },
+        Some(_) => Chunk::Error {
+            message: "provider_stream_abnormal_finish".into(),
+        },
+        None => Chunk::Error {
+            message: "provider_stream_incomplete".into(),
+        },
+    }
 }
 
 async fn handle_stream_chunk(
@@ -314,6 +330,12 @@ async fn handle_stream_chunk(
             }
         }
 
+        if let Some(reason) = choice["finish_reason"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+        {
+            state.finish_reason = Some(reason.to_owned());
+        }
         if choice["finish_reason"].as_str() == Some("tool_calls") {
             flush_tool_calls(state, tx).await?;
         }
@@ -483,5 +505,27 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.to_string().contains("invalid JSON arguments"));
+    }
+
+    #[test]
+    fn stream_requires_a_successful_finish_reason() {
+        assert!(matches!(
+            completion_chunk(OpenAiStreamState {
+                finish_reason: Some("stop".into()),
+                ..Default::default()
+            }),
+            Chunk::Done { .. }
+        ));
+        assert!(matches!(
+            completion_chunk(OpenAiStreamState::default()),
+            Chunk::Error { message } if message == "provider_stream_incomplete"
+        ));
+        assert!(matches!(
+            completion_chunk(OpenAiStreamState {
+                finish_reason: Some("length".into()),
+                ..Default::default()
+            }),
+            Chunk::Error { message } if message == "provider_output_truncated"
+        ));
     }
 }

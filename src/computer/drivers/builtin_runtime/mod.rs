@@ -38,7 +38,7 @@ use crate::{
 
 use self::{
     config::BuiltinProviderConfig,
-    engine::{Engine, Turn},
+    engine::{Engine, Turn, failure_code},
     provider::OpenAiProvider,
     session::Session,
     tool_executor::{ToolExecutor, ToolRunner},
@@ -250,11 +250,27 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                     }
                 }
             });
-            let outcome = if engine.run(&turn, &mut session, &events, None).await.is_ok() {
-                DriverTurnOutcome::Completed
-            } else {
-                DriverTurnOutcome::Failed
+            let compacted_before = session.compacted_through();
+            let outcome = match engine.run(&turn, &mut session, &events, None).await {
+                Ok(()) => DriverTurnOutcome::Completed,
+                Err(error) => {
+                    tracing::warn!(
+                        %run_id,
+                        failure_code = failure_code(&error),
+                        "Builtin turn failed"
+                    );
+                    DriverTurnOutcome::Failed
+                }
             };
+            let compacted_after = session.compacted_through();
+            if compacted_after > compacted_before {
+                tracing::info!(
+                    %run_id,
+                    compacted_messages = compacted_after - compacted_before,
+                    retained_messages = session.messages.len() - compacted_after,
+                    "Builtin provider context compacted"
+                );
+            }
             let usage = session.token_usage();
             tracing::info!(
                 %run_id,
@@ -264,6 +280,11 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 "Builtin model usage"
             );
             if persist_session(&session_path, &session).await.is_err() {
+                tracing::warn!(
+                    %run_id,
+                    failure_code = "session_persist_failed",
+                    "Builtin turn failed"
+                );
                 return DriverTurnOutcome::Failed;
             }
             outcome
