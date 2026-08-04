@@ -887,6 +887,79 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
 }
 
 #[tokio::test]
+async fn committed_command_wakes_the_online_connection() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_command_wakeup_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let mut adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
+        let space_id = Uuid::now_v7();
+        let owner_id = Uuid::now_v7();
+        let computer_id = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','wakeup','Wake Up','#FE7DA8','{owner_id}',now());
+             INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner',now());
+             INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','wakeup-hash','online',1,now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let registry = adapter.commands();
+        let (_connection, mut wakeups) = registry.connect(computer_id);
+
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .queue_command(
+                        ComputerId::from_uuid(computer_id),
+                        Command::AgentRetire(AgentRetire {
+                            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+                        }),
+                    )
+                    .await
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), wakeups.recv())
+                .await
+                .expect("committed command must wake the online connection")
+                .expect("command registry channel must stay open"),
+            ()
+        );
+
+        let pending: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM computer_commands WHERE acked_at IS NULL")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(pending, 1);
+    }
+    .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
 async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
     let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());

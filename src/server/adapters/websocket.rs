@@ -58,6 +58,7 @@ pub(super) fn negotiate(
     }
 }
 
+use super::command::CommandRegistry;
 use super::http::{ApiError, ComputerPrincipal};
 use super::query::QueryRegistry;
 use crate::server::application::execution::{
@@ -76,6 +77,7 @@ pub(super) async fn computer_socket(
     storage: PostgresAdapter,
     pool: PgPool,
     queries: QueryRegistry,
+    commands: CommandRegistry,
     computer_id: Uuid,
     deleted: bool,
 ) {
@@ -122,28 +124,15 @@ pub(super) async fn computer_socket(
             Err(error) => tracing::error!(%computer_id, ?error, "Computer Run sync failed"),
         }
     }
-    if let Ok(commands) = super::websocket::replay_commands(
+    let mut sent_watermark = replay_pending_commands(
         &storage,
+        &mut socket,
         ComputerId::from_uuid(computer_id),
         hello.command_watermark,
     )
-    .await
-    {
-        for envelope in commands {
-            if send_json(
-                &mut socket,
-                &ServerFrame::Command {
-                    envelope: Box::new(envelope),
-                },
-            )
-            .await
-            .is_err()
-            {
-                break;
-            }
-        }
-    }
+    .await;
     let (connection, mut outbound) = queries.connect(computer_id);
+    let (command_connection, mut command_wakeups) = commands.connect(computer_id);
     loop {
         let frame = tokio::select! {
             outgoing = outbound.recv() => {
@@ -151,6 +140,17 @@ pub(super) async fn computer_socket(
                 if send_json(&mut socket, &outgoing).await.is_err() {
                     break;
                 }
+                continue;
+            }
+            wakeup = command_wakeups.recv() => {
+                let Some(()) = wakeup else { break };
+                sent_watermark = replay_pending_commands(
+                    &storage,
+                    &mut socket,
+                    ComputerId::from_uuid(computer_id),
+                    sent_watermark,
+                )
+                .await;
                 continue;
             }
             frame = socket.next() => match frame {
@@ -172,26 +172,15 @@ pub(super) async fn computer_socket(
                     .bind(heartbeat.observed_at)
                     .execute(&pool)
                     .await;
-                if let Ok(commands) = super::websocket::replay_commands(
+                let replay_watermark = replay_pending_commands(
                     &storage,
+                    &mut socket,
                     ComputerId::from_uuid(computer_id),
                     CommandSequence(0),
                 )
-                .await
-                {
-                    for envelope in commands {
-                        if send_json(
-                            &mut socket,
-                            &ServerFrame::Command {
-                                envelope: Box::new(envelope),
-                            },
-                        )
-                        .await
-                        .is_err()
-                        {
-                            break;
-                        }
-                    }
+                .await;
+                if replay_watermark.0 > sent_watermark.0 {
+                    sent_watermark = replay_watermark;
                 }
             }
             ComputerFrame::CommandAck { .. } => {}
@@ -352,11 +341,40 @@ pub(super) async fn computer_socket(
             }
         }
     }
+    commands.disconnect(command_connection);
     queries.disconnect(connection);
     let _ = sqlx::query("UPDATE computers SET connection_status='offline' WHERE id=$1")
         .bind(computer_id)
         .execute(&pool)
         .await;
+}
+
+/// Sends every pending command after `watermark` and returns the last sequence actually sent.
+async fn replay_pending_commands(
+    storage: &PostgresAdapter,
+    socket: &mut WebSocket,
+    computer_id: ComputerId,
+    watermark: CommandSequence,
+) -> CommandSequence {
+    let mut sent = watermark;
+    if let Ok(commands) = super::websocket::replay_commands(storage, computer_id, watermark).await {
+        for envelope in commands {
+            let sequence = envelope.sequence;
+            if send_json(
+                socket,
+                &ServerFrame::Command {
+                    envelope: Box::new(envelope),
+                },
+            )
+            .await
+            .is_err()
+            {
+                break;
+            }
+            sent = sequence;
+        }
+    }
+    sent
 }
 
 async fn apply_command_result(

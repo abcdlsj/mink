@@ -327,6 +327,7 @@ impl PostgresTransaction {
         computer_id: ComputerId,
         command: Command,
     ) -> Result<(), ApplicationError> {
+        self.notified_computers.insert(computer_id.into_uuid());
         let sequence: i64 = sqlx::query_scalar(
             "UPDATE computers SET next_command_seq=next_command_seq+1 \
              WHERE id=$1 AND deleted_at IS NULL RETURNING next_command_seq-1",

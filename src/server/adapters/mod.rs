@@ -1,3 +1,4 @@
+mod command;
 mod credential;
 mod http;
 mod object_storage;

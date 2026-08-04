@@ -62,20 +62,29 @@ const BASELINE: &str = include_str!("../../../../schema/postgres.sql");
 #[derive(Clone)]
 pub(super) struct PostgresAdapter {
     pool: PgPool,
+    commands: super::command::CommandRegistry,
 }
 
 pub(super) struct PostgresTransaction {
     connection: PoolConnection<Postgres>,
     effects: Vec<Effect>,
+    notified_computers: std::collections::BTreeSet<Uuid>,
 }
 
 impl PostgresAdapter {
     pub(super) fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            commands: super::command::CommandRegistry::default(),
+        }
     }
 
     pub(super) fn pool(&self) -> PgPool {
         self.pool.clone()
+    }
+
+    pub(super) fn commands(&self) -> super::command::CommandRegistry {
+        self.commands.clone()
     }
 
     pub(super) async fn initialize_schema(&self) -> Result<(), sqlx::Error> {
@@ -459,6 +468,7 @@ impl TransactionPort for PostgresAdapter {
                 .await
                 .map_err(|_| ApplicationError::Unavailable)?,
             effects: Vec::new(),
+            notified_computers: std::collections::BTreeSet::new(),
         };
         sqlx::query("BEGIN")
             .execute(&mut *transaction.connection)
@@ -477,6 +487,9 @@ impl TransactionPort for PostgresAdapter {
                 {
                     transaction.rollback().await;
                     return Err(error);
+                }
+                for computer_id in std::mem::take(&mut transaction.notified_computers) {
+                    self.commands.notify(computer_id);
                 }
                 Ok(value)
             }

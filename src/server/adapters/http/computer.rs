@@ -21,12 +21,14 @@ pub(super) async fn connect_computer(
     let storage = state.storage.clone();
     let pool = state.storage.pool();
     let queries = state.queries.clone();
+    let commands = state.storage.commands();
     Ok(upgrade.on_upgrade(move |socket| {
         computer_socket(
             socket,
             storage,
             pool,
             queries,
+            commands,
             computer_id,
             identity.deleted,
         )
