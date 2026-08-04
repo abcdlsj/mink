@@ -471,10 +471,14 @@ impl SyncComputerRuns {
                     }
                     let mut released = 0;
                     let mut dead = 0;
-                    // A reported disposition is already an Agent decision. Apply it to the Inbox
-                    // without spending a failed-run retry; only an unreported Item is a lost attempt.
+                    // An explicit Agent decision is Handled or Deferred. A missing or `Released`
+                    // disposition is the Computer's automatic settlement for an unresolved Item,
+                    // so it spends a failed-run retry.
                     for run_item in run.items().collect::<Vec<_>>() {
-                        let Some(disposition) = run_item.disposition else {
+                        if matches!(
+                            run_item.disposition,
+                            None | Some(InboxItemDisposition::Released)
+                        ) {
                             run.set_item_disposition(
                                 run_item.inbox_item_id,
                                 InboxItemDisposition::Released,
@@ -513,7 +517,10 @@ impl SyncComputerRuns {
                             }
                             transaction.emit(Effect::InboxChanged(agent_id));
                             continue;
-                        };
+                        }
+                        let disposition = run_item
+                            .disposition
+                            .expect("non-released disposition was checked above");
                         let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
                         let item_view = item.view();
                         if item_view.status == InboxItemStatus::Assigned
@@ -574,7 +581,14 @@ impl CompleteRun {
             if run.is_terminal() {
                 return Ok(run);
             }
+            let failed = input.outcome == RunOutcome::Failed;
             for item_input in input.item_dispositions {
+                // On a failed Run a `Released` disposition is the Computer's automatic settlement
+                // for an Item the Agent never resolved, not an Agent decision. It is counted as a
+                // failed attempt below, so it must not be applied as an explicit release here.
+                if failed && item_input.disposition == InboxItemDisposition::Released {
+                    continue;
+                }
                 run.set_item_disposition(item_input.item_id, item_input.disposition)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
                 let item_view = item.view();
@@ -592,9 +606,12 @@ impl CompleteRun {
             }
             // A failed Run leaves Items the Agent never resolved. They return to the queue here,
             // spending one retry, because this report is the only signal that the attempt failed.
-            if input.outcome == RunOutcome::Failed {
+            if failed {
                 for run_item in run.items().collect::<Vec<_>>() {
-                    if run_item.disposition.is_some() {
+                    if matches!(
+                        run_item.disposition,
+                        Some(InboxItemDisposition::Handled | InboxItemDisposition::Deferred)
+                    ) {
                         continue;
                     }
                     let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;

@@ -2228,16 +2228,24 @@ async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
     let lost_run = run(269);
     let handled = item(270);
     let unresolved = item(271);
+    let released = item(272);
     let now = OffsetDateTime::UNIX_EPOCH + time::Duration::hours(5);
     let mut port = MemoryPort::default();
     insert_thread(&mut port, focus, &[agent]);
 
-    let mut current = running_run(lost_run, agent, focus, None, vec![handled, unresolved]);
+    let mut current = running_run(
+        lost_run,
+        agent,
+        focus,
+        None,
+        vec![handled, unresolved, released],
+    );
     update_test_run(&mut current, |snapshot| {
         snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+        snapshot.items[2].disposition = Some(InboxItemDisposition::Released);
     });
     port.state.runs.insert(lost_run, current);
-    for item_id in [handled, unresolved] {
+    for item_id in [handled, unresolved, released] {
         let mut assigned = inbox(item_id, agent, focus, None, InboxItemStatus::Assigned);
         update_test_item(&mut assigned, |snapshot| {
             snapshot.assigned_run_id = Some(lost_run);
@@ -2258,7 +2266,7 @@ async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
     .unwrap();
 
     assert_eq!(synced.runs_failed, 1);
-    assert_eq!(synced.items_released, 1);
+    assert_eq!(synced.items_released, 2);
     assert_eq!(synced.items_dead, 0);
     assert_eq!(port.state.runs[&lost_run].view().status, RunStatus::Failed);
     let run_items = port.state.runs[&lost_run].items().collect::<Vec<_>>();
@@ -2271,6 +2279,10 @@ async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
         Some(InboxItemDisposition::Released)
     );
     assert_eq!(
+        run_items[2].disposition,
+        Some(InboxItemDisposition::Released)
+    );
+    assert_eq!(
         port.state.items[&handled].view().status,
         InboxItemStatus::Handled
     );
@@ -2280,6 +2292,11 @@ async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
         InboxItemStatus::Pending
     );
     assert_eq!(port.state.items[&unresolved].view().retry_count, 1);
+    assert_eq!(
+        port.state.items[&released].view().status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(port.state.items[&released].view().retry_count, 1);
 }
 
 #[tokio::test]
@@ -3307,7 +3324,103 @@ async fn late_result_for_a_terminal_run_is_idempotent_after_recovery() {
         port.state.items[&item_id].view().status,
         InboxItemStatus::Pending
     );
+    assert_eq!(port.state.items[&item_id].view().retry_count, 1);
     assert_eq!(port.state.completed_run_events.len(), 1);
+}
+
+#[tokio::test]
+async fn failed_run_without_reported_disposition_releases_item_and_counts_retry() {
+    let run_id = run(1635);
+    let item_id = item(1636);
+    let agent_id = member(1637);
+    let focus = thread(1638);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent_id]);
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent_id, focus, None, vec![item_id]),
+    );
+    let mut assigned = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
+    update_test_item(&mut assigned, |snapshot| {
+        snapshot.assigned_run_id = Some(run_id);
+    });
+    port.state.items.insert(item_id, assigned);
+
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1639),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Failed,
+            error_code: Some(RunErrorCode::DriverError),
+            item_dispositions: Vec::new(),
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    let item = port.state.items[&item_id].view();
+    assert_eq!(item.status, InboxItemStatus::Pending);
+    assert_eq!(item.retry_count, 1);
+    assert_eq!(item.assigned_run_id, None);
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Failed);
+    assert_eq!(
+        port.state.runs[&run_id].view().error_code,
+        Some(RunErrorCode::DriverError)
+    );
+}
+
+#[tokio::test]
+async fn failed_run_counts_an_automatic_release_as_a_retry() {
+    let run_id = run(1640);
+    let item_id = item(1641);
+    let agent_id = member(1642);
+    let focus = thread(1643);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent_id]);
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    port.state.runs.insert(
+        run_id,
+        running_run(run_id, agent_id, focus, None, vec![item_id]),
+    );
+    let mut assigned = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
+    update_test_item(&mut assigned, |snapshot| {
+        snapshot.assigned_run_id = Some(run_id);
+    });
+    port.state.items.insert(item_id, assigned);
+
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1644),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Failed,
+            error_code: Some(RunErrorCode::DriverError),
+            item_dispositions: vec![ItemDispositionInput {
+                item_id,
+                disposition: InboxItemDisposition::Released,
+            }],
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    let item = port.state.items[&item_id].view();
+    assert_eq!(item.status, InboxItemStatus::Pending);
+    assert_eq!(item.retry_count, 1);
 }
 
 fn insert_thread(port: &mut MemoryPort, id: ThreadId, members: &[MemberId]) {
