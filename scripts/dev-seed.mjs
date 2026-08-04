@@ -21,6 +21,8 @@ import { uuidv7 } from "../web/scripts/uuid.mjs";
 
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
 export const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex");
+const CODEX_HOME_FROM_ENV =
+  process.env.SUMI_SEED_CODEX_HOME !== undefined && process.env.SUMI_SEED_CODEX_HOME !== "";
 const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi", "config.toml");
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";
@@ -135,12 +137,19 @@ export function extractComputerPairingUrl(line) {
   }
 }
 
-export function buildSeedComputerConfig(source, { server, stateDir, codexHome }) {
+export function buildSeedComputerConfig(
+  source,
+  { server, stateDir, codexHome, codexHomeFromEnv = false },
+) {
   const forced = new Map([
     ["server_url", JSON.stringify(server)],
     ["state_dir", JSON.stringify(stateDir)],
     ["open_pairing_browser", "false"],
   ]);
+  if (codexHomeFromEnv) {
+    forced.set("codex_config_source", JSON.stringify(join(codexHome, "config.toml")));
+    forced.set("codex_auth_source", JSON.stringify(join(codexHome, "auth.json")));
+  }
   const defaults = new Map([
     ["codex_config_source", JSON.stringify(join(codexHome, "config.toml"))],
     ["codex_auth_source", JSON.stringify(join(codexHome, "auth.json"))],
@@ -277,7 +286,12 @@ function spawnCodexDaemon(stateDir, expectPairing) {
   const baseConfig = existsSync(BASE_CONFIG) ? readFileSync(BASE_CONFIG, "utf8") : "";
   writeFileSync(
     configPath,
-    buildSeedComputerConfig(baseConfig, { server: SERVER, stateDir, codexHome: CODEX_HOME }),
+    buildSeedComputerConfig(baseConfig, {
+      server: SERVER,
+      stateDir,
+      codexHome: CODEX_HOME,
+      codexHomeFromEnv: CODEX_HOME_FROM_ENV,
+    }),
     { mode: 0o600 },
   );
   chmodSync(configPath, 0o600);

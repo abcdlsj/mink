@@ -38,6 +38,10 @@ test("development seed defaults to codex and accepts a local command override", 
     readFileSync(new URL("./dev-seed.mjs", import.meta.url), "utf8"),
     /SUMI_SEED_CODEX_HOME \?\? join\(homedir\(\), "\.codex"\)/,
   );
+  assert.match(
+    readFileSync(new URL("./dev-seed.mjs", import.meta.url), "utf8"),
+    /codexHomeFromEnv: CODEX_HOME_FROM_ENV/,
+  );
 });
 
 test("development seed copies local Computer configuration with isolated runtime overrides", () => {
@@ -55,6 +59,21 @@ test("development seed copies local Computer configuration with isolated runtime
   assert.match(config, /token = "test-token"/);
   assert.match(config, /model = "deepseek-v4-pro"/);
   assert.match(config, /codex_auth_source = "\/fallback\/codex\/auth\.json"/);
+});
+
+test("development seed env Codex home overrides explicit base config sources", () => {
+  const config = buildSeedComputerConfig(
+    `[computer]\ncodex_config_source = "/custom/codex/config.toml"\ncodex_auth_source = "/custom/codex/auth.json"\n`,
+    {
+      server: "http://127.0.0.1:3000",
+      stateDir: "/tmp/sumi-seed/computer",
+      codexHome: "/env/codex",
+      codexHomeFromEnv: true,
+    },
+  );
+
+  assert.match(config, /codex_config_source = "\/env\/codex\/config\.toml"/);
+  assert.match(config, /codex_auth_source = "\/env\/codex\/auth\.json"/);
 });
 
 test("development seed extracts the Computer pairing URL without depending on log prose", () => {
