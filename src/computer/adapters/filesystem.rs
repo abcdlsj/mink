@@ -404,8 +404,16 @@ fn sanitize_codex_config(input: &toml::Table) -> Result<toml::Table, Application
         "model",
         "model_reasoning_effort",
         "disable_response_storage",
+        "forced_login_method",
+        "model_catalog_json",
     ];
-    const PROVIDER_KEYS: &[&str] = &["name", "base_url", "wire_api", "requires_openai_auth"];
+    const PROVIDER_KEYS: &[&str] = &[
+        "name",
+        "base_url",
+        "wire_api",
+        "requires_openai_auth",
+        "env_key",
+    ];
 
     let provider = input
         .get("model_provider")
@@ -420,7 +428,16 @@ fn sanitize_codex_config(input: &toml::Table) -> Result<toml::Table, Application
     let mut output = toml::Table::new();
     for key in ROOT_KEYS {
         if let Some(value) = input.get(*key) {
-            output.insert((*key).to_owned(), value.clone());
+            if *key == "model_catalog_json" {
+                let path = value
+                    .as_str()
+                    .map(expand_tilde_path)
+                    .transpose()?
+                    .ok_or(ApplicationError::DriverUnavailable)?;
+                output.insert((*key).to_owned(), toml::Value::String(path));
+            } else {
+                output.insert((*key).to_owned(), value.clone());
+            }
         }
     }
     let mut sanitized_provider = toml::Table::new();
@@ -440,6 +457,24 @@ fn sanitize_codex_config(input: &toml::Table) -> Result<toml::Table, Application
         )])),
     );
     Ok(output)
+}
+
+fn expand_tilde_path(value: &str) -> Result<String, ApplicationError> {
+    let home = std::env::var_os("HOME").ok_or(ApplicationError::DriverUnavailable)?;
+    if value == "~" {
+        return PathBuf::from(home)
+            .into_os_string()
+            .into_string()
+            .map_err(|_| ApplicationError::DriverUnavailable);
+    }
+    let Some(rest) = value.strip_prefix("~/") else {
+        return Ok(value.to_owned());
+    };
+    PathBuf::from(home)
+        .join(rest)
+        .into_os_string()
+        .into_string()
+        .map_err(|_| ApplicationError::DriverUnavailable)
 }
 
 async fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), ApplicationError> {
@@ -759,12 +794,14 @@ mod tests {
 model_provider = "local"
 model = "test-model"
 project_trust = "trusted"
+forced_login_method = "api"
+model_catalog_json = "~/models.json"
 
 [model_providers.local]
 name = "Local"
 base_url = "https://provider.invalid"
 wire_api = "responses"
-env_key = "MUST_NOT_COPY"
+env_key = "LOCAL_API_KEY"
 
 [mcp_servers.private]
 command = "must-not-copy"
@@ -794,9 +831,12 @@ command = "must-not-copy"
         let installed = std::fs::read_to_string(codex_home.join("config.toml")).unwrap();
         assert!(installed.contains("test-model"));
         assert!(installed.contains("https://provider.invalid"));
+        assert!(installed.contains("forced_login_method = \"api\""));
+        assert!(installed.contains("models.json"));
+        assert!(!installed.contains("~/models.json"));
+        assert!(installed.contains("LOCAL_API_KEY"));
         assert!(!installed.contains("project_trust"));
         assert!(!installed.contains("mcp_servers"));
-        assert!(!installed.contains("MUST_NOT_COPY"));
         assert_eq!(
             std::fs::read(codex_home.join("auth.json")).unwrap(),
             br#"{"OPENAI_API_KEY":"secret"}"#

@@ -20,7 +20,7 @@ import readline from "node:readline";
 import { uuidv7 } from "../web/scripts/uuid.mjs";
 
 const SERVER = process.env.SUMI_SEED_SERVER ?? "http://127.0.0.1:3000";
-const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex");
+export const CODEX_HOME = process.env.SUMI_SEED_CODEX_HOME ?? join(homedir(), ".codex");
 const BASE_CONFIG = process.env.SUMI_SEED_BASE_CONFIG ?? join(homedir(), ".sumi", "config.toml");
 const OWNER_EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
 const OWNER_PASSWORD = process.env.SUMI_SEED_PASSWORD ?? "correct horse battery staple";

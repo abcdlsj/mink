@@ -1,10 +1,16 @@
 #!/bin/sh
 set -eu
 
+run_dev() {
+  SUMI_SEED_CODEX_HOME="${SUMI_SEED_CODEX_HOME:-}" \
+    SUMI_SEED_CODEX_COMMAND="${SUMI_SEED_CODEX_COMMAND:-}" \
+    mise run dev
+}
+
 case "${1:-}" in
   "")
     mise run db-start
-    mise run dev
+    run_dev
     ;;
   clean)
     if [ "$#" -ne 1 ]; then
@@ -28,9 +34,10 @@ case "${1:-}" in
   *)
     if [ "$#" -ne 1 ] || [ -z "$1" ]; then
       echo "usage: mise run dev-seed [clean|codex-command]" >&2
+      echo "env: SUMI_SEED_CODEX_HOME=/path/to/codex-home" >&2
       exit 2
     fi
     SUMI_SEED_CODEX_COMMAND="$1" mise run db-start
-    SUMI_SEED_CODEX_COMMAND="$1" mise run dev
+    SUMI_SEED_CODEX_COMMAND="$1" run_dev
     ;;
 esac

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   AGENT_PROFILES,
+  CODEX_HOME,
   CODEX_COMMAND,
   DEV_CHANNEL_SLUG,
   DEV_SPACE,
@@ -22,10 +23,21 @@ import {
 test("development seed defaults to codex and accepts a local command override", () => {
   assert.equal(typeof CODEX_COMMAND, "string");
   assert.ok(CODEX_COMMAND.length > 0);
+  assert.equal(typeof CODEX_HOME, "string");
+  assert.ok(CODEX_HOME.length > 0);
 
   const taskScript = readFileSync(new URL("./dev-seed-task.sh", import.meta.url), "utf8");
-  assert.match(taskScript, /SUMI_SEED_CODEX_COMMAND=\"\$1\" mise run dev/);
+  assert.match(
+    taskScript,
+    /SUMI_SEED_CODEX_HOME="\$\{SUMI_SEED_CODEX_HOME:-}"[\s\S]*?SUMI_SEED_CODEX_COMMAND="\$\{SUMI_SEED_CODEX_COMMAND:-}"[\s\S]*?mise run dev/,
+  );
+  assert.match(taskScript, /SUMI_SEED_CODEX_COMMAND="\$1" run_dev/);
+  assert.match(taskScript, /SUMI_SEED_CODEX_HOME=\/path\/to\/codex-home/);
   assert.match(readFileSync(new URL("./dev-seed.mjs", import.meta.url), "utf8"), /SUMI_CODEX_COMMAND: CODEX_COMMAND/);
+  assert.match(
+    readFileSync(new URL("./dev-seed.mjs", import.meta.url), "utf8"),
+    /SUMI_SEED_CODEX_HOME \?\? join\(homedir\(\), "\.codex"\)/,
+  );
 });
 
 test("development seed copies local Computer configuration with isolated runtime overrides", () => {
