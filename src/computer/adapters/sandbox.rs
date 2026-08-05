@@ -35,10 +35,12 @@ impl SandboxAdapter {
             let profile = format!(
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
-                  (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") (literal \"/\") \
+                  (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
+                  (subpath \"/private\") (literal \"/\") \
                   (literal \"{}\") (literal \"{}\") \
                   (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))\
+                 (allow file-read-metadata)\
                  (allow file-write* (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))",
                 escape(executable)?,
