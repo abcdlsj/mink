@@ -2091,6 +2091,8 @@ fn claimed_item(
 ) -> DispatchedItemInput {
     DispatchedItemInput {
         item_id,
+        source_kind: "mention".to_owned(),
+        strength: WorkStrength::Hard,
         task_id,
         channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
         thread_id,

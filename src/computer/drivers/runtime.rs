@@ -796,6 +796,8 @@ done
                     &locator,
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
+                        source_kind: "mention".to_owned(),
+                        strength: crate::computer::core::scheduler::WorkStrength::Hard,
                         task_id: None,
                         channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
                         thread_id,

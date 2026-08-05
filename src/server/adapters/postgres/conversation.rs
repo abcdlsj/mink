@@ -654,6 +654,13 @@ impl PostgresTransaction {
         .map_err(map_sqlx)?;
         let space_id: Uuid = channel.get("space_id");
         let channel_kind: String = channel.get("kind");
+        let author_is_agent: bool =
+            sqlx::query_scalar("SELECT kind='agent' FROM members WHERE id=$1 AND space_id=$2")
+                .bind(draft.author_member_id.into_uuid())
+                .bind(space_id)
+                .fetch_one(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
         let snapshot = u64::try_from(channel.get::<i64, _>("snapshot"))
             .map_err(|_| ApplicationError::Internal)?;
         if draft
@@ -837,6 +844,11 @@ impl PostgresTransaction {
             } else if reply_author == Some(member_id.into_uuid()) {
                 InboxItemKind::Reply
             } else {
+                // Agent progress remains visible in the Channel, but it must not wake other Agents
+                // through passive ambient attention. Explicit hard routes above still apply.
+                if author_is_agent && is_agent {
+                    continue;
+                }
                 let subscribed = subscribers.contains(&member_id.into_uuid());
                 if !is_agent && !subscribed {
                     continue;

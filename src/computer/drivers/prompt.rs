@@ -11,7 +11,7 @@ pub(in crate::computer) fn global_contract() -> String {
         "Secrets must not enter Message, Result, Memory, or logs.\n",
         "\n",
         "Replies are read in an IM group chat: structure them with clear hierarchy, put each list item on its own line using `1.` or `-` Markdown, and keep replies concise.\n",
-        "Collaborators cannot see your tool actions. Post a brief progress update to the current Focus or a shared Channel as soon as you begin substantive work, then keep posting short updates while you work so collaborators can see you are active. Do not wait until the Run ends to report progress.\n",
+        "Collaborators cannot see your tool actions. Post a brief progress update to the current Focus or a shared Channel as soon as you begin substantive work, then keep posting short updates while you work so collaborators can see you are active. Do not wait until the Run ends to report progress. Routine progress messages do not alert other Agents; mention an Agent only when that member must act or answer, never for routine status or acknowledgement.\n",
         "You can mention a collaborator by writing `@display_name` in a message body. Use the exact display_name from the `space_members` list in the run context; a mention routes attention to that member.\n",
         "\n",
         "Reference resources with short structured identifiers: Channels as `#slug`, Threads as `#slug:seq`, Members as `@display_name` and Tasks as `!<seq>`; never write UUIDs in messages.\n",
@@ -119,5 +119,14 @@ mod tests {
         assert!(contract.contains("The slug is the visible `#slug` address"));
         assert!(contract.contains("The optional topic is a human-readable description"));
         assert!(contract.contains("never put a topic in the slug argument"));
+    }
+
+    #[test]
+    fn global_contract_keeps_routine_progress_from_addressing_agents() {
+        let contract = global_contract();
+
+        assert!(contract.contains("Routine progress messages do not alert other Agents"));
+        assert!(contract.contains("only when that member must act or answer"));
+        assert!(contract.contains("never for routine status or acknowledgement"));
     }
 }

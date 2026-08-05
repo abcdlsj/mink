@@ -446,6 +446,8 @@ fn session_fingerprint(
 fn dispatched_item(item: &wire::InboxItemSnapshot) -> DispatchedItemInput {
     DispatchedItemInput {
         item_id: item.item_id,
+        source_kind: inbox_source_kind(item.source_kind).to_owned(),
+        strength: item_strength(item.strength),
         task_id: item.task_id,
         channel_id: item.channel_id,
         thread_id: item.thread_id,
@@ -469,6 +471,25 @@ fn activity_event_kind(kind: wire::ActivityEventKind) -> &'static str {
         wire::ActivityEventKind::Message => "message",
         wire::ActivityEventKind::MemberJoined => "member_joined",
         wire::ActivityEventKind::MemberLeft => "member_left",
+    }
+}
+
+fn inbox_source_kind(kind: wire::InboxSourceKind) -> &'static str {
+    match kind {
+        wire::InboxSourceKind::Direct => "direct",
+        wire::InboxSourceKind::Mention => "mention",
+        wire::InboxSourceKind::Reply => "reply",
+        wire::InboxSourceKind::TaskActivity => "task_activity",
+        wire::InboxSourceKind::ThreadActivity => "thread_activity",
+        wire::InboxSourceKind::ChannelActivity => "channel_activity",
+        wire::InboxSourceKind::System => "system",
+    }
+}
+
+fn item_strength(strength: wire::AttentionStrength) -> WorkStrength {
+    match strength {
+        wire::AttentionStrength::Hard => WorkStrength::Hard,
+        wire::AttentionStrength::Ambient => WorkStrength::Ambient,
     }
 }
 
@@ -614,14 +635,36 @@ mod tests {
             },
             application::{LocalRun, ProviderSession},
         },
-        ids::{AgentId, ChannelId, CommandId, MemberId, MessageId, RunId, SpaceId, ThreadId},
+        ids::{
+            AgentId, ChannelId, CommandId, InboxItemId, MemberId, MessageId, RunId, SpaceId,
+            ThreadId,
+        },
         protocol::computer::{
-            AgentConfiguration, CommandEnvelope, CommandSequence, DriverKind as WireDriverKind,
-            FocusSnapshot, MessageContent, MessageSnapshot, RoleSnapshot, RunStart,
+            AgentConfiguration, AttentionStrength, CommandEnvelope, CommandSequence,
+            DriverKind as WireDriverKind, FocusSnapshot, InboxItemSnapshot, InboxSourceKind,
+            MessageContent, MessageSnapshot, RoleSnapshot, RunStart,
         },
     };
 
     struct NoopDriver;
+
+    #[test]
+    fn dispatched_item_preserves_source_kind_and_strength() {
+        let item = dispatched_item(&InboxItemSnapshot {
+            item_id: InboxItemId::from_uuid(Uuid::now_v7()),
+            source_kind: InboxSourceKind::ChannelActivity,
+            strength: AttentionStrength::Ambient,
+            channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+            thread_id: ThreadId::from_uuid(Uuid::now_v7()),
+            task_id: None,
+            message: None,
+            activity_events: Vec::new(),
+            available_at: OffsetDateTime::now_utc(),
+        });
+
+        assert_eq!(item.source_kind, "channel_activity");
+        assert_eq!(item.strength, WorkStrength::Ambient);
+    }
 
     #[async_trait(?Send)]
     impl DriverPort for NoopDriver {

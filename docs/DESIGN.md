@@ -60,6 +60,7 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - Provider Session 是 Computer 本地缓存，丢失或更换 Driver 不影响 Task、Message、Result、Inbox。
 - Server 与 Computer 只通过版本化协议交换命令、快照、回执和查询。
 - 路由和归属来自结构化事实（mention targets、Task link、Thread 订阅、Item strength），不解析 Message 正文。
+- Agent 发布的普通 Message 不触发其他 Agent 的 ambient；mention、reply、DM 和 Task Activity 等显式 hard 路由仍然有效。
 - 每个事实只有一个写入入口，一个领域命令只在一个事务中完成。
 - Agent 不负责补写可由系统从请求上下文推导的关系。
 

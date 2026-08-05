@@ -319,6 +319,135 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
 }
 
 #[tokio::test]
+async fn agent_messages_do_not_create_ambient_items_for_other_agents() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_agent_ambient_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let mut adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
+        let space = Uuid::now_v7();
+        let owner = Uuid::now_v7();
+        let author_agent = Uuid::now_v7();
+        let recipient_agent = Uuid::now_v7();
+        let subscribed_agent = Uuid::now_v7();
+        let computer = Uuid::now_v7();
+        let channel = Uuid::now_v7();
+        let root = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','agent-ambient','Agent Ambient','#FE7DA8','{owner}',now());
+             INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES
+               ('{owner}','{space}','human','Owner','owner',now()),
+               ('{author_agent}','{space}','agent','Author','member',now()),
+               ('{recipient_agent}','{space}','agent','Recipient','member',now()),
+               ('{subscribed_agent}','{space}','agent','Subscriber','member',now());
+             INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer}','{space}','Computer','localhost','linux','agent-ambient-hash','offline',1,now());
+             INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES
+               ('{author_agent}','{space}','{computer}','Act',1,'active','codex',now()),
+               ('{recipient_agent}','{space}','{computer}','Act',1,'active','codex',now()),
+               ('{subscribed_agent}','{space}','{computer}','Act',1,'active','codex',now());
+             INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+             INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES
+               ('{channel}','{space}','{owner}',now(),0),
+               ('{channel}','{space}','{author_agent}',now(),0),
+               ('{channel}','{space}','{recipient_agent}',now(),0),
+               ('{channel}','{space}','{subscribed_agent}',now(),0);
+             INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+             INSERT INTO thread_subscriptions(thread_id,space_id,member_id,created_at) VALUES ('{root}','{space}','{subscribed_agent}',now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ordinary_message = MessageId::from_uuid(Uuid::now_v7());
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .publish_message(MessageDraft {
+                        message_id: ordinary_message,
+                        channel_id: ChannelId::from_uuid(channel),
+                        author_member_id: MemberId::from_uuid(author_agent),
+                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        body_markdown: "routine progress".into(),
+                        thread_id: Some(ThreadId::from_uuid(root)),
+                        reply_to_message_id: None,
+                        mentions: Vec::new(),
+                        mention_all: false,
+                        attachment_ids: Vec::new(),
+                        handled_item: None,
+                        expected_snapshot: None,
+                        now: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let ordinary_items: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM inbox_items WHERE message_id=$1 OR (message_id IS NULL AND member_id IN ($2,$3))",
+        )
+        .bind(ordinary_message.into_uuid())
+        .bind(recipient_agent)
+        .bind(subscribed_agent)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ordinary_items, 0);
+
+        let addressed_message = MessageId::from_uuid(Uuid::now_v7());
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .publish_message(MessageDraft {
+                        message_id: addressed_message,
+                        channel_id: ChannelId::from_uuid(channel),
+                        author_member_id: MemberId::from_uuid(author_agent),
+                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        body_markdown: "@Recipient please review".into(),
+                        thread_id: Some(ThreadId::from_uuid(root)),
+                        reply_to_message_id: None,
+                        mentions: vec![MemberId::from_uuid(recipient_agent)],
+                        mention_all: false,
+                        attachment_ids: Vec::new(),
+                        handled_item: None,
+                        expected_snapshot: None,
+                        now: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let addressed: (Uuid, String, String) = sqlx::query_as(
+            "SELECT member_id,kind,strength FROM inbox_items WHERE message_id=$1",
+        )
+        .bind(addressed_message.into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(addressed, (recipient_agent, "mention".into(), "hard".into()));
+        pool.close().await;
+    }
+    .await;
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
 async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thread_activity() {
     let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());

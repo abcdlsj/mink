@@ -180,6 +180,8 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
     driver.start_turn(&run, &opened.locator).await.unwrap();
     let item = DispatchedItemInput {
         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
+        source_kind: "mention".to_owned(),
+        strength: WorkStrength::Hard,
         task_id: None,
         channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
         thread_id: run.view().focus_thread_id,

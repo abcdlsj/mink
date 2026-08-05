@@ -1105,6 +1105,8 @@ mod tests {
         let column_item_id = InboxItemId::from_uuid(Uuid::now_v7());
         let item = DispatchedItemInput {
             item_id: json_item_id,
+            source_kind: "mention".to_owned(),
+            strength: WorkStrength::Hard,
             task_id: None,
             channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
             thread_id,
@@ -1206,6 +1208,8 @@ mod tests {
         let dispatched_items = item_id
             .map(|item_id| DispatchedItemInput {
                 item_id,
+                source_kind: "mention".to_owned(),
+                strength: WorkStrength::Hard,
                 task_id: None,
                 channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
                 thread_id,

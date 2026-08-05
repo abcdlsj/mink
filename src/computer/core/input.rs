@@ -7,6 +7,8 @@ use time::OffsetDateTime;
 
 use crate::ids::{AgentId, InboxItemId, MemberId, MessageId, NoticeId, SpaceId, TaskId, ThreadId};
 
+use super::scheduler::WorkStrength;
+
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunInput {
     pub(in crate::computer) global_contract: String,
@@ -85,6 +87,8 @@ impl fmt::Debug for ContextMessageInput {
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct DispatchedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
+    pub(in crate::computer) source_kind: String,
+    pub(in crate::computer) strength: WorkStrength,
     pub(in crate::computer) task_id: Option<TaskId>,
     pub(in crate::computer) channel_id: crate::ids::ChannelId,
     pub(in crate::computer) thread_id: ThreadId,
@@ -123,6 +127,11 @@ impl DispatchedItemInput {
     pub(in crate::computer) fn content_hash(&self) -> String {
         let mut digest = Sha256::new();
         digest.update(self.item_id.to_string().as_bytes());
+        digest.update(self.source_kind.as_bytes());
+        digest.update(match self.strength {
+            WorkStrength::Hard => b"hard" as &[u8],
+            WorkStrength::Ambient => b"ambient" as &[u8],
+        });
         digest.update(format!("{:?}", self.task_id).as_bytes());
         digest.update(self.channel_id.to_string().as_bytes());
         digest.update(self.thread_id.to_string().as_bytes());
@@ -151,6 +160,8 @@ impl fmt::Debug for DispatchedItemInput {
         formatter
             .debug_struct("DispatchedItemInput")
             .field("item_id", &self.item_id)
+            .field("source_kind", &self.source_kind)
+            .field("strength", &self.strength)
             .field("task_id", &self.task_id)
             .field("channel_id", &self.channel_id)
             .field("thread_id", &self.thread_id)
@@ -238,6 +249,17 @@ impl RunInput {
             .map(|item| {
                 let mut view = serde_json::Map::new();
                 view.insert("item_id".to_owned(), serde_json::json!(item.item_id));
+                view.insert(
+                    "source_kind".to_owned(),
+                    serde_json::json!(&item.source_kind),
+                );
+                view.insert(
+                    "strength".to_owned(),
+                    serde_json::json!(match item.strength {
+                        WorkStrength::Hard => "hard",
+                        WorkStrength::Ambient => "ambient",
+                    }),
+                );
                 if let Some(task_id) = item.task_id {
                     view.insert("task_id".to_owned(), serde_json::json!(task_id));
                 }
@@ -352,6 +374,8 @@ mod tests {
     fn item(item_sequence: u64, message_id: Option<MessageId>) -> DispatchedItemInput {
         DispatchedItemInput {
             item_id: InboxItemId::from_uuid(Uuid::from_u128(200 + u128::from(item_sequence))),
+            source_kind: "mention".to_owned(),
+            strength: WorkStrength::Hard,
             task_id: None,
             channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
             thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
@@ -490,6 +514,8 @@ mod tests {
             claimed[0]["item_id"],
             serde_json::to_value(items[0].item_id).unwrap()
         );
+        assert_eq!(claimed[0]["source_kind"], "mention");
+        assert_eq!(claimed[0]["strength"], "hard");
     }
 
     #[test]
