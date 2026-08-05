@@ -1,0 +1,94 @@
+# DESIGN
+
+Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在线、可被新消息打断或转向的协作者；Agent 身份、Message、Task、Result 和 Memory 在 Run、Provider Session、Computer 生命周期之外持续存在。
+
+本文件定义产品要求。系统要求见 `SYSTEM_DESIGN.md`，界面要求见 `UI_DESIGN.md`。代码不是事实来源；实现与要求冲突时必须修改实现，禁止用兼容层保留两套行为。
+
+## 领域词汇
+
+以下词汇是代码、协议、API 和 UI 共用的规范语言。使用 _Avoid_ 中的词会引入第二套概念。
+
+| 词 | 定义 | Avoid |
+| --- | --- | --- |
+| Member | 属于一个 Space 的协作者，Human 与 Agent 共用该模型 | Participant、Actor |
+| Display Name | Member 在 Space 中的唯一寻址名称，由字母和下划线组成，不含空格 | Handle、Username |
+| Human | 由人控制并通过账号进入 Space 的 Member | User |
+| Agent | 具有持续身份、Role、Memory，并由一台 Computer 承载的 AI Member | Bot、Assistant |
+| Role | Agent 在 Space 中承担的职责边界，不表示治理权限 | Persona |
+| Memory | 归属于一个 Agent、跨 Task 和 Run 持续存在的本地知识 | Session、Context |
+| Space | Members、Channels、Computers 和治理共同归属的协作边界 | Team、Workspace |
+| Channel | Space 中一组 Members 共享的长期对话空间，DM 是特殊 Channel | Room、Group |
+| DM | 恰好由两个 Members 组成的直接对话 Channel | Private Chat |
+| Message | Member 发布在 Channel 主时间线或 Thread 中的协作内容 | Prompt、Event |
+| Root Message | 发布在 Channel 主时间线的 Message，每条 Root Message 是一个 Thread 的根 | Top-level Message |
+| Thread | 一条 Root Message 及其 replies 组成的讨论支线，继承 Channel 可见范围 | Session、Conversation |
+| Attachment | 由 Member 上传并附加到 Message 的持久文件 | Blob |
+| Action Message | Agent 完成领域 Action 时由同一事务创建的结构化 Message | System Message、Audit Event |
+| System Notice | Server 因 Channel 成员关系变化写入时间线的结构化 Message | System Message |
+| Task | 从一条 Root Message 原子创建的持续工作记录，可关联多个 Thread | Job、Workflow |
+| Task Reference | 以 `!<seq>` 写在 Message 正文中的 Task 引用，seq 是 Space 内自增短序号 | Task UUID、Task ID |
+| Task Status | Task 的工作流位置，只取 TODO、In Progress、In Review、Done、Closed | Run Status |
+| Source Thread | 创建 Task 的 Root Message 所定义的 Thread，必备且不可更换 | Origin Conversation |
+| Linked Thread | 与 Task 中同一项工作直接相关的 Thread，Source Thread 是第一个 | Related Conversation |
+| Focus | 一个 Run 当前处理的唯一 Thread；Run 绑定 Task 时必须是 Linked Thread | Scope、Current Task |
+| Result | Task 对协作者公开的正式工作结论，是一条由 Task 指定的 Message | Run Output |
+| Computer | 与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机 | Node、Worker |
+| Agent Home | 归属于一个 Agent，保存 Memory、workspace 和 Driver 私有状态的本地边界 | Workspace、Computer Home |
+| Driver | Agent 用于推理和行动的可替换执行能力 | Engine、Model |
+| Provider Session | Computer 为一个 Agent 处理一个 Thread 或 Task 时保存的 Driver 对话缓存 | Agent Session |
+| Run | Agent 围绕一个 Focus 完成一次有界处理的执行 | Job、Turn |
+| Trigger | 要求某个 Agent 开始工作的事件，产生 Run，本身不是队列项 | Inbox Item、Claim |
+| Waiting | Agent 没有活跃 Run 的执行状态，是正常状态 | Idle、Sleeping |
+| Inbox | Member 接收待关注信息的持久入口 | Event Queue、Notification Stream |
+| Inbox Item | Inbox 中一条等待处理、延后或重试的注意力事实 | Job、Event |
+| Hard Item | 需要 Agent 明确处理的 Inbox Item，例如 DM、mention、reply | Urgent Message |
+| Ambient Item | 由一段 Channel Activity 聚合形成的 Inbox Item，可以延迟处理 | Background Message |
+| Yield | Agent 结束当前 Run 并保留未完成工作的明确决定，不改变 Task 状态 | Cancel、Pause |
+| Access Level | Member 在 Space 中的治理级别，取 Owner、Admin、Member | Role、Agent Role |
+| Permission | 授予 Member 执行一个特定 Action 的能力 | Role、Access Level |
+| Owner | 对 Space 承担最终控制与恢复责任的唯一 Human Member | Super Admin |
+| Admin | 可以授予 Human 或 Agent 的 Space 管理 Access Level | Agent Admin |
+| Computer Token | Computer 首次配对时生成并长期持有、用于向 Server 证明身份的凭据 | API Key |
+| Driver Token | daemon 为每个 Agent 从内存 secret 派生的本地 capability 凭据 | API Key |
+
+## 产品不变量
+
+- Human 与 Agent 使用同一套 Space、Channel、DM、Thread、Message、Attachment 模型。
+- Task 必须从 Root Message 原子创建，Source Thread 绑定后不可更换；Thread reply 不能成为 Source。
+- 一个 Task 可以关联多个 Thread；一个 Run 只处理一个 Focus；一个 Agent 同时最多有一个 active Run。
+- Run 有界、无期限、不持有执行凭据；Server 不因时间改变 Run 状态；失败只由 Computer 上报。
+- Provider Session 是 Computer 本地缓存，丢失或更换 Driver 不影响 Task、Message、Result、Inbox。
+- Server 与 Computer 只通过版本化协议交换命令、快照、回执和查询。
+- 路由和归属来自结构化事实（mention targets、Task link、Thread 订阅、Item strength），不解析 Message 正文。
+- 每个事实只有一个写入入口，一个领域命令只在一个事务中完成。
+- 正文、Secret、Provider transcript 不进入日志、audit、错误详情或 metrics。
+- Agent 不负责补写可由系统从请求上下文推导的关系。
+
+## 范围
+
+必须实现：
+
+- Human 注册与登录、Space、Member、Access Level 和 Permission 治理。
+- Channel、DM、Message、Thread、mention、Attachment。
+- Computer 配对、在线状态、撤销与本地 Agent Home。
+- Agent 创建、Role、Memory、暂停、恢复、重启、退役。
+- Codex Driver 与 Builtin Driver。
+- Human Inbox 与 Agent Inbox、hard/ambient 注意力路由。
+- Root Message 一步创建 Task；Task 状态、assignee、Linked Threads、Result。
+- Run、Focus、steer、yield、可靠恢复与同 Task 跨 Runs Session resume。
+- Browser HTTP API、Computer WebSocket、Browser SSE 与完整 WebUI。
+
+明确不做：
+
+- 子任务、Task 依赖、工时、截止时间、优先级、审批流。
+- 根据正文自动创建、合并或绑定 Task。
+- 一个 Run 同时执行多个 Focus；一个 Agent 并行运行多个 Runs。
+- Provider Session 跨 Agent、跨 Task 或跨无关 Threads 复用。
+- Server 保存 Provider Session 正文。
+- 旧数据迁移、旧 API 兼容、Windows 运行支持。
+
+## 验收底线
+
+- 新实现能从空 PostgreSQL 和空 Computer Home 建立并完成核心流程。
+- 核心流程、并发与安全边界必须有测试；旧实现、旧入口、旧 schema 必须删除。
+- 行为、协议、数据模型或领域词汇改变时，先更新对应设计文件，再修改代码。
