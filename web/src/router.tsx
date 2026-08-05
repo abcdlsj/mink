@@ -10,6 +10,7 @@ import { RouteChrome } from "./RouteChrome";
 import { ChannelPage } from "./screens/ChannelPage";
 import { AgentDetailPage } from "./screens/AgentDetailPage";
 import { ComputersPage } from "./screens/ComputersPage";
+import { DesignLabPage } from "./screens/DesignLabPage";
 import { InvitationPage } from "./screens/InvitationPage";
 import { InboxPage } from "./screens/InboxPage";
 import { DirectMessagePage } from "./screens/DirectMessagePage";
@@ -67,6 +68,11 @@ const agentsRoute = createRoute({
   path: "/s/$spaceSlug/agents",
   component: AgentsPage,
 });
+const designLabRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/design-lab",
+  component: DesignLabPage,
+});
 const agentDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug/agents/$agentId",
@@ -119,6 +125,7 @@ const routeTree = rootRoute.addChildren([
   channelRoute,
   membersRoute,
   agentsRoute,
+  designLabRoute,
   agentDetailRoute,
   inboxRoute,
   tasksRoute,

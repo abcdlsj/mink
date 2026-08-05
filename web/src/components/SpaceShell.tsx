@@ -60,7 +60,8 @@ export function SpaceShell({
   children,
 }: {
   spaceSlug: string;
-  active: "channel" | "dm" | "members" | "agents" | "inbox" | "tasks" | "computers";
+  // "design" is the demo-only candidate board; it has no rail entry.
+  active: "channel" | "dm" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();

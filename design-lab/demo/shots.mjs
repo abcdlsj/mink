@@ -53,6 +53,7 @@ await shot("/s/sumi-dev/inbox", ".inbox-workspace");
 await shot("/s/sumi-dev/members", ".members-workspace");
 await shot("/s/sumi-dev/agents", ".members-workspace--agents");
 await shot("/s/sumi-dev/computers", ".computers-workspace");
+await shot("/s/sumi-dev/design-lab", ".design-lab", 1200);
 
 // Task detail and Agent detail need IDs; reuse the logged-in page session.
 const ids = await page.evaluate(async () => {

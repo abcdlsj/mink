@@ -23,6 +23,19 @@ Sumi 要对外发布，必须有自己的设计。现有视觉是从最近出现
 - 不随意存档过程文件；只有设计思考（本文件）和可运行 demo 工具（`demo/`）值得保留。
 - worktree 每次开工前先 rebase 到最新 main（main 会精简文件，基线必须最新）。
 
+## 候选对比页（2026-08-06）
+
+URL：`/s/<slug>/design-lab`（demo 环境，不进产品导航）。用途：把抽象讨论变成实物，用户直接看样本选择。
+
+当前候选：
+
+- 色板三组：A 暖糖（珊瑚粉主色相）、B 能量（橙主色相、深墨 rail）、C 信号（蓝主色相、冷中性底）。不采用任何"纸墨/日式"隐喻方向。
+- Space accent 三组色相家族（粉/橙/蓝），每组 4 色。
+- 字体三组：F1 Hanken Grotesk + IBM Plex Mono、F2 Instrument Sans + Spline Sans Mono、F3 Manrope + JetBrains Mono。
+- Task 标识三形态：T0 现状大徽章（用户反馈过大、与消息格格不入）、T1 行内胶囊、T2 元数据行（`!3 · IN REVIEW · Nora`）。
+- 工作线：用真实 Task 数据渲染垂直时间线（Source → Runs → Review → Result），Runs 折叠历史；横向步骤条为备选形态。
+- AX mock：Review 显示 reviewer（需 Task 增加 reviewer 字段）、Agent 焦点标记、像素组件尺寸阶梯（16/24/32/48/64px，整数像素单元）。
+
 ## 现有 UI 舒适感的证据分析
 
 基于真实 demo 的像素分布和计算样式（2026-08-05）：
