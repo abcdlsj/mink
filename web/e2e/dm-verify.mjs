@@ -43,9 +43,9 @@ for (const [width, height, label] of viewports) {
   if (await dialog.getByText("@sumi-dev", { exact: true }).count()) {
     throw new Error(`${label} DM picker includes the current Member`);
   }
-  await dialog.getByLabel("Find a Member").fill("pm");
-  const pm = dialog.getByRole("button", { name: /PM avatar.*@pm/i });
-  await pm.waitFor();
+  await dialog.getByLabel("Find a Member").fill("iris");
+  const iris = dialog.getByRole("button", { name: /Iris avatar.*@iris/i });
+  await iris.waitFor();
 
   const dialogBox = await dialog.boundingBox();
   if (
@@ -59,9 +59,9 @@ for (const [width, height, label] of viewports) {
   }
   await page.screenshot({ path: `${output}/${label}-picker.png`, fullPage: true });
 
-  await pm.click();
+  await iris.click();
   await page.waitForURL(/\/s\/sumi-dev\/dm\//);
-  await page.getByRole("heading", { name: "PM", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Iris", exact: true }).waitFor();
   const placeholder = await page.locator('textarea[aria-label="Message"]').getAttribute("placeholder");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   if (overflow) throw new Error(`${label} DM page has horizontal overflow`);

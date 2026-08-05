@@ -147,13 +147,13 @@ test("development seed cleanup rejects an unrelated custom directory", (context)
   assert.equal(readFileSync(join(target, "keep.txt"), "utf8"), "keep");
 });
 
-test("development seed defines one stable Space and PM/Coder/Reviewer group", () => {
+test("development seed defines one stable Space and Iris/Leo/Nora group", () => {
   assert.deepEqual(DEV_SPACE, { name: "Sumi Dev", slug: "sumi-dev", accent: "#FE7DA8" });
   assert.equal(DEV_CHANNEL_SLUG, "general");
   assert.deepEqual(AGENT_PROFILES.map(({ name, driver_kind }) => ({ name, driver_kind })), [
-    { name: "PM", driver_kind: "builtin" },
-    { name: "Coder", driver_kind: "builtin" },
-    { name: "Reviewer", driver_kind: "builtin" },
+    { name: "Iris", driver_kind: "builtin" },
+    { name: "Leo", driver_kind: "builtin" },
+    { name: "Nora", driver_kind: "builtin" },
   ]);
   assert.equal(new Set(AGENT_PROFILES.map((profile) => profile.role_text)).size, 3);
   for (const profile of AGENT_PROFILES) assert.ok(profile.role_text.length > 80);

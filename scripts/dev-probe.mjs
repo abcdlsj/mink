@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Dev-only probe: logs in as the seed owner, posts a message mentioning @coder in
+// Dev-only probe: logs in as the seed owner, posts a message mentioning @leo in
 // #general, and polls until an agent-authored reply appears. Verifies the codex
 // driver actually produces a real reply end-to-end. Usage:
 //   node scripts/dev-probe.mjs <space-slug>
@@ -44,15 +44,15 @@ async function main() {
 
   const agentsRes = await api("GET", `/api/v1/spaces/${space.id}/agents`, { cookie });
   const agents = await agentsRes.json();
-  const coder = agents.find((agent) => agent.name === "Coder");
-  if (!coder) throw new Error(`@coder not found; agents: ${JSON.stringify(agents)}`);
-  const agentMemberId = coder.member_id;
-  console.log(`[probe] posting mention to @coder (member ${agentMemberId}) in channel ${channelId}`);
+  const implementer = agents.find((agent) => agent.name === "Leo");
+  if (!implementer) throw new Error(`@leo not found; agents: ${JSON.stringify(agents)}`);
+  const agentMemberId = implementer.member_id;
+  console.log(`[probe] posting mention to @leo (member ${agentMemberId}) in channel ${channelId}`);
 
   const post = await api("POST", `/api/v1/channels/${channelId}/messages`, {
     cookie,
     body: {
-      body_markdown: "@coder Reply with a single short sentence to confirm you are alive.",
+      body_markdown: "@leo Reply with a single short sentence to confirm you are alive.",
       mentions: [agentMemberId],
       attachment_ids: [],
     },
@@ -61,7 +61,7 @@ async function main() {
     throw new Error(`post message failed: ${post.status} ${await post.text()}`);
   }
   const posted = await post.json();
-  console.log(`[probe] message posted (id ${posted.id}); waiting for @coder reply...`);
+  console.log(`[probe] message posted (id ${posted.id}); waiting for @leo reply...`);
 
   const deadline = Date.now() + 120_000;
   let lastCount = 0;
@@ -77,7 +77,7 @@ async function main() {
         (m) => m.seq > posted.seq && m.author?.id === agentMemberId,
       );
       if (agentReply) {
-        console.log("[probe] ✅ @coder replied:");
+        console.log("[probe] ✅ @leo replied:");
         console.log("  " + (agentReply.body_markdown ?? JSON.stringify(agentReply)).replace(/\n/g, "\n  "));
         process.exit(0);
       }

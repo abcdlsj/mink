@@ -39,17 +39,17 @@ const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 export const AGENT_PROFILES = Object.freeze([
   Object.freeze({
-    name: "PM",
+    name: "Iris",
     role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
     driver_kind: "builtin",
   }),
   Object.freeze({
-    name: "Coder",
+    name: "Leo",
     role_text: "You are the implementation owner. Diagnose root causes, write focused code, run relevant tests, and report verifiable results. Keep changes simple and never hide failures behind compatibility layers.",
     driver_kind: "builtin",
   }),
   Object.freeze({
-    name: "Reviewer",
+    name: "Nora",
     role_text: "You are the independent reviewer. Inspect specifications and changes for correctness, security, regressions, and missing tests. Challenge weak evidence and do not approve work until risks are explicit.",
     driver_kind: "builtin",
   }),
