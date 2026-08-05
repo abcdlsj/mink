@@ -91,7 +91,7 @@ async function getSpace(cookie) {
 }
 
 async function listChannels(cookie, spaceId) {
-  return ok("channel list", await request("GET", `/api/v1/spaces/${spaceId}/channels`, { cookie }))
+  return (await ok("channel list", await request("GET", `/api/v1/spaces/${spaceId}/channels`, { cookie })))
     .channels;
 }
 
@@ -105,6 +105,10 @@ async function listMembers(cookie, spaceId) {
 
 async function listTasks(cookie, spaceId) {
   return ok("task list", await request("GET", `/api/v1/spaces/${spaceId}/tasks`, { cookie }));
+}
+
+async function getTask(cookie, taskId) {
+  return ok("task read", await request("GET", `/api/v1/tasks/${taskId}`, { cookie }));
 }
 
 async function listMessages(cookie, channelId) {
@@ -280,14 +284,6 @@ async function startTask(cookie, task, assigneeAgentMemberId) {
   );
 }
 
-async function submitReview(cookie, task) {
-  return ok(
-    "submit review",
-    await request("POST", `/api/v1/tasks/${task.id}/submit-review`, { cookie }),
-    200,
-  );
-}
-
 async function completeTask(cookie, task, resultMarkdown, resultThreadId) {
   return ok(
     "complete task",
@@ -321,7 +317,7 @@ async function linkTaskThread(cookie, task, threadId) {
   );
 }
 
-async function ensureTaskRoot(cookie, channelId, marker, title) {
+async function ensureTaskRoot(cookie, channelId, marker) {
   const existingRoot = await findMessageByMarker(cookie, channelId, marker);
   if (existingRoot) return existingRoot;
   return postMessage(cookie, channelId, marker);
@@ -340,28 +336,46 @@ async function createTaskFromRoot(cookie, root, title) {
   return task;
 }
 
-async function driveTaskTo(cookie, task, target, assigneeAgentMemberId) {
-  if (task.status === "done" || task.status === "closed") return task;
-  if (target === "in_progress" && task.status === "todo") {
-    task = await startTask(cookie, task, assigneeAgentMemberId);
+async function askAgentToSubmitReview(cookie, task, agent, attempt = 1) {
+  if (attempt > 2) return false;
+  const instruction = `Sample: @${agent.name} — submit this task for review with the task CLI (sumi task submit-review).`;
+  const thread = await ok(
+    "task thread read",
+    await request("GET", `/api/v1/threads/${task.source_thread.id}`, { cookie }),
+  );
+  if (!thread.replies.some((reply) => reply.content?.body_markdown?.includes(instruction))) {
+    await postThreadReply(cookie, task.source_thread.id, instruction, {
+      mentions: [agent.member_id],
+    });
   }
-  if (target === "in_review") {
-    if (task.status === "todo") task = await startTask(cookie, task, assigneeAgentMemberId);
-    if (task.status === "in_progress") task = await submitReview(cookie, task);
+  log(`asked ${agent.name} to submit task ${task.title}; waiting for a real Run...`);
+  const deadline = Date.now() + 150_000;
+  while (Date.now() < deadline) {
+    await sleep(3000);
+    const current = await getTask(cookie, task.id);
+    if (current.status === "in_review") return true;
   }
-  if (target === "done") {
-    if (task.status === "todo") task = await startTask(cookie, task, assigneeAgentMemberId);
-    if (task.status === "in_progress") task = await submitReview(cookie, task);
-    if (task.status === "in_review") {
-      task = await completeTask(
-        cookie,
-        task,
-        "Sample result: verified and accepted.",
-        task.source_thread.id,
-      );
-    }
+  return askAgentToSubmitReview(cookie, task, agent, attempt + 1);
+}
+
+async function cancelActiveRuns(cookie, spaceId) {
+  const agents = await listAgents(cookie, spaceId);
+  for (const agent of agents) {
+    const current = await request(
+      "GET",
+      `/api/v1/agents/${agent.member_id}/runs/current`,
+      { cookie },
+    );
+    if (current.response.status !== 200) continue;
+    const run = current.json?.current_run;
+    if (!run?.id) continue;
+    const canceled = await request(
+      "POST",
+      `/api/v1/agents/${agent.member_id}/runs/${run.id}/cancel`,
+      { cookie },
+    );
+    if (canceled.response.ok) log(`canceled stale run for ${agent.name}`);
   }
-  return task;
 }
 
 async function main() {
@@ -408,12 +422,13 @@ async function main() {
       "```",
     ].join("\n"),
   );
+  // Kept as plain text: a real mention would start a Run and occupy an Agent
+  // before the review samples below are driven.
   await ensureMessage(
     ownerCookie,
     general.id,
-    "Sample: mention — Leo, confirm you are online",
-    "Sample: mention — Leo, confirm you are online.",
-    { mentions: [leo.member_id] },
+    "Sample: agent note — Leo, confirm you are online",
+    "Sample: agent note — Leo, confirm you are online.",
   );
   await ensureAttachmentMessage(
     ownerCookie,
@@ -480,14 +495,19 @@ async function main() {
   ];
 
   const existingTasks = await listTasks(ownerCookie, space.id);
-  const doneSample = [];
+  const sampleTasks = new Map();
   for (const sample of taskSamples) {
     let task = existingTasks.find((candidate) => candidate.title === sample.title);
     if (!task) {
-      const root = await ensureTaskRoot(ownerCookie, designLab.id, sample.marker, sample.title);
+      const root = await ensureTaskRoot(ownerCookie, designLab.id, sample.marker);
       task = await createTaskFromRoot(ownerCookie, root, sample.title);
     }
-    task = await driveTaskTo(ownerCookie, task, sample.target, leo.member_id);
+    if (
+      ["in_progress", "in_review", "done"].includes(sample.target)
+      && task.status === "todo"
+    ) {
+      task = await startTask(ownerCookie, task, leo.member_id);
+    }
     if (sample.target === "closed" && task.status !== "closed") {
       task = await closeTask(
         ownerCookie,
@@ -496,19 +516,53 @@ async function main() {
         "Sample note: duplicate of another proposal.",
       );
     }
-    if (sample.title === "Tabular numbers") doneSample.push(task);
+    sampleTasks.set(sample.title, task);
+  }
+
+  // In Review and Done need a real assignee Run: submit_review is an Agent-only
+  // action, so we mention the assignee in the Source Thread and wait for the
+  // Computer daemon to execute it. Failing this only skips those two samples.
+  await cancelActiveRuns(ownerCookie, space.id);
+  for (const sample of taskSamples.filter((candidate) =>
+    ["in_review", "done"].includes(candidate.target),
+  )) {
+    const task = sampleTasks.get(sample.title);
+    if (task.status === "in_review" || task.status === "done") continue;
+    if (task.status === "todo") {
+      await startTask(ownerCookie, task, leo.member_id);
+    }
+    const submitted = await askAgentToSubmitReview(ownerCookie, task, leo);
+    if (!submitted) {
+      log(`warning: ${sample.title} stayed in_progress; no Agent Run completed submit-review`);
+      continue;
+    }
+    if (sample.target === "done") {
+      const inReview = await getTask(ownerCookie, task.id);
+      await completeTask(
+        ownerCookie,
+        inReview,
+        "Sample result: verified and accepted.",
+        inReview.source_thread.id,
+      );
+      log(`completed ${sample.title}`);
+    }
   }
 
   // Task reference sample references the Done task sequence.
-  const doneTask = doneSample[0];
+  const doneTask = sampleTasks.get("Tabular numbers");
   if (doneTask) {
-    await ensureMessage(
-      ownerCookie,
-      general.id,
-      "Sample: task reference",
-      `Sample: task reference — see !${doneTask.seq}.`,
-    );
-    await linkTaskThread(ownerCookie, doneTask, threadRoot.thread_id);
+    const freshDone = await getTask(ownerCookie, doneTask.id);
+    if (freshDone.status === "done") {
+      await ensureMessage(
+        ownerCookie,
+        general.id,
+        "Sample: task reference",
+        `Sample: task reference — see !${freshDone.seq}.`,
+      );
+      await linkTaskThread(ownerCookie, freshDone, threadRoot.thread_id);
+    } else {
+      log("warning: Done sample missing; task reference and related-thread samples skipped");
+    }
   }
 
   // #empty-lab: empty state sample.
@@ -569,5 +623,6 @@ async function main() {
 
 main().catch((error) => {
   console.error("[samples] failed:", error.message);
+  console.error(error.stack);
   process.exit(1);
 });

@@ -1,9 +1,12 @@
 // Screenshot the design-lab sample states for review and before/after diffs.
 // Usage: node design-lab/demo/shots.mjs
 // Needs the design demo web on SUMI_DESIGN_WEB_PORT (default 5174).
-import { chromium } from "@playwright/test";
+import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require("../../web/node_modules/@playwright/test");
 
 const WEB = process.env.SUMI_DESIGN_WEB_URL ?? "http://127.0.0.1:5174";
 const EMAIL = process.env.SUMI_SEED_EMAIL ?? "dev@example.test";
@@ -48,15 +51,29 @@ await shot("/s/sumi-dev/channels/empty-lab", ".channel-workspace");
 await shot("/s/sumi-dev/tasks", ".tasks-workspace");
 await shot("/s/sumi-dev/inbox", ".inbox-workspace");
 await shot("/s/sumi-dev/members", ".members-workspace");
-await shot("/s/sumi-dev/agents", ".agents-workspace");
+await shot("/s/sumi-dev/agents", ".members-workspace--agents");
 await shot("/s/sumi-dev/computers", ".computers-workspace");
+
+// Task detail and Agent detail need IDs; reuse the logged-in page session.
+const ids = await page.evaluate(async () => {
+  const space = await (await fetch("/api/v1/spaces/by-slug/sumi-dev")).json();
+  const tasks = await (await fetch(`/api/v1/spaces/${space.id}/tasks`)).json();
+  const agents = await (await fetch(`/api/v1/spaces/${space.id}/agents`)).json();
+  return {
+    taskId: tasks.find((task) => task.status === "in_review")?.id,
+    agentId: agents.find((agent) => agent.name === "Leo")?.member_id,
+  };
+});
+if (ids.taskId) await shot(`/s/sumi-dev/tasks/${ids.taskId}`, ".task-detail");
+if (ids.agentId) await shot(`/s/sumi-dev/agents/${ids.agentId}`, ".agent-workspace");
 
 // Thread pane: open the first sample thread from #design-lab.
 await page.goto(`${WEB}/s/sumi-dev/channels/design-lab`);
 await page.locator(".message-row").first().waitFor();
+await page.locator(".message-row").first().hover();
 const replyButtons = page.getByRole("button", { name: "Reply in Thread" });
 if (await replyButtons.count()) {
-  await replyButtons.first().click();
+  await replyButtons.first().click({ force: true });
   await page.locator(".thread-pane").waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, "desktop-thread-pane.png") });
