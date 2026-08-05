@@ -133,3 +133,15 @@ wait
 description = "Run or clean the stable sumi-dev Space, Dev Computer, and PM/Coder/Reviewer group"
 env = { SUMI_DEV_SEED = "1", RUST_LOG = "sumi=warn,tower_http=warn" }
 run = "sh scripts/dev-seed-task.sh"
+
+[tasks.demo]
+description = "Start the design-lab demo (isolated ports/database, seeded samples)"
+run = "sh design-lab/demo/start.sh"
+
+[tasks.demo-shots]
+description = "Screenshot the design-lab sample states into demo/.runtime/shots"
+run = "node design-lab/demo/shots.mjs"
+
+[tasks.demo-clean]
+description = "Stop the design demo and clean its database and runtime state"
+run = "sh design-lab/demo/clean.sh"
