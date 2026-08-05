@@ -10,6 +10,17 @@ import {
 } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 
+// Candidate typefaces are only loaded for the comparison board.
+import "@fontsource-variable/hanken-grotesk";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/manrope";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/600.css";
+import "@fontsource/spline-sans-mono/400.css";
+import "@fontsource/spline-sans-mono/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/600.css";
+
 import { listTasks, type Run, type Task } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import {
