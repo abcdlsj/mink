@@ -64,27 +64,11 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - 正文、Secret、Provider transcript 不进入日志、audit、错误详情或 metrics。
 - Agent 不负责补写可由系统从请求上下文推导的关系。
 
-## 范围
+## 范围边界
 
-必须实现：
-
-- Human 注册与登录、Space、Member、Access Level 和 Permission 治理。
-- Channel、DM、Message、Thread、mention、Attachment。
-- Computer 配对、在线状态、撤销与本地 Agent Home。
-- Agent 创建、Role、Memory、暂停、恢复、重启、退役。
-- Codex Driver 与 Builtin Driver。
-- Human Inbox 与 Agent Inbox、hard/ambient 注意力路由。
-- Root Message 一步创建 Task；Task 状态、assignee、Linked Threads、Result。
-- Run、Focus、steer、yield、可靠恢复与同 Task 跨 Runs Session resume。
-- Browser HTTP API、Computer WebSocket、Browser SSE 与完整 WebUI。
-
-明确不做：
+不做：
 
 - 子任务、Task 依赖、工时、截止时间、优先级、审批流。
-- 根据正文自动创建、合并或绑定 Task。
-- 一个 Run 同时执行多个 Focus；一个 Agent 并行运行多个 Runs。
-- Provider Session 跨 Agent、跨 Task 或跨无关 Threads 复用。
-- Server 保存 Provider Session 正文。
 - 旧数据迁移、旧 API 兼容、Windows 运行支持。
 
 ## 验收底线
