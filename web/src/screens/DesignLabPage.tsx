@@ -182,10 +182,21 @@ export function DesignLabPage() {
 export function DesignLabSurfacePage() {
   const { spaceSlug, surface } = useParams({ from: "/s/$spaceSlug/design-lab/$surface" });
   const surfaceInfo = SURFACES.find((candidate) => candidate.id === surface) ?? SURFACES[0];
-  const [demoId, setDemoId] = useState(surfaceInfo.demos[0].id);
+  const [demoId, setDemoId] = useState(() => {
+    const remembered = new URLSearchParams(window.location.search).get("demo");
+    return surfaceInfo.demos.some((demo) => demo.id === remembered)
+      ? remembered!
+      : surfaceInfo.demos[0].id;
+  });
   const ctx = useDesignLabVariables();
   const activeDemo = surfaceInfo.demos.find((demo) => demo.id === demoId) ?? surfaceInfo.demos[0];
   const Demo = activeDemo.Component as ComponentType;
+  function chooseDemo(id: string) {
+    setDemoId(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set("demo", id);
+    window.history.replaceState(null, "", url);
+  }
   return (
     <div className="dlp" style={ctx.variables}>
       <header className="dlp-topbar">
@@ -199,7 +210,7 @@ export function DesignLabSurfacePage() {
               key={demo.id}
               type="button"
               aria-pressed={demo.id === activeDemo.id}
-              onClick={() => setDemoId(demo.id)}
+              onClick={() => chooseDemo(demo.id)}
             >
               {demo.label}
             </button>

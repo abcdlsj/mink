@@ -1,4 +1,4 @@
-import { Users } from "lucide-react";
+import { Hash, MessageCircle, Users } from "lucide-react";
 
 import { PixelIdentity } from "../PixelIdentity";
 import type { SurfaceDemo } from "./demoTypes";
@@ -12,6 +12,11 @@ const AGENTS = [
 function MembersPage({ variant }: { variant: "rows" | "groups" | "dense" }) {
   return (
     <div className="demo-page demo-page--members">
+      <aside className="demo-rail">
+        <span className="demo-rail-space">S</span>
+        <span className="demo-rail-tool demo-rail-tool--active"><MessageCircle aria-hidden="true" /></span>
+        <span className="demo-rail-tool"><Hash aria-hidden="true" /></span>
+      </aside>
       <main className="demo-main">
         <header className="demo-channel-header"><Users aria-hidden="true" /> Members <span className="demo-channel-members">4 people · 3 agents</span></header>
         <div className={`demo-members demo-members--${variant}`}>

@@ -1,4 +1,4 @@
-import { Inbox as InboxIcon } from "lucide-react";
+import { Hash, Inbox as InboxIcon, MessageCircle } from "lucide-react";
 
 import { PixelIdentity } from "../PixelIdentity";
 import type { SurfaceDemo } from "./demoTypes";
@@ -12,6 +12,11 @@ const GROUPS = [
 function InboxPage({ variant }: { variant: "rows" | "cards" | "dense" }) {
   return (
     <div className="demo-page demo-page--inbox">
+      <aside className="demo-rail">
+        <span className="demo-rail-space">S</span>
+        <span className="demo-rail-tool demo-rail-tool--active"><MessageCircle aria-hidden="true" /></span>
+        <span className="demo-rail-tool"><Hash aria-hidden="true" /></span>
+      </aside>
       <main className="demo-main">
         <header className="demo-channel-header"><InboxIcon aria-hidden="true" /> Inbox <span className="demo-channel-members">6 pending</span></header>
         <div className={`demo-inbox demo-inbox--${variant}`}>

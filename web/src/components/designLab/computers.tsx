@@ -1,4 +1,4 @@
-import { Monitor, Plus } from "lucide-react";
+import { Hash, MessageCircle, Monitor, Plus } from "lucide-react";
 
 import type { SurfaceDemo } from "./demoTypes";
 
@@ -10,6 +10,11 @@ const COMPUTERS = [
 function ComputersPage({ variant }: { variant: "list" | "cards" | "dense" }) {
   return (
     <div className="demo-page demo-page--computers">
+      <aside className="demo-rail">
+        <span className="demo-rail-space">S</span>
+        <span className="demo-rail-tool demo-rail-tool--active"><MessageCircle aria-hidden="true" /></span>
+        <span className="demo-rail-tool"><Hash aria-hidden="true" /></span>
+      </aside>
       <main className="demo-main">
         <header className="demo-channel-header">
           <Monitor aria-hidden="true" /> Computers <span className="demo-channel-members">2 paired</span>

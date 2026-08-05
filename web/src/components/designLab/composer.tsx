@@ -1,23 +1,30 @@
-import { ImagePlus, Send } from "lucide-react";
+import { Hash, ImagePlus, MessageCircle, Send } from "lucide-react";
 
 import type { SurfaceDemo } from "./demoTypes";
 
 function ComposerPage({ variant }: { variant: "f1" | "f2" | "f3" }) {
   return (
     <div className={`demo-page demo-page--composer demo-page--composer-${variant}`}>
-      <header className="demo-channel-header"><span>#general</span></header>
-      <div className="demo-composer-stage">
-        <div className="demo-cp-messages">
-          <div className="demo-cp-line" />
-          <div className="demo-cp-line" />
-          <div className="demo-cp-line" />
+      <aside className="demo-rail">
+        <span className="demo-rail-space">S</span>
+        <span className="demo-rail-tool demo-rail-tool--active"><MessageCircle aria-hidden="true" /></span>
+        <span className="demo-rail-tool"><Hash aria-hidden="true" /></span>
+      </aside>
+      <main className="demo-main">
+        <header className="demo-channel-header"><span>#general</span></header>
+        <div className="demo-composer-stage">
+          <div className="demo-cp-messages">
+            <div className="demo-cp-line" />
+            <div className="demo-cp-line" />
+            <div className="demo-cp-line" />
+          </div>
+          <footer className={`demo-composer demo-composer--${variant} demo-composer--large`}>
+            <span className="demo-composer-attach"><ImagePlus aria-hidden="true" /></span>
+            <span className="demo-composer-input">Message #general...</span>
+            <button type="button" aria-label="Send"><Send aria-hidden="true" /></button>
+          </footer>
         </div>
-        <footer className={`demo-composer demo-composer--${variant} demo-composer--large`}>
-          <span className="demo-composer-attach"><ImagePlus aria-hidden="true" /></span>
-          <span className="demo-composer-input">Message #general...</span>
-          <button type="button" aria-label="Send"><Send aria-hidden="true" /></button>
-        </footer>
-      </div>
+      </main>
     </div>
   );
 }

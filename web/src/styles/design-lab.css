@@ -373,54 +373,6 @@
   font-weight: 500;
 }
 
-.demo-topbar {
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  border-bottom: 2px solid var(--ink);
-  background: var(--rail);
-  color: var(--rail-fg);
-}
-
-.demo-topbar .demo-rail-space {
-  width: 28px;
-  height: 28px;
-  margin: 0;
-  border-radius: 8px;
-  font-size: 13px;
-}
-
-.demo-topbar strong {
-  font-size: 13px;
-}
-
-.demo-topbar-search {
-  flex: 1;
-  max-width: 360px;
-  margin-inline-start: 24px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--rail-fg) 35%, transparent);
-  border-radius: 8px;
-  color: color-mix(in srgb, var(--rail-fg) 65%, transparent);
-  font-size: 11px;
-}
-
-.demo-topbar-tool {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--rail-fg);
-}
-
-.demo-topbar-tool svg {
-  width: 16px;
-  height: 16px;
-}
-
 /* Timeline + messages. */
 .demo-timeline {
   display: grid;
@@ -620,23 +572,60 @@
 }
 
 .demo-page--l3 {
-  grid-template-rows: 48px minmax(0, 1fr);
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
 }
 
-.demo-thread-pane {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  border-left: 2px solid var(--ink);
+.demo-l3-side {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--rail);
+  color: var(--rail-fg);
+}
+
+.demo-l3-side .demo-rail-space {
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 12px 0;
+}
+
+.demo-l3-icons {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--rail-fg) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--rail-fg) 20%, transparent);
+}
+
+.demo-l3-icons .demo-rail-tool {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto;
+}
+
+.demo-l3-nav {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+}
+
+.demo-l3-nav .demo-nav-label {
+  color: color-mix(in srgb, var(--rail-fg) 55%, transparent);
+}
+
+.demo-l3-nav .demo-nav-item {
+  color: color-mix(in srgb, var(--rail-fg) 80%, transparent);
+}
+
+.demo-l3-nav .demo-nav-item--active {
   background: var(--paper);
-  padding: 14px;
-}
-
-.demo-main {
-  position: relative;
+  color: var(--ink);
 }
 
 /* Channel variants. */
@@ -644,9 +633,24 @@
 .demo-page--inbox,
 .demo-page--members,
 .demo-page--computers,
-.demo-page--thread,
 .demo-page--composer {
   grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.demo-page--thread {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.demo-thread-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  position: relative;
+}
+
+.demo-thread-main--compact {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 /* Messages compare page. */
@@ -812,16 +816,11 @@
   opacity: 0.7;
 }
 
-/* Thread page. */
-.demo-page--thread .demo-main {
-  grid-column: 2;
-}
-
+/* Thread pane. */
 .demo-thread {
-  position: relative;
   display: grid;
-  grid-column: 2;
-  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
   grid-template-rows: 48px minmax(0, 1fr);
   border-left: 2px solid var(--ink);
   background: var(--paper);
@@ -833,14 +832,9 @@
   top: 0;
   right: 0;
   bottom: 0;
-  left: 40%;
+  left: 42%;
   border-left: 0;
   box-shadow: -14px 0 36px -18px rgb(36 31 26 / 40%);
-}
-
-.demo-thread--compact {
-  width: 320px;
-  justify-self: end;
 }
 
 .demo-thread > header {
