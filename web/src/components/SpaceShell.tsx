@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   MessageCircle,
   Monitor,
+  Palette,
   Plus,
   Users,
   X,
@@ -320,6 +321,12 @@ export function SpaceShell({
             label="Computers"
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
+          />
+          <RailItem
+            icon={Palette}
+            label="Design lab"
+            active={active === "design"}
+            href={`/s/${space.data.slug}/design-lab`}
           />
         </nav>
         <button

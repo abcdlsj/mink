@@ -2,11 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import {
   Hash,
-  Inbox,
   ListTodo,
   MessageCircle,
-  Monitor,
-  Users,
 } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 
@@ -22,6 +19,14 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/600.css";
 
 import { listTasks, type Run, type Task } from "../api/client";
+import { ChannelCandidates } from "../components/designLab/ChannelCandidates";
+import { ComposerCandidates } from "../components/designLab/ComposerCandidates";
+import { ComputersCandidates } from "../components/designLab/ComputersCandidates";
+import { InboxCandidates } from "../components/designLab/InboxCandidates";
+import { MembersCandidates } from "../components/designLab/MembersCandidates";
+import { OnboardingCandidates } from "../components/designLab/OnboardingCandidates";
+import { ShellCandidates } from "../components/designLab/ShellCandidates";
+import { ThreadCandidates } from "../components/designLab/ThreadCandidates";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import {
   FONT_CANDIDATES,
@@ -35,6 +40,20 @@ import "../styles/design-lab.css";
 
 // Mock reviewer until Task carries a reviewer field (AX input).
 const DEMO_REVIEWER = "Nora";
+
+const SECTIONS = [
+  { id: "shell", label: "Shell layout" },
+  { id: "channel", label: "Channel" },
+  { id: "messages", label: "Message & Task" },
+  { id: "composer", label: "Composer" },
+  { id: "thread", label: "Thread" },
+  { id: "inbox", label: "Inbox" },
+  { id: "members", label: "Members & Agents" },
+  { id: "computers", label: "Computers" },
+  { id: "onboarding", label: "Onboarding" },
+  { id: "ax", label: "AX signals" },
+  { id: "pixels", label: "Pixel scale" },
+] as const;
 
 export function DesignLabPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/design-lab" });
@@ -54,11 +73,17 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
   const [accentSetId, setAccentSetId] = useState(
     () => initial.get("accents") ?? SPACE_ACCENT_SETS[0].id,
   );
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
 
   function choose(key: "palette" | "font" | "accents", value: string) {
     const url = new URL(window.location.href);
     url.searchParams.set(key, value);
     window.history.replaceState(null, "", url);
+  }
+
+  function goToSection(id: string) {
+    setActiveSection(id);
+    document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const palette = PALETTE_CANDIDATES.find((candidate) => candidate.id === paletteId)!;
@@ -84,9 +109,9 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
       <header className="design-lab-header">
         <div>
           <h1>Design candidates</h1>
-          <p>Demo-only comparison board. Pick a direction, then we refine it against the product.</p>
+          <p>Every surface has 2–3 shapes to compare. Selections sync to the URL.</p>
         </div>
-        <span className="design-lab-note">not in product navigation</span>
+        <span className="design-lab-note">demo only</span>
       </header>
 
       <div className="design-lab-controls">
@@ -165,88 +190,87 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
         <code>!3 · IN REVIEW · Nora — seq 000124 · 14:32:05</code>
       </div>
 
-      <h2 className="design-lab-section-title">Shell + components</h2>
-      <MiniShell accents={accentSet.accents} />
+      <div className="design-lab-layout">
+        <nav className="design-lab-toc" aria-label="Design sections">
+          {SECTIONS.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              aria-pressed={activeSection === section.id}
+              onClick={() => goToSection(section.id)}
+            >
+              {section.label}
+            </button>
+          ))}
+        </nav>
+        <div className="design-lab-sections">
+          <section id="section-shell" className="design-lab-section">
+            <h2>Shell layout</h2>
+            <p className="design-lab-section-note">Three ways to distribute the whole page.</p>
+            <ShellCandidates />
+          </section>
 
-      <h2 className="design-lab-section-title">Task badge on messages</h2>
-      <p className="design-lab-section-note">
-        User feedback: the current badge is too large and clashes with the message. Three shapes to compare.
-      </p>
-      <TaskBadgeCompare task={sampleTask} />
+          <section id="section-channel" className="design-lab-section">
+            <h2>Channel</h2>
+            <p className="design-lab-section-note">Message timeline treatments.</p>
+            <ChannelCandidates />
+          </section>
 
-      <h2 className="design-lab-section-title">Message action buttons</h2>
-      <p className="design-lab-section-note">
-        The floating actions on the message top-right; three shapes to compare.
-      </p>
-      <MessageActionsCompare />
+          <section id="section-messages" className="design-lab-section">
+            <h2>Message & Task</h2>
+            <p className="design-lab-section-note">
+              Task badge placement and floating actions; work line below.
+            </p>
+            <TaskBadgeCompare task={sampleTask} />
+            <MessageActionsCompare />
+            {sampleTask ? <WorkLine task={sampleTask} spaceSlug={spaceSlug} /> : <p>No sample task.</p>}
+          </section>
 
-      <h2 className="design-lab-section-title">Work line (AX)</h2>
-      <p className="design-lab-section-note">
-        Task life drawn as one continuous line: Source Thread → Runs → Review → Result.
-        Rendered from real data (Task {sampleTask ? `!${sampleTask.seq}` : ""}).
-      </p>
-      {sampleTask ? <WorkLine task={sampleTask} spaceSlug={spaceSlug} /> : <p>No sample task.</p>}
+          <section id="section-composer" className="design-lab-section">
+            <h2>Composer</h2>
+            <ComposerCandidates />
+          </section>
 
-      <h2 className="design-lab-section-title">AX signals</h2>
-      <div className="design-lab-grid">
-        <ReviewSignal task={sampleTask} />
-        <FocusSignal />
-        <PixelScale />
+          <section id="section-thread" className="design-lab-section">
+            <h2>Thread</h2>
+            <ThreadCandidates />
+          </section>
+
+          <section id="section-inbox" className="design-lab-section">
+            <h2>Inbox</h2>
+            <InboxCandidates />
+          </section>
+
+          <section id="section-members" className="design-lab-section">
+            <h2>Members & Agents</h2>
+            <MembersCandidates />
+          </section>
+
+          <section id="section-computers" className="design-lab-section">
+            <h2>Computers</h2>
+            <ComputersCandidates />
+          </section>
+
+          <section id="section-onboarding" className="design-lab-section">
+            <h2>Onboarding</h2>
+            <OnboardingCandidates />
+          </section>
+
+          <section id="section-ax" className="design-lab-section">
+            <h2>AX signals</h2>
+            <div className="design-lab-grid">
+              <ReviewSignal task={sampleTask} />
+              <FocusSignal />
+            </div>
+          </section>
+
+          <section id="section-pixels" className="design-lab-section">
+            <h2>Pixel scale</h2>
+            <PixelScale />
+          </section>
+        </div>
       </div>
     </section>
-  );
-}
-
-function MiniShell({ accents }: { accents: readonly [string, string, string, string] }) {
-  const navItems = [
-    { icon: MessageCircle, label: "Conversations", active: true },
-    { icon: Inbox, label: "Inbox" },
-    { icon: ListTodo, label: "Tasks" },
-    { icon: Users, label: "Members" },
-    { icon: Monitor, label: "Computers" },
-  ];
-  return (
-    <div className="dl-shell">
-      <aside className="dl-rail">
-        <span className="dl-rail-badge" style={{ background: accents[0] }}>S</span>
-        {navItems.slice(0, 3).map((item) => (
-          <span key={item.label} className="dl-rail-icon" title={item.label}>
-            <item.icon aria-hidden="true" />
-          </span>
-        ))}
-      </aside>
-      <nav className="dl-nav">
-        {navItems.map((item) => (
-          <span key={item.label} className={`dl-nav-item${item.active ? " dl-nav-item--active" : ""}`}>
-            <item.icon aria-hidden="true" />
-            {item.label}
-            {item.active && <i className="dl-nav-marker" aria-hidden="true" />}
-          </span>
-        ))}
-      </nav>
-      <main className="dl-main">
-        <div className="dl-button-row">
-          <button type="button" className="command-button">Primary action</button>
-          <button type="button" className="command-button command-button--accent">Accent action</button>
-          <button type="button" className="quiet-button">Quiet</button>
-          <button type="button" className="danger-button">Delete</button>
-        </div>
-        <div className="dl-status-row">
-          <span className="task-status task-status--todo">TODO</span>
-          <span className="task-status task-status--in_progress">IN PROGRESS</span>
-          <span className="task-status task-status--in_review">IN REVIEW</span>
-          <span className="task-status task-status--done">DONE</span>
-          <span className="task-status task-status--closed">CLOSED</span>
-        </div>
-        <div className="dl-message">
-          <PixelIdentity name="Mara" kind="human" seed="019c0000-0000-7000-8000-000000000002" />
-          <div className="dl-message-body">
-            <header><strong>Mara</strong><time>14:32</time></header>
-            <p>A sample message inside the candidate shell.</p>
-          </div>
-        </div>
-      </main>
-    </div>
   );
 }
 
@@ -345,12 +369,6 @@ function WorkLine({ task, spaceSlug }: { task: Task; spaceSlug: string }) {
           </li>
         )}
         {visibleRuns.map((run) => <RunNode key={run.id} run={run} spaceSlug={spaceSlug} />)}
-        {task.current_run && task.current_run.id === visibleRuns[0]?.id && (
-          <li className="dl-node dl-node--live">
-            <span className="dl-node-dot dl-node-dot--live" />
-            <div><strong>Running now</strong></div>
-          </li>
-        )}
         {task.status === "in_review" && (
           <li className="dl-node dl-node--review">
             <span className="dl-node-glyph"><PixelStatusGlyph status="in_review" /></span>
@@ -452,7 +470,7 @@ function PixelScale() {
   return (
     <article className="dl-ax-card">
       <h3>Pixel component scale</h3>
-      <p>One 8×8 grid, integer pixel units only. Avatars render at 16–64px.</p>
+      <p>One 8×8 grid, integer pixel units only. Avatars render at 20–48px.</p>
       <div className="dl-pixel-scale">
         {PIXEL_SCALE.map((step) => (
           <div key={step.size} className="dl-pixel-step">
