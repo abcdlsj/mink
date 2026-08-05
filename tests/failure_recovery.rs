@@ -1,4 +1,4 @@
-//! Failure acceptance for the scenarios in `DESIGN.md` and `SYSTEM_DESIGN.md`: a Server restart
+//! Failure acceptance for the scenarios in `docs/DESIGN.md` and `docs/SYSTEM_DESIGN.md`: a Server restart
 //! during a Run, a Computer offline until its lease expires, and a lost workspace with a corrupted
 //! Provider locator. Each asserts that Message, Task, Inbox and Run facts agree afterwards.
 

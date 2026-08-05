@@ -4,7 +4,7 @@
 
 ## 开始前
 
-1. 每个 session、上下文压缩续跑或工作交接后，先读本文件和 `DESIGN.md`；系统或界面任务再读 `SYSTEM_DESIGN.md`、`UI_DESIGN.md` 的相关部分。
+1. 每个 session、上下文压缩续跑或工作交接后，先读本文件和 `docs/DESIGN.md`；系统或界面任务再读 `docs/SYSTEM_DESIGN.md`、`docs/UI_DESIGN.md` 的相关部分。
 2. 以当前工作区为基线，保留用户和其他 Agent 的未提交修改；除非用户要求，不用 Git 历史覆盖当前文件。
 
 ## 文档
@@ -17,7 +17,7 @@
 
 - 中文直接写结论及依据；每句都有事实，删除不影响意思的句子；不使用比喻、情绪词或夸大判断。
 - 代码注释、MR 标题与描述、commit message 使用英文；注释只写不变量、并发或安全原因。
-- 测试输出不得包含 Message、Attachment、Memory 或 Secret 正文；日志规则见 SYSTEM_DESIGN.md。
+- 测试输出不得包含 Message、Attachment、Memory 或 Secret 正文；日志规则见 docs/SYSTEM_DESIGN.md。
 
 ## 实现
 

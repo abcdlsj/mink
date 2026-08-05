@@ -630,7 +630,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .computer-status { grid-column: 1 / -1; }
   .agent-create-form { grid-template-columns: 1fr; }
 }
-/* Complete list/detail surfaces defined by UI_DESIGN.md. */.mobile-space-tools { display: none; }
+/* Complete list/detail surfaces defined by docs/UI_DESIGN.md. */.mobile-space-tools { display: none; }
 .context-entity-row { display: grid; min-height: 58px; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0 10px 8px; padding: 8px; border: 2px solid transparent; color: var(--ink); text-decoration: none; }
 .context-entity-row > svg { width: 32px; height: 32px; padding: 5px; border: 2px solid var(--ink); background: var(--cyan); }
 .context-entity-row > span { min-width: 0; }
