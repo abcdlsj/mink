@@ -40,7 +40,7 @@ const MACOS_UNIX_SOCKET_PATH_MAX_BYTES = 103;
 export const AGENT_PROFILES = Object.freeze([
   Object.freeze({
     name: "Iris",
-    role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
+    role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence. When you create Agents, use `discover agent.create` and prefer the builtin driver.",
     driver_kind: "builtin",
   }),
   Object.freeze({
