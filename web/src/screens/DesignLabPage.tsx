@@ -45,9 +45,20 @@ export function DesignLabPage() {
 }
 
 function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug: string }) {
-  const [paletteId, setPaletteId] = useState(PALETTE_CANDIDATES[0].id);
-  const [fontId, setFontId] = useState(FONT_CANDIDATES[0].id);
-  const [accentSetId, setAccentSetId] = useState(SPACE_ACCENT_SETS[0].id);
+  const initial = new URLSearchParams(window.location.search);
+  const [paletteId, setPaletteId] = useState(
+    () => initial.get("palette") ?? PALETTE_CANDIDATES[0].id,
+  );
+  const [fontId, setFontId] = useState(() => initial.get("font") ?? FONT_CANDIDATES[0].id);
+  const [accentSetId, setAccentSetId] = useState(
+    () => initial.get("accents") ?? SPACE_ACCENT_SETS[0].id,
+  );
+
+  function choose(key: "palette" | "font" | "accents", value: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set(key, value);
+    window.history.replaceState(null, "", url);
+  }
 
   const palette = PALETTE_CANDIDATES.find((candidate) => candidate.id === paletteId)!;
   const font = FONT_CANDIDATES.find((candidate) => candidate.id === fontId)!;
@@ -86,7 +97,10 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
                 key={candidate.id}
                 type="button"
                 aria-pressed={candidate.id === paletteId}
-                onClick={() => setPaletteId(candidate.id)}
+                onClick={() => {
+                  setPaletteId(candidate.id);
+                  choose("palette", candidate.id);
+                }}
               >
                 {candidate.label}
               </button>
@@ -102,7 +116,10 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
                 key={candidate.id}
                 type="button"
                 aria-pressed={candidate.id === fontId}
-                onClick={() => setFontId(candidate.id)}
+                onClick={() => {
+                  setFontId(candidate.id);
+                  choose("font", candidate.id);
+                }}
               >
                 {candidate.label}
               </button>
@@ -119,7 +136,10 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
                 type="button"
                 className={`design-lab-accent-set${set.id === accentSetId ? " design-lab-accent-set--active" : ""}`}
                 aria-pressed={set.id === accentSetId}
-                onClick={() => setAccentSetId(set.id)}
+                onClick={() => {
+                  setAccentSetId(set.id);
+                  choose("accents", set.id);
+                }}
               >
                 <span style={{ background: set.accents[0] }} />
                 <span style={{ background: set.accents[1] }} />
