@@ -31,32 +31,47 @@ impl SandboxAdapter {
         #[cfg(target_os = "macos")]
         {
             let sumi_executable = std::env::current_exe().unwrap_or_else(|_| executable.to_owned());
+            // macOS sandbox profiles match the resolved filesystem path. Paths like /tmp are
+            // symlinks to /private/tmp, so profile entries built from the unresolved path silently
+            // fail to grant read or write access.
+            let executable = canonicalize_or_original(executable);
+            let sumi_executable = canonicalize_or_original(&sumi_executable);
+            let agent_home = canonicalize_or_original(agent_home);
+            let driver_home = canonicalize_or_original(driver_home);
+            let socket = canonicalize_or_original(socket);
             let profile = format!(
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
                   (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
-                  (subpath \"/private\") (literal \"/\") \
+                  (subpath \"/private\") (literal \"/\") (literal \"/dev/null\") \
+                  (literal \"/dev/urandom\") \
                   (literal \"{}\") (literal \"{}\") (literal \"{}\") \
                   (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))\
                  (allow file-read-metadata)\
                  (allow sysctl-read)\
                  (allow file-write* (subpath \"{}\") (subpath \"{}\") \
-                  (literal \"{}\"))",
-                escape(executable)?,
+                  (literal \"{}\") (literal \"/dev/null\"))",
+                escape(&executable)?,
                 escape(&sumi_executable)?,
-                escape(agent_home)?,
+                escape(&agent_home)?,
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("memory"))?,
                 escape(&agent_home.join("runs"))?,
-                escape(socket)?,
+                escape(&socket)?,
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("runs"))?,
-                escape(socket)?,
+                escape(&socket)?,
             );
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);
-            configure_environment(&mut command, agent_home, driver_home, socket, driver_token);
+            configure_environment(
+                &mut command,
+                &agent_home,
+                &driver_home,
+                &socket,
+                driver_token,
+            );
             return Ok(command);
         }
         #[cfg(target_os = "linux")]
@@ -116,6 +131,11 @@ impl SandboxAdapter {
         #[allow(unreachable_code)]
         Err(ApplicationError::DriverUnavailable)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn canonicalize_or_original(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
 fn configure_environment(

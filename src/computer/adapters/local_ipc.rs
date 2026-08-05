@@ -200,6 +200,15 @@ impl LocalIpcAdapter {
                 request.idempotency_key,
             )
             .await;
+            if !response.ok {
+                tracing::debug!(
+                    agent_id = ?context.agent_id,
+                    run_id = ?context.run_id,
+                    action = action.name(),
+                    error_code = ?response.error.as_ref().map(|error| error.code),
+                    "Capability action rejected"
+                );
+            }
             if response.ok
                 && CapabilityService::record_success(store, context.run_id, &action)
                     .await

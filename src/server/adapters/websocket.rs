@@ -302,10 +302,25 @@ pub(super) async fn computer_socket(
             }
             ComputerFrame::CommandResult { result } => {
                 if let CommandOutcome::Rejected { ref code } = result.outcome {
+                    let diagnostic = storage
+                        .command_diagnostic(
+                            ComputerId::from_uuid(computer_id),
+                            result.command_id,
+                            result.sequence.0,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
                     tracing::warn!(
                         %computer_id,
                         command_id = %result.command_id.into_uuid(),
                         sequence = result.sequence.0,
+                        command_kind = diagnostic.as_ref().map_or("<unknown>", |item| item.kind),
+                        agent_id = ?diagnostic.as_ref().and_then(|item| item.agent_id),
+                        run_id = ?diagnostic.as_ref().and_then(|item| item.run_id),
+                        task_id = ?diagnostic.as_ref().and_then(|item| item.task_id),
+                        delivery_sequence =
+                            diagnostic.as_ref().and_then(|item| item.delivery_sequence),
                         error_code = ?code,
                         "Computer command rejected"
                     );

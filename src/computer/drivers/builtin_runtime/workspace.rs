@@ -60,11 +60,11 @@ pub(super) fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathB
     let relative = validated_relative(value)?;
     let mut components = relative.components();
     let Some(Component::Normal(scope)) = components.next() else {
-        bail!("path must start with workspace/ or memory/");
+        bail!("path must start with workspace/ or memory/ (for example memory/MEMORY.md)");
     };
     ensure!(
         scope == "workspace" || scope == "memory",
-        "path must start with workspace/ or memory/"
+        "path must start with workspace/ or memory/ (for example memory/MEMORY.md)"
     );
     let remainder = components.collect::<PathBuf>();
     ensure!(!remainder.as_os_str().is_empty(), "path has no file name");

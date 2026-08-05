@@ -303,7 +303,9 @@ function spawnComputerDaemon(stateDir, expectPairing) {
       env: {
         ...process.env,
         SUMI_CODEX_COMMAND: CODEX_COMMAND,
-        RUST_LOG: "sumi=warn,sumi::computer=info,tower_http=warn",
+        RUST_LOG:
+          process.env.SUMI_SEED_RUST_LOG ??
+          "sumi=warn,sumi::computer=info,tower_http=warn",
       },
       stdio: ["ignore", "inherit", "pipe"],
     },

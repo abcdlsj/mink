@@ -79,7 +79,11 @@ struct PageArgs {
     before: Option<u64>,
     #[arg(long, conflicts_with = "before")]
     after: Option<u64>,
-    #[arg(long, default_value_t = 50, value_parser = 1..=100)]
+    #[arg(
+        long,
+        default_value_t = 50,
+        value_parser = clap::value_parser!(u16).range(1..=100)
+    )]
     limit: u16,
 }
 

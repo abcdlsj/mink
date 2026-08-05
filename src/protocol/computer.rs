@@ -103,6 +103,114 @@ pub(crate) enum Command {
     SessionClose(SessionCommand),
 }
 
+/// Stable identifiers for one command, safe for logs and diagnostics. It never contains
+/// Message, Memory, Attachment, Secret, or Provider transcript content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CommandDiagnostic {
+    pub(crate) kind: &'static str,
+    pub(crate) agent_id: Option<AgentId>,
+    pub(crate) run_id: Option<RunId>,
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) delivery_sequence: Option<u64>,
+}
+
+impl Command {
+    pub(crate) fn diagnostic(&self) -> CommandDiagnostic {
+        match self {
+            Command::AgentProvision(config) | Command::AgentConfigure(config) => {
+                CommandDiagnostic {
+                    kind: if matches!(self, Command::AgentProvision(_)) {
+                        "agent.provision"
+                    } else {
+                        "agent.configure"
+                    },
+                    agent_id: Some(config.agent_id),
+                    run_id: None,
+                    task_id: None,
+                    delivery_sequence: None,
+                }
+            }
+            Command::AgentSuspend(command) => CommandDiagnostic {
+                kind: "agent.suspend",
+                agent_id: Some(command.agent_id),
+                run_id: None,
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::AgentResume(command) => CommandDiagnostic {
+                kind: "agent.resume",
+                agent_id: Some(command.agent_id),
+                run_id: None,
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::AgentRestart(command) => CommandDiagnostic {
+                kind: "agent.restart",
+                agent_id: Some(command.agent_id),
+                run_id: None,
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::AgentRetire(command) => CommandDiagnostic {
+                kind: "agent.retire",
+                agent_id: Some(command.agent_id),
+                run_id: None,
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::RunStart(command) => CommandDiagnostic {
+                kind: "run.start",
+                agent_id: Some(command.agent_id),
+                run_id: Some(command.run_id),
+                task_id: command.task.as_ref().map(|task| task.task_id),
+                delivery_sequence: None,
+            },
+            Command::RunTaskBound(command) => CommandDiagnostic {
+                kind: "run.task_bound",
+                agent_id: None,
+                run_id: Some(command.run_id),
+                task_id: Some(command.task.task_id),
+                delivery_sequence: None,
+            },
+            Command::RunAttachItem(command) => CommandDiagnostic {
+                kind: "run.attach_item",
+                agent_id: None,
+                run_id: Some(command.run_id),
+                task_id: None,
+                delivery_sequence: Some(command.delivery_sequence.0),
+            },
+            Command::RunNotice(command) => CommandDiagnostic {
+                kind: "run.notice",
+                agent_id: None,
+                run_id: Some(command.run_id),
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::RunStop(command) => CommandDiagnostic {
+                kind: "run.stop",
+                agent_id: None,
+                run_id: Some(command.run_id),
+                task_id: None,
+                delivery_sequence: None,
+            },
+            Command::SessionReset(command) | Command::SessionClose(command) => CommandDiagnostic {
+                kind: if matches!(self, Command::SessionReset(_)) {
+                    "session.reset"
+                } else {
+                    "session.close"
+                },
+                agent_id: Some(command.agent_id),
+                run_id: None,
+                task_id: match command.scope {
+                    SessionScope::Task(task_id) => Some(task_id),
+                    SessionScope::Thread(_) => None,
+                },
+                delivery_sequence: None,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AgentConfiguration {
@@ -708,13 +816,17 @@ mod tests {
 
     use super::{
         AttentionNotice, AttentionStrength, Command, CommandEnvelope, CommandSequence,
-        ComputerFrame, ComputerHello, DaemonCapability, InboxSourceKind, MemoryFileProjection,
-        MemoryReadResult, NoticeLocation, Query, QueryEnvelope, QueryErrorCode, QueryResult,
-        QueryResultEnvelope, RunStop, RuntimeDiagnosticsQuery, RuntimeDiagnosticsResult,
-        RuntimeRunState, ServerFrame, SessionContinuityQuery, SessionScope, StopReason,
+        ComputerFrame, ComputerHello, DaemonCapability, FocusSnapshot, InboxSourceKind,
+        MemoryFileProjection, MemoryReadResult, MessageContent, MessageSnapshot, NoticeLocation,
+        Query, QueryEnvelope, QueryErrorCode, QueryResult, QueryResultEnvelope, RunStart, RunStop,
+        RuntimeDiagnosticsQuery, RuntimeDiagnosticsResult, RuntimeRunState, ServerFrame,
+        SessionContinuityQuery, SessionScope, StopReason, TaskSnapshot, TaskStatus,
     };
     use crate::{
-        ids::{AgentId, CommandId, DaemonSessionId, NoticeId, QueryId, RunId, TaskId},
+        ids::{
+            AgentId, ChannelId, CommandId, DaemonSessionId, MemberId, MessageId, NoticeId, QueryId,
+            RunId, TaskId, ThreadId,
+        },
         protocol::version::SUPPORTED,
     };
     use time::OffsetDateTime;
@@ -846,6 +958,49 @@ mod tests {
 
         assert!(rendered.contains("[REDACTED]"));
         assert!(!rendered.contains("private note"));
+    }
+
+    #[test]
+    fn command_diagnostic_exposes_only_stable_identifiers() {
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let command = Command::RunStart(RunStart {
+            run_id: RunId::from_uuid(Uuid::now_v7()),
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            task: Some(TaskSnapshot {
+                task_id,
+                seq: 1,
+                title: "private title".to_owned(),
+                status: TaskStatus::InProgress,
+                source_thread_id: ThreadId::from_uuid(Uuid::now_v7()),
+                linked_thread_ids: Vec::new(),
+                result_message_id: None,
+            }),
+            focus: FocusSnapshot {
+                thread_id: ThreadId::from_uuid(Uuid::now_v7()),
+                channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+                root: MessageSnapshot {
+                    message_id: MessageId::from_uuid(Uuid::now_v7()),
+                    author_member_id: MemberId::from_uuid(Uuid::now_v7()),
+                    sequence: 1,
+                    content: MessageContent::Text {
+                        markdown: "private message".to_owned(),
+                    },
+                    created_at: OffsetDateTime::UNIX_EPOCH,
+                },
+                replies: Vec::new(),
+                message_sequence: 1,
+            },
+            dispatched_items: Vec::new(),
+            space_members: Vec::new(),
+        });
+
+        let diagnostic = command.diagnostic();
+
+        assert_eq!(diagnostic.kind, "run.start");
+        assert_eq!(diagnostic.task_id, Some(task_id));
+        let rendered = format!("{diagnostic:?}");
+        assert!(!rendered.contains("private title"));
+        assert!(!rendered.contains("private message"));
     }
 
     #[test]

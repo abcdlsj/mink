@@ -236,14 +236,23 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             tokio::spawn(async move {
                 while let Some(event) = event_rx.recv().await {
                     match event {
-                        tool_executor::ToolEvent::Started { tool } => {
-                            tracing::debug!(tool, "Builtin tool started");
+                        tool_executor::ToolEvent::Started { tool, summary } => {
+                            tracing::debug!(tool, summary, "Builtin tool started");
                         }
-                        tool_executor::ToolEvent::Finished { tool } => {
-                            tracing::debug!(tool, "Builtin tool finished");
+                        tool_executor::ToolEvent::Finished { tool, summary } => {
+                            tracing::debug!(tool, summary, "Builtin tool finished");
                         }
-                        tool_executor::ToolEvent::Failed { tool } => {
-                            tracing::warn!(tool, "Builtin tool failed");
+                        tool_executor::ToolEvent::Failed {
+                            tool,
+                            summary,
+                            error_code,
+                        } => {
+                            tracing::warn!(
+                                tool,
+                                summary,
+                                failure_code = error_code,
+                                "Builtin tool failed"
+                            );
                         }
                     }
                 }

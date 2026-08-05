@@ -40,6 +40,17 @@ impl ServerConnectionAdapter {
         homes: &mut H,
         envelope: wire::CommandEnvelope,
     ) -> Result<Vec<wire::ComputerFrame>, ApplicationError> {
+        let diagnostic = envelope.command.diagnostic();
+        tracing::debug!(
+            command_id = %envelope.command_id.into_uuid(),
+            sequence = envelope.sequence.0,
+            command_kind = diagnostic.kind,
+            agent_id = ?diagnostic.agent_id,
+            run_id = ?diagnostic.run_id,
+            task_id = ?diagnostic.task_id,
+            delivery_sequence = diagnostic.delivery_sequence,
+            "Computer command received"
+        );
         let command = self
             .application_command(store, homes, envelope.command)
             .await?;
@@ -47,6 +58,21 @@ impl ServerConnectionAdapter {
         let execution =
             CommandService::execute(store, driver, homes, envelope.command_id, sequence, command)
                 .await?;
+        if execution.status == CommandStatus::Rejected {
+            tracing::warn!(
+                command_id = %envelope.command_id.into_uuid(),
+                sequence,
+                command_kind = diagnostic.kind,
+                agent_id = ?diagnostic.agent_id,
+                run_id = ?diagnostic.run_id,
+                task_id = ?diagnostic.task_id,
+                delivery_sequence = diagnostic.delivery_sequence,
+                error_code = ?computer_error(
+                    execution.error.as_ref().unwrap_or(&ApplicationError::Internal)
+                ),
+                "Computer rejected server command"
+            );
+        }
         Ok(vec![
             wire::ComputerFrame::CommandAck {
                 ack: wire::CommandAck {

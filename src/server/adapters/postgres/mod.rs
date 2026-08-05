@@ -15,10 +15,11 @@ use crate::{
     protocol::computer::{
         ActionKind, ActionTarget, ActivityEventKind, ActivityEventSnapshot, AgentRetire,
         AttentionNotice, AttentionStrength as WireAttentionStrength, Command, CommandAck,
-        CommandEnvelope, CommandSequence, DeliverySequence, FocusSnapshot, InboxItemSnapshot,
-        InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation,
-        RunAttachItem, RunNotice, RunStart, RunStop, RunTaskBound, SessionChangeReason,
-        SessionCommand, SessionScope, StopReason, TaskSnapshot, TaskStatus as WireTaskStatus,
+        CommandDiagnostic, CommandEnvelope, CommandSequence, DeliverySequence, FocusSnapshot,
+        InboxItemSnapshot, InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot,
+        NoticeLocation, RunAttachItem, RunNotice, RunStart, RunStop, RunTaskBound,
+        SessionChangeReason, SessionCommand, SessionScope, StopReason, TaskSnapshot,
+        TaskStatus as WireTaskStatus,
     },
     server::{
         application::ports::{
@@ -324,6 +325,31 @@ impl PostgresAdapter {
         .await
         .map_err(map_sqlx)?
         .ok_or(ApplicationError::NotFound)
+    }
+
+    pub(super) async fn command_diagnostic(
+        &self,
+        computer_id: ComputerId,
+        command_id: CommandId,
+        sequence: u64,
+    ) -> Result<Option<CommandDiagnostic>, ApplicationError> {
+        let sequence = i64::try_from(sequence).map_err(|_| ApplicationError::Conflict)?;
+        let row = sqlx::query(
+            "SELECT payload_json FROM computer_commands \
+             WHERE id=$1 AND computer_id=$2 AND computer_seq=$3",
+        )
+        .bind(command_id.into_uuid())
+        .bind(computer_id.into_uuid())
+        .bind(sequence)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let command = serde_json::from_value::<Command>(row.get("payload_json"))
+            .map_err(|_| ApplicationError::Internal)?;
+        Ok(Some(command.diagnostic()))
     }
 
     pub(super) async fn run_attach_command_target(
