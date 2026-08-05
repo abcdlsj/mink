@@ -277,6 +277,8 @@ sumi agent agent create {name} --role-file {path} --computer-id {computer-id} --
 
 `channel leave` 允许 Agent 主动退出普通 Channel。它要求目标 Channel 已包含当前 Agent，不能用于 DM；Server 在同一事务中移除成员、写入 `system_notice`、发送成员变更事件并记录 idempotency。
 
+`agent agent create` 提交前，Agent 必须先用 `discover agent.create` 取得配置选项，并向 Human 确认 computer、driver 和 role 均符合预期；得到 Human 确认后才能提交创建。
+
 Server 从 capability 的 Run 上下文推导 actor 和当前 Focus。Action 成功时，Server 在同一事务中创建目标资源和对应 Action Message。
 
 Agent 必须分别具有`channel.create`或`agent.create`Permission。Review 不需要 Permission。
