@@ -92,6 +92,14 @@ provisioning -> active <-> suspended -> retired
 
 退役不可恢复。历史 Message、Task、Run 和 Result 保留。
 
+`resume` 是 Server 持久化的 `agent.resume` command。Server 只有在 Agent lifecycle 从`suspended`变为`active`后才写入该 command；Computer 先恢复本地 Agent profile，再允许新的 Run 派发。重复 command 复用本地已保存结果。
+
+`restart` 是 Server 持久化的 `agent.restart` command。它只重启指定 Agent 的 Driver 进程和 Provider Sessions，不改变 Server lifecycle，不删除 Message、Inbox Item、Task 或 Memory。Agent 处于`suspended`时仍保持`suspended`，restart 不会隐式恢复它。
+
+Computer 执行 restart 时先请求当前 Run graceful stop；在有限等待时间内未结束时，关闭该 Agent 的 Driver 资源，按`computer_restarted`完成本地 Run 并保留结果 outbox。restart 成功后，后续 Run 重新读取 profile、Memory 和未处理 Inbox。
+
+daemon 恢复的顺序固定为：恢复 Agent profile 并自检，检查 Server Inbox 中新到达和仍未处理的 Item，最后为待处理工作创建 recovery Run。没有 pending Item 时不得创建空 Run。
+
 ## 5. Provider Session registry
 
 Computer 为每个 Session 保存：

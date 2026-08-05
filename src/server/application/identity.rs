@@ -454,6 +454,7 @@ impl SetPermission {
 pub(in crate::server) enum AgentLifecycleAction {
     Suspend { cancel_current_run: bool },
     Resume,
+    Restart,
     RetryProvisioning,
 }
 
@@ -495,7 +496,18 @@ impl UpdateAgent {
                             )
                             .await?;
                     }
-                    AgentLifecycleAction::Resume => agent.resume()?,
+                    AgentLifecycleAction::Resume => {
+                        agent.resume()?;
+                        transaction
+                            .queue_agent_resume(input.agent_id, agent.computer_id)
+                            .await?;
+                    }
+                    AgentLifecycleAction::Restart => {
+                        agent.restart()?;
+                        transaction
+                            .queue_agent_restart(input.agent_id, agent.computer_id)
+                            .await?;
+                    }
                     AgentLifecycleAction::RetryProvisioning => agent.retry_provisioning()?,
                 }
             }

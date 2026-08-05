@@ -68,7 +68,7 @@ describe("Agent detail", () => {
           desired_lifecycle: body.lifecycle?.action === "suspend" ? "suspended" : body.lifecycle?.action === "retry" ? "active" : current.desired_lifecycle,
           provision_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "provisioning" : current.provision_status,
           activity_status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "idle" : current.activity_status,
-          last_error_code: body.lifecycle?.action === "suspend" ? "driver_unavailable" : undefined,
+          last_error_code: body.lifecycle?.action === "suspend" ? "driver_unavailable" : current.last_error_code,
         };
         return json(current);
       }
@@ -100,6 +100,11 @@ describe("Agent detail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Read MEMORY.md" }));
     expect(await screen.findByText(/Keep the boundary explicit/)).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restart Agent" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/agents/${agentId}`),
+      expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "restart" } }) }),
+    ));
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Enforce the specification." } });
     fireEvent.click(screen.getByRole("button", { name: /save configuration/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -112,6 +117,8 @@ describe("Agent detail", () => {
       expect.stringContaining(`/agents/${agentId}`),
       expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "suspend", mode: "cancel_now" } }) }),
     ));
+    fireEvent.click(screen.getByRole("button", { name: "Restart Agent" }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.body === JSON.stringify({ lifecycle: { action: "restart" } }))).toHaveLength(2));
     expect(await screen.findByText("driver_unavailable")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /retry provision/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(

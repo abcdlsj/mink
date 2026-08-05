@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -6,7 +8,7 @@ use crate::ids::{EventId, InboxItemId, RunId, TaskId};
 use crate::computer::core::{
     input::{AttentionNoticeInput, DispatchedItemInput},
     session::{self, ProviderSession, SessionFingerprint, SessionScope, SessionState},
-    supervisor::{DeliveryState, ItemDisposition, LocalRunState, TerminalStatus},
+    supervisor::{DeliveryState, ItemDisposition, LocalRun, LocalRunState, TerminalStatus},
 };
 
 use super::{
@@ -18,6 +20,8 @@ use super::{
 };
 
 pub(in crate::computer) struct RunService;
+
+const RESTART_GRACE_PERIOD: Duration = Duration::from_millis(250);
 
 impl RunService {
     pub(in crate::computer) async fn finish_driver_turn<P: TransactionPort>(
@@ -400,10 +404,15 @@ impl RunService {
                 {
                     return Ok(existing);
                 }
+                let forced_restart_failure = status == TerminalStatus::Failed
+                    && error_code == Some(LocalErrorCode::ComputerRestarted)
+                    && run.view().state == LocalRunState::Stopping;
                 if status == TerminalStatus::Canceled {
                     if run.view().state != LocalRunState::Stopping {
                         run.request_stop()?;
                     }
+                } else if forced_restart_failure {
+                    run.fail_after_restart()?;
                 } else if matches!(
                     run.view().state,
                     LocalRunState::Starting | LocalRunState::Running
@@ -411,7 +420,9 @@ impl RunService {
                     run.begin_finalizing()?;
                 }
                 run.validate_item_outcomes(&item_outcomes)?;
-                run.finish(status)?;
+                if !forced_restart_failure {
+                    run.finish(status)?;
+                }
                 if let Some((scope, generation)) = run.view().session {
                     let mut sessions = transaction.sessions(run.view().agent_id, scope)?;
                     if let Some(session) = sessions
@@ -493,6 +504,62 @@ impl RunService {
             None,
         )
         .await
+    }
+
+    pub(in crate::computer) async fn restart<P: TransactionPort, D: DriverPort>(
+        store: &mut P,
+        driver: &mut D,
+        run: LocalRun,
+    ) -> Result<(), ApplicationError> {
+        let run_id = run.view().id;
+        match run.view().state {
+            LocalRunState::Queued => return Ok(()),
+            LocalRunState::Starting | LocalRunState::Running => {
+                if let Err(error) = driver.interrupt(&run).await {
+                    tracing::warn!(%run_id, %error, "Driver graceful stop failed during Agent restart");
+                }
+            }
+            LocalRunState::Finalizing | LocalRunState::Stopping => {}
+            LocalRunState::Completed
+            | LocalRunState::Yielded
+            | LocalRunState::Failed
+            | LocalRunState::Canceled => return Ok(()),
+        }
+        if let Some(outcome) = driver
+            .wait_for_completion(run_id, RESTART_GRACE_PERIOD)
+            .await?
+        {
+            Self::finish_driver_turn(store, run_id, outcome).await?;
+        } else {
+            let current = store
+                .transact(async |transaction| {
+                    transaction.run(run_id)?.ok_or(ApplicationError::NotFound)
+                })
+                .await?;
+            if !current.view().state.is_terminal() {
+                let item_outcomes = current
+                    .view()
+                    .deliveries
+                    .values()
+                    .map(|delivery| {
+                        (
+                            delivery.item.item_id,
+                            delivery.disposition.unwrap_or(ItemDisposition::Released),
+                        )
+                    })
+                    .collect();
+                Self::finish(
+                    store,
+                    run_id,
+                    TerminalStatus::Failed,
+                    item_outcomes,
+                    None,
+                    Some(LocalErrorCode::ComputerRestarted),
+                )
+                .await?;
+            }
+        }
+        Ok(())
     }
 }
 

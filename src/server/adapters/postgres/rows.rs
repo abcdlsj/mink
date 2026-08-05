@@ -184,6 +184,23 @@ pub(super) fn wire_inbox_kind(value: &str) -> Result<InboxSourceKind, Applicatio
     }
 }
 
+pub(super) fn wire_activity_event_kind(value: &str) -> Result<ActivityEventKind, ApplicationError> {
+    match value {
+        "message" => Ok(ActivityEventKind::Message),
+        "member_joined" => Ok(ActivityEventKind::MemberJoined),
+        "member_left" => Ok(ActivityEventKind::MemberLeft),
+        _ => Err(ApplicationError::Internal),
+    }
+}
+
+pub(super) fn activity_event_kind_str(value: ActivityEventKind) -> &'static str {
+    match value {
+        ActivityEventKind::Message => "message",
+        ActivityEventKind::MemberJoined => "member_joined",
+        ActivityEventKind::MemberLeft => "member_left",
+    }
+}
+
 pub(super) fn wire_strength(value: &str) -> Result<WireAttentionStrength, ApplicationError> {
     match value {
         "hard" => Ok(WireAttentionStrength::Hard),
@@ -383,6 +400,7 @@ pub(super) fn inbox_view_from_row(
             .map(MemberId::from_uuid),
         sender_display_name: row.get("sender_name"),
         message_preview: row.get("message_preview"),
+        activity_events: Vec::new(),
         available_at: row.get("available_at"),
         created_at: row.get("created_at"),
         retry_count: u32::try_from(row.get::<i32, _>("retry_count"))

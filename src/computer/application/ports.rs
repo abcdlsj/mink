@@ -113,6 +113,7 @@ pub(in crate::computer) trait AgentHomePort: Send {
     async fn provision(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
     async fn configure(&mut self, agent: LocalAgent) -> Result<(), ApplicationError>;
     async fn suspend(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
+    async fn resume(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn retire(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn workspace_fingerprint(
         &mut self,
@@ -224,6 +225,12 @@ pub(in crate::computer) trait DriverPort {
     ) -> Result<SteerOutcome, ApplicationError>;
     async fn notice(&mut self, run: &LocalRun) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, run: &LocalRun) -> Result<(), ApplicationError>;
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
+    async fn wait_for_completion(
+        &mut self,
+        run_id: RunId,
+        timeout: std::time::Duration,
+    ) -> Result<Option<DriverTurnOutcome>, ApplicationError>;
     async fn close_session(&mut self, session: &ProviderSession) -> Result<(), ApplicationError>;
     async fn process_evidence(
         &mut self,

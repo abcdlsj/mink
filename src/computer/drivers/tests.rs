@@ -12,7 +12,8 @@ use crate::{
         application::{
             ApplicationError,
             ports::{
-                DriverCompletion, DriverPort, OpenSessionRequest, ProcessEvidence, SteerOutcome,
+                DriverCompletion, DriverPort, DriverTurnOutcome, OpenSessionRequest,
+                ProcessEvidence, SteerOutcome,
             },
         },
         core::{
@@ -92,6 +93,10 @@ impl StructuredProviderClient for FakeClient {
     }
 
     async fn interrupt(&mut self, _: &str) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn restart_agent(&mut self, _: AgentId) -> Result<(), ApplicationError> {
         Ok(())
     }
 
@@ -176,9 +181,11 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
     let item = DispatchedItemInput {
         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
         task_id: None,
+        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
         thread_id: run.view().focus_thread_id,
         message_id: None,
         content: Some("new input".to_owned()),
+        activity_events: Vec::new(),
     };
     run.attach(1, item).unwrap();
     assert_eq!(
@@ -186,6 +193,40 @@ async fn unsupported_steer_does_not_start_a_second_turn() {
         SteerOutcome::Unsupported
     );
     assert_eq!(driver.codex.client.turns_started, 1);
+}
+
+#[tokio::test]
+async fn waiting_for_one_completion_preserves_other_runs() {
+    let codex = CodexAdapter::new(FakeClient::new("codex", SteerOutcome::Unsupported));
+    let builtin = BuiltinAdapter::new(FakeClient::new("builtin", SteerOutcome::Accepted));
+    let mut driver = DriverAdapter::new(codex, builtin);
+    let target = RunId::from_uuid(Uuid::now_v7());
+    let other = RunId::from_uuid(Uuid::now_v7());
+    driver.completions.extend([
+        DriverCompletion {
+            run_id: other,
+            outcome: DriverTurnOutcome::Completed,
+        },
+        DriverCompletion {
+            run_id: target,
+            outcome: DriverTurnOutcome::Interrupted,
+        },
+    ]);
+
+    assert_eq!(
+        driver
+            .wait_for_completion(target, std::time::Duration::ZERO)
+            .await
+            .unwrap(),
+        Some(DriverTurnOutcome::Interrupted)
+    );
+    assert_eq!(
+        driver.poll_completions().await.unwrap(),
+        vec![DriverCompletion {
+            run_id: other,
+            outcome: DriverTurnOutcome::Completed,
+        }]
+    );
 }
 
 fn open_request(driver: DriverKind, resume_locator: Option<String>) -> OpenSessionRequest {

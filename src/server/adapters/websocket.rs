@@ -400,6 +400,19 @@ async fn apply_rejected_command(
     pool: &PgPool,
     result: &CommandResult,
 ) -> Result<(), ApiError> {
+    // A command is acknowledged only after its rejected delivery compensation succeeds. Once the
+    // acknowledgement is durable, replaying the same result must not emit another activity event.
+    if storage
+        .command_is_acknowledged(
+            ComputerId::from_uuid(computer_id),
+            result.command_id,
+            result.sequence.0,
+        )
+        .await
+        .map_err(|_| ApiError::internal())?
+    {
+        return Ok(());
+    }
     if let Some((run_id, delivery_sequence)) = storage
         .run_attach_command_target(
             ComputerId::from_uuid(computer_id),
@@ -433,7 +446,8 @@ async fn apply_rejected_command(
         .map_err(|_| ApiError::internal())?;
         if let Some(row) = row {
             storage
-                .record_agent_activity(
+                .record_agent_activity_with_id(
+                    EventId::from_uuid(result.command_id.into_uuid()),
                     SpaceId::from_uuid(row.get("space_id")),
                     MemberId::from_uuid(row.get("agent_id")),
                     "run.delivery_rejected",
@@ -448,7 +462,8 @@ async fn apply_rejected_command(
                         None,
                     ),
                 )
-                .await;
+                .await
+                .map_err(|_| ApiError::internal())?;
         }
         return Ok(());
     }

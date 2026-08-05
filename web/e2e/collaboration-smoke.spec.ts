@@ -39,7 +39,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   const nonce = `${testInfo.project.name.split("-")[0]}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const slug = `sumi-${nonce}`;
   await page.goto("/");
-  await page.getByLabel("Display name").fill("Phase Two Human");
+  await page.getByLabel("Display name").fill("Phase_Two_Human");
   await page.getByLabel("Email").fill(`phase-two-${nonce}@example.test`);
   await page.getByLabel("Password").fill("correct-horse-phase-two");
   await page.getByRole("button", { name: "Continue" }).click();

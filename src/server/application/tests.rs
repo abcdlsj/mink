@@ -393,6 +393,8 @@ struct MemoryState {
     direct_messages: Vec<DirectMessageView>,
     thread_subscriptions: HashSet<(ThreadId, MemberId)>,
     suspend_commands: Vec<(MemberId, bool)>,
+    resume_commands: Vec<MemberId>,
+    restart_commands: Vec<MemberId>,
     configured_agents: Vec<MemberId>,
     invitations: HashMap<uuid::Uuid, Invitation>,
     spaces: HashMap<SpaceId, (String, String)>,
@@ -1582,6 +1584,26 @@ impl EffectSink for MemoryTransaction {
             self.state
                 .suspend_commands
                 .push((agent_id, cancel_current_run));
+        }
+        Ok(())
+    }
+    async fn queue_agent_resume(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        if computer_id.is_some() {
+            self.state.resume_commands.push(agent_id);
+        }
+        Ok(())
+    }
+    async fn queue_agent_restart(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        if computer_id.is_some() {
+            self.state.restart_commands.push(agent_id);
         }
         Ok(())
     }
@@ -3521,6 +3543,7 @@ fn inbox_view(item: &InboxItem) -> InboxItemView {
         sender_member_id: None,
         sender_display_name: None,
         message_preview: None,
+        activity_events: Vec::new(),
         available_at: item.available_at,
         created_at: item.available_at,
         retry_count: item.retry_count,

@@ -31,6 +31,12 @@ pub(in crate::computer) enum Command {
         agent_id: AgentId,
         cancel_current: bool,
     },
+    Resume {
+        agent_id: AgentId,
+    },
+    Restart {
+        agent_id: AgentId,
+    },
     Retire {
         agent_id: AgentId,
     },
@@ -69,6 +75,8 @@ impl Command {
                 agent_id,
                 cancel_current,
             } => format!("suspend:{agent_id}:{cancel_current}"),
+            Self::Resume { agent_id } => format!("resume:{agent_id}"),
+            Self::Restart { agent_id } => format!("restart:{agent_id}"),
             Self::Retire { agent_id } => format!("retire:{agent_id}"),
             Self::Start { run, fingerprint } => format!(
                 "start:{}:{}:{:?}:{}:{}:{}:{}:{:?}:{}",
@@ -255,6 +263,47 @@ impl CommandService {
                     }
                 }
                 homes.suspend(agent_id).await
+            }
+            Command::Resume { agent_id } => {
+                let agent = homes.agent(agent_id).await?;
+                if agent.state == crate::computer::core::home::LocalAgentState::Retired {
+                    return Err(ApplicationError::Conflict);
+                }
+                driver.validate(&agent).await?;
+                homes.resume(agent_id).await
+            }
+            Command::Restart { agent_id } => {
+                let runs = store
+                    .transact(async |transaction| {
+                        Ok(transaction
+                            .nonterminal_runs()?
+                            .into_iter()
+                            .filter(|run| run.view().agent_id == agent_id)
+                            .collect::<Vec<_>>())
+                    })
+                    .await?;
+                for run in runs {
+                    super::run::RunService::restart(store, driver, run).await?;
+                }
+                let sessions = store
+                    .transact(async |transaction| transaction.agent_sessions(agent_id))
+                    .await?;
+                for mut session in sessions {
+                    if matches!(
+                        session.view().state,
+                        SessionState::Closed | SessionState::Lost
+                    ) {
+                        continue;
+                    }
+                    session.mark_closing();
+                    let closed = driver.close_session(&session).await.is_ok();
+                    session.close(closed, OffsetDateTime::now_utc());
+                    store
+                        .transact(async |transaction| transaction.save_session(session))
+                        .await?;
+                }
+                driver.restart_agent(agent_id).await?;
+                homes.agent(agent_id).await.map(|_| ())
             }
             Command::Retire { agent_id } => {
                 let (runs, sessions) = store

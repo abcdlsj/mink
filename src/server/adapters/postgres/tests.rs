@@ -11,6 +11,8 @@ use crate::server::application::conversation::{CreateAgentAction, CreateAgentAct
 use crate::server::application::execution::{
     DispatchRun, DispatchRunInput, SyncComputerRuns, SyncComputerRunsInput,
 };
+use crate::server::application::identity::{AgentLifecycleAction, UpdateAgent, UpdateAgentInput};
+use crate::server::application::ports::{InboxActivityEventKind, InboxScope};
 use crate::server::application::task::{CreateTaskFromRootMessage, CreateTaskInput, TaskSource};
 
 #[test]
@@ -180,11 +182,15 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         assert!(messages_self_fk);
         assert!(!legacy_session_table);
         assert!(slug_constraint);
-        assert_eq!(schema_version, 6);
+        assert_eq!(schema_version, 7);
 
         sqlx::raw_sql(
             "ALTER TABLE channels DROP CONSTRAINT channels_slug_form_check; \
-             UPDATE schema_meta SET version=5 WHERE version=6;",
+             DROP TABLE inbox_activity_events; \
+             DROP INDEX inbox_items_open_channel_ambient_aggregate; \
+             DROP INDEX inbox_items_open_thread_ambient_aggregate; \
+             ALTER TABLE inbox_items DROP COLUMN ambient_channel_id; \
+             UPDATE schema_meta SET version=5 WHERE version=7;",
         )
         .execute(&pool)
         .await
@@ -201,7 +207,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(migrated_version, 6);
+        assert_eq!(migrated_version, 7);
         assert!(migrated_constraint);
         pool.close().await;
     }
@@ -566,6 +572,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             let computer_id = Uuid::now_v7();
             let channel = Uuid::now_v7();
             let root = Uuid::now_v7();
+            let second_root = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
                  INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{owner}',now());
@@ -573,9 +580,10 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','member',now());
                  INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
                  INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
-                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',3,now());
                  INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0);
                  INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+                 INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{second_root}','{space}','{channel}','{second_root}',2,'root','text','{owner}','second source',now());
                  COMMIT;"
             ))
             .execute(&pool)
@@ -586,8 +594,9 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             // Agent, so all twelve belong in a single aggregate.
             const REPLIES: i32 = 12;
             let published = (0..REPLIES)
-                .map(|_| {
+                .map(|index| {
                     let pool = pool.clone();
+                    let thread_id = if index < REPLIES / 2 { root } else { second_root };
                     tokio::spawn(async move {
                         let mut adapter = PostgresAdapter::new(pool);
                         adapter
@@ -599,7 +608,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                                         author_member_id: MemberId::from_uuid(owner),
                                         idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
                                         body_markdown: "reply".into(),
-                                        thread_id: Some(ThreadId::from_uuid(root)),
+                                        thread_id: Some(ThreadId::from_uuid(thread_id)),
                                         reply_to_message_id: None,
                                         mentions: Vec::new(),
                                         mention_all: false,
@@ -641,8 +650,17 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                 count, REPLIES,
                 "no concurrent update was lost from the count"
             );
-            // The Root Message holds sequence 1, so the replies occupy 2 through REPLIES + 1.
-            assert_eq!((first_seq, last_seq), (2, i64::from(REPLIES) + 1));
+            // The two Root Messages hold sequences 1 and 2, so replies from both Threads occupy
+            // one Channel aggregate over sequences 3 through REPLIES + 2.
+            assert_eq!((first_seq, last_seq), (3, i64::from(REPLIES) + 2));
+            let event_count: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM inbox_activity_events e JOIN inbox_items i ON i.id=e.inbox_item_id WHERE i.member_id=$1",
+            )
+            .bind(agent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(event_count, i64::from(REPLIES));
             assert!(
                 available_at <= force_at,
                 "a busy Thread cannot postpone the aggregate past its deadline"
@@ -652,29 +670,31 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             let duplicate = sqlx::query(
                 "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,\
                  strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
-                 force_at,created_at) \
+                 force_at,ambient_channel_id,created_at) \
                  VALUES($1,$2,$3,NULL,$4,NULL,'channel_activity','ambient','pending',now(),99,99,1,\
-                 now(),now())",
+                 now(),$5,now())",
             )
             .bind(Uuid::now_v7())
             .bind(space)
             .bind(agent)
             .bind(root)
+            .bind(channel)
             .execute(&pool)
             .await;
             assert!(
                 duplicate.is_err(),
-                "a second open ambient aggregate for one Agent and Thread must be rejected"
+                "a second open ambient aggregate for one Agent and Channel must be rejected"
             );
 
             // The aggregate names no source Message, so claiming it must not depend on one. Claiming
             // also closes it to further Messages, which is why this runs last.
-            let aggregate_id: Uuid =
-                sqlx::query_scalar("SELECT id FROM inbox_items WHERE member_id=$1")
-                    .bind(agent)
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let (aggregate_id, aggregate_thread): (Uuid, Uuid) = sqlx::query_as(
+                "SELECT id,thread_id FROM inbox_items WHERE member_id=$1",
+            )
+            .bind(agent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             sqlx::query("UPDATE inbox_items SET available_at=now() WHERE id=$1")
                 .bind(aggregate_id)
                 .execute(&pool)
@@ -687,7 +707,7 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                     run_id: RunId::from_uuid(Uuid::now_v7()),
                     agent_id: MemberId::from_uuid(agent),
                     task_id: None,
-                    focus_thread_id: ThreadId::from_uuid(root),
+                    focus_thread_id: ThreadId::from_uuid(aggregate_thread),
                     trigger: RunTrigger::Mention,
                     item_ids: vec![InboxItemId::from_uuid(aggregate_id)],
                 },
@@ -705,6 +725,284 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
             pool.close().await;
         }
         .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
+async fn channel_member_activity_preserves_order_and_stops_after_leave() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_member_activity_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        PostgresAdapter::new(pool.clone())
+            .initialize_schema()
+            .await
+            .unwrap();
+        let space = Uuid::now_v7();
+        let owner = Uuid::now_v7();
+        let watcher = Uuid::now_v7();
+        let joining_agent = Uuid::now_v7();
+        let computer_id = Uuid::now_v7();
+        let channel = Uuid::now_v7();
+        let root = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#FE7DA8','{owner}',now());
+             INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now());
+             INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{watcher}','{space}','agent','Watcher','member',now());
+             INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{joining_agent}','{space}','agent','Joining','member',now());
+             INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',1,now());
+             INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{watcher}','{space}','{computer_id}','Watch',1,'active','codex',now()),('{joining_agent}','{space}','{computer_id}','Join',1,'active','codex',now());
+             INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+             INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{watcher}',now(),0);
+             INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut adapter = PostgresAdapter::new(pool.clone());
+        let inserted = adapter
+            .transact(async |transaction| {
+                transaction
+                    .add_channel_agents(
+                        MemberId::from_uuid(owner),
+                        ChannelId::from_uuid(channel),
+                        vec![MemberId::from_uuid(joining_agent)],
+                        IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        OffsetDateTime::now_utc(),
+                    )
+                    .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(inserted, vec![MemberId::from_uuid(joining_agent)]);
+
+        let first_message = MessageId::from_uuid(Uuid::now_v7());
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .publish_message(MessageDraft {
+                        message_id: first_message,
+                        channel_id: ChannelId::from_uuid(channel),
+                        author_member_id: MemberId::from_uuid(owner),
+                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        body_markdown: "first message".into(),
+                        thread_id: Some(ThreadId::from_uuid(root)),
+                        reply_to_message_id: None,
+                        mentions: Vec::new(),
+                        mention_all: false,
+                        attachment_ids: Vec::new(),
+                        handled_item: None,
+                        expected_snapshot: None,
+                        now: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .remove_channel_agent(
+                        MemberId::from_uuid(owner),
+                        ChannelId::from_uuid(channel),
+                        MemberId::from_uuid(joining_agent),
+                        OffsetDateTime::now_utc(),
+                    )
+                    .await
+            })
+            .await
+            .unwrap();
+
+        adapter
+            .transact(async |transaction| {
+                transaction
+                    .publish_message(MessageDraft {
+                        message_id: MessageId::from_uuid(Uuid::now_v7()),
+                        channel_id: ChannelId::from_uuid(channel),
+                        author_member_id: MemberId::from_uuid(owner),
+                        idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+                        body_markdown: "after leave".into(),
+                        thread_id: Some(ThreadId::from_uuid(root)),
+                        reply_to_message_id: None,
+                        mentions: Vec::new(),
+                        mention_all: false,
+                        attachment_ids: Vec::new(),
+                        handled_item: None,
+                        expected_snapshot: None,
+                        now: OffsetDateTime::now_utc(),
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+
+        let watcher_events: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT e.channel_seq,e.kind FROM inbox_activity_events e \
+             JOIN inbox_items i ON i.id=e.inbox_item_id \
+             WHERE i.member_id=$1 ORDER BY e.channel_seq",
+        )
+        .bind(watcher)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            watcher_events,
+            vec![
+                (2, "member_joined".to_owned()),
+                (3, "message".to_owned()),
+                (4, "member_left".to_owned()),
+                (5, "message".to_owned()),
+            ]
+        );
+
+        let watcher_items = adapter
+            .transact(async |transaction| {
+                transaction
+                    .inbox_for_member(MemberId::from_uuid(watcher), InboxScope::Queue)
+                    .await
+            })
+            .await
+            .unwrap();
+        assert_eq!(watcher_items.len(), 1);
+        assert_eq!(
+            watcher_items[0]
+                .activity_events
+                .iter()
+                .map(|event| (event.sequence, event.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                (2, InboxActivityEventKind::MemberJoined),
+                (3, InboxActivityEventKind::Message),
+                (4, InboxActivityEventKind::MemberLeft),
+                (5, InboxActivityEventKind::Message),
+            ]
+        );
+
+        let joining_counts: (i64, i64) = sqlx::query_as(
+            "SELECT count(DISTINCT i.id),count(e.channel_seq) \
+             FROM inbox_items i LEFT JOIN inbox_activity_events e ON e.inbox_item_id=i.id \
+             WHERE i.member_id=$1",
+        )
+        .bind(joining_agent)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(joining_counts, (1, 1));
+
+        let candidates = adapter
+            .transact(async |transaction| {
+                transaction
+                    .dispatchable_work(
+                        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+                        64,
+                    )
+                    .await
+            })
+            .await
+            .unwrap();
+        assert!(!candidates
+            .iter()
+            .any(|candidate| candidate.agent_id == MemberId::from_uuid(joining_agent)));
+
+        pool.close().await;
+    }
+    .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
+async fn v6_to_v7_migration_merges_channel_aggregates_across_threads() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_activity_migration_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
+        let space = Uuid::now_v7();
+        let owner = Uuid::now_v7();
+        let agent = Uuid::now_v7();
+        let channel = Uuid::now_v7();
+        let first_root = Uuid::now_v7();
+        let second_root = Uuid::now_v7();
+        let first_item = Uuid::now_v7();
+        let second_item = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             DROP TABLE inbox_activity_events;
+             DROP INDEX inbox_items_open_channel_ambient_aggregate;
+             DROP INDEX inbox_items_open_thread_ambient_aggregate;
+             ALTER TABLE inbox_items DROP COLUMN ambient_channel_id;
+             CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate ON inbox_items(member_id,thread_id) WHERE strength='ambient' AND status='pending' AND retry_count=0;
+             UPDATE schema_meta SET version=6 WHERE version=7;
+             INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','migration-space','Migration Space','#FE7DA8','{owner}',now());
+             INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now()),('{agent}','{space}','agent','Migrator','member',now());
+             INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','migration',5,now());
+             INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{first_root}','{space}','{channel}','{first_root}',1,'root','text','{owner}','first',now()),('{second_root}','{space}','{channel}','{second_root}',2,'root','text','{owner}','second',now());
+             INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status,available_at,retry_count,first_message_seq,last_message_seq,aggregated_count,force_at,created_at) VALUES
+                ('{first_item}','{space}','{agent}',NULL,'{first_root}',NULL,'channel_activity','ambient','pending',now(),0,3,3,1,now(),now()),
+                ('{second_item}','{space}','{agent}',NULL,'{second_root}',NULL,'channel_activity','ambient','pending',now(),0,2,4,2,now()+interval '10 minutes',now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        adapter.initialize_schema().await.unwrap();
+        let merged: (i64, i32, i64, i64, Uuid) = sqlx::query_as(
+            "SELECT count(*),aggregated_count,first_message_seq,last_message_seq,ambient_channel_id \
+             FROM inbox_items WHERE member_id=$1 GROUP BY aggregated_count,first_message_seq,last_message_seq,ambient_channel_id",
+        )
+        .bind(agent)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(merged, (1, 3, 2, 4, channel));
+        assert_eq!(
+            sqlx::query_scalar::<_, i32>("SELECT max(version) FROM schema_meta")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            7
+        );
+        pool.close().await;
+    }
+    .await;
 
     sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
         .execute(&mut admin)
@@ -1030,6 +1328,92 @@ async fn claim_run_inserts_the_run_before_leasing_its_inbox_item() {
     assert_eq!(
         facts,
         ("dispatched".into(), "assigned".into(), None, 1, 1, 1)
+    );
+
+    pool.close().await;
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn resuming_an_agent_queues_resume_before_a_later_run_start() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_resume_order_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+    let mut adapter = PostgresAdapter::new(pool.clone());
+    adapter.initialize_schema().await.unwrap();
+    let space_id = Uuid::now_v7();
+    let owner_id = Uuid::now_v7();
+    let agent_id = Uuid::now_v7();
+    let computer_id = Uuid::now_v7();
+    let message_id = Uuid::now_v7();
+    let item_id = Uuid::now_v7();
+    sqlx::raw_sql(&format!(
+        "BEGIN;
+         INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','resume-order','Resume Order','#FE7DA8','{owner_id}',now());
+         INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner',now());
+         INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','member',now());
+         INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space_id}','Computer','localhost','linux','resume-order-hash','offline',1,now());
+         INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent_id}','{space_id}','{computer_id}','Reply',1,'suspended','codex',now());
+         INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) VALUES ('{message_id}','{space_id}','public','general',2,now());
+         INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{message_id}','{space_id}','{owner_id}',now(),0),('{message_id}','{space_id}','{agent_id}',now(),0);
+         INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{message_id}','{space_id}','{message_id}','{message_id}',1,'root','text','{owner_id}','mention',now());
+         INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,created_at) VALUES ('{item_id}','{space_id}','{agent_id}','{message_id}','{message_id}','mention','hard','pending',now(),now());
+         COMMIT;"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    UpdateAgent::execute(
+        &mut adapter,
+        UpdateAgentInput {
+            actor_id: MemberId::from_uuid(owner_id),
+            agent_id: MemberId::from_uuid(agent_id),
+            role_text: None,
+            lifecycle: Some(AgentLifecycleAction::Resume),
+        },
+    )
+    .await
+    .unwrap();
+
+    DispatchRun::execute(
+        &mut adapter,
+        DispatchRunInput {
+            run_id: RunId::from_uuid(Uuid::now_v7()),
+            agent_id: MemberId::from_uuid(agent_id),
+            task_id: None,
+            focus_thread_id: ThreadId::from_uuid(message_id),
+            trigger: RunTrigger::Mention,
+            item_ids: vec![InboxItemId::from_uuid(item_id)],
+        },
+    )
+    .await
+    .unwrap();
+
+    let commands: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT computer_seq,kind FROM computer_commands WHERE computer_id=$1 ORDER BY computer_seq",
+    )
+    .bind(computer_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        commands,
+        vec![(1, "agent.resume".to_owned()), (2, "run.start".to_owned())]
     );
 
     pool.close().await;

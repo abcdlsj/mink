@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::server::application::ports::{InboxActivityEventKind, InboxActivityEventView};
+
 impl PostgresTransaction {
     pub(super) async fn insert_dead_item_notice(
         &mut self,
@@ -74,7 +76,9 @@ impl PostgresTransaction {
         .fetch_one(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        inbox_view_from_row(&row)
+        let mut view = inbox_view_from_row(&row)?;
+        view.activity_events = self.activity_events(item_id).await?;
+        Ok(view)
     }
 
     pub(super) async fn inbox_item(
@@ -145,38 +149,125 @@ impl PostgresTransaction {
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        rows.iter().map(inbox_view_from_row).collect()
+        let mut views = rows
+            .iter()
+            .map(inbox_view_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        let item_ids = views
+            .iter()
+            .map(|item| item.id.into_uuid())
+            .collect::<Vec<_>>();
+        let events = self.activity_events_for_items(&item_ids).await?;
+        for view in &mut views {
+            view.activity_events = events
+                .get(&view.id.into_uuid())
+                .cloned()
+                .unwrap_or_default();
+        }
+        Ok(views)
+    }
+
+    async fn activity_events(
+        &mut self,
+        item_id: InboxItemId,
+    ) -> Result<Vec<InboxActivityEventView>, ApplicationError> {
+        let events = self
+            .activity_events_for_items(&[item_id.into_uuid()])
+            .await?;
+        Ok(events
+            .get(&item_id.into_uuid())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn activity_events_for_items(
+        &mut self,
+        item_ids: &[Uuid],
+    ) -> Result<std::collections::BTreeMap<Uuid, Vec<InboxActivityEventView>>, ApplicationError>
+    {
+        if item_ids.is_empty() {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        let rows = sqlx::query(
+            "SELECT inbox_item_id,channel_seq,kind,message_id,member_id \
+             FROM inbox_activity_events WHERE inbox_item_id=ANY($1) ORDER BY inbox_item_id,channel_seq",
+        )
+        .bind(item_ids)
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let mut events = std::collections::BTreeMap::<Uuid, Vec<InboxActivityEventView>>::new();
+        for row in rows {
+            let kind = match row.get::<&str, _>("kind") {
+                "message" => InboxActivityEventKind::Message,
+                "member_joined" => InboxActivityEventKind::MemberJoined,
+                "member_left" => InboxActivityEventKind::MemberLeft,
+                _ => return Err(ApplicationError::Internal),
+            };
+            events
+                .entry(row.get("inbox_item_id"))
+                .or_default()
+                .push(InboxActivityEventView {
+                    sequence: u64::try_from(row.get::<i64, _>("channel_seq"))
+                        .map_err(|_| ApplicationError::Internal)?,
+                    kind,
+                    message_id: row
+                        .get::<Option<Uuid>, _>("message_id")
+                        .map(MessageId::from_uuid),
+                    member_id: row
+                        .get::<Option<Uuid>, _>("member_id")
+                        .map(MemberId::from_uuid),
+                });
+        }
+        Ok(events)
     }
 
     /// Reads one Item regardless of status, unlike `inbox_for_member`, which projects only the queue.
     /// A governor acting on a retired Item needs to see the result of that action.
     pub(super) async fn route_ambient_activity(
         &mut self,
-        space_id: SpaceId,
-        member_id: MemberId,
-        thread_id: ThreadId,
-        kind: InboxItemKind,
-        message_seq: u64,
-        now: OffsetDateTime,
+        input: AmbientActivityInput,
     ) -> Result<(), ApplicationError> {
-        let open = sqlx::query(
-            "SELECT id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status,\
-                    available_at,assigned_run_id,retry_count,requeue_count,\
-                    handled_at,first_message_seq,last_message_seq,aggregated_count,force_at \
-             FROM inbox_items \
-             WHERE member_id=$1 AND thread_id=$2 AND strength='ambient' AND status='pending' \
-               AND retry_count=0 \
-             FOR UPDATE",
-        )
-        .bind(member_id.into_uuid())
-        .bind(thread_id.into_uuid())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(map_sqlx)?;
+        let AmbientActivityInput {
+            space_id,
+            member_id,
+            channel_id,
+            thread_id,
+            kind,
+            event,
+        } = input;
+        let open = if kind == InboxItemKind::ChannelActivity {
+            sqlx::query(
+                "SELECT * FROM inbox_items \
+                 WHERE member_id=$1 AND ambient_channel_id=$2 AND kind='channel_activity' \
+                   AND strength='ambient' AND status='pending' AND retry_count=0 \
+                 FOR UPDATE",
+            )
+            .bind(member_id.into_uuid())
+            .bind(channel_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+        } else {
+            sqlx::query(
+                "SELECT * FROM inbox_items \
+                 WHERE member_id=$1 AND thread_id=$2 AND kind='thread_activity' \
+                   AND strength='ambient' AND status='pending' AND retry_count=0 \
+                 FOR UPDATE",
+            )
+            .bind(member_id.into_uuid())
+            .bind(thread_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+        };
         if let Some(row) = open {
             let mut item = inbox_from_row(&row)?;
             // A Message this aggregate already covers is a replay; the range and count stand.
-            if item.absorb_ambient_message(message_seq, now).is_err() {
+            if item
+                .absorb_ambient_message(event.channel_seq, event.now)
+                .is_err()
+            {
                 return Ok(());
             }
             let item_view = item.view();
@@ -192,6 +283,7 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
+            self.insert_activity_event(item_view.id, &event).await?;
             return Ok(());
         }
         let item = InboxItem::open_ambient(
@@ -200,16 +292,16 @@ impl PostgresTransaction {
             member_id,
             thread_id,
             kind,
-            message_seq,
-            now,
+            event.channel_seq,
+            event.now,
         )?;
         let item_view = item.view();
         let ambient = item_view.ambient.ok_or(ApplicationError::Internal)?;
         sqlx::query(
             "INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,task_id,kind,\
              strength,status,available_at,first_message_seq,last_message_seq,aggregated_count,\
-             force_at,created_at) \
-             VALUES($1,$2,$3,NULL,$4,NULL,$5,'ambient','pending',$6,$7,$7,1,$8,$9)",
+             force_at,ambient_channel_id,created_at) \
+             VALUES($1,$2,$3,NULL,$4,NULL,$5,'ambient','pending',$6,$7,$7,1,$8,$9,$10)",
         )
         .bind(item_view.id.into_uuid())
         .bind(space_id.into_uuid())
@@ -217,9 +309,34 @@ impl PostgresTransaction {
         .bind(thread_id.into_uuid())
         .bind(inbox_kind_str(kind))
         .bind(item_view.available_at)
-        .bind(i64::try_from(message_seq).map_err(|_| ApplicationError::Internal)?)
+        .bind(i64::try_from(event.channel_seq).map_err(|_| ApplicationError::Internal)?)
         .bind(ambient.force_at)
-        .bind(now)
+        .bind((kind == InboxItemKind::ChannelActivity).then_some(channel_id.into_uuid()))
+        .bind(event.now)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        self.insert_activity_event(item_view.id, &event).await?;
+        Ok(())
+    }
+
+    async fn insert_activity_event(
+        &mut self,
+        item_id: InboxItemId,
+        event: &AmbientActivityEvent,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "INSERT INTO inbox_activity_events(\
+                inbox_item_id,channel_id,channel_seq,kind,message_id,member_id,created_at\
+             ) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (inbox_item_id,channel_seq) DO NOTHING",
+        )
+        .bind(item_id.into_uuid())
+        .bind(event.channel_id.into_uuid())
+        .bind(i64::try_from(event.channel_seq).map_err(|_| ApplicationError::Internal)?)
+        .bind(activity_event_kind_str(event.kind))
+        .bind(event.message_id.map(MessageId::into_uuid))
+        .bind(event.member_id.map(MemberId::into_uuid))
+        .bind(event.now)
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
@@ -231,8 +348,10 @@ impl PostgresTransaction {
         item_id: InboxItemId,
     ) -> Result<InboxItemSnapshot, ApplicationError> {
         let row = sqlx::query(
-            "SELECT kind,strength,thread_id,task_id,message_id,available_at \
-             FROM inbox_items WHERE id=$1",
+            "SELECT i.kind,i.strength,i.thread_id,i.task_id,i.message_id,i.available_at,t.channel_id \
+             FROM inbox_items i \
+             JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
+             WHERE i.id=$1",
         )
         .bind(item_id.into_uuid())
         .fetch_one(&mut *self.connection)
@@ -252,13 +371,42 @@ impl PostgresTransaction {
             }
             None => None,
         };
+        let activity_events = if row.get::<&str, _>("strength") == "ambient" {
+            sqlx::query(
+                "SELECT channel_seq,kind,message_id,member_id \
+                 FROM inbox_activity_events WHERE inbox_item_id=$1 ORDER BY channel_seq",
+            )
+            .bind(item_id.into_uuid())
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+            .into_iter()
+            .map(|event| {
+                Ok(ActivityEventSnapshot {
+                    sequence: u64::try_from(event.get::<i64, _>("channel_seq"))
+                        .map_err(|_| ApplicationError::Internal)?,
+                    kind: wire_activity_event_kind(event.get("kind"))?,
+                    message_id: event
+                        .get::<Option<Uuid>, _>("message_id")
+                        .map(MessageId::from_uuid),
+                    member_id: event
+                        .get::<Option<Uuid>, _>("member_id")
+                        .map(MemberId::from_uuid),
+                })
+            })
+            .collect::<Result<Vec<_>, ApplicationError>>()?
+        } else {
+            Vec::new()
+        };
         Ok(InboxItemSnapshot {
             item_id,
             source_kind: wire_inbox_kind(row.get("kind"))?,
             strength: wire_strength(row.get("strength"))?,
+            channel_id: ChannelId::from_uuid(row.get("channel_id")),
             thread_id: ThreadId::from_uuid(row.get("thread_id")),
             task_id: row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid),
             message,
+            activity_events,
             available_at: row.get("available_at"),
         })
     }

@@ -10,7 +10,7 @@ use crate::ids::{
 };
 
 use crate::computer::core::{
-    home::LocalAgent,
+    home::{LocalAgent, LocalAgentState},
     input::{
         AgentInput, AttentionNoticeInput, ContextMessageInput, DispatchedItemInput,
         NoticeLocationInput, RunContextInput, RunInput, TaskInput, WorkInput,
@@ -220,6 +220,18 @@ impl AgentHomePort for MemoryHome {
         Ok(())
     }
 
+    async fn resume(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        let agent = self
+            .agents
+            .get_mut(&agent_id)
+            .ok_or(ApplicationError::NotFound)?;
+        if agent.state == crate::computer::core::home::LocalAgentState::Retired {
+            return Err(ApplicationError::Conflict);
+        }
+        agent.state = crate::computer::core::home::LocalAgentState::Active;
+        Ok(())
+    }
+
     async fn retire(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
         self.agents.remove(&agent_id);
         Ok(())
@@ -278,6 +290,7 @@ struct FakeDriver {
     notice_count: usize,
     interrupt_count: usize,
     close_count: usize,
+    restart_count: usize,
     resume_count: usize,
     fail_next_resume: bool,
     steer_outcome: SteerOutcome,
@@ -296,6 +309,7 @@ impl Default for FakeDriver {
             notice_count: 0,
             interrupt_count: 0,
             close_count: 0,
+            restart_count: 0,
             resume_count: 0,
             fail_next_resume: false,
             steer_outcome: SteerOutcome::Accepted,
@@ -371,6 +385,11 @@ impl DriverPort for FakeDriver {
         Ok(())
     }
 
+    async fn restart_agent(&mut self, _agent_id: AgentId) -> Result<(), ApplicationError> {
+        self.restart_count += 1;
+        Ok(())
+    }
+
     async fn close_session(&mut self, _session: &ProviderSession) -> Result<(), ApplicationError> {
         self.close_count += 1;
         Ok(())
@@ -381,6 +400,14 @@ impl DriverPort for FakeDriver {
         _run: &LocalRun,
     ) -> Result<ProcessEvidence, ApplicationError> {
         Ok(self.process_evidence)
+    }
+
+    async fn wait_for_completion(
+        &mut self,
+        _run_id: RunId,
+        _timeout: std::time::Duration,
+    ) -> Result<Option<DriverTurnOutcome>, ApplicationError> {
+        Ok(None)
     }
 
     async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
@@ -492,6 +519,7 @@ async fn duplicate_start_command_does_not_start_a_second_driver_turn() {
     let mut driver = FakeDriver::default();
     let thread_id = thread_id();
     let run = local_run(None, thread_id, []);
+    let mut homes = active_home([run.view().agent_id]);
     let command = Command::Start {
         run: Box::new(run),
         fingerprint: fingerprint(1, "workspace-a"),
@@ -522,7 +550,7 @@ async fn duplicate_start_command_does_not_start_a_second_driver_turn() {
     )
     .await
     .unwrap();
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
 
@@ -538,6 +566,7 @@ async fn start_command_rejects_a_second_active_run_for_the_same_agent() {
     let first = local_run(None, thread_id(), []);
     let agent_id = first.view().agent_id;
     let first_id = first.view().id;
+    let mut homes = active_home([agent_id]);
     CommandService::execute(
         &mut store,
         &mut driver,
@@ -551,7 +580,7 @@ async fn start_command_rejects_a_second_active_run_for_the_same_agent() {
     )
     .await
     .unwrap();
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
 
@@ -762,6 +791,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
     let second = local_run(None, thread_id(), []);
     let first_id = first.view().id;
     let second_id = second.view().id;
+    let mut homes = active_home([first.view().agent_id, second.view().agent_id]);
     for (sequence, run) in [(1, first), (2, second)] {
         CommandService::execute(
             &mut store,
@@ -778,7 +808,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
         .unwrap();
     }
 
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
     let states = [
@@ -814,7 +844,7 @@ async fn application_scheduler_enforces_capacity_and_releases_terminal_run_slot(
     )
     .await
     .unwrap();
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
 
@@ -838,6 +868,7 @@ async fn run_pipeline_finishes_driver_turn_and_dispatches_next_queued_run() {
     let second = local_run(None, thread_id(), []);
     let first_id = first.view().id;
     let second_id = second.view().id;
+    let mut homes = active_home([first.view().agent_id, second.view().agent_id]);
     for (sequence, run) in [(1, first), (2, second)] {
         CommandService::execute(
             &mut store,
@@ -854,7 +885,7 @@ async fn run_pipeline_finishes_driver_turn_and_dispatches_next_queued_run() {
         .unwrap();
     }
 
-    RunPipelineService::dispatch(&mut store, &mut driver, 1)
+    RunPipelineService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
     let running_id = if store.state.runs[&first_id].view().state == LocalRunState::Running {
@@ -875,6 +906,7 @@ async fn run_pipeline_finishes_driver_turn_and_dispatches_next_queued_run() {
             run_id: running_id,
             outcome: DriverTurnOutcome::Completed,
         }],
+        &mut homes,
         1,
     )
     .await
@@ -900,6 +932,7 @@ async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
     let second = local_run(None, thread_id(), []);
     let first_id = first.view().id;
     let second_id = second.view().id;
+    let mut homes = active_home([first.view().agent_id, second.view().agent_id]);
     for (sequence, run) in [(1, first), (2, second)] {
         CommandService::execute(
             &mut store,
@@ -915,7 +948,7 @@ async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
         .await
         .unwrap();
     }
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
     let (running_id, queued_id) =
@@ -928,7 +961,7 @@ async fn yield_interrupt_releases_capacity_and_starts_queued_run() {
     RunService::yield_run(&mut store, running_id, None)
         .await
         .unwrap();
-    RunPipelineService::interrupt_yielded(&mut store, &mut driver, running_id, 1)
+    RunPipelineService::interrupt_yielded(&mut store, &mut driver, running_id, &mut homes, 1)
         .await
         .unwrap();
 
@@ -1050,6 +1083,7 @@ async fn pending_command_is_replayed_after_restart() {
     let mut store = MemoryPort::default();
     let mut driver = FakeDriver::default();
     let run = local_run(None, thread_id(), []);
+    let mut homes = active_home([run.view().agent_id]);
     let run_id = run.view().id;
     let command_id = command_id();
     let command = Command::Start {
@@ -1068,13 +1102,143 @@ async fn pending_command_is_replayed_after_restart() {
         },
     );
 
-    RecoveryService::recover(&mut store, &mut driver, &mut MemoryHome::default(), 1)
+    RecoveryService::recover(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
 
     assert_eq!(
         store.state.commands[&command_id].status,
         CommandStatus::Applied
+    );
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Running
+    );
+    assert_eq!(driver.start_count, 1);
+}
+
+#[tokio::test]
+async fn restart_gracefully_stops_an_active_run_before_restarting_the_driver() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let focus_thread = thread_id();
+    let run = local_run(None, focus_thread, [(item_id(), None, focus_thread)]);
+    let agent_id = run.view().agent_id;
+    let run_id = run.view().id;
+    let mut homes = active_home([agent_id]);
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+
+    let execution = CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut homes,
+        command_id(),
+        1,
+        Command::Restart { agent_id },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(execution.status, CommandStatus::Applied);
+    assert_eq!(driver.interrupt_count, 1);
+    assert_eq!(driver.restart_count, 1);
+    assert_eq!(
+        homes.agent(agent_id).await.unwrap().state,
+        LocalAgentState::Active
+    );
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Failed
+    );
+    assert!(store.state.events.values().any(|event| matches!(
+        event,
+        LocalEvent::RunResult {
+            run_id: event_run_id,
+            error_code: Some(LocalErrorCode::ComputerRestarted),
+            ..
+        } if *event_run_id == run_id
+    )));
+}
+
+#[tokio::test]
+async fn resume_validation_failure_keeps_queued_runs_until_the_profile_is_active() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver {
+        fail_validation: true,
+        ..FakeDriver::default()
+    };
+    let run = local_run(None, thread_id(), []);
+    let agent_id = run.view().agent_id;
+    let run_id = run.view().id;
+    let mut homes = active_home([agent_id]);
+    homes.suspend(agent_id).await.unwrap();
+
+    CommandService::execute(
+        &mut store,
+        &mut driver,
+        &mut homes,
+        command_id(),
+        1,
+        Command::Start {
+            run: Box::new(run),
+            fingerprint: fingerprint(1, "workspace-a"),
+        },
+    )
+    .await
+    .unwrap();
+
+    let resume_id = command_id();
+    assert_eq!(
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut homes,
+            resume_id,
+            2,
+            Command::Resume { agent_id },
+        )
+        .await,
+        Err(ApplicationError::DriverUnavailable)
+    );
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Queued
+    );
+    assert_eq!(driver.start_count, 0);
+
+    driver.fail_validation = false;
+    assert_eq!(
+        CommandService::execute(
+            &mut store,
+            &mut driver,
+            &mut homes,
+            resume_id,
+            2,
+            Command::Resume { agent_id },
+        )
+        .await
+        .unwrap()
+        .status,
+        CommandStatus::Applied
+    );
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        homes.agent(agent_id).await.unwrap().state,
+        LocalAgentState::Active
     );
     assert_eq!(
         store.state.runs[&run_id].view().state,
@@ -1791,8 +1955,9 @@ async fn scheduler_cancels_a_queued_run_without_a_session_fingerprint() {
     let run_id = run.view().id;
     store.state.runs.insert(run_id, run);
     let mut driver = FakeDriver::default();
+    let mut homes = active_home([store.state.runs[&run_id].view().agent_id]);
 
-    SchedulerService::dispatch(&mut store, &mut driver, 1)
+    SchedulerService::dispatch(&mut store, &mut driver, &mut homes, 1)
         .await
         .unwrap();
 
@@ -1927,9 +2092,11 @@ fn claimed_item(
     DispatchedItemInput {
         item_id,
         task_id,
+        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
         thread_id,
         message_id: None,
         content: Some("steering body".to_owned()),
+        activity_events: Vec::new(),
     }
 }
 
@@ -1991,6 +2158,16 @@ fn local_agent(driver: DriverKind, role_revision: u64) -> LocalAgent {
         driver,
         state: crate::computer::core::home::LocalAgentState::Active,
     }
+}
+
+fn active_home(agent_ids: impl IntoIterator<Item = AgentId>) -> MemoryHome {
+    let mut homes = MemoryHome::default();
+    for agent_id in agent_ids {
+        let mut agent = local_agent(DriverKind::Codex, 1);
+        agent.agent_id = agent_id;
+        homes.agents.insert(agent_id, agent);
+    }
+    homes
 }
 
 fn agent_id() -> AgentId {

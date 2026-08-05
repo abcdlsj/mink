@@ -29,6 +29,8 @@ Agent 路由：
 | Linked Thread 新 Message | task_activity | hard |
 | Agent 订阅的普通 Thread 更新 | thread_activity | ambient |
 | Agent 所在 Channel 普通 Message | channel_activity | ambient |
+| Agent 所在 Channel 成员加入 | channel_activity | ambient |
+| Agent 所在 Channel 成员退出 | channel_activity | ambient |
 | 系统或执行错误 | system | hard |
 
 Human 路由：
@@ -94,13 +96,15 @@ daemon 和 Server 不得读取正文决定 attach 或 notice。
 
 ## 6. Ambient 聚合
 
-Server 按 Member 和 Thread 聚合 ambient activity。一个 Member 在一个 Thread 上最多有一个 pending 聚合项，因此该 Thread 的连续普通 Message 只占一条 Item。聚合项保存首尾 Message 序号、数量、available time 和 force time，见 [数据库设计](08-database.md) 的`inbox_items`。
+Server 对`thread_activity`按 Agent 和 Thread 聚合，对`channel_activity`按 Agent 和 Channel 聚合。一个 Agent 在一个 Channel 上最多有一个可继续累积的 pending 聚合项，因此同一 Channel 内连续 Message、成员加入和成员退出只占一条 Item。聚合项保存首尾 Channel 序号、数量、available time 和 force time，并持久保存事件类型及其顺序，见 [数据库设计](08-database.md)。
 
-聚合项代表一个 Message 区间，因此不指向单条 Message，也不复制正文。Agent 通过区间读取该 Thread 的 Message；Human 的聚合项保持 pending，直到打开来源。
+聚合项代表一段 Channel Activity，因此不复制正文。每个事件保存`message`、`member_joined`或`member_left`类型、Channel 序号和对应 Message/Member 引用。Agent 收到 Inbox snapshot 时同时收到该事件列表和 Channel ID；普通 Message 正文仍通过授权读取取得。Agent 自己加入或退出的事件不生成自己的 Activity Item；成员退出后不再收到该 Channel 的后续活动。
 
-available time 在每条新 Message 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Message 都不能改写它。available time 取两者较小值，因此持续活跃的 Thread 最迟在 force time 变为可派发。该上限是防止新 Message 无限推迟处理的唯一机制。
+available time 在每条新 Channel Activity event 到达时重置为该时刻加`ambient_debounce_seconds`。force time 在聚合项创建时确定为该时刻加`ambient_max_wait_seconds`，之后任何 Activity event 都不能改写它。available time 取两者较小值，因此持续活跃的 Channel 最迟在 force time 变为可派发。该上限是防止新 Activity event 无限推迟处理的唯一机制。
 
 已进入 `assigned` 的聚合项不再接受新 Message。该 Agent 已经收到这个区间，后续 Message 进入下一个聚合项。
+
+加入和退出同时写入时间线`system_notice`，但 notice Message 与 Channel Activity 是两个事实。一次聚合内保留事件到达顺序；同一批内同时出现多个事件时 Agent 只被唤醒一次。
 
 hard Item 优先于 ambient Item。派发要求该 Agent 没有非终态 Run，且同一批候选中 hard Item 先被取走，见 [Agent Run](04-agent-run.md) 的投递。
 

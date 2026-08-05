@@ -523,7 +523,13 @@ where
         tokio::select! {
             _ = tokio::signal::ctrl_c() => return Ok(()),
             Some(run_id) = yield_interrupts.recv() => {
-                RunPipelineService::interrupt_yielded(storage, driver, run_id, max_concurrent_runs)
+                RunPipelineService::interrupt_yielded(
+                    storage,
+                    driver,
+                    run_id,
+                    homes,
+                    max_concurrent_runs,
+                )
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?;
                 send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
@@ -542,6 +548,7 @@ where
                     storage,
                     driver,
                     completions,
+                    homes,
                     max_concurrent_runs,
                 )
                 .await
@@ -551,7 +558,12 @@ where
                 }
             }
             _ = lost_driver_check.tick() => {
-                if RunPipelineService::fail_lost_drivers(storage, driver, max_concurrent_runs)
+                if RunPipelineService::fail_lost_drivers(
+                    storage,
+                    driver,
+                    homes,
+                    max_concurrent_runs,
+                )
                     .await
                     .map_err(|error| anyhow::anyhow!(error))?
                 {
@@ -569,6 +581,7 @@ where
                         RunPipelineService::dispatch(
                             storage,
                             driver,
+                            homes,
                             max_concurrent_runs,
                         )
                         .await

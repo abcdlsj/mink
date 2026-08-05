@@ -193,12 +193,28 @@ impl PostgresTransaction {
             .fetch_one(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-        self.insert_system_notice(
+        let (notice_id, channel_seq) = self
+            .insert_system_notice(
+                channel_id,
+                actor,
+                format!("{display_name} joined the channel"),
+                now,
+            )
+            .await?;
+        self.route_channel_member_activity(ChannelMemberActivityInput {
             channel_id,
             actor,
-            format!("{display_name} joined the channel"),
-            now,
-        )
+            subject_member_id: member_id,
+            thread_id: ThreadId::from_uuid(notice_id.into_uuid()),
+            event: AmbientActivityEvent {
+                channel_id,
+                channel_seq,
+                kind: ActivityEventKind::MemberJoined,
+                message_id: None,
+                member_id: Some(member_id),
+                now,
+            },
+        })
         .await?;
         sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'member.changed',$3,$4)")
             .bind(Uuid::now_v7())
@@ -217,7 +233,7 @@ impl PostgresTransaction {
         author: MemberId,
         body: String,
         now: OffsetDateTime,
-    ) -> Result<MessageId, ApplicationError> {
+    ) -> Result<(MessageId, u64), ApplicationError> {
         let message_id = MessageId::from_uuid(Uuid::now_v7());
         let sequence: i64 = sqlx::query_scalar(
             "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
@@ -248,7 +264,53 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-        Ok(message_id)
+        Ok((
+            message_id,
+            u64::try_from(sequence).map_err(|_| ApplicationError::Internal)?,
+        ))
+    }
+
+    async fn route_channel_member_activity(
+        &mut self,
+        input: ChannelMemberActivityInput,
+    ) -> Result<(), ApplicationError> {
+        let ChannelMemberActivityInput {
+            channel_id,
+            actor,
+            subject_member_id,
+            thread_id,
+            event,
+        } = input;
+        let space_id: SpaceId = sqlx::query_scalar("SELECT space_id FROM channels WHERE id=$1")
+            .bind(channel_id.into_uuid())
+            .fetch_one(&mut *self.connection)
+            .await
+            .map(SpaceId::from_uuid)
+            .map_err(map_sqlx)?;
+        let recipients = sqlx::query_scalar::<_, Uuid>(
+            "SELECT cm.member_id FROM channel_members cm \
+             JOIN agents a ON a.member_id=cm.member_id \
+             WHERE cm.channel_id=$1 AND cm.member_id<>$2 AND cm.member_id<>$3 \
+               AND a.lifecycle<>'retired'",
+        )
+        .bind(channel_id.into_uuid())
+        .bind(actor.into_uuid())
+        .bind(subject_member_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        for recipient in recipients {
+            self.route_ambient_activity(AmbientActivityInput {
+                space_id,
+                member_id: MemberId::from_uuid(recipient),
+                channel_id,
+                thread_id,
+                kind: InboxItemKind::ChannelActivity,
+                event,
+            })
+            .await?;
+        }
+        Ok(())
     }
 
     pub(super) async fn remove_channel_agent(
@@ -296,12 +358,28 @@ impl PostgresTransaction {
         if deleted.rows_affected() == 0 {
             return Err(ApplicationError::NotFound);
         }
-        self.insert_system_notice(
+        let (notice_id, channel_seq) = self
+            .insert_system_notice(
+                channel_id,
+                actor,
+                format!("{display_name} left the channel"),
+                now,
+            )
+            .await?;
+        self.route_channel_member_activity(ChannelMemberActivityInput {
             channel_id,
             actor,
-            format!("{display_name} left the channel"),
-            now,
-        )
+            subject_member_id: agent_id,
+            thread_id: ThreadId::from_uuid(notice_id.into_uuid()),
+            event: AmbientActivityEvent {
+                channel_id,
+                channel_seq,
+                kind: ActivityEventKind::MemberLeft,
+                message_id: None,
+                member_id: Some(agent_id),
+                now,
+            },
+        })
         .await?;
         sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) VALUES($1,$2,$3,'channel.member_removed','channel',$4,$5,$6)")
             .bind(Uuid::now_v7())
@@ -379,12 +457,28 @@ impl PostgresTransaction {
             channel_id.into_uuid(),
         )
         .await?;
-        self.insert_system_notice(
+        let (notice_id, channel_seq) = self
+            .insert_system_notice(
+                channel_id,
+                agent_id,
+                format!("{display_name} left the channel"),
+                now,
+            )
+            .await?;
+        self.route_channel_member_activity(ChannelMemberActivityInput {
             channel_id,
-            agent_id,
-            format!("{display_name} left the channel"),
-            now,
-        )
+            actor: agent_id,
+            subject_member_id: agent_id,
+            thread_id: ThreadId::from_uuid(notice_id.into_uuid()),
+            event: AmbientActivityEvent {
+                channel_id,
+                channel_seq,
+                kind: ActivityEventKind::MemberLeft,
+                message_id: None,
+                member_id: Some(agent_id),
+                now,
+            },
+        })
         .await?;
         sqlx::query("INSERT INTO audit_events(id,space_id,actor_member_id,action,subject_type,subject_id,metadata_json,created_at) VALUES($1,$2,$3,'channel.member_left','channel',$4,$5,$6)")
             .bind(Uuid::now_v7())
@@ -752,14 +846,21 @@ impl PostgresTransaction {
                 } else {
                     InboxItemKind::ChannelActivity
                 };
-                self.route_ambient_activity(
-                    SpaceId::from_uuid(space_id),
+                self.route_ambient_activity(AmbientActivityInput {
+                    space_id: SpaceId::from_uuid(space_id),
                     member_id,
+                    channel_id: draft.channel_id,
                     thread_id,
                     kind,
-                    message_seq,
-                    draft.now,
-                )
+                    event: AmbientActivityEvent {
+                        channel_id: draft.channel_id,
+                        channel_seq: message_seq,
+                        kind: ActivityEventKind::Message,
+                        message_id: Some(draft.message_id),
+                        member_id: None,
+                        now: draft.now,
+                    },
+                })
                 .await?;
                 notified_member_ids.push(member_id);
                 continue;

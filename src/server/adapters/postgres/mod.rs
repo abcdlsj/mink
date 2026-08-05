@@ -13,12 +13,12 @@ use crate::{
         InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
     },
     protocol::computer::{
-        ActionKind, ActionTarget, AgentRetire, AttentionNotice,
-        AttentionStrength as WireAttentionStrength, Command, CommandAck, CommandEnvelope,
-        CommandSequence, DeliverySequence, FocusSnapshot, InboxItemSnapshot, InboxSourceKind,
-        MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation, RunAttachItem,
-        RunNotice, RunStart, RunStop, RunTaskBound, SessionChangeReason, SessionCommand,
-        SessionScope, StopReason, TaskSnapshot, TaskStatus as WireTaskStatus,
+        ActionKind, ActionTarget, ActivityEventKind, ActivityEventSnapshot, AgentRetire,
+        AttentionNotice, AttentionStrength as WireAttentionStrength, Command, CommandAck,
+        CommandEnvelope, CommandSequence, DeliverySequence, FocusSnapshot, InboxItemSnapshot,
+        InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot, NoticeLocation,
+        RunAttachItem, RunNotice, RunStart, RunStop, RunTaskBound, SessionChangeReason,
+        SessionCommand, SessionScope, StopReason, TaskSnapshot, TaskStatus as WireTaskStatus,
     },
     server::{
         application::ports::{
@@ -69,6 +69,33 @@ pub(super) struct PostgresTransaction {
     connection: PoolConnection<Postgres>,
     effects: Vec<Effect>,
     notified_computers: std::collections::BTreeSet<Uuid>,
+}
+
+#[derive(Clone, Copy)]
+struct AmbientActivityEvent {
+    channel_id: ChannelId,
+    channel_seq: u64,
+    kind: ActivityEventKind,
+    message_id: Option<MessageId>,
+    member_id: Option<MemberId>,
+    now: OffsetDateTime,
+}
+
+struct AmbientActivityInput {
+    space_id: SpaceId,
+    member_id: MemberId,
+    channel_id: ChannelId,
+    thread_id: ThreadId,
+    kind: InboxItemKind,
+    event: AmbientActivityEvent,
+}
+
+struct ChannelMemberActivityInput {
+    channel_id: ChannelId,
+    actor: MemberId,
+    subject_member_id: MemberId,
+    thread_id: ThreadId,
+    event: AmbientActivityEvent,
 }
 
 impl PostgresAdapter {
@@ -161,6 +188,68 @@ impl PostgresAdapter {
             .execute(&mut *transaction)
             .await?;
         }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 7 {
+            if version != 6 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE inbox_items ADD COLUMN ambient_channel_id UUID; \
+                 UPDATE inbox_items i SET ambient_channel_id=t.channel_id \
+                    FROM messages t WHERE i.thread_id=t.id AND i.kind='channel_activity'; \
+                 DROP INDEX IF EXISTS inbox_items_open_ambient_aggregate; \
+                 WITH channel_aggregates AS MATERIALIZED ( \
+                    SELECT member_id,ambient_channel_id, \
+                           (array_agg(id ORDER BY id))[1] AS winner_id, \
+                           min(first_message_seq) AS first_message_seq, \
+                           max(last_message_seq) AS last_message_seq, \
+                           sum(aggregated_count)::integer AS aggregated_count, \
+                           min(force_at) AS force_at, \
+                           min(available_at) AS available_at \
+                    FROM inbox_items \
+                    WHERE kind='channel_activity' AND strength='ambient' \
+                      AND status='pending' AND retry_count=0 \
+                    GROUP BY member_id,ambient_channel_id \
+                 ), updated_winners AS ( \
+                    UPDATE inbox_items i SET first_message_seq=a.first_message_seq, \
+                        last_message_seq=a.last_message_seq,aggregated_count=a.aggregated_count, \
+                        force_at=a.force_at,available_at=a.available_at \
+                    FROM channel_aggregates a WHERE i.id=a.winner_id \
+                    RETURNING i.id \
+                 ) \
+                 DELETE FROM inbox_items i \
+                 USING channel_aggregates a JOIN updated_winners w ON w.id=a.winner_id \
+                 WHERE i.member_id=a.member_id AND i.ambient_channel_id=a.ambient_channel_id \
+                   AND i.id<>a.winner_id; \
+                 CREATE UNIQUE INDEX inbox_items_open_thread_ambient_aggregate \
+                    ON inbox_items(member_id, thread_id) \
+                    WHERE strength = 'ambient' AND kind = 'thread_activity' AND status = 'pending' AND retry_count = 0; \
+                 CREATE UNIQUE INDEX inbox_items_open_channel_ambient_aggregate \
+                    ON inbox_items(member_id, ambient_channel_id) \
+                    WHERE strength = 'ambient' AND kind = 'channel_activity' AND status = 'pending' AND retry_count = 0; \
+                 CREATE TABLE inbox_activity_events ( \
+                    inbox_item_id UUID NOT NULL REFERENCES inbox_items(id) ON DELETE RESTRICT, \
+                    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE RESTRICT, \
+                    channel_seq BIGINT NOT NULL CHECK (channel_seq > 0), \
+                    kind TEXT NOT NULL CHECK (kind IN ('message', 'member_joined', 'member_left')), \
+                    message_id UUID REFERENCES messages(id) ON DELETE RESTRICT, \
+                    member_id UUID REFERENCES members(id) ON DELETE RESTRICT, \
+                    created_at TIMESTAMPTZ NOT NULL, \
+                    PRIMARY KEY (inbox_item_id, channel_seq), \
+                    CHECK ( \
+                        (kind = 'message' AND message_id IS NOT NULL AND member_id IS NULL) \
+                        OR (kind IN ('member_joined', 'member_left') AND message_id IS NULL AND member_id IS NOT NULL) \
+                    ) \
+                 ); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (7, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await
     }
 
@@ -215,6 +304,26 @@ impl PostgresAdapter {
         } else {
             Err(ApplicationError::ContextChanged)
         }
+    }
+
+    pub(super) async fn command_is_acknowledged(
+        &self,
+        computer_id: ComputerId,
+        command_id: CommandId,
+        sequence: u64,
+    ) -> Result<bool, ApplicationError> {
+        let sequence = i64::try_from(sequence).map_err(|_| ApplicationError::Conflict)?;
+        sqlx::query_scalar(
+            "SELECT acked_at IS NOT NULL FROM computer_commands \
+             WHERE id=$1 AND computer_id=$2 AND computer_seq=$3",
+        )
+        .bind(command_id.into_uuid())
+        .bind(computer_id.into_uuid())
+        .bind(sequence)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(ApplicationError::NotFound)
     }
 
     pub(super) async fn run_attach_command_target(
@@ -374,6 +483,28 @@ impl PostgresAdapter {
         kind: &str,
         payload: serde_json::Value,
     ) {
+        let event_id = EventId::from_uuid(Uuid::now_v7());
+        if let Err(error) = self
+            .record_agent_activity_with_id(event_id, space_id, agent_member_id, kind, payload)
+            .await
+        {
+            tracing::warn!(
+                agent_member_id = %agent_member_id.into_uuid(),
+                kind,
+                error = %error,
+                "agent.activity event could not be recorded"
+            );
+        }
+    }
+
+    pub(in crate::server::adapters) async fn record_agent_activity_with_id(
+        &self,
+        event_id: EventId,
+        space_id: SpaceId,
+        agent_member_id: MemberId,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
         let mut record = payload;
         if let Some(object) = record.as_object_mut() {
             object.insert(
@@ -401,23 +532,16 @@ impl PostgresAdapter {
             object.remove("message_preview");
             object.remove("message_truncated");
         }
-        let result = sqlx::query(
+        sqlx::query(
             "INSERT INTO outbox_events (id,space_id,kind,payload_json,created_at) \
-             VALUES ($1,$2,'agent.activity',$3,now())",
+             VALUES ($1,$2,'agent.activity',$3,now()) ON CONFLICT (id) DO NOTHING",
         )
-        .bind(Uuid::now_v7())
+        .bind(event_id.into_uuid())
         .bind(space_id.into_uuid())
         .bind(record)
         .execute(&self.pool)
-        .await;
-        if let Err(error) = result {
-            tracing::warn!(
-                agent_member_id = %agent_member_id.into_uuid(),
-                kind,
-                error = %error,
-                "agent.activity event could not be recorded"
-            );
-        }
+        .await
+        .map(|_| ())
     }
 }
 
@@ -913,6 +1037,20 @@ impl EffectSink for PostgresTransaction {
     ) -> Result<(), ApplicationError> {
         self.queue_agent_suspend(agent_id, computer_id, cancel_current_run)
             .await
+    }
+    async fn queue_agent_resume(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        self.queue_agent_resume(agent_id, computer_id).await
+    }
+    async fn queue_agent_restart(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        self.queue_agent_restart(agent_id, computer_id).await
     }
     async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError> {
         self.queue_agent_configuration(agent).await

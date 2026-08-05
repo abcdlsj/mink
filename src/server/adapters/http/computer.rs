@@ -613,9 +613,10 @@ pub(super) fn lifecycle_action(
             cancel_current_run: body.mode.as_deref() == Some("cancel_now"),
         }),
         "resume" => Ok(AgentLifecycleAction::Resume),
+        "restart" => Ok(AgentLifecycleAction::Restart),
         "retry" => Ok(AgentLifecycleAction::RetryProvisioning),
         _ => Err(ApiError::invalid(
-            "lifecycle action must be suspend, resume, or retry",
+            "lifecycle action must be suspend, resume, restart, or retry",
         )),
     }
 }

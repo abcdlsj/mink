@@ -111,7 +111,9 @@ message -> inbox item -> task -> run -> command -> local process -> result event
 
 ## 9. 运维动作
 
-Owner/Admin 可以暂停 Agent、取消 active Run、reset Task Session、重试失败的 Agent 准备和删除无 Agent 的 Computer。每个动作必须显示目标、影响范围和是否可恢复。
+Owner/Admin 可以暂停、恢复和 restart Agent、取消 active Run、reset Task Session、重试失败的 Agent 准备和删除无 Agent 的 Computer。Resume 恢复 Server lifecycle 并由 Computer 自检 profile 后重新接收消息；restart 只重启目标 Agent 的 Driver/Provider Session，不覆盖`suspended`，不删除 Server 事实。每个动作必须显示目标、影响范围和是否可恢复。
+
+Driver 临时错误在 Computer 内最多自动重试 3 次；Server 只对最终失败的 Run 计一次 Item retry。rejected delivery 的补偿事务必须先成功，再确认 command；补偿重放使用同一 command/delivery 标识，不能重复改变 Item 或审计事实。
 
 Item 会因承载它的 Run 反复失败进入`dead`，见 [Inbox 与凭据](06-inbox-credentials.md)。Owner/Admin 可以把 dead Item 放回 pending，入口是`POST /api/v1/inbox-items/{item_id}/requeue`，见 [API 与事件](07-api.md)。
 

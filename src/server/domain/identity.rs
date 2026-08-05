@@ -185,6 +185,16 @@ impl Agent {
         self.lifecycle = AgentLifecycle::Provisioning;
         Ok(())
     }
+
+    pub(in crate::server) fn restart(&self) -> Result<(), DomainError> {
+        match self.lifecycle {
+            AgentLifecycle::Active | AgentLifecycle::Suspended => Ok(()),
+            AgentLifecycle::Retired => Err(DomainError::AgentRetired),
+            AgentLifecycle::Provisioning | AgentLifecycle::Error => {
+                Err(DomainError::InvalidTransition)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -269,8 +279,10 @@ mod tests {
     #[test]
     fn lifecycle_actions_only_apply_from_their_source_state() {
         let mut active = agent(AgentLifecycle::Active);
+        active.restart().expect("active restarts");
         active.suspend().expect("active suspends");
         assert_eq!(active.lifecycle, AgentLifecycle::Suspended);
+        active.restart().expect("suspended restarts");
         assert_eq!(active.suspend(), Err(DomainError::InvalidTransition));
         active.resume().expect("suspended resumes");
         assert_eq!(active.lifecycle, AgentLifecycle::Active);
@@ -281,6 +293,15 @@ mod tests {
         assert_eq!(failed.lifecycle, AgentLifecycle::Provisioning);
         assert_eq!(
             failed.retry_provisioning(),
+            Err(DomainError::InvalidTransition)
+        );
+
+        assert_eq!(
+            agent(AgentLifecycle::Provisioning).restart(),
+            Err(DomainError::InvalidTransition)
+        );
+        assert_eq!(
+            agent(AgentLifecycle::Error).restart(),
             Err(DomainError::InvalidTransition)
         );
     }
@@ -311,6 +332,7 @@ mod tests {
         assert_eq!(retired.suspend(), Err(DomainError::AgentRetired));
         assert_eq!(retired.resume(), Err(DomainError::AgentRetired));
         assert_eq!(retired.retry_provisioning(), Err(DomainError::AgentRetired));
+        assert_eq!(retired.restart(), Err(DomainError::AgentRetired));
     }
 
     #[test]

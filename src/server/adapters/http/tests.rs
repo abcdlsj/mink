@@ -1680,3 +1680,47 @@ async fn yielded_run_emits_agent_activity_event() {
 
     fixture.destroy().await;
 }
+
+#[tokio::test]
+async fn repeated_delivery_rejection_activity_is_idempotent_under_concurrency() {
+    let fixture = CapabilityFixture::create().await;
+    let event_id = EventId::from_uuid(Uuid::now_v7());
+    let payload = serde_json::json!({
+        "run_id": fixture.context.run_id,
+        "thread_id": fixture.context.focus_thread_id,
+        "channel_id": fixture.channel_id,
+        "scope_channel_id": fixture.channel_id,
+        "delivery_sequence": "1"
+    });
+    let first = fixture.state.storage.clone();
+    let second = fixture.state.storage.clone();
+    let (first_result, second_result) = tokio::join!(
+        first.record_agent_activity_with_id(
+            event_id,
+            SpaceId::from_uuid(fixture.context.space_id.into_uuid()),
+            MemberId::from_uuid(fixture.context.agent_id.into_uuid()),
+            "run.delivery_rejected",
+            payload.clone(),
+        ),
+        second.record_agent_activity_with_id(
+            event_id,
+            SpaceId::from_uuid(fixture.context.space_id.into_uuid()),
+            MemberId::from_uuid(fixture.context.agent_id.into_uuid()),
+            "run.delivery_rejected",
+            payload,
+        )
+    );
+    first_result.unwrap();
+    second_result.unwrap();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events WHERE id=$1 AND kind='agent.activity'",
+    )
+    .bind(event_id.into_uuid())
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+
+    fixture.destroy().await;
+}

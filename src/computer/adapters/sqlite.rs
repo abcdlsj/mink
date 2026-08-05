@@ -1106,9 +1106,11 @@ mod tests {
         let item = DispatchedItemInput {
             item_id: json_item_id,
             task_id: None,
+            channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
             thread_id,
             message_id: None,
             content: Some("item".to_owned()),
+            activity_events: Vec::new(),
         };
         adapter
             .transact(async |transaction| transaction.save_run(run))
@@ -1205,9 +1207,11 @@ mod tests {
             .map(|item_id| DispatchedItemInput {
                 item_id,
                 task_id: None,
+                channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
                 thread_id,
                 message_id: None,
                 content: Some("item".to_owned()),
+                activity_events: Vec::new(),
             })
             .into_iter()
             .collect();

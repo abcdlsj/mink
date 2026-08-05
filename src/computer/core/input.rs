@@ -86,9 +86,19 @@ impl fmt::Debug for ContextMessageInput {
 pub(in crate::computer) struct DispatchedItemInput {
     pub(in crate::computer) item_id: InboxItemId,
     pub(in crate::computer) task_id: Option<TaskId>,
+    pub(in crate::computer) channel_id: crate::ids::ChannelId,
     pub(in crate::computer) thread_id: ThreadId,
     pub(in crate::computer) message_id: Option<MessageId>,
     pub(in crate::computer) content: Option<String>,
+    pub(in crate::computer) activity_events: Vec<ActivityEventInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::computer) struct ActivityEventInput {
+    pub(in crate::computer) sequence: u64,
+    pub(in crate::computer) kind: String,
+    pub(in crate::computer) message_id: Option<MessageId>,
+    pub(in crate::computer) member_id: Option<MemberId>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -114,12 +124,23 @@ impl DispatchedItemInput {
         let mut digest = Sha256::new();
         digest.update(self.item_id.to_string().as_bytes());
         digest.update(format!("{:?}", self.task_id).as_bytes());
+        digest.update(self.channel_id.to_string().as_bytes());
         digest.update(self.thread_id.to_string().as_bytes());
         if let Some(message_id) = self.message_id {
             digest.update(message_id.to_string().as_bytes());
         }
         if let Some(content) = &self.content {
             digest.update(content.as_bytes());
+        }
+        for event in &self.activity_events {
+            digest.update(event.sequence.to_le_bytes());
+            digest.update(event.kind.as_bytes());
+            if let Some(message_id) = event.message_id {
+                digest.update(message_id.to_string().as_bytes());
+            }
+            if let Some(member_id) = event.member_id {
+                digest.update(member_id.to_string().as_bytes());
+            }
         }
         hex::encode(digest.finalize())
     }
@@ -131,6 +152,7 @@ impl fmt::Debug for DispatchedItemInput {
             .debug_struct("DispatchedItemInput")
             .field("item_id", &self.item_id)
             .field("task_id", &self.task_id)
+            .field("channel_id", &self.channel_id)
             .field("thread_id", &self.thread_id)
             .field("has_content", &self.content.is_some())
             .finish()
@@ -219,6 +241,7 @@ impl RunInput {
                 if let Some(task_id) = item.task_id {
                     view.insert("task_id".to_owned(), serde_json::json!(task_id));
                 }
+                view.insert("channel_id".to_owned(), serde_json::json!(item.channel_id));
                 view.insert("thread_id".to_owned(), serde_json::json!(item.thread_id));
                 let content_in_window = item
                     .message_id
@@ -227,6 +250,12 @@ impl RunInput {
                     && !content_in_window
                 {
                     view.insert("content".to_owned(), serde_json::json!(content));
+                }
+                if !item.activity_events.is_empty() {
+                    view.insert(
+                        "activity_events".to_owned(),
+                        serde_json::json!(item.activity_events),
+                    );
                 }
                 serde_json::Value::Object(view)
             })
@@ -324,9 +353,11 @@ mod tests {
         DispatchedItemInput {
             item_id: InboxItemId::from_uuid(Uuid::from_u128(200 + u128::from(item_sequence))),
             task_id: None,
+            channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
             thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
             message_id,
             content: Some("item body".to_owned()),
+            activity_events: Vec::new(),
         }
     }
 

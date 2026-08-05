@@ -14,10 +14,15 @@ use super::{
 pub(in crate::computer) struct RunPipelineService;
 
 impl RunPipelineService {
-    pub(in crate::computer) async fn finish_driver_turns<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn finish_driver_turns<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
         completions: impl IntoIterator<Item = DriverCompletion>,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<bool, ApplicationError> {
         let mut changed = false;
@@ -27,41 +32,56 @@ impl RunPipelineService {
                 .is_some();
         }
         if changed {
-            Self::dispatch(store, driver, capacity).await?;
+            Self::dispatch(store, driver, homes, capacity).await?;
         }
         Ok(changed)
     }
 
-    pub(in crate::computer) async fn fail_lost_drivers<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn fail_lost_drivers<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<bool, ApplicationError> {
         let changed = RecoveryService::fail_lost_drivers(store, driver).await?;
         if changed {
-            Self::dispatch(store, driver, capacity).await?;
+            Self::dispatch(store, driver, homes, capacity).await?;
         }
         Ok(changed)
     }
 
-    pub(in crate::computer) async fn interrupt_yielded<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn interrupt_yielded<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
         run_id: crate::ids::RunId,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<(), ApplicationError> {
         if let Err(error) = RunService::interrupt_terminal(store, driver, run_id).await {
             tracing::warn!(%run_id, %error, "yielded Driver interrupt failed");
         }
-        Self::dispatch(store, driver, capacity).await
+        Self::dispatch(store, driver, homes, capacity).await
     }
 
-    pub(in crate::computer) async fn dispatch<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn dispatch<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<(), ApplicationError> {
-        SchedulerService::dispatch(store, driver, capacity).await
+        SchedulerService::dispatch(store, driver, homes, capacity).await
     }
 
     pub(in crate::computer) async fn recover<

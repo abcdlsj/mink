@@ -74,6 +74,10 @@ impl<C: StructuredProviderClient> ProviderBackend for CodexAdapter<C> {
         self.client.interrupt(locator).await
     }
 
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        self.client.restart_agent(agent_id).await
+    }
+
     async fn close(&mut self, locator: &str) -> Result<(), ApplicationError> {
         self.client.delete_session(locator).await
     }

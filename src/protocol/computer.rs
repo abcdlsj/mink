@@ -81,6 +81,10 @@ pub(crate) enum Command {
     AgentConfigure(AgentConfiguration),
     #[serde(rename = "agent.suspend")]
     AgentSuspend(AgentSuspend),
+    #[serde(rename = "agent.resume")]
+    AgentResume(AgentResume),
+    #[serde(rename = "agent.restart")]
+    AgentRestart(AgentRestart),
     #[serde(rename = "agent.retire")]
     AgentRetire(AgentRetire),
     #[serde(rename = "run.start")]
@@ -135,6 +139,18 @@ pub(crate) enum SuspendMode {
 pub(crate) struct AgentSuspend {
     pub(crate) agent_id: AgentId,
     pub(crate) mode: SuspendMode,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentResume {
+    pub(crate) agent_id: AgentId,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AgentRestart {
+    pub(crate) agent_id: AgentId,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -311,11 +327,30 @@ pub(crate) struct InboxItemSnapshot {
     pub(crate) item_id: InboxItemId,
     pub(crate) source_kind: InboxSourceKind,
     pub(crate) strength: AttentionStrength,
+    pub(crate) channel_id: ChannelId,
     pub(crate) thread_id: ThreadId,
     pub(crate) task_id: Option<TaskId>,
     pub(crate) message: Option<MessageSnapshot>,
+    pub(crate) activity_events: Vec<ActivityEventSnapshot>,
     #[serde(with = "time::serde::rfc3339")]
     pub(crate) available_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ActivityEventSnapshot {
+    pub(crate) sequence: u64,
+    pub(crate) kind: ActivityEventKind,
+    pub(crate) message_id: Option<MessageId>,
+    pub(crate) member_id: Option<MemberId>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActivityEventKind {
+    Message,
+    MemberJoined,
+    MemberLeft,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

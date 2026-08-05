@@ -11,8 +11,8 @@ pub(in crate::server) struct AttentionPolicy;
 impl AttentionPolicy {
     /// Failed delivery attempts an Inbox Item survives before it is retired as `dead`.
     pub(in crate::server) const MAX_RETRY_COUNT: u32 = 5;
-    /// Quiet period a Thread must reach before its aggregated ambient activity becomes available.
-    /// Each new Message restarts it, so a busy Thread is read once instead of once per Message.
+    /// Quiet period a Channel must reach before its aggregated ambient activity becomes available.
+    /// Each new activity event restarts it, so a busy Channel is read once instead of once per event.
     pub(in crate::server) const AMBIENT_DEBOUNCE_SECONDS: u32 = 30;
     /// Longest an ambient aggregate stays unavailable after it opens.
     pub(in crate::server) const AMBIENT_MAX_WAIT_SECONDS: u32 = 300;
@@ -67,7 +67,7 @@ impl AmbientAggregate {
     }
 
     /// When the accumulated activity becomes available to claim. The debounce restarts on each new
-    /// Message, and `force_at` caps the result, so the total wait is bounded regardless of volume.
+    /// activity event, and `force_at` caps the result, so the total wait is bounded regardless of volume.
     fn debounced_available_at(&self, now: OffsetDateTime) -> OffsetDateTime {
         (now + AttentionPolicy::ambient_debounce()).min(self.force_at)
     }
@@ -638,7 +638,7 @@ mod tests {
             opened_at + Duration::seconds(i64::from(AttentionPolicy::AMBIENT_MAX_WAIT_SECONDS))
         );
 
-        // A Message arriving every debounce period restarts the quiet period each time. Without the
+        // An activity event arriving every debounce period restarts the quiet period each time. Without the
         // cap this walks available_at forward forever; with it, the Item is claimable by force_at.
         let step = Duration::seconds(i64::from(AttentionPolicy::AMBIENT_DEBOUNCE_SECONDS));
         let mut sent_at = opened_at;
@@ -676,7 +676,7 @@ mod tests {
         assert_eq!(
             item.absorb_ambient_message(11, second),
             Ok(second + debounce),
-            "each Message restarts the quiet period"
+            "each activity event restarts the quiet period"
         );
     }
 

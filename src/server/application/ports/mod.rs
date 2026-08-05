@@ -234,6 +234,21 @@ pub(in crate::server) enum InboxScope {
     Dead,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum InboxActivityEventKind {
+    Message,
+    MemberJoined,
+    MemberLeft,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) struct InboxActivityEventView {
+    pub(in crate::server) sequence: u64,
+    pub(in crate::server) kind: InboxActivityEventKind,
+    pub(in crate::server) message_id: Option<MessageId>,
+    pub(in crate::server) member_id: Option<MemberId>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct InboxItemView {
     pub(in crate::server) id: InboxItemId,
@@ -249,6 +264,7 @@ pub(in crate::server) struct InboxItemView {
     pub(in crate::server) sender_member_id: Option<MemberId>,
     pub(in crate::server) sender_display_name: Option<String>,
     pub(in crate::server) message_preview: Option<String>,
+    pub(in crate::server) activity_events: Vec<InboxActivityEventView>,
     pub(in crate::server) available_at: time::OffsetDateTime,
     pub(in crate::server) created_at: time::OffsetDateTime,
     pub(in crate::server) retry_count: u32,

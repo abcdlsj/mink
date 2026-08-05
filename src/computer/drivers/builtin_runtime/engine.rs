@@ -13,6 +13,7 @@ use super::{
 
 const COMPACTION_TRIGGER_TOKENS: usize = 32_000;
 const COMPACTION_RECENT_MESSAGES: usize = 12;
+const MAX_TURN_ATTEMPTS: usize = 3;
 
 /// Represents the context for a single agent turn.
 #[derive(Clone, Debug)]
@@ -49,8 +50,9 @@ impl Engine {
         }
     }
 
-    /// Run a complete agent turn. Adds the user message, then loops
-    /// through step() until no more tool calls are returned.
+    /// Run a complete agent turn. Adds the user message, then loops through step() until no more
+    /// tool calls are returned.
+    #[cfg(test)]
     pub(super) async fn run(
         &self,
         turn: &Turn,
@@ -58,10 +60,54 @@ impl Engine {
         events: &mpsc::Sender<ToolEvent>,
         sink: Option<&StreamSink>,
     ) -> Result<()> {
+        self.run_once(turn, session, events, sink, true).await
+    }
+
+    /// Retries transient provider failures inside the same Run and Provider Session. A retry does
+    /// not append the Run input again: a failed attempt may already have appended tool messages.
+    pub(super) async fn run_with_retries(
+        &self,
+        turn: &Turn,
+        session: &mut Session,
+        events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
+    ) -> Result<()> {
+        let mut append_input = true;
+        for attempt in 1..=MAX_TURN_ATTEMPTS {
+            match self
+                .run_once(turn, session, events, sink, append_input)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(error) if attempt < MAX_TURN_ATTEMPTS && is_retryable_error(&error) => {
+                    tracing::warn!(
+                        attempt,
+                        max_attempts = MAX_TURN_ATTEMPTS,
+                        failure_code = failure_code(&error),
+                        "retrying transient provider failure"
+                    );
+                    append_input = false;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!("the final turn attempt returns from the loop")
+    }
+
+    async fn run_once(
+        &self,
+        turn: &Turn,
+        session: &mut Session,
+        events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
+        append_input: bool,
+    ) -> Result<()> {
         if self.should_compact(session) {
             self.compact(session).await?;
         }
-        session.add(Message::user(turn.input.clone()));
+        if append_input {
+            session.add(Message::user(turn.input.clone()));
+        }
 
         let mut retried_without_images = false;
         let mut retried_after_compaction = false;
@@ -301,6 +347,57 @@ fn error_chain_contains(error: &anyhow::Error, markers: &[&str]) -> bool {
     })
 }
 
+fn is_retryable_error(error: &anyhow::Error) -> bool {
+    let text = error
+        .chain()
+        .map(|cause| cause.to_string().to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if [
+        "context compaction failed",
+        "context length",
+        "context window",
+        "context_length_exceeded",
+        "maximum context",
+        "too many tokens",
+        "token limit",
+        "unauthorized",
+        "authentication",
+        "invalid api key",
+        "permission denied",
+        "forbidden",
+        "tool call",
+        "invalid json",
+        "unknown tool",
+        "sandbox",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
+    {
+        return false;
+    }
+
+    [
+        "provider_stream_incomplete",
+        "provider_stream_abnormal_finish",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection refused",
+        "connection closed",
+        "broken pipe",
+        "network is unreachable",
+        "error sending request",
+        "http status server error",
+        "500 internal server error",
+        "502 bad gateway",
+        "503 service unavailable",
+        "504 gateway timeout",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{tool_executor::ToolRunner, types::ToolDef};
@@ -350,6 +447,44 @@ mod tests {
     }
 
     struct IncompleteProvider;
+
+    struct RetryProvider {
+        failures: usize,
+        call_count: std::sync::Mutex<usize>,
+        error: &'static str,
+    }
+
+    #[async_trait]
+    impl Provider for RetryProvider {
+        async fn chat_stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[ToolDef],
+        ) -> Result<mpsc::Receiver<Chunk>> {
+            let mut call_count = self.call_count.lock().unwrap();
+            let call = *call_count;
+            *call_count += 1;
+            drop(call_count);
+
+            let (tx, rx) = mpsc::channel(4);
+            if call < self.failures {
+                let error = self.error.to_owned();
+                tokio::spawn(async move {
+                    let _ = tx.send(Chunk::Error { message: error }).await;
+                });
+            } else {
+                tokio::spawn(async move {
+                    let _ = tx
+                        .send(Chunk::Text {
+                            delta: "completed".into(),
+                        })
+                        .await;
+                    let _ = tx.send(Chunk::Done { usage: None }).await;
+                });
+            }
+            Ok(rx)
+        }
+    }
 
     #[async_trait]
     impl Provider for IncompleteProvider {
@@ -639,6 +774,113 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(failure_code(&error), "provider_stream_incomplete");
+    }
+
+    #[tokio::test]
+    async fn engine_retries_transient_provider_failures_without_duplicate_run_input() {
+        let provider = Arc::new(RetryProvider {
+            failures: 2,
+            call_count: std::sync::Mutex::new(0),
+            error: "503 Service Unavailable",
+        });
+        let engine = Engine::new(
+            provider.clone(),
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+        );
+        let mut session = Session::default();
+        let (events, _event_rx) = mpsc::channel(1);
+
+        engine
+            .run_with_retries(
+                &Turn {
+                    input: "continue".into(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(*provider.call_count.lock().unwrap(), 3);
+        assert_eq!(
+            session
+                .messages
+                .iter()
+                .filter(|message| message.role == "user")
+                .count(),
+            1
+        );
+        assert_eq!(session.messages.last().unwrap().content, "completed");
+    }
+
+    #[tokio::test]
+    async fn engine_stops_after_three_transient_attempts() {
+        let provider = Arc::new(RetryProvider {
+            failures: 3,
+            call_count: std::sync::Mutex::new(0),
+            error: "provider_stream_abnormal_finish",
+        });
+        let engine = Engine::new(
+            provider.clone(),
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+        );
+        let mut session = Session::default();
+        let (events, _event_rx) = mpsc::channel(1);
+
+        let error = engine
+            .run_with_retries(
+                &Turn {
+                    input: "continue".into(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(*provider.call_count.lock().unwrap(), 3);
+        assert_eq!(failure_code(&error), "provider_stream_abnormal_finish");
+    }
+
+    #[tokio::test]
+    async fn engine_does_not_retry_non_transient_provider_failures() {
+        let provider = Arc::new(RetryProvider {
+            failures: 3,
+            call_count: std::sync::Mutex::new(0),
+            error: "401 Unauthorized: invalid api key",
+        });
+        let engine = Engine::new(
+            provider.clone(),
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+        );
+        let mut session = Session::default();
+        let (events, _event_rx) = mpsc::channel(1);
+
+        let error = engine
+            .run_with_retries(
+                &Turn {
+                    input: "continue".into(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(*provider.call_count.lock().unwrap(), 1);
+        assert!(error.to_string().contains("invalid api key"));
     }
 
     #[test]

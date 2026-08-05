@@ -663,6 +663,22 @@ pub(super) fn inbox_item_response(item: &InboxItemView) -> InboxItemResponse {
         sender_member_id: item.sender_member_id.map(MemberId::into_uuid),
         sender_display_name: item.sender_display_name.clone(),
         message_preview: item.message_preview.clone(),
+        activity_events: item
+            .activity_events
+            .iter()
+            .map(|event| InboxActivityEventResponse {
+                sequence: event.sequence,
+                kind: match event.kind {
+                    InboxActivityEventKindView::Message => InboxActivityEventKind::Message,
+                    InboxActivityEventKindView::MemberJoined => {
+                        InboxActivityEventKind::MemberJoined
+                    }
+                    InboxActivityEventKindView::MemberLeft => InboxActivityEventKind::MemberLeft,
+                },
+                message_id: event.message_id.map(MessageId::into_uuid),
+                member_id: event.member_id.map(MemberId::into_uuid),
+            })
+            .collect(),
         summary: inbox_summary(item).to_owned(),
         status: inbox_status_code(item.status),
         available_at: timestamp(item.available_at),

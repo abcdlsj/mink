@@ -1,5 +1,5 @@
 use super::*;
-use crate::protocol::computer::{AgentSuspend, SuspendMode};
+use crate::protocol::computer::{AgentRestart, AgentResume, AgentSuspend, SuspendMode};
 
 impl PostgresTransaction {
     pub(super) async fn computer_has_assigned_agents(
@@ -62,6 +62,40 @@ impl PostgresTransaction {
                 } else {
                     SuspendMode::AfterCurrentRun
                 },
+            }),
+        )
+        .await
+    }
+
+    pub(super) async fn queue_agent_resume(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        let Some(computer_id) = computer_id else {
+            return Ok(());
+        };
+        self.queue_command(
+            computer_id,
+            Command::AgentResume(AgentResume {
+                agent_id: AgentId::from_uuid(agent_id.into_uuid()),
+            }),
+        )
+        .await
+    }
+
+    pub(super) async fn queue_agent_restart(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError> {
+        let Some(computer_id) = computer_id else {
+            return Ok(());
+        };
+        self.queue_command(
+            computer_id,
+            Command::AgentRestart(AgentRestart {
+                agent_id: AgentId::from_uuid(agent_id.into_uuid()),
             }),
         )
         .await

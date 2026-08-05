@@ -255,7 +255,19 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
         };
+        /** @enum {string} */
+        InboxActivityEventKind: "message" | "member_joined" | "member_left";
+        InboxActivityEventResponse: {
+            kind: components["schemas"]["InboxActivityEventKind"];
+            /** Format: uuid */
+            member_id?: string | null;
+            /** Format: uuid */
+            message_id?: string | null;
+            /** Format: int64 */
+            sequence: number;
+        };
         InboxItemResponse: {
+            activity_events: components["schemas"]["InboxActivityEventResponse"][];
             available_at: string;
             /** Format: uuid */
             channel_id?: string | null;
@@ -317,6 +329,9 @@ export interface components {
         } | {
             /** @enum {string} */
             action: "resume";
+        } | {
+            /** @enum {string} */
+            action: "restart";
         } | {
             /** @enum {string} */
             action: "retry";

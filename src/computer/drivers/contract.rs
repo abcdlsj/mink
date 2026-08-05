@@ -41,6 +41,7 @@ pub(in crate::computer) trait ProviderBackend {
     ) -> Result<SteerOutcome, ApplicationError>;
     async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn close(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn process_evidence(
         &mut self,
@@ -71,6 +72,7 @@ pub(in crate::computer) trait StructuredProviderClient {
     ) -> Result<SteerOutcome, ApplicationError>;
     async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn delete_session(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn process_evidence(
         &mut self,

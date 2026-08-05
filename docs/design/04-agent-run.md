@@ -87,6 +87,8 @@ Server 在处理 Trigger 的同一事务内把 run_start 命令写入该 Compute
 
 Computer 收到 run_start 后启动 Driver，上报 `run_started`，Run 转 `working`。
 
+Driver 在一次 Run 内遇到临时 LLM 或 provider 错误时，Computer 必须在结束 Run 前自动重试最多 3 次；重试复用同一 Run、Focus、Item 和 Provider Session。3 次尝试仍失败才上报`driver_error`，Server 的 Run retry/dead 策略随后照常生效。非临时错误、权限错误和不变量错误不得重试。
+
 ## 7. 重连同步
 
 Computer 重连后，双方同步一次实际状态：
@@ -147,6 +149,7 @@ Run 只表达一次执行，不表达权限。
 - Computer 离线期间 Run 保持原状态，Server 不改变它。
 - Computer 离线超过任意时长后重连，已完成的结果仍被接受。
 - 命令重复投递和结果重复上报按 ID 幂等。
+- Agent restart 请求先 graceful stop active Run；有限等待后以`computer_restarted`完成本地 Run，并把结果放入 outbox。
 - 上一 daemon session 的残留帧被丢弃。
 - Agent defer Item 到指定时间点后，该时间到达时 Item 重新可取并唤醒 Agent。
 - 并发上限内排队的 Run 在槽位释放后正常开始，且期间不失败。

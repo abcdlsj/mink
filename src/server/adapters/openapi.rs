@@ -300,6 +300,7 @@ pub(super) struct UpdateAgentRequest {
 pub(super) enum LifecycleAction {
     Suspend { mode: SuspendMode },
     Resume,
+    Restart,
     Retry,
     Retire,
 }
@@ -561,6 +562,7 @@ pub(super) struct InboxItemResponse {
     pub(super) sender_display_name: Option<String>,
     /// A bounded preview of the source Message body. Full content is read through the Message API.
     pub(super) message_preview: Option<String>,
+    pub(super) activity_events: Vec<InboxActivityEventResponse>,
     pub(super) summary: String,
     pub(super) status: InboxStatus,
     pub(super) available_at: String,
@@ -569,6 +571,22 @@ pub(super) struct InboxItemResponse {
     pub(super) retry_count: u32,
     /// Times a governor returned this Item from `dead` to the queue.
     pub(super) requeue_count: u32,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct InboxActivityEventResponse {
+    pub(super) sequence: u64,
+    pub(super) kind: InboxActivityEventKind,
+    pub(super) message_id: Option<Uuid>,
+    pub(super) member_id: Option<Uuid>,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum InboxActivityEventKind {
+    Message,
+    MemberJoined,
+    MemberLeft,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]

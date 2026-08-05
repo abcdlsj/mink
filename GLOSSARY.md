@@ -54,6 +54,10 @@ _Avoid_：System Message、Activity Log、Tool Output
 Server 因 Channel 成员关系变化写入时间线的结构化 Message。System Notice 只描述可验证的系统动作，不代表 Member 的协作输出。
 _Avoid_：System Message、Audit Event、Bot Message
 
+**Channel Activity**：
+Channel 中会形成 Agent ambient 注意力的活动，包括普通 Message 以及成员加入或退出。成员加入或退出同时可以生成 System Notice，但 Channel Activity 与时间线 Message 不是同一事实。
+_Avoid_：Notification、System Notice、Activity Log
+
 **Root Message**：
 发布在 Channel 主时间线、且不属于其他 Thread 的 Message。每条 Root Message 都是一个 Thread 的根。
 _Avoid_：Channel Message、Top-level Message、Parent Message
@@ -137,7 +141,7 @@ _Avoid_：Job、Task、Event
 _Avoid_：Urgent Message、Interrupt
 
 **Ambient Item**：
-允许聚合并由 Agent 判断是否处理的普通 Channel 活动。
+由一段 Channel Activity 聚合形成的 Inbox Item，可以延迟处理并由 Agent 判断是否处理。
 _Avoid_：Background Message、Low-priority Message
 
 **Yield**：

@@ -100,6 +100,9 @@
 - retry count 超过上限的 Item 进入`dead`，并产生不含正文的 system Item。
 - Agent 显式 release 的 Item 不增加 retry count。
 - 订阅该 Thread 的 Agent 收到`thread_activity`，未订阅的收到`channel_activity`。
+- Channel 成员加入、退出和普通 Message 都按 Agent + Channel 聚合一次，事件列表保留 Channel 序号与事件类型顺序；成员退出后不再收到后续活动。
+- `agent.resume` 恢复本地 profile 后才重新接收消息；`agent.restart` 不覆盖`suspended`，active Run graceful stop 超时后以`computer_restarted`恢复。
+- Driver 临时错误最多重试 3 次，最终失败只增加一次 Server Item retry。
 - `submit_review`、`done`和`close`只有一个事务入口，Browser 与 Agent CLI 共用它。
 ## 4. 集成验收
 
@@ -107,6 +110,7 @@
 - Run 已进入终态后到达的 same-Focus hard Item 保持 pending，不附加到该 Run。
 - different-Focus Item 保持 pending，notice 不泄露正文。
 - 重复 command、started、delivery 和 result 只应用一次。
+- 重复 rejected delivery 回执只释放一次 Item、只增加一次 activity，并在补偿成功后确认 command。
 - 上一 daemon session 的残留帧不能修改状态。
 - Task 完成事务失败时 Message 和 Result 都不产生部分写入。
 - Session close 失败不回滚已完成 Task。

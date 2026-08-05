@@ -302,6 +302,7 @@ Agent assignment 事务必须拒绝`deleted`Computer。
 - `last_message_seq`
 - `aggregated_count`
 - `force_at`
+- `ambient_channel_id`
 
 Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Human 都可以持有 Item；`assigned_run_id`和 retry 字段只由 Agent Item 使用。`status='assigned'`与`assigned_run_id`非空由 CHECK 约束为等价，因此不存在指向不明的已分配 Item。`task_id`是创建或绑定 Task 后确定的路由事实。
 
@@ -311,9 +312,21 @@ Item 不复制 Message 正文。`member_id`引用`members`，因此 Agent 与 Hu
 
 后四列描述一个 ambient 聚合覆盖的 Message 区间，见 [Inbox 与凭据](06-inbox-credentials.md) 的 Ambient 聚合。它们由 CHECK 约束为同时存在或同时为空，只允许出现在`strength='ambient'`的行上，且该行的`message_id`必须为空：聚合项代表区间，不代表单条 Message。`aggregated_count`不得超过`last_message_seq - first_message_seq + 1`。
 
-`inbox_items_open_ambient_aggregate`是`(member_id, thread_id)`上的 partial unique index，条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Member 在一个 Thread 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被分配的聚合项上，因此 Run 失败放回的聚合项不阻塞该 Thread 的下一个聚合项。
+`inbox_items_open_thread_ambient_aggregate`和`inbox_items_open_channel_ambient_aggregate`按 Activity scope 建立 partial unique index：`thread_activity`使用`(member_id, thread_id)`，`channel_activity`使用`(member_id, ambient_channel_id)`。`ambient_channel_id`只用于`channel_activity`的 scope，其他 Item 为空。条件为`strength='ambient' AND status='pending' AND retry_count=0`，保证一个 Agent 在一个 scope 上只有一个可继续累积的聚合项。`retry_count=0`把索引限制在从未被分配的聚合项上，因此 Run 失败放回的聚合项不阻塞该 scope 的下一个聚合项。
 
 聚合项的写入路径持有分配`channel_seq`时取得的 Channel 行锁，Thread 只属于一个 Channel，因此同一 Thread 的并发 publish 已经串行；合并语句额外使用`FOR UPDATE`，使该保证不依赖调用方。
+
+### 7.2.1 `inbox_activity_events`
+
+- `inbox_item_id`
+- `channel_id`
+- `channel_seq`
+- `kind=message|member_joined|member_left`
+- `message_id`
+- `member_id`
+- `created_at`
+
+该表保存 ambient Item 覆盖的事件顺序。`message`事件必须有`message_id`，成员事件必须有`member_id`；事件引用不复制正文或 display name。事件和 Inbox Item 在同一事务写入，重复 publish 或重复成员变更按来源事件 ID/Channel 序号幂等。
 
 ### 7.3 `agent_runs`
 

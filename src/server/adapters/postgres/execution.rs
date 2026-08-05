@@ -21,6 +21,8 @@ pub(super) fn command_kind(command: &Command) -> &'static str {
         Command::AgentProvision(_) => "agent.provision",
         Command::AgentConfigure(_) => "agent.configure",
         Command::AgentSuspend(_) => "agent.suspend",
+        Command::AgentResume(_) => "agent.resume",
+        Command::AgentRestart(_) => "agent.restart",
         Command::AgentRetire(_) => "agent.retire",
         Command::RunStart(_) => "run.start",
         Command::RunTaskBound(_) => "run.task_bound",
@@ -113,6 +115,8 @@ impl PostgresTransaction {
              JOIN messages t ON t.id=i.thread_id AND t.placement='root' \
              WHERE a.lifecycle='active' AND a.computer_id IS NOT NULL \
                AND i.status='pending' AND i.available_at<=$1 \
+               AND EXISTS(SELECT 1 FROM channel_members cm \
+                         WHERE cm.channel_id=t.channel_id AND cm.member_id=i.member_id) \
                AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.agent_id=i.member_id \
                  AND r.status NOT IN ('completed','yielded','failed','canceled')) \
              ORDER BY i.member_id,(i.strength='hard') DESC,i.available_at,(i.task_id IS NOT NULL) DESC,i.id \

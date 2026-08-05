@@ -35,25 +35,8 @@ impl RecoveryService {
         homes: &mut H,
         capacity: usize,
     ) -> Result<(), ApplicationError> {
-        let pending_commands = store
-            .transact(async |transaction| transaction.pending_commands())
-            .await?;
-        for stored in pending_commands {
-            match CommandService::execute(
-                store,
-                driver,
-                homes,
-                stored.id,
-                stored.sequence,
-                stored.command,
-            )
-            .await
-            {
-                Ok(_) | Err(ApplicationError::DriverUnavailable) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        SchedulerService::dispatch(store, driver, capacity).await?;
+        // Reconcile local Runs before replaying Server commands. A pending run.start must not be
+        // applied while a previous daemon's Run still occupies the Agent locally.
         let runs = store
             .transact(async |transaction| transaction.nonterminal_runs())
             .await?;
@@ -88,13 +71,36 @@ impl RecoveryService {
                     )
                     .await?;
                 }
-                LocalRunState::Queued => {}
-                LocalRunState::Completed
+                LocalRunState::Queued
+                | LocalRunState::Completed
                 | LocalRunState::Yielded
                 | LocalRunState::Failed
                 | LocalRunState::Canceled => {}
             }
         }
+
+        let pending_commands = store
+            .transact(async |transaction| transaction.pending_commands())
+            .await?;
+        for stored in pending_commands {
+            match CommandService::execute(
+                store,
+                driver,
+                homes,
+                stored.id,
+                stored.sequence,
+                stored.command,
+            )
+            .await
+            {
+                Ok(_) | Err(ApplicationError::DriverUnavailable) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        // Server command replay above restores Agent profiles before any queued recovery Run gets
+        // its Driver or Provider Session. The scheduler must therefore be the final recovery step.
+        SchedulerService::dispatch(store, driver, homes, capacity).await?;
         Ok(())
     }
 

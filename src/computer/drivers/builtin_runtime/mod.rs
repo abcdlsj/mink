@@ -249,7 +249,10 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 }
             });
             let compacted_before = session.compacted_through();
-            let outcome = match engine.run(&turn, &mut session, &events, None).await {
+            let outcome = match engine
+                .run_with_retries(&turn, &mut session, &events, None)
+                .await
+            {
                 Ok(()) => DriverTurnOutcome::Completed,
                 Err(error) => {
                     tracing::warn!(
@@ -326,6 +329,27 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 outcome: DriverTurnOutcome::Interrupted,
             });
         }
+        Ok(())
+    }
+
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        let run_ids = self
+            .turns
+            .iter()
+            .filter(|(_, turn)| {
+                self.sessions
+                    .get(&turn.locator)
+                    .is_some_and(|owner| *owner == agent_id)
+            })
+            .map(|(run_id, _)| *run_id)
+            .collect::<Vec<_>>();
+        for run_id in run_ids {
+            if let Some(turn) = self.turns.remove(&run_id) {
+                turn.task.abort();
+                let _ = turn.task.await;
+            }
+        }
+        self.sessions.retain(|_, owner| *owner != agent_id);
         Ok(())
     }
 
@@ -604,9 +628,11 @@ mod tests {
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
+                        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
                         thread_id: input.context.focus_thread_id,
                         message_id: None,
                         content: Some("new item".to_owned()),
+                        activity_events: Vec::new(),
                     },
                 )
                 .await

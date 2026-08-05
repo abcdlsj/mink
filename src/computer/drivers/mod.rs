@@ -17,8 +17,8 @@ use crate::{
         application::{
             ApplicationError,
             ports::{
-                DriverCompletion, DriverPort, OpenSessionRequest, OpenedSession, ProcessEvidence,
-                SteerOutcome,
+                DriverCompletion, DriverPort, DriverTurnOutcome, OpenSessionRequest, OpenedSession,
+                ProcessEvidence, SteerOutcome,
             },
         },
         core::{
@@ -58,9 +58,11 @@ pub(in crate::computer) struct DriverAdapter<C, B> {
     codex: C,
     builtin: B,
     turns: BTreeMap<RunId, ActiveTurn>,
+    completions: std::collections::VecDeque<DriverCompletion>,
 }
 
 struct ActiveTurn {
+    agent_id: crate::ids::AgentId,
     driver: DriverKind,
     locator: String,
 }
@@ -71,6 +73,7 @@ impl<C, B> DriverAdapter<C, B> {
             codex,
             builtin,
             turns: BTreeMap::new(),
+            completions: std::collections::VecDeque::new(),
         }
     }
 
@@ -130,6 +133,7 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
         self.turns.insert(
             run.view().id,
             ActiveTurn {
+                agent_id: run.view().agent_id,
                 driver: kind,
                 locator: locator.to_owned(),
             },
@@ -174,6 +178,15 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
         self.backend_mut(turn.driver).interrupt(&turn.locator).await
     }
 
+    async fn restart_agent(
+        &mut self,
+        agent_id: crate::ids::AgentId,
+    ) -> Result<(), ApplicationError> {
+        self.turns.retain(|_, turn| turn.agent_id != agent_id);
+        self.codex.restart_agent(agent_id).await?;
+        self.builtin.restart_agent(agent_id).await
+    }
+
     async fn close_session(&mut self, session: &ProviderSession) -> Result<(), ApplicationError> {
         self.backend_mut(session.view().fingerprint.driver)
             .close(session.view().locator)
@@ -204,6 +217,42 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
         for completion in &completed {
             self.turns.remove(&completion.run_id);
         }
-        Ok(completed)
+        self.completions.extend(completed);
+        Ok(self.completions.drain(..).collect())
+    }
+
+    async fn wait_for_completion(
+        &mut self,
+        run_id: RunId,
+        timeout: std::time::Duration,
+    ) -> Result<Option<DriverTurnOutcome>, ApplicationError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(index) = self
+                .completions
+                .iter()
+                .position(|completion| completion.run_id == run_id)
+            {
+                return Ok(self
+                    .completions
+                    .remove(index)
+                    .map(|completion| completion.outcome));
+            }
+            let mut completed = self.codex.poll_completions().await?;
+            completed.extend(self.builtin.poll_completions().await?);
+            for completion in completed {
+                self.turns.remove(&completion.run_id);
+                if completion.run_id == run_id {
+                    return Ok(Some(completion.outcome));
+                }
+                self.completions.push_back(completion);
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Ok(None);
+            }
+            tokio::time::sleep_until((now + std::time::Duration::from_millis(25)).min(deadline))
+                .await;
+        }
     }
 }

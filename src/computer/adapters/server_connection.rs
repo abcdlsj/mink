@@ -3,11 +3,12 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        AgentInput, ApplicationError, AttentionNoticeInput, ContextMessageInput, ContinuityState,
-        DeliveryState, DispatchedItemInput, DriverKind, ItemDisposition, LocalAgent,
-        LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput, MemoryFile, NewRun,
-        NoticeLocationInput, RunContextInput, RunInput, RunPriority, SessionFingerprint,
-        SessionScope, SpaceMemberInput, TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        ActivityEventInput, AgentInput, ApplicationError, AttentionNoticeInput,
+        ContextMessageInput, ContinuityState, DeliveryState, DispatchedItemInput, DriverKind,
+        ItemDisposition, LocalAgent, LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput,
+        MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
+        SessionFingerprint, SessionScope, SpaceMemberInput, TaskInput, TerminalStatus, WorkInput,
+        WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -165,6 +166,12 @@ impl ServerConnectionAdapter {
             wire::Command::AgentSuspend(suspend) => Ok(ApplicationCommand::Suspend {
                 agent_id: suspend.agent_id,
                 cancel_current: suspend.mode == wire::SuspendMode::CancelCurrentRun,
+            }),
+            wire::Command::AgentResume(resume) => Ok(ApplicationCommand::Resume {
+                agent_id: resume.agent_id,
+            }),
+            wire::Command::AgentRestart(restart) => Ok(ApplicationCommand::Restart {
+                agent_id: restart.agent_id,
             }),
             wire::Command::AgentRetire(retire) => Ok(ApplicationCommand::Retire {
                 agent_id: retire.agent_id,
@@ -414,9 +421,28 @@ fn dispatched_item(item: &wire::InboxItemSnapshot) -> DispatchedItemInput {
     DispatchedItemInput {
         item_id: item.item_id,
         task_id: item.task_id,
+        channel_id: item.channel_id,
         thread_id: item.thread_id,
         message_id: item.message.as_ref().map(|message| message.message_id),
         content: item.message.as_ref().map(message_content),
+        activity_events: item
+            .activity_events
+            .iter()
+            .map(|event| ActivityEventInput {
+                sequence: event.sequence,
+                kind: activity_event_kind(event.kind).to_owned(),
+                message_id: event.message_id,
+                member_id: event.member_id,
+            })
+            .collect(),
+    }
+}
+
+fn activity_event_kind(kind: wire::ActivityEventKind) -> &'static str {
+    match kind {
+        wire::ActivityEventKind::Message => "message",
+        wire::ActivityEventKind::MemberJoined => "member_joined",
+        wire::ActivityEventKind::MemberLeft => "member_left",
     }
 }
 
@@ -557,7 +583,8 @@ mod tests {
         computer::{
             adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::ports::{
-                DriverCompletion, OpenSessionRequest, OpenedSession, ProcessEvidence, SteerOutcome,
+                DriverCompletion, DriverTurnOutcome, OpenSessionRequest, OpenedSession,
+                ProcessEvidence, SteerOutcome,
             },
             application::{LocalRun, ProviderSession},
         },
@@ -596,6 +623,18 @@ mod tests {
         }
 
         async fn interrupt(&mut self, _: &LocalRun) -> Result<(), ApplicationError> {
+            Ok(())
+        }
+
+        async fn wait_for_completion(
+            &mut self,
+            _: RunId,
+            _: std::time::Duration,
+        ) -> Result<Option<DriverTurnOutcome>, ApplicationError> {
+            Ok(None)
+        }
+
+        async fn restart_agent(&mut self, _: AgentId) -> Result<(), ApplicationError> {
             Ok(())
         }
 
@@ -696,5 +735,21 @@ mod tests {
         assert_eq!(run.view().input.context.focus_thread_id, thread_id);
         assert!(!format!("{run:?}").contains("private body"));
         assert_eq!(run.view().priority.strength, WorkStrength::Ambient);
+    }
+
+    #[test]
+    fn activity_event_kinds_keep_the_wire_snake_case() {
+        assert_eq!(
+            activity_event_kind(wire::ActivityEventKind::Message),
+            "message"
+        );
+        assert_eq!(
+            activity_event_kind(wire::ActivityEventKind::MemberJoined),
+            "member_joined"
+        );
+        assert_eq!(
+            activity_event_kind(wire::ActivityEventKind::MemberLeft),
+            "member_left"
+        );
     }
 }

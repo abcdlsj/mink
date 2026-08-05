@@ -139,7 +139,9 @@ Browser 可以读取 Run 状态、Focus、时间和错误代码。`GET /api/v1/a
 
 `PATCH /api/v1/agents/{agent_id}` 接受`role_text`与`lifecycle`，两者都是治理动作。改写 Role 推进`role_revision`并向 Agent 所在 Computer 重新下发配置；文本未变时不推进 revision，Computer 无需重新拉取。空 Role 不成立。
 
-`lifecycle`接受`suspend`、`resume`和`retry`。`suspend`只从 active 生效，`resume`只从 suspended 生效，`retry`只从 error 生效，其余组合返回冲突。`suspend`的`mode`决定 Computer 如何停止当前 Run：默认等待当前 Run 结束，`cancel_now`立即请求取消。退役有独立端点`DELETE /api/v1/agents/{agent_id}`，它不可恢复，不与可逆动作共用入口。
+`lifecycle`接受`suspend`、`resume`和`retry`。`suspend`只从 active 生效，`resume`只从 suspended 生效，`retry`只从 error 生效，其余组合返回冲突。`suspend`的`mode`决定 Computer 如何停止当前 Run：默认等待当前 Run 结束，`cancel_now`立即请求取消。`resume`成功改变生命周期后必须排队`agent.resume` command；Computer 应用 command 后才恢复本地 profile。退役有独立端点`DELETE /api/v1/agents/{agent_id}`，它不可恢复，不与可逆动作共用入口。
+
+`PATCH /api/v1/agents/{agent_id}`的`lifecycle.action=restart`只排队`agent.restart` command，不改变 Agent lifecycle。该动作允许 active 和 suspended Agent，retired Agent 返回冲突；Computer 只重启目标 Agent 的 Driver、active Run 和 Provider Sessions。
 
 `PATCH /api/v1/spaces/{space_id}/members/{member_id}` 改写 Access Level，只接受`admin`和`member`。Owner 由创建 Space 确定，不能通过该端点授予；现任 Owner 的级别也不可改写，否则 Space 会失去治理者。Admin 只能授予`member`，授予`admin`需要 Owner。
 
@@ -177,7 +179,7 @@ Permission API 只接受 Server 已知的 action code。只有 Human Owner/Admin
 
 `?status=dead`返回该 Member 的 dead Item，供治理者确认要放回哪一个。该参数只接受`dead`，其余取值返回`invalid`。授权规则与默认投影相同。
 
-每项包含 Item 标识、`space_id`、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。Human Browser 按`space_id + channel_id`（DM）或`space_id + thread_id`（Thread）把多项 hard Item 聚合为一行，但 API 仍返回逐 Item 投影。没有单条来源 Message 的聚合或 system Item 将该字段置空。完整正文仍通过 Message API 按调用方自身权限读取。
+每项包含 Item 标识、`space_id`、kind、strength、status、来源 Channel 与 Thread 标识、发送者 Member 投影、时间、`retry_count`和`requeue_count`。两个计数是运维判断依据：前者说明该 Item 距离进入`dead`还有多少次尝试，后者说明它已被治理者放回过几次。`summary`只描述注意力来源的类型，不含 Message 正文。来源 Message 可见时，`message_preview`返回一个有长度上限的正文预览，供 Inbox 一行展示；它是读取时派生的投影，不写入 Item。Ambient Item 额外返回`channel_id`和按 Channel 序号排序的`activity_events`，每项包含事件类型、序号、可选 Message ID 和可选 Member ID。没有单条来源 Message 的聚合或 system Item 将`message_preview`置空。完整正文仍通过 Message API 按调用方自身权限读取。
 
 #### 2.3.2 标记 Human Item 已读
 
@@ -290,6 +292,8 @@ Server 先持久化 command，再通过 WebSocket 投递。
 - `agent.provision`
 - `agent.configure`
 - `agent.suspend`
+- `agent.resume`
+- `agent.restart`
 - `agent.retire`
 - `run.start`
 - `run.task_bound`
@@ -303,7 +307,7 @@ Server 先持久化 command，再通过 WebSocket 投递。
 
 `run.start` 包含可选 Task 和 Focus 的结构化快照。`run.attach_item` 包含递增的 delivery sequence。`run.notice` 不把 Item 归入当前 Run。
 
-Computer 拒绝 `run.attach_item` 时，Server 必须按 command payload 定位该 delivery，并将其作为未处理 Item 释放。该处理与 command ACK 分开完成；释放失败时不得确认 command，以便重试。
+Computer 拒绝 `run.attach_item` 时，Server 必须按 command payload 定位该 delivery，并将其作为未处理 Item 释放。该处理与 command ACK 分开完成；释放失败时不得确认 command，以便重试。补偿事务由 delivery sequence 和 command ID 幂等，重复回执不得重复释放 Item、增加 retry 或记录 activity。
 
 Computer 拒绝 `run.start` 时，Server 必须按 command payload 定位该 Run，将其以 Computer 报告的错误码终结为 `failed`，并释放该 Run 尚未处理的 Items。该处理与 command ACK 分开完成；恢复失败时不得确认 command，以便重试。
 

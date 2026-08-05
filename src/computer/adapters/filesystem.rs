@@ -239,6 +239,15 @@ impl AgentHomePort for AgentHomeAdapter {
         self.write_profile(&agent).await
     }
 
+    async fn resume(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        let mut agent = self.agent(agent_id).await?;
+        if agent.state == LocalAgentState::Retired {
+            return Err(ApplicationError::Conflict);
+        }
+        agent.state = LocalAgentState::Active;
+        self.write_profile(&agent).await
+    }
+
     async fn retire(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
         let target = self.agent_home_for_id(agent_id);
         let agents_root = self.computer_home.join("agents");

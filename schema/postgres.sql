@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (6, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (7, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -372,6 +372,7 @@ CREATE TABLE inbox_items (
     last_message_seq BIGINT CHECK (last_message_seq > 0),
     aggregated_count INTEGER CHECK (aggregated_count > 0),
     force_at TIMESTAMPTZ,
+    ambient_channel_id UUID,
     UNIQUE (id, space_id),
     FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
@@ -393,9 +394,27 @@ CREATE TABLE inbox_items (
 -- `retry_count = 0` restricts the index to aggregates that were never claimed. A retried aggregate
 -- covers a range the Agent already received, so it accepts no further Messages and must not block the
 -- next aggregate for that Thread.
-CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate
+CREATE UNIQUE INDEX inbox_items_open_thread_ambient_aggregate
     ON inbox_items(member_id, thread_id)
-    WHERE strength = 'ambient' AND status = 'pending' AND retry_count = 0;
+    WHERE strength = 'ambient' AND kind = 'thread_activity' AND status = 'pending' AND retry_count = 0;
+CREATE UNIQUE INDEX inbox_items_open_channel_ambient_aggregate
+    ON inbox_items(member_id, ambient_channel_id)
+    WHERE strength = 'ambient' AND kind = 'channel_activity' AND status = 'pending' AND retry_count = 0;
+
+CREATE TABLE inbox_activity_events (
+    inbox_item_id UUID NOT NULL REFERENCES inbox_items(id) ON DELETE RESTRICT,
+    channel_id UUID NOT NULL REFERENCES channels(id) ON DELETE RESTRICT,
+    channel_seq BIGINT NOT NULL CHECK (channel_seq > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('message', 'member_joined', 'member_left')),
+    message_id UUID REFERENCES messages(id) ON DELETE RESTRICT,
+    member_id UUID REFERENCES members(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (inbox_item_id, channel_seq),
+    CHECK (
+        (kind = 'message' AND message_id IS NOT NULL AND member_id IS NULL)
+        OR (kind IN ('member_joined', 'member_left') AND message_id IS NULL AND member_id IS NOT NULL)
+    )
+);
 
 CREATE TABLE run_items (
     run_id UUID NOT NULL,

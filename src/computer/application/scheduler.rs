@@ -1,20 +1,26 @@
 use crate::computer::core::{
+    home::LocalAgentState,
     scheduler::{PendingRun, Scheduler},
     supervisor::LocalRunState,
 };
 
 use super::{
     ApplicationError,
-    ports::{ComputerTransaction, DriverPort, TransactionPort},
+    ports::{AgentHomePort, ComputerTransaction, DriverPort, TransactionPort},
     run::RunService,
 };
 
 pub(in crate::computer) struct SchedulerService;
 
 impl SchedulerService {
-    pub(in crate::computer) async fn dispatch<P: TransactionPort, D: DriverPort>(
+    pub(in crate::computer) async fn dispatch<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         driver: &mut D,
+        homes: &mut H,
         capacity: usize,
     ) -> Result<(), ApplicationError> {
         let runs = store
@@ -23,6 +29,14 @@ impl SchedulerService {
         let mut scheduler = Scheduler::new(capacity);
         for run in runs {
             if run.view().state == LocalRunState::Queued {
+                let ready = match homes.agent(run.view().agent_id).await {
+                    Ok(agent) => agent.state == LocalAgentState::Active,
+                    Err(ApplicationError::NotFound | ApplicationError::DriverUnavailable) => false,
+                    Err(error) => return Err(error),
+                };
+                if !ready {
+                    continue;
+                }
                 scheduler.enqueue(PendingRun {
                     run_id: run.view().id,
                     agent_id: run.view().agent_id,

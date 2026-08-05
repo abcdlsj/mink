@@ -502,6 +502,21 @@ impl LocalRun {
         Ok(())
     }
 
+    pub(in crate::computer) fn fail_after_restart(&mut self) -> Result<(), CoreError> {
+        if !matches!(
+            self.state,
+            LocalRunState::Starting
+                | LocalRunState::Running
+                | LocalRunState::Finalizing
+                | LocalRunState::Stopping
+        ) {
+            return Err(CoreError::InvalidTransition);
+        }
+        self.state = LocalRunState::Failed;
+        self.terminal_status = Some(TerminalStatus::Failed);
+        Ok(())
+    }
+
     pub(in crate::computer) fn validate_item_outcomes(
         &self,
         outcomes: &[(InboxItemId, ItemDisposition)],

@@ -31,6 +31,7 @@ use super::{contract::StructuredProviderClient, prompt};
 use crate::computer::application::capability::CapabilityService;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_TURN_ATTEMPTS: u8 = 3;
 
 pub(super) struct CodexRuntimeClient {
     computer_home: PathBuf,
@@ -39,6 +40,14 @@ pub(super) struct CodexRuntimeClient {
     processes: BTreeMap<AgentId, CodexProcess>,
     locator_owners: BTreeMap<String, AgentId>,
     run_owners: BTreeMap<RunId, AgentId>,
+    run_inputs: BTreeMap<RunId, CodexRunInput>,
+}
+
+#[derive(Clone)]
+struct CodexRunInput {
+    locator: String,
+    input: RunInput,
+    attempts: u8,
 }
 
 impl CodexRuntimeClient {
@@ -61,6 +70,7 @@ impl CodexRuntimeClient {
             processes: BTreeMap::new(),
             locator_owners: BTreeMap::new(),
             run_owners: BTreeMap::new(),
+            run_inputs: BTreeMap::new(),
         }
     }
 
@@ -111,6 +121,52 @@ impl CodexRuntimeClient {
         self.processes.insert(agent_id, process);
         Ok(())
     }
+
+    async fn start_turn_once(
+        &mut self,
+        run_id: RunId,
+        locator: &str,
+        input: &RunInput,
+    ) -> Result<(), ApplicationError> {
+        let agent_id = input.agent.agent_id;
+        if self.owner_for_locator(locator)? != agent_id {
+            return Err(ApplicationError::SessionLost);
+        }
+        let encoded =
+            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
+        let result = self
+            .process(agent_id)
+            .await?
+            .request(
+                "turn/start",
+                json!({
+                    "threadId": locator,
+                    "input": [{
+                        "type": "text",
+                        "text": prompt::turn_instruction(&encoded)
+                    }],
+                    "sandboxPolicy": {
+                        "type": "dangerFullAccess"
+                    }
+                }),
+            )
+            .await?;
+        let turn_id = result
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .ok_or(ApplicationError::DriverUnavailable)?
+            .to_owned();
+        self.process(agent_id)
+            .await?
+            .active_turns
+            .insert(locator.to_owned(), turn_id);
+        self.process(agent_id)
+            .await?
+            .active_runs
+            .insert(locator.to_owned(), run_id);
+        self.run_owners.insert(run_id, agent_id);
+        Ok(())
+    }
 }
 
 struct CodexProcess {
@@ -120,6 +176,7 @@ struct CodexProcess {
     next_request_id: u64,
     active_turns: BTreeMap<String, String>,
     active_runs: BTreeMap<String, RunId>,
+    failure_reasons: BTreeMap<RunId, String>,
     completions: VecDeque<DriverCompletion>,
 }
 
@@ -188,6 +245,7 @@ impl CodexProcess {
             next_request_id: 1,
             active_turns: BTreeMap::new(),
             active_runs: BTreeMap::new(),
+            failure_reasons: BTreeMap::new(),
             completions: VecDeque::new(),
         };
         process
@@ -264,14 +322,28 @@ impl CodexProcess {
         let Some(run_id) = self.active_runs.remove(thread_id) else {
             return;
         };
-        let outcome = match message
+        let status = message
             .pointer("/params/turn/status")
-            .and_then(Value::as_str)
-        {
+            .and_then(Value::as_str);
+        let outcome = match status {
             Some("completed") => DriverTurnOutcome::Completed,
             Some("interrupted") => DriverTurnOutcome::Interrupted,
             _ => DriverTurnOutcome::Failed,
         };
+        if outcome == DriverTurnOutcome::Failed {
+            let reason = message
+                .pointer("/params/turn/error")
+                .or_else(|| message.pointer("/params/error"))
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), ToOwned::to_owned)
+                })
+                .filter(|value| !value.is_empty());
+            if let Some(reason) = reason {
+                self.failure_reasons.insert(run_id, reason);
+            }
+        }
         self.completions
             .push_back(DriverCompletion { run_id, outcome });
     }
@@ -399,43 +471,15 @@ impl StructuredProviderClient for CodexRuntimeClient {
         locator: &str,
         input: &RunInput,
     ) -> Result<(), ApplicationError> {
-        let agent_id = input.agent.agent_id;
-        if self.owner_for_locator(locator)? != agent_id {
-            return Err(ApplicationError::SessionLost);
-        }
-        let encoded =
-            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
-        let result = self
-            .process(agent_id)
-            .await?
-            .request(
-                "turn/start",
-                json!({
-                    "threadId": locator,
-                    "input": [{
-                        "type": "text",
-                        "text": prompt::turn_instruction(&encoded)
-                    }],
-                    "sandboxPolicy": {
-                        "type": "dangerFullAccess"
-                    }
-                }),
-            )
-            .await?;
-        let turn_id = result
-            .pointer("/turn/id")
-            .and_then(Value::as_str)
-            .ok_or(ApplicationError::DriverUnavailable)?
-            .to_owned();
-        self.process(agent_id)
-            .await?
-            .active_turns
-            .insert(locator.to_owned(), turn_id);
-        self.process(agent_id)
-            .await?
-            .active_runs
-            .insert(locator.to_owned(), run_id);
-        self.run_owners.insert(run_id, agent_id);
+        self.start_turn_once(run_id, locator, input).await?;
+        self.run_inputs.insert(
+            run_id,
+            CodexRunInput {
+                locator: locator.to_owned(),
+                input: input.clone(),
+                attempts: 1,
+            },
+        );
         Ok(())
     }
 
@@ -506,6 +550,18 @@ impl StructuredProviderClient for CodexRuntimeClient {
         }
     }
 
+    async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
+        self.locator_owners.retain(|_, owner| *owner != agent_id);
+        self.run_owners.retain(|_, owner| *owner != agent_id);
+        self.run_inputs
+            .retain(|_, input| input.input.agent.agent_id != agent_id);
+        if let Some(mut process) = self.processes.remove(&agent_id) {
+            let _ = process.child.kill().await;
+            let _ = process.child.wait().await;
+        }
+        Ok(())
+    }
+
     async fn delete_session(&mut self, locator: &str) -> Result<(), ApplicationError> {
         let agent_id = self.owner_for_locator(locator)?;
         let result = self
@@ -545,10 +601,81 @@ impl StructuredProviderClient for CodexRuntimeClient {
         let mut completions = Vec::new();
         for process in self.processes.values_mut() {
             process.poll_notifications().await?;
-            completions.extend(process.completions.drain(..));
+            for completion in process.completions.drain(..) {
+                let reason = process.failure_reasons.remove(&completion.run_id);
+                completions.push((completion, reason));
+            }
         }
-        Ok(completions)
+        let mut terminal = Vec::new();
+        for (completion, reason) in completions {
+            let retry = completion.outcome == DriverTurnOutcome::Failed
+                && reason.as_deref().is_some_and(is_retryable_codex_failure)
+                && self
+                    .run_inputs
+                    .get(&completion.run_id)
+                    .is_some_and(|run| run.attempts < MAX_TURN_ATTEMPTS);
+            if retry {
+                let mut run = self
+                    .run_inputs
+                    .get(&completion.run_id)
+                    .cloned()
+                    .ok_or(ApplicationError::Internal)?;
+                run.attempts += 1;
+                if self
+                    .start_turn_once(completion.run_id, &run.locator, &run.input)
+                    .await
+                    .is_ok()
+                {
+                    self.run_inputs.insert(completion.run_id, run);
+                    continue;
+                }
+            }
+            self.run_inputs.remove(&completion.run_id);
+            self.run_owners.remove(&completion.run_id);
+            terminal.push(completion);
+        }
+        Ok(terminal)
     }
+}
+
+fn is_retryable_codex_failure(reason: &str) -> bool {
+    let reason = reason.to_lowercase();
+    if [
+        "context",
+        "unauthorized",
+        "authentication",
+        "invalid api key",
+        "permission",
+        "forbidden",
+        "tool",
+        "invalid argument",
+    ]
+    .iter()
+    .any(|marker| reason.contains(marker))
+    {
+        return false;
+    }
+    [
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection closed",
+        "broken pipe",
+        "server error",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+        "\"status\":500",
+        "\"status\":502",
+        "\"status\":503",
+        "\"status\":504",
+    ]
+    .iter()
+    .any(|marker| reason.contains(marker))
 }
 
 #[cfg(test)]
@@ -670,9 +797,11 @@ done
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         task_id: None,
+                        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
                         thread_id,
                         message_id: None,
                         content: Some("new item".to_owned()),
+                        activity_events: Vec::new(),
                     },
                 )
                 .await

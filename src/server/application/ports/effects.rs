@@ -8,6 +8,16 @@ pub(in crate::server) trait EffectSink {
         computer_id: Option<ComputerId>,
         cancel_current_run: bool,
     ) -> Result<(), ApplicationError>;
+    async fn queue_agent_resume(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError>;
+    async fn queue_agent_restart(
+        &mut self,
+        agent_id: MemberId,
+        computer_id: Option<ComputerId>,
+    ) -> Result<(), ApplicationError>;
     async fn queue_agent_configuration(&mut self, agent: &Agent) -> Result<(), ApplicationError>;
     async fn lock_idempotency(
         &mut self,
