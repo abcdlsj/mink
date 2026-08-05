@@ -1,6 +1,4 @@
 use std::path::Path;
-
-#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
 use tokio::process::Command;
@@ -32,18 +30,21 @@ impl SandboxAdapter {
         Self::validate()?;
         #[cfg(target_os = "macos")]
         {
+            let sumi_executable = std::env::current_exe().unwrap_or_else(|_| executable.to_owned());
             let profile = format!(
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
                   (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
                   (subpath \"/private\") (literal \"/\") \
-                  (literal \"{}\") (literal \"{}\") \
+                  (literal \"{}\") (literal \"{}\") (literal \"{}\") \
                   (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))\
                  (allow file-read-metadata)\
+                 (allow sysctl-read)\
                  (allow file-write* (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))",
                 escape(executable)?,
+                escape(&sumi_executable)?,
                 escape(agent_home)?,
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("memory"))?,
@@ -75,7 +76,13 @@ impl SandboxAdapter {
                 .arg("/usr")
                 .arg("--ro-bind")
                 .arg("/lib")
-                .arg("/lib")
+                .arg("/lib");
+            if let Ok(current_executable) = std::env::current_exe()
+                && let Some(parent) = current_executable.parent()
+            {
+                command.arg("--ro-bind").arg(parent).arg(parent);
+            }
+            command
                 .arg("--dir")
                 .arg("/agent")
                 .arg("--dir")
@@ -118,9 +125,20 @@ fn configure_environment(
     socket: &Path,
     driver_token: &str,
 ) {
+    let mut path_entries = Vec::new();
+    if let Ok(current_executable) = std::env::current_exe()
+        && let Some(parent) = current_executable.parent()
+    {
+        path_entries.push(parent.to_owned());
+    }
+    for entry in ["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"] {
+        path_entries.push(PathBuf::from(entry));
+    }
+    let path = std::env::join_paths(path_entries)
+        .unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin".into());
     command
         .env_clear()
-        .env("PATH", "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin")
+        .env("PATH", path)
         .env("HOME", agent_home)
         .env("CODEX_HOME", driver_home)
         .env("TMPDIR", agent_home.join("runs"))
