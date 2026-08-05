@@ -39,6 +39,8 @@ Provider Session resume 后仍必须注入本 Run 的 `run_context`。Session �
 
 `global_contract` 必须要求 Agent 处理本 Run 的每个 Item。hard Item 必须通过 Sumi capability 执行 `message send --handle <item-id> --body <text>`、`ack`、`defer` 或 `yield`；Driver final response 不构成 Item 处理结果。
 
+`global_contract` 必须要求 Agent 在开始实质工作后尽快向当前 Focus 或共享 Channel 发送简短进度更新，并在持续工作期间及时继续发送，让协作者能够确认它正在处理。该要求不设固定时间间隔，不得等到 Run 结束才集中报告进度。
+
 `global_contract`还必须执行[Computer 与 Agent](04-computer-agent.md)定义的 Memory 维护规则，并明确给出`MEMORY.md`的读取和写入命令。Run 输入中的 Memory 投影只用于发现文件，不能替代 Agent 在每个 Run 开始时读取主文件。
 
 ## 3. Codex Driver
