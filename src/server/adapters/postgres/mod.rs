@@ -137,7 +137,7 @@ impl PostgresAdapter {
                 )));
             }
             sqlx::raw_sql(
-                "ALTER TABLE spaces ADD COLUMN accent TEXT NOT NULL DEFAULT '#FE7DA8'; \
+                "ALTER TABLE spaces ADD COLUMN accent TEXT NOT NULL DEFAULT '#F0602F'; \
                  ALTER TABLE spaces ALTER COLUMN accent DROP DEFAULT; \
                  INSERT INTO schema_meta (version, applied_at) VALUES (3, now());",
             )

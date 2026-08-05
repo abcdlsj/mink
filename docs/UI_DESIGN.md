@@ -5,9 +5,9 @@
 ## 视觉
 
 - 使用 Neo-Brutalism：2px ink 边框、硬偏移阴影；不使用渐变、玻璃、模糊或柔和投影。
-- 颜色 token：ink `#141111`、paper `#FFFFFF`、panel `#FFFAEF`、rail `#FFD440`、accent `#FE7DA8`、accent-soft `#FFE0EA`、cyan `#27CCF3`、green `#A9D877`、orange `#F8A16F`、red `#F97264`、stone `#C0B9B1`。
-- Space accent 只取四个预置色（`#FE7DA8`、`#27CCF3`、`#FFD440`、`#A9D877`）之一。
-- 字体：Space Grotesk、Noto Sans SC、sans-serif fallback；代码与等宽元数据使用 Space Mono。
+- 颜色 token：ink `#241F1A`、paper `#FFFBF4`、panel `#F5EEE1`、rail `#241F1A`（rail 前景 `#FFFBF4`）、accent `#F0602F`、accent-soft `#FDE3D5`、indigo `#3D5AA9`、green `#5B9253`、orange `#E08B2C`、red `#D33F2E`、stone `#B4AB9D`、muted `#8A8071`。
+- Space accent 只取四个预置色（`#F0602F`、`#E8B42D`、`#3C9E8F`、`#6C5CE7`）之一；自定义主题色能力待定。
+- 字体：Manrope、Noto Sans SC、sans-serif fallback；代码与等宽元数据使用 JetBrains Mono。
 - 字号层级：页面标题 18px/700、区域标题 11px/700 大写、正文 14px/400、Message 正文 13px/400、辅助信息 12px/400、元数据 10px/600。
 - 状态必须同时使用文字和图形，颜色不是唯一线索；所有图形信号带 `aria-label` 和 `title`。
 - Human 头像使用姓名首字符和稳定背景色；Agent 使用由 member ID 生成的 8×8 对称像素印章并显示 `AGENT` 标签。
@@ -26,7 +26,7 @@
 - 只有 Root Message 提供 `Create Task` 动作；创建后立即替换为 Task 标识，不显示 bind、Source Thread 选择或来源确认步骤。
 - Thread reply 不显示创建动作；reply 上的 Task 动作保持禁用并说明只能从 Root Message 创建。
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板，固定包含 `Reply to thread` 和 Task 动作；面板贴齐 Message 行右上角，不占正文栏位。
-- Root Message 的 Task 标识显示 `!<seq>`、title、status、assignee 和 `Working elsewhere`（当前 Run 在其他 Linked Thread 时）；只有 Root Message 显示。
+- Root Message 的 Task 标识使用元数据行：`!<seq>`、状态文字和状态图形；title、assignee 不显示在消息上，hover 显示 title；当前 Run 在其他 Linked Thread 时显示 `· elsewhere`。只有 Root Message 显示。
 - Task 状态标签：TODO paper 背景、In Progress accent-soft、In Review orange、Done green、Closed stone；全部带状态图形。
 - Action Message 使用紧凑结构化行，显示 actor、动作和资源链接，不显示原始 JSON、命令参数或内部 ID；普通 composer 不能选择 action kind。
 - System Notice 渲染为居中系统信息行，不显示分割线、作者或回复操作；同一日期内连续多条默认折叠。

@@ -161,9 +161,9 @@
   gap: 12px;
   padding: 7px 12px;
   border: 0;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--rail-fg) 30%, transparent);
   background: var(--rail);
-  color: var(--ink);
+  color: var(--rail-fg);
   cursor: pointer;
   font-size: 11px;
   text-align: start;

@@ -62,7 +62,7 @@ const space = {
   id: spaceId,
   name: "Sumi Lab",
   slug: "sumi-lab",
-  accent: "#FE7DA8",
+  accent: "#F0602F",
   owner_member_id: ownerId,
   current_member_id: ownerId,
   general_channel_id: channelId,

@@ -9,7 +9,7 @@ const space = {
   id: "019c0000-0000-7000-8000-000000000010",
   name: "Sumi Lab",
   slug: "sumi-lab",
-  accent: "#FE7DA8",
+  accent: "#F0602F",
   owner_member_id: "019c0000-0000-7000-8000-000000000011",
   current_member_id: "019c0000-0000-7000-8000-000000000011",
   general_channel_id: "019c0000-0000-7000-8000-000000000012",
@@ -41,8 +41,8 @@ describe("RegisterPage", () => {
   it("previews the canonical Space URL and enters general with a palette accent", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path === "/api/v1/spaces" && init?.method === "POST") return json({ ...space, accent: "#27CCF3" }, 201);
-      if (path.includes("/spaces/by-slug/")) return json({ ...space, accent: "#27CCF3" });
+      if (path === "/api/v1/spaces" && init?.method === "POST") return json({ ...space, accent: "#E8B42D" }, 201);
+      if (path.includes("/spaces/by-slug/")) return json({ ...space, accent: "#E8B42D" });
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels")) return json({ can_create: true, channels: [] });
       if (path.endsWith("/dms") || path.endsWith("/agents") || path.endsWith("/computers")) return json([]);
@@ -61,7 +61,7 @@ describe("RegisterPage", () => {
     expect(await screen.findByRole("list", { name: "Onboarding step 2 of 3" })).toBeVisible();
     fireEvent.change(screen.getByLabelText("Space name"), { target: { value: "Sumi Lab" } });
     expect(screen.getByText("/s/sumi-lab")).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: "Cyan accent" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Gold accent" }));
     fireEvent.click(screen.getByRole("button", { name: "Enter general" }));
 
     await waitFor(() => {
@@ -69,7 +69,7 @@ describe("RegisterPage", () => {
         "/api/v1/spaces",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ name: "Sumi Lab", slug: "sumi-lab", accent: "#27CCF3" }),
+          body: JSON.stringify({ name: "Sumi Lab", slug: "sumi-lab", accent: "#E8B42D" }),
         }),
       );
       expect(router.state.location.pathname).toBe("/s/sumi-lab/channels/general");

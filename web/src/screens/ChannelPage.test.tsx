@@ -27,7 +27,7 @@ describe("ChannelPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/spaces/by-slug/")) {
-        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#F0602F", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
       }
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) {
@@ -128,7 +128,7 @@ describe("ChannelPage", () => {
     let directMessageCreated = false;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+      if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#F0602F", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
       if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
       if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true }] });
       if (path.endsWith("/dms") && !init?.method) return json(directMessageCreated ? [createdDirectMessage] : []);
@@ -192,7 +192,7 @@ describe("ChannelPage", () => {
           id: "019c0000-0000-7000-8000-000000000001",
           name: "Sumi Lab",
           slug: "sumi-lab",
-          accent: "#FE7DA8",
+          accent: "#F0602F",
           owner_member_id: "019c0000-0000-7000-8000-000000000002",
           current_member_id: "019c0000-0000-7000-8000-000000000002",
           general_channel_id: channelId,
@@ -382,9 +382,9 @@ describe("ChannelPage", () => {
     fireEvent.click(screen.getByText("2 system errors · Show details"));
     expect(systemErrors).toHaveAttribute("open");
     expect(within(systemErrors).getByText((_, element) => element?.tagName === "P" && element.textContent?.includes("Could not start Lin") === true)).toBeVisible();
-    const taskBadge = screen.getByLabelText("Task: !7 Ship message metadata · in progress · Lin");
-    expect(taskBadge).toHaveTextContent("Ship message metadata");
-    expect(taskBadge).toHaveAttribute("title", "!7 Ship message metadata · in progress · Lin");
+    const taskBadge = screen.getByLabelText("Task: !7 in progress · Ship message metadata");
+    expect(taskBadge).toHaveTextContent(/!7\s*in progress/);
+    expect(taskBadge).toHaveAttribute("title", "!7 in progress · Ship message metadata");
     const attachmentFile = new File(["pixel notes"], "notes.txt", { type: "text/plain" });
     Object.defineProperty(attachmentFile, "arrayBuffer", {
       value: async () => new TextEncoder().encode("pixel notes").buffer,
@@ -442,7 +442,7 @@ describe("ChannelPage", () => {
       expect.stringContaining("/root-messages/019c0000-0000-7000-8000-000000000102/task"),
       expect.objectContaining({ method: "POST" }),
     ));
-    expect(await screen.findByRole("link", { name: /Task: !7 @lin Please review/ })).toBeVisible();
+    expect(await screen.findByRole("link", { name: /Task: !7 todo · @lin Please review/ })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Add Agents to Channel" }));
     const addDialog = screen.getByRole("dialog", { name: "Add Agents" });
@@ -465,7 +465,7 @@ describe("ChannelPage", () => {
     expect(within(threadPane).getByRole("link", { name: "Ship message metadata RELATED" })).toHaveAttribute("href", "/s/sumi-lab/tasks/019c0000-0000-7000-8000-000000000090");
     expect(within(threadPane).getByRole("img", { name: "Reviewer avatar" })).toHaveAttribute("data-agent-identicon");
     expect(within(threadPane).queryByText(/member_id|lifecycle.*active/)).not.toBeInTheDocument();
-    expect(within(threadPane).getByLabelText("Task: !7 Ship message metadata · in progress · Lin")).toBeVisible();
+    expect(within(threadPane).getByLabelText("Task: !7 in progress · Ship message metadata")).toBeVisible();
     const resizeHandle = within(threadPane).getByRole("separator", { name: "Resize Thread pane" });
     expect(resizeHandle).toHaveAttribute("aria-orientation", "vertical");
     expect(resizeHandle).toHaveAttribute("aria-valuemin", "360");

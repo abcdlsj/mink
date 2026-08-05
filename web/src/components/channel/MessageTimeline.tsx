@@ -226,9 +226,8 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
 }
 
 function MessageTaskBadge({ task, spaceSlug }: { task: MessageTaskSummary; spaceSlug: string }) {
-  const assignee = task.assignee_name ?? "Unassigned";
   const status = task.status.replace("_", " ");
-  const detail = `!${task.seq} ${task.title} · ${status} · ${assignee}`;
+  const detail = `!${task.seq} ${status}${task.working_elsewhere ? " · working elsewhere" : ""} · ${task.title}`;
   return (
     <Link
       className={`message-task-badge message-task-badge--${task.status}`}
@@ -239,7 +238,8 @@ function MessageTaskBadge({ task, spaceSlug }: { task: MessageTaskSummary; space
     >
       <TaskStatusIcon status={task.status} />
       <b>!{task.seq}</b>
-      <span>{task.title}</span>
+      <span>{status}</span>
+      {task.working_elsewhere ? <em>· elsewhere</em> : null}
     </Link>
   );
 }

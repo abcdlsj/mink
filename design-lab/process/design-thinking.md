@@ -36,6 +36,17 @@ URL：`/s/<slug>/design-lab`（demo 环境，不进产品导航）。用途：�
 - 工作线：用真实 Task 数据渲染垂直时间线（Source → Runs → Review → Result），Runs 折叠历史；横向步骤条为备选形态。
 - AX mock：Review 显示 reviewer（需 Task 增加 reviewer 字段）、Agent 焦点标记、像素组件尺寸阶梯（16/24/32/48/64px，整数像素单元）。
 
+## 用户决策（2026-08-06）
+
+- 色板：B 能量（`warm-energy`，橙主色相、深墨 rail）。
+- 字体：F3 Manrope + JetBrains Mono（`neutral-comfort`）。
+- Space accent：orange-family；主题色按产品需求应允许自定义，先默认该组。
+- Task 标识：T2 元数据行（`!3 · IN REVIEW · Nora`，最轻量）。
+- 工作线：方向认可，纳入 Task 详情重构。
+- 像素头像：保持产品现有 identicon 渲染，不做圆角/细边框改动。
+- 焦点标记：采用现有 presence-dot 的规格（右下角 9px、1px ink 边框）。
+- 像素尺寸：精简为产品实际用到的 20/24/32/36/48px。
+
 ## 现有 UI 舒适感的证据分析
 
 基于真实 demo 的像素分布和计算样式（2026-08-05）：

@@ -148,7 +148,7 @@ test("development seed cleanup rejects an unrelated custom directory", (context)
 });
 
 test("development seed defines one stable Space and Iris/Leo/Nora group", () => {
-  assert.deepEqual(DEV_SPACE, { name: "Sumi Dev", slug: "sumi-dev", accent: "#FE7DA8" });
+  assert.deepEqual(DEV_SPACE, { name: "Sumi Dev", slug: "sumi-dev", accent: "#F0602F" });
   assert.equal(DEV_CHANNEL_SLUG, "general");
   assert.deepEqual(AGENT_PROFILES.map(({ name, driver_kind }) => ({ name, driver_kind })), [
     { name: "Iris", driver_kind: "builtin" },

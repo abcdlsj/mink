@@ -135,7 +135,7 @@ function run(status: "working" | "yielded", focus: ThreadReference): Run {
 }
 
 function shellResponse(path: string): Response | undefined {
-  if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FE7DA8", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: "channel" });
+  if (path.includes("/spaces/by-slug/")) return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#F0602F", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: "channel" });
   if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
   if (path.endsWith("/channels")) return json({ can_create: true, channels: [] });
   if (path.endsWith("/dms")) return json([]);

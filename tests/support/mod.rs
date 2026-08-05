@@ -408,7 +408,7 @@ pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result
         .json(&serde_json::json!({
             "name": "Process Test Lab",
             "slug": format!("process-{}", &Uuid::now_v7().simple().to_string()[..8]),
-            "accent": "#FE7DA8"
+            "accent": "#F0602F"
         }))
         .send()
         .await?;

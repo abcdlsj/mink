@@ -362,23 +362,34 @@
   line-height: 1.45;
 }
 
-.dl-task-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 18px;
-  margin-inline-start: auto;
-  padding: 2px 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--ink);
-  font: 700 10px var(--font-sans);
-  text-decoration: none;
+/* T3: task meta pinned to the message bottom-left. */
+.dl-badge-message--bottom-left .dl-task-meta {
+  margin-top: 6px;
+  margin-inline-start: 0;
 }
 
-.dl-task-pill span {
-  color: var(--accent);
+/* T4: task meta top-right, time on the far right edge. */
+.dl-badge-message--top-right {
+  position: relative;
+  padding-right: 130px;
+}
+
+.dl-badge-message--top-right .dl-task-meta {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  margin-inline-start: 0;
+}
+
+.dl-badge-time-right {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
 }
 
 .dl-task-meta {
@@ -410,6 +421,72 @@
 .dl-task-reviewer {
   color: var(--muted);
   font-weight: 500;
+}
+
+/* Message action button candidates. */
+.dl-actions-compare {
+  display: grid;
+  gap: 14px;
+}
+
+.dl-actions-message {
+  position: relative;
+  display: grid;
+  max-width: 620px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.dl-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dl-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dl-actions--square-icons button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.dl-actions--pill-icons button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(36 31 26 / 10%);
+}
+
+.dl-actions--text-actions button {
+  display: none;
+}
+
+.dl-actions--text-actions span {
+  color: var(--muted);
+  font: 700 11px var(--font-sans);
 }
 
 /* Work line. */
@@ -613,11 +690,11 @@
 
 .dl-focus-dot {
   position: absolute;
-  right: -1px;
-  bottom: -1px;
+  right: -2px;
+  bottom: -2px;
   width: 9px;
   height: 9px;
-  border: 2px solid var(--paper);
+  border: 1px solid var(--ink);
   border-radius: 50%;
   background: var(--accent);
 }
@@ -648,15 +725,13 @@
   width: 100%;
   height: auto;
   aspect-ratio: 1;
-  border-width: 1px;
-  border-radius: 20%;
 }
 
-.dl-pixel-sample--16 { width: 16px; }
+.dl-pixel-sample--20 { width: 20px; }
 .dl-pixel-sample--24 { width: 24px; }
 .dl-pixel-sample--32 { width: 32px; }
+.dl-pixel-sample--36 { width: 36px; }
 .dl-pixel-sample--48 { width: 48px; }
-.dl-pixel-sample--64 { width: 64px; }
 
 .dl-pixel-meta {
   color: var(--ink);

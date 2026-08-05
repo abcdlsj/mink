@@ -8,10 +8,10 @@ import { OnboardingProgress } from "./RegisterPage";
 import { SumiLogo } from "../components/SumiLogo";
 
 const accents = [
-  { value: "#FE7DA8", label: "Pink" },
-  { value: "#27CCF3", label: "Cyan" },
-  { value: "#FFD440", label: "Yellow" },
-  { value: "#A9D877", label: "Green" },
+  { value: "#F0602F", label: "Flame" },
+  { value: "#E8B42D", label: "Gold" },
+  { value: "#3C9E8F", label: "Teal" },
+  { value: "#6C5CE7", label: "Iris" },
 ] as const;
 
 export function SpaceCreatePage() {

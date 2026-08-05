@@ -65,7 +65,7 @@ impl CapabilityFixture {
         let computer_token = "capability-computer-token";
         sqlx::raw_sql(&format!(
                 "BEGIN;
-                 INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','#FE7DA8','{owner_id}',now());
+                 INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at) VALUES ('{space_id}','capability','Capability','#F0602F','{owner_id}',now());
                  INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner_id}','{space_id}','human','Owner','owner',now());
                  INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent_id}','{space_id}','agent','Agent','member',now());
                  INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES ('{peer_agent_id}','{space_id}','agent','PeerAgent','member',now());

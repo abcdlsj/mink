@@ -25,6 +25,7 @@ import { listTasks, type Run, type Task } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import {
   FONT_CANDIDATES,
+  MESSAGE_ACTIONS_CANDIDATES,
   PALETTE_CANDIDATES,
   PIXEL_SCALE,
   SPACE_ACCENT_SETS,
@@ -173,6 +174,12 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
       </p>
       <TaskBadgeCompare task={sampleTask} />
 
+      <h2 className="design-lab-section-title">Message action buttons</h2>
+      <p className="design-lab-section-note">
+        The floating actions on the message top-right; three shapes to compare.
+      </p>
+      <MessageActionsCompare />
+
       <h2 className="design-lab-section-title">Work line (AX)</h2>
       <p className="design-lab-section-note">
         Task life drawn as one continuous line: Source Thread → Runs → Review → Result.
@@ -250,47 +257,24 @@ function TaskBadgeCompare({ task }: { task?: Task }) {
       {TASK_BADGE_CANDIDATES.map((candidate) => (
         <article key={candidate.id} className="dl-badge-card">
           <h3>{candidate.label}</h3>
-          <div className="dl-badge-message">
+          <div className={`dl-badge-message dl-badge-message--${candidate.id}`}>
             <PixelIdentity name="Mara" kind="human" seed="019c0000-0000-7000-8000-000000000002" />
             <div className="dl-message-body">
               <header>
-                <strong>Mara</strong><time>14:32</time>
-                {candidate.id === "inline-pill" && <TaskPill task={task} />}
-                {candidate.id === "metadata-row" && <TaskMeta task={task} />}
+                <strong>Mara</strong>
+                {candidate.id === "header-meta" && <TaskMeta task={task} />}
+                {candidate.id !== "top-right" && <time>14:32</time>}
               </header>
               <p>This is the message body the badge must not compete with.</p>
-              {candidate.id === "current" && (
-                <Link
-                  className="message-task-badge message-task-badge--in_review"
-                  to="/s/$spaceSlug/tasks/$taskId"
-                  params={{ spaceSlug: "sumi-dev", taskId: task.id }}
-                >
-                  <PixelStatusGlyph status={task.status} />
-                  <b>!{task.seq}</b>
-                  <span>{task.title}</span>
-                </Link>
-              )}
+              {candidate.id === "bottom-left" && <TaskMeta task={task} />}
             </div>
+            {candidate.id === "top-right" && <TaskMeta task={task} />}
+            {candidate.id === "top-right" && <time className="dl-badge-time-right">14:32</time>}
           </div>
           <p className="dl-badge-note">{candidate.note}</p>
         </article>
       ))}
     </div>
-  );
-}
-
-function TaskPill({ task }: { task: Task }) {
-  return (
-    <Link
-      className="dl-task-pill"
-      to="/s/$spaceSlug/tasks/$taskId"
-      params={{ spaceSlug: "sumi-dev", taskId: task.id }}
-      title={task.title}
-    >
-      <PixelStatusGlyph status={task.status} />
-      <b>!{task.seq}</b>
-      <span>{statusLabel(task.status)}</span>
-    </Link>
   );
 }
 
@@ -308,6 +292,35 @@ function TaskMeta({ task }: { task: Task }) {
       </span>
       {task.status === "in_review" && <span className="dl-task-reviewer">· {DEMO_REVIEWER}</span>}
     </Link>
+  );
+}
+
+function MessageActionsCompare() {
+  return (
+    <div className="dl-actions-compare">
+      {MESSAGE_ACTIONS_CANDIDATES.map((candidate) => (
+        <article key={candidate.id} className="dl-badge-card">
+          <h3>{candidate.label}</h3>
+          <div className="dl-actions-message">
+            <PixelIdentity name="Mara" kind="human" seed="019c0000-0000-7000-8000-000000000002" />
+            <div className="dl-message-body">
+              <header><strong>Mara</strong><time>14:32</time></header>
+              <p>Message body that the floating actions must not cover.</p>
+            </div>
+            <div className={`dl-actions dl-actions--${candidate.id}`} aria-label="Message actions">
+              <button type="button" title="Reply to thread" aria-label="Reply to Thread">
+                <MessageCircle aria-hidden="true" />
+              </button>
+              <button type="button" title="Create Task" aria-label="Create Task">
+                <ListTodo aria-hidden="true" />
+              </button>
+              {candidate.id === "text-actions" && <span>Reply · Task</span>}
+            </div>
+          </div>
+          <p className="dl-badge-note">{candidate.note}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 

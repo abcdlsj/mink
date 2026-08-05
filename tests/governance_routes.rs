@@ -333,7 +333,7 @@ async fn create_space(client: &Client, server: &Url, cookie: &str, slug: &str) -
         .post(server.join("/api/v1/spaces")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .header(header::COOKIE, cookie)
-        .json(&serde_json::json!({"name": slug, "slug": slug, "accent": "#FE7DA8"}))
+        .json(&serde_json::json!({"name": slug, "slug": slug, "accent": "#F0602F"}))
         .send()
         .await?
         .error_for_status()?

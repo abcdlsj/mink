@@ -4,7 +4,7 @@ use crate::server::adapters::postgres::{
     MessageTaskRow, PostgresQueries, RunRow, SpaceRow, TaskRefRow, TaskRow, ThreadReferenceRow,
 };
 
-pub(super) const SPACE_ACCENTS: [&str; 4] = ["#FE7DA8", "#27CCF3", "#FFD440", "#A9D877"];
+pub(super) const SPACE_ACCENTS: [&str; 4] = ["#F0602F", "#E8B42D", "#3C9E8F", "#6C5CE7"];
 
 pub(super) fn normalize_space_accent(input: &str) -> Option<String> {
     let value = input.trim().to_uppercase();

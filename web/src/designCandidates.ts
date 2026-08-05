@@ -137,26 +137,50 @@ export interface TaskBadgeCandidate {
 
 export const TASK_BADGE_CANDIDATES: TaskBadgeCandidate[] = [
   {
-    id: "current",
-    label: "T0 · 现状",
-    note: "右上角大徽章，含 title / status / assignee。用户反馈：太大、与消息格格不入。",
+    id: "header-meta",
+    label: "T2 · 消息头元数据",
+    note: "name 右侧，与时间同行。最轻量，但用户反馈 name 右侧可能拥挤。",
   },
   {
-    id: "inline-pill",
-    label: "T1 · 行内胶囊",
-    note: "消息头时间旁的小胶囊：!3 + 状态图形 + IN REVIEW。不占正文位置。",
+    id: "bottom-left",
+    label: "T3 · 消息左下角",
+    note: "贴在消息正文左下，像脚注标签；header 完全不被占用。",
   },
   {
-    id: "metadata-row",
-    label: "T2 · 元数据行",
-    note: "与时间/seq 同一元数据行：!3 · IN REVIEW · Nora。最轻，hover 显示 title。",
+    id: "top-right",
+    label: "T4 · 右上角 + 时间最右",
+    note: "轻量标识在消息框右上角；时间移到消息框最右侧，与标识分开。",
+  },
+];
+
+export interface MessageActionsCandidate {
+  id: string;
+  label: string;
+  note: string;
+}
+
+export const MESSAGE_ACTIONS_CANDIDATES: MessageActionsCandidate[] = [
+  {
+    id: "square-icons",
+    label: "A · 方角图标（现状）",
+    note: "2px ink 边框方角图标按钮，hover 出现；与现有硬边语言一致。",
+  },
+  {
+    id: "pill-icons",
+    label: "B · 胶囊图标",
+    note: "圆角胶囊 + 浅色底 + 细边框，hover 上浮；比现状柔和。",
+  },
+  {
+    id: "text-actions",
+    label: "C · 文字动作",
+    note: "hover 出现 Reply · Task 文字链接，最轻；键盘 focus 同样可见。",
   },
 ];
 
 export const PIXEL_SCALE = [
-  { size: 16, unit: 2, use: "小图标、焦点标记" },
-  { size: 24, unit: 3, use: "消息内头像、状态图形" },
-  { size: 32, unit: 4, use: "列表头像、Agent 印章" },
-  { size: 48, unit: 6, use: "成员页头像、空态" },
-  { size: 64, unit: 8, use: "详情页、登录装饰" },
+  { size: 20, unit: 2, use: "行内回复、紧凑列表" },
+  { size: 24, unit: 3, use: "消息动作、Action Message" },
+  { size: 32, unit: 4, use: "Thread、列表头像" },
+  { size: 36, unit: 4, use: "消息、导航、成员行" },
+  { size: 48, unit: 6, use: "成员页、空态、登录" },
 ] as const;
