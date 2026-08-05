@@ -454,6 +454,29 @@ async function addAgentsToChannel(cookie, channelId, agentMemberIds) {
   }
 }
 
+async function grantAgentPermission(cookie, memberId, actionCode) {
+  const response = await api(
+    "PUT",
+    `/api/v1/members/${memberId}/permissions/${actionCode}`,
+    { cookie },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `grant ${actionCode} to ${memberId} failed: ${response.status} ${await response.text()}`,
+    );
+  }
+}
+
+async function ensurePmPermissions(cookie, agents) {
+  // The PM profile is the first entry and is the only seed Agent that creates
+  // other Agents and Channels, so it needs both permissions up front.
+  const pm = agents[0];
+  for (const actionCode of ["agent.create", "channel.create"]) {
+    await grantAgentPermission(cookie, pm.member_id, actionCode);
+  }
+  log(`granted PM permissions to ${pm.name}: agent.create, channel.create`);
+}
+
 async function main() {
   log("waiting for server health...");
   await waitForHealth();
@@ -484,6 +507,7 @@ async function main() {
   log(`Computer "${online.name ?? "Dev Computer"}" is online`);
 
   const agents = await ensureAgents(cookie, space.id, computer.id);
+  await ensurePmPermissions(cookie, agents);
   await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
   log(`Agents ready in #${DEV_CHANNEL_SLUG}: ${AGENT_PROFILES.map((profile) => profile.name).join(", ")}`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
