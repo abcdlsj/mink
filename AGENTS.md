@@ -17,20 +17,19 @@
 
 - 中文直接写结论及依据；每句都有事实，删除不影响意思的句子；不使用比喻、情绪词或夸大判断。
 - 代码注释、MR 标题与描述、commit message 使用英文；注释只写不变量、并发或安全原因。
-- 日志和测试输出不得包含 Message、Attachment、Memory 或 Secret 正文。
+- 测试输出不得包含 Message、Attachment、Memory 或 Secret 正文；日志规则见 SYSTEM_DESIGN.md。
 
 ## 实现
 
 - 按“检查现状、实现、定向测试、修复”推进；可验证的不确定性继续处理，缺少权限或需要用户决定时暂停说明。
 - 领域规则、流程编排和外部适配各归一个模块；依赖从外部适配器单向指向 application，再指向 domain 或 core。
-- 每项事实、状态转换和写入只有一个所有者、一个修改入口；一个领域命令只在一个事务中完成。
-- 代码默认私有；只维护当前产品模型和当前 schema；新实现从空 PostgreSQL 和空 Computer Home 建立，共享环境后只用前向 migration。
+- 不允许创建低质量单测（纯字符串检测、无意义一次性单测等）。
+- 代码默认私有；只维护当前产品模型和当前 schema。
 - 旧实现、旧入口、旧 schema 和无业务边界价值的抽象必须删除。
 
 ## 验证
 
 - 核心流程、并发和安全边界必须有测试；日常改动运行最小相关测试。
-- 新数据库和新 Computer Home 可以从空状态建立并完成核心流程。
 - Rust 提交前运行 `cargo fmt --all -- --check` 和 `cargo clippy --all-targets --all-features -- -D warnings`。
 
 ## Handoff

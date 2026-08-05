@@ -8,7 +8,7 @@ Server：
 
 - 持有 Space、Member、权限、Channel、Message、Thread、Attachment、Task、Inbox Item、Run 状态。
 - 执行领域状态转换与事务；持久化 outbox；投递 Computer command；提供 Browser API、SSE 和 Computer WebSocket。
-- 不执行模型，不保存 Provider Session、Memory、workspace 或模型凭据，不解析正文推导关系。
+- 不执行模型，不保存 Provider Session、Memory、workspace 或模型凭据。
 
 Computer：
 
@@ -26,7 +26,7 @@ Driver：
 
 ## 协议与投递
 
-- Server 与 Computer 只通过 `protocol/` 中版本化的 wire 类型通信；双方无共同版本时拒绝连接。
+- 双方无共同版本时拒绝连接。
 - 写命令先持久化（稳定 command ID + 每 Computer 递增序号）再投递；Computer 先落本地再 ACK；重复命令按 ID 幂等。
 - query 是独立请求-响应通道：不持久化、不重放、不进 command 序号。
 - 业务写入与 outbox 属于同一事务；外部发送失败由 outbox 重试。
@@ -36,7 +36,7 @@ Driver：
 ## Run
 
 - 状态为 dispatched → working → completed / yielded / failed / canceled。不设置 queued、starting、finalizing、stopping。
-- 失败只由 Computer 上报，错误码固定为 driver_error、driver_lost、computer_restarted、session_unavailable、agent_unavailable、invalid_command、internal。
+- 失败错误码固定为 driver_error、driver_lost、computer_restarted、session_unavailable、agent_unavailable、invalid_command、internal。
 - Driver 临时错误在 Computer 内最多自动重试 3 次；最终失败才上报，Server 只对该 Run 计一次 Item retry。
 - Computer 离线是可达性问题，不是 Run 失败；离线期间 Run 保持原状态。
 - `computer.max_concurrent_runs` 只是内存保护阈值，不是调度器；超过上限的 Run 排队等待，不因等待失败。
@@ -49,7 +49,6 @@ Driver：
 - hard Item 来源：DM、mention、`@all`、reply、Linked Thread 新消息、system 错误。必须显式处理，Driver 最终回复不构成处理。
 - ambient Item 来源：Agent 订阅的 Thread 更新和所在 Channel 的活动。按 Agent + Thread 或 Agent + Channel 聚合，用 debounce 和 force 上限防止无限推迟。
 - 同一 Message 对同一 Member 只生成一个最高强度 Item；发送者不为自己生成 Message Item。
-- 路由只使用结构化事实：mention targets、Task link、Thread 订阅、Item strength；daemon 和 Server 不读正文判断 attach 或 notice。
 - 与 active Run 的 Agent、Task scope、Focus 一致的 hard Item 尝试 attach；不一致的保持 pending 并发送 notice，notice 不泄露正文。
 - Run 失败时未处理 Items 返回 pending 并增加 retry_count；超过 max_retry_count 进入 dead，并创建不含正文的 system Item。
 - Agent 显式 release 的 Item 不增加 retry_count；重复 command、receipt 丢失和重复 result 不重复计数。
@@ -58,25 +57,25 @@ Driver：
 
 ## Task 与协作事务
 
-- Task 从 Root Message 原子创建并绑定 Source Thread；同一 Root Message 最多一个 Task；相同 idempotency key 返回同一 Task。
+- 同一 Root Message 最多一个 Task；相同 idempotency key 返回同一 Task。
 - Related Thread 只能关联可见范围兼容的 Thread；一个 Thread 同时最多关联一个未结束 Task。
 - 状态转换：TODO → In Progress → In Review → Done；TODO / In Progress / In Review → Closed。
 - 第一个 Task Run 进入 working 时，TODO 推进为 In Progress；In Progress 可直接进入 Done。
 - Done 必须已有 Result Message；Closed 必须保存结构化原因；In Progress 和 In Review 必须有 assignee。
 - Review 可由除 assignee 外能读取 Task 的 Human 或 Agent 确认 Done 或退回 In Progress；不保存 reviewer 字段，不使用 Permission。
 - submit_review、done、close 只有一个事务入口，Browser 与 Agent CLI 共用。
-- Agent 创建 Channel 或 Agent 时，目标资源与 Action Message 在同一事务创建；普通 Message API 不能创建 Action Message。
+- 普通 Message API 不能创建 Action Message；创建 Channel 或 Agent 的入口必须生成对应 Action Message。
 - Channel 成员加入或离开与 System Notice 在同一事务写入。
 - 所有写操作只有 Server 一个事务入口；Agent CLI 与 Browser 不得各自实现一套终态事务。
 
 ## Provider Session 与 Memory
 
-- Provider Session 只保存在 Computer，按 (Agent, scope, generation) 复用；不是产品事实，不是长期记忆。
+- Provider Session 按 (Agent, scope, generation) 复用。
 - 复用由 Driver、workspace、Role、audience fingerprint 决定；不兼容时创建新 generation。
 - 必须换新 generation：Task 终态、Linked Threads 成员集合不兼容、Driver/Role/workspace 变化、locator 丢失或 resume 失败、显式 reset。
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
-- Memory 属于 Agent：`memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
+- `memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
 - Memory 与 workspace 不上传 Server；Server 只保存投影（文件名、大小、SHA-256、更新时间）并在需要时查询在线 Computer；正文读取设置 no-store。
 - Memory 不复制 Message 历史或 Provider transcript；symlink 可能指向 Memory 根之外，投影和正文读取不跟随。
 - Agent 退役保留身份、Message、Task、Result；Memory 和 workspace 可能丢失，UI 必须说明该限制。
@@ -107,7 +106,7 @@ Driver：
 - 可由关联关系推导的数据不重复保存。
 - 事务提交后才发送 SSE、WebSocket command 或外部请求。
 - 稳定状态使用 text 和 CHECK 约束；正文、Secret、Provider transcript 不进入 idempotency 或 outbox metadata。
-- 新实现从空 PostgreSQL 和空 Computer SQLite 建立基线；基线后 schema 变更使用前向 migration，不得修改已应用 migration。
+- 基线后 schema 变更使用前向 migration，不得修改已应用 migration。
 - 性能优化先通过查询、索引和可重建投影解决；写模型保持规范化。
 
 ## 运维与诊断

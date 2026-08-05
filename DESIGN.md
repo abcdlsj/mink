@@ -61,7 +61,6 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - Server 与 Computer 只通过版本化协议交换命令、快照、回执和查询。
 - 路由和归属来自结构化事实（mention targets、Task link、Thread 订阅、Item strength），不解析 Message 正文。
 - 每个事实只有一个写入入口，一个领域命令只在一个事务中完成。
-- 正文、Secret、Provider transcript 不进入日志、audit、错误详情或 metrics。
 - Agent 不负责补写可由系统从请求上下文推导的关系。
 
 ## 范围边界
@@ -73,6 +72,4 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 
 ## 验收底线
 
-- 新实现能从空 PostgreSQL 和空 Computer Home 建立并完成核心流程。
-- 核心流程、并发与安全边界必须有测试；旧实现、旧入口、旧 schema 必须删除。
-- 行为、协议、数据模型或领域词汇改变时，先更新对应设计文件，再修改代码。
+- 空 PostgreSQL 与空 Computer 本地状态能完成核心流程。
