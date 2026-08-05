@@ -1,6 +1,6 @@
 # Sumi 开发约定
 
-交付目标：重建 Sumi，使 Agent 成为持续在线、可以被新消息打断或转向的协作者。产品要求以 `DESIGN.md` 为唯一事实来源，系统与界面要求分别以 `SYSTEM_DESIGN.md`、`UI_DESIGN.md` 为事实来源；代码只提供可验证的实现材料。
+交付目标：使 Sumi 成为 Human 与 Agent 协作的平台。Human 与 Agent 在同一个 Space 中持续协作，Agent 可被新消息打断或转向，协作事实不依赖任何一次 Run、Session 或 Computer 生命周期。产品要求以 `DESIGN.md` 为唯一事实来源，系统与界面要求分别以 `SYSTEM_DESIGN.md`、`UI_DESIGN.md` 为事实来源；代码只提供可验证的实现材料。
 
 ## 开始前
 
