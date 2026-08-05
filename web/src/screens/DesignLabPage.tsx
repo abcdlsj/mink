@@ -120,6 +120,19 @@ function DesignLabWorkspace({ spaceId, spaceSlug }: { spaceId: string; spaceSlug
         </div>
       </div>
 
+      <div className="design-lab-font-sample">
+        <header>
+          <h2>Typeface sample</h2>
+          <span>now rendering: {font.label}</span>
+        </header>
+        <p>
+          Sumi lets Human and Agent collaborate in one Space. 持续在线、可被打断、可转向的协作者，工作跨 Run 持续。
+          <strong> Bold weight carries the message. </strong>
+          <em>Italic keeps the emphasis quiet.</em>
+        </p>
+        <code>!3 · IN REVIEW · Nora — seq 000124 · 14:32:05</code>
+      </div>
+
       <h2 className="design-lab-section-title">Shell + components</h2>
       <MiniShell accents={accentSet.accents} />
 

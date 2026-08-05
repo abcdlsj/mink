@@ -9,6 +9,7 @@
   padding: 24px 28px 64px;
   background: var(--paper);
   color: var(--ink);
+  font-family: var(--font-sans);
 }
 
 .design-lab-header {
@@ -137,6 +138,49 @@
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* Typeface sample block: every token here switches with the candidate font. */
+.design-lab-font-sample {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.design-lab-font-sample header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.design-lab-font-sample h2 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.design-lab-font-sample header span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.design-lab-font-sample p {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.design-lab-font-sample code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Mini shell preview: rail + nav + content under candidate tokens. */
