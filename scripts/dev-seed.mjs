@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Dev-only seed: drives the same HTTP flow the integration tests use to leave a
 // running server in a ready-to-chat state — a registered owner, a Space, a
-// paired Computer (codex driver, reusing the local ~/.codex login), and three
-// stable Codex Agents already joined to #general. Enable with SUMI_DEV_SEED=1
+// paired Computer, and three stable Agents using the builtin driver already
+// joined to #general. The builtin driver reads [computer.builtin] from the
+// base config. Enable with SUMI_DEV_SEED=1
 // (see mise task).
 //
 // This never touches production: it only talks to a local Sumi server and
@@ -40,17 +41,17 @@ export const AGENT_PROFILES = Object.freeze([
   Object.freeze({
     name: "PM",
     role_text: "You are the product manager. Clarify outcomes, constrain scope, maintain priorities and acceptance criteria, and surface decisions that need a Human. Do not invent technical facts or claim implementation is complete without evidence.",
-    driver_kind: "codex",
+    driver_kind: "builtin",
   }),
   Object.freeze({
     name: "Coder",
     role_text: "You are the implementation owner. Diagnose root causes, write focused code, run relevant tests, and report verifiable results. Keep changes simple and never hide failures behind compatibility layers.",
-    driver_kind: "codex",
+    driver_kind: "builtin",
   }),
   Object.freeze({
     name: "Reviewer",
     role_text: "You are the independent reviewer. Inspect specifications and changes for correctness, security, regressions, and missing tests. Challenge weak evidence and do not approve work until risks are explicit.",
-    driver_kind: "codex",
+    driver_kind: "builtin",
   }),
 ]);
 
@@ -274,14 +275,14 @@ async function ensureSpace(cookie) {
   return space;
 }
 
-// Spawn a Computer daemon wired to the local codex login and capture the
-// pairing URL it prints to stderr. Returns { child, pairingUrl }.
+// Spawn a Computer daemon with the seed config and capture the pairing URL it
+// prints to stderr. Returns { child, pairingUrl }.
 //
 // The daemon is driven by a TOML config file via `--config` (the same shape the
 // integration tests use), NOT env vars — figment's SUMI_ env layer does not map
 // cleanly onto `computer.state_dir`, so an env-only attempt silently falls back
 // to the default state dir and reads whatever stale secrets.json lives there.
-function spawnCodexDaemon(stateDir, expectPairing) {
+function spawnComputerDaemon(stateDir, expectPairing) {
   const configPath = join(stateDir, "computer.toml");
   const baseConfig = existsSync(BASE_CONFIG) ? readFileSync(BASE_CONFIG, "utf8") : "";
   writeFileSync(
@@ -464,7 +465,7 @@ async function main() {
   const pairedIdentity = existingState?.pairedIdentity;
   prepareComputerStateDirectory(DEV_COMPUTER_ROOT);
   log(`spawning codex Computer daemon (state root: ${DEV_COMPUTER_ROOT})`);
-  const { child, pairingUrl } = spawnCodexDaemon(DEV_COMPUTER_ROOT, !pairedIdentity);
+  const { child, pairingUrl } = spawnComputerDaemon(DEV_COMPUTER_ROOT, !pairedIdentity);
   process.on("exit", () => child.kill("SIGINT"));
 
   let computer;
