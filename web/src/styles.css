@@ -325,12 +325,12 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .channel-glyph svg { width: 22px; height: 22px; }
 .empty-channel h2 { margin: 0; font-size: var(--text-page-title); }
 .empty-channel p { max-width: 340px; margin: 0; color: var(--muted); font-size: var(--text-system); line-height: 1.5; }
-.composer-attachments > span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 11px; font-weight: 600; }
+.composer-attachments > span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 8px; border: 0; border-radius: 7px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 11px; font-weight: 600; }
 .composer-attachments svg { width: 14px; height: 14px; }
 .composer-attachments button { display: inline-grid; width: 20px; height: 20px; place-items: center; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.message-attachments a { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 320px); min-height: 28px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); text-decoration: none; }
-.message-attachments a:hover { border-color: var(--accent); background: var(--accent-soft); }
+.message-attachments a { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 320px); min-height: 28px; padding: 4px 8px; border: 0; border-radius: 7px; background: var(--panel); color: var(--ink); text-decoration: none; }
+.message-attachments a:hover { background: var(--accent-soft); }
 .message-attachments svg { width: 14px; flex: 0 0 auto; color: var(--accent); }
 .message-attachments span { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 .message-attachments strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -652,7 +652,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .context-entity-row > span { min-width: 0; }
 .context-entity-row strong, .context-entity-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .context-entity-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: #625f58; font-size: 11px; text-transform: capitalize; }
-.context-entity-row--active { border-color: var(--ink); background: var(--space-accent); box-shadow: 3px 3px 0 var(--ink); }
+.context-entity-row--active { border-color: var(--ink); border-left: 3px solid var(--accent); background: var(--surface-strong); box-shadow: none; padding-left: 5px; }
 .context-entity-row--static { cursor: default; }
 .context-groups { display: grid; gap: 2px; padding: 8px 12px; }
 .context-groups span { display: flex; min-height: 44px; align-items: center; gap: 12px; padding: 0 10px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent); }
@@ -676,7 +676,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .computer-split { min-height: 0; height: 100%; }
 .computer-nav { overflow: auto; padding: 18px 12px; border-right: 2px solid var(--ink); background: var(--panel); }
 .computer-nav-row span:not(.status) { min-width: 0; }
-.computer-nav-row--active { border-color: var(--ink); background: var(--space-accent); box-shadow: 3px 3px 0 var(--ink); }
+.computer-nav-row--active { border-color: var(--ink); border-left: 3px solid var(--accent); background: var(--surface-strong); box-shadow: none; padding-left: 5px; }
 /* Flat classification chips: colour signals the category; no border, no shadow. */.chip, .capability-row span { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; background: var(--chip-neutral); color: var(--ink); font-size: 12px; font-weight: 700; }
 .chip svg, .capability-row span svg { width: 14px; height: 14px; }
 .chip--runtime { background: var(--chip-runtime); }
@@ -1020,7 +1020,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .nav-label--section { display: flex; align-items: center; gap: 6px; margin: 12px 8px 4px; color: var(--ink); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; height: 24px; }
 .nav-item { display: flex; min-width: 0; height: 36px; align-items: center; gap: 10px; padding: 0 8px; color: var(--ink); font-size: 14px; text-decoration: none; border: 2px solid transparent; font-weight: 500; min-height: 36px; margin-bottom: 4px; transition: background-color 100ms linear, border-color 100ms linear, box-shadow 100ms linear; }
 .nav-item:hover:not(.nav-item--active) { background: var(--paper); border-color: var(--ink); box-shadow: 2px 2px 0 var(--ink); }
-.nav-item--active { border: 2px solid var(--ink); background: var(--accent); box-shadow: 2px 2px 0 var(--ink); font-weight: 700; border-color: var(--ink); color: var(--ink); }
+.nav-item--active { border: 2px solid var(--ink); border-left: 3px solid var(--accent); background: var(--surface-strong); box-shadow: none; font-weight: 700; color: var(--ink); padding-left: 5px; }
 .dm-nav-item.nav-item--active small { color: rgb(20 17 17 / 60%); }
 .dm-nav-item { min-height: 52px; height: auto; padding-top: 6px; padding-bottom: 6px; }
 .dm-nav-item.nav-item--active { min-height: 54px; margin-bottom: 2px; }
@@ -1105,7 +1105,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .member-navigation-group .context-entity-row { min-height: 36px; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; margin: 0 0 4px; padding: 4px 8px; font-size: 14px; transition: background-color 100ms linear, border-color 100ms linear, box-shadow 100ms linear; }
 .member-navigation-group .context-entity-row:hover:not(.context-entity-row--active) { border-color: var(--ink); background: var(--paper); box-shadow: 2px 2px 0 var(--ink); }
 .member-navigation-group .context-entity-row--static:hover { border-color: transparent; background: transparent; box-shadow: none; }
-.member-navigation-group .context-entity-row--active { background: var(--accent); box-shadow: 2px 2px 0 var(--ink); }
+.member-navigation-group .context-entity-row--active { background: var(--surface-strong); box-shadow: none; border-left: 3px solid var(--accent); }
 .member-navigation-group .context-entity-row .pixel-identity,
 .member-navigation-group .context-entity-row .presence-identity { width: 22px; height: 22px; flex-basis: 22px; }
 .member-navigation-group .context-entity-row strong { font-size: 13px; font-weight: 600; }
@@ -1359,10 +1359,9 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-expand { margin-top: 3px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .message-expand:hover { color: var(--ink); }
 .system-event { margin: 8px 0 2px; color: color-mix(in srgb, var(--red) 58%, var(--muted)); font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 500; }
-.system-event--message { display: flex; align-items: center; gap: 10px; margin: 6px 20px; border: 0; background: transparent; color: var(--muted); font-size: var(--text-system); font-weight: 400; line-height: 1.45; text-align: center; }
-.system-event--message::before,
-.system-event--message::after { height: 1px; flex: 1; background: var(--line); content: ""; }
-.system-notice-toggle { display: block; min-height: 24px; margin: 5px auto; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; }
+.system-event--message { margin: 6px 20px; border: 0; background: transparent; color: var(--muted); font-size: var(--text-system); font-weight: 400; line-height: 1.45; text-align: center; }
+.system-notice-name { color: var(--accent); font-weight: 700; }
+.system-notice-toggle { display: block; min-height: 24px; margin: 5px auto; padding: 2px 4px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-meta); font-weight: 700; }
 .system-notice-toggle:hover { color: var(--ink); }
 .message-row--system { display: block; padding: 0; }
 .message-row--system:hover { background: transparent; }

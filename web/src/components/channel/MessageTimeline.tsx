@@ -345,6 +345,15 @@ function MessageBody({ message, spaceSlug, members }: { message: Message; spaceS
     return <p className="action-message"><Hash aria-hidden="true" /><strong>{message.author.display_name}</strong> Created channel {message.content.channel.available ? <Link to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: message.content.channel.slug }}>#{message.content.channel.slug}</Link> : <span>Unavailable channel</span>}</p>;
   }
   if (message.content.type === "system_notice") {
+    const match = message.content.body_markdown.match(/^(\S+)\s+(.*)$/);
+    if (match) {
+      return (
+        <p className="system-event system-event--message">
+          <strong className="system-notice-name">{match[1]}</strong>
+          {" "}{match[2]}
+        </p>
+      );
+    }
     return <p className="system-event system-event--message">{message.content.body_markdown}</p>;
   }
   return <p className="action-message"><PixelIdentity name={message.content.agent.name} kind="agent" seed={message.content.agent.member_id} /><strong>{message.author.display_name}</strong> Created agent {message.content.agent.available ? <Link to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: message.content.agent.member_id }}>{message.content.agent.name}</Link> : <span>Unavailable Agent</span>} <small>{message.content.agent.lifecycle}</small></p>;
