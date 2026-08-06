@@ -207,14 +207,14 @@ describe("Agent mention style", () => {
 });
 
 describe("message body typography", () => {
-  it("uses the same 13px base size in Channel and Thread messages", () => {
+  it("uses the same 14px base size in Channel and Thread messages", () => {
     const tokens = readFileSync(join(process.cwd(), "src/styles/tokens.css"), "utf8");
     const styles = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
     const channelStyles = readFileSync(join(process.cwd(), "src/components/channel/channel.css"), "utf8");
-    expect(tokens).toMatch(/--text-message:\s*13px/);
+    expect(tokens).toMatch(/--text-message:\s*14px/);
     expect(styles).toMatch(/\.message-body\s*\{[^}]*font-size:\s*var\(--text-message\)/s);
     expect(styles).toMatch(/\.message-content p,\s*\.thread-message p \{\s*font-size:\s*var\(--text-message\);\s*\}/);
-    expect(channelStyles).toMatch(/\.thread-message p\s*\{[^}]*font-size:\s*13px/s);
+    expect(channelStyles).toMatch(/\.thread-message p\s*\{[^}]*font-size:\s*var\(--text-message\)/s);
   });
 });
 

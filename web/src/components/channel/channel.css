@@ -26,7 +26,7 @@
   align-items: center;
   padding: 0;
   color: rgb(20 17 17 / 60%);
-  font-size: 12px;
+  font-size: var(--text-system);
   font-weight: 700;
 }
 
@@ -46,7 +46,7 @@
   align-items: center;
   gap: 7px;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: var(--text-system);
   line-height: 1.25;
 }
 
@@ -78,7 +78,7 @@
   margin: 0;
   overflow: hidden;
   color: rgb(20 17 17 / 60%);
-  font-size: 12px;
+  font-size: var(--text-system);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -87,7 +87,7 @@
 .inline-reply > time {
   color: rgb(20 17 17 / 60%);
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -96,7 +96,7 @@
   min-height: 24px;
   padding: 3px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-section-title);
 }
 
 .thread-pane {
@@ -117,7 +117,7 @@
 
 .thread-header > div > span {
   color: rgb(20 17 17 / 60%);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: .08em;
 }
@@ -165,7 +165,7 @@
   background: var(--rail);
   color: var(--rail-fg);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--text-section-title);
   text-align: start;
 }
 
@@ -180,7 +180,7 @@
   border-bottom-color: rgb(20 17 17 / 18%);
   background: var(--panel);
   color: rgb(20 17 17 / 60%);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: .08em;
 }
@@ -204,8 +204,8 @@
 
 .thread-message p {
   margin-top: 2px;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: var(--text-message);
+  line-height: 1.45;
 }
 
 @media (min-width: 900px) and (max-width: 1099px) {
