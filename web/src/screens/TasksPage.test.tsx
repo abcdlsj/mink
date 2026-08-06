@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
@@ -33,17 +33,18 @@ describe("Task work index", () => {
     renderRoute("/s/sumi-lab/tasks");
 
     expect(await screen.findByRole("heading", { name: "Tasks", level: 1 })).toBeVisible();
-    expect(await screen.findByText(/Review Web contract/)).toBeVisible();
-    expect(screen.getByRole("link", { name: /Review Web contract/ })).toBeVisible();
-    expect(screen.getByRole("link", { name: /Wire Agent CLI/ })).toBeVisible();
-    expect(screen.getByRole("link", { name: /Design claim flow/ })).toBeVisible();
-    expect(screen.queryByText(/Ship old slice/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Source: #general:17" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-todo");
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    expect(await screen.findByText(/Ship old slice/)).toBeVisible();
-    expect(screen.queryByText(/Design claim flow/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Closed" }));
-    expect(await screen.findByText("No closed Tasks.")).toBeVisible();
+    const tasksView = within(screen.getByRole("heading", { name: "Tasks", level: 1 }).closest(".tasks-workspace")!);
+    expect(await tasksView.findByText(/Review Web contract/)).toBeVisible();
+    expect(tasksView.getByRole("link", { name: /Review Web contract/ })).toBeVisible();
+    expect(tasksView.getByRole("link", { name: /Wire Agent CLI/ })).toBeVisible();
+    expect(tasksView.getByRole("link", { name: /Design claim flow/ })).toBeVisible();
+    expect(tasksView.queryByText(/Ship old slice/)).not.toBeInTheDocument();
+    expect(tasksView.getByRole("link", { name: "Source: #general:17" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-todo");
+    fireEvent.click(tasksView.getByRole("button", { name: "Done" }));
+    expect(await tasksView.findByText(/Ship old slice/)).toBeVisible();
+    expect(tasksView.queryByText(/Design claim flow/)).not.toBeInTheDocument();
+    fireEvent.click(tasksView.getByRole("button", { name: "Closed" }));
+    expect(await tasksView.findByText("No closed Tasks.")).toBeVisible();
   });
 
   it("shows Source, Related Threads, Run, Result continuity and reset action", async () => {

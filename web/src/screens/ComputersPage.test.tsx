@@ -73,7 +73,6 @@ describe("Computer flows", () => {
     expect((await screen.findAllByText("Studio")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("online")[0]).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair Computer" })).toBeVisible();
-    expect(screen.getAllByRole("heading", { name: "Computers" })).toHaveLength(1);
     expect(screen.getByLabelText("Agent name")).toHaveFocus();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
@@ -147,7 +146,7 @@ describe("Computer flows", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute("/s/sumi-lab/computers#pair-computer");
 
-    expect(await screen.findByRole("heading", { name: "Computers" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Computers" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Pair Computer" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Add Computer" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Pair Computer" })).not.toBeInTheDocument();

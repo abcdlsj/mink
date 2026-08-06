@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
+import { Check, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskRef, type MessageTaskSummary } from "../../api/client";
@@ -118,7 +118,6 @@ export function MessageTimeline({
                   {grouped ? null : (
                     <header>
                       <strong>{message.author.display_name}</strong>
-                      {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
                       <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
                       <span className="message-seq">@{message.seq}</span>
                     </header>
@@ -211,7 +210,6 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
       <div>
         <header>
           <strong>{message.author.display_name}</strong>
-          {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
           <span className="message-seq">@{message.seq}</span>
         </header>
         <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
@@ -264,7 +262,6 @@ function InlineThreadPreview({ threadId, replyCount, open }: { threadId: string;
           <PixelIdentity name={reply.author.display_name} kind={reply.author.kind} seed={reply.author.id} />
           <span className="inline-reply-author">
             <strong>{reply.author.display_name}</strong>
-            {reply.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
           </span>
           <span className="inline-reply-body">{reply.deleted_at ? "Message deleted" : messagePreview(reply)}</span>
           <time dateTime={reply.created_at}>{formatMessageTime(reply.created_at)}</time>
@@ -610,24 +607,41 @@ function renderMessageBlock(
         </Heading>
       );
     }
-    case "list":
-      return block.ordered ? (
-        <ol key={key}>
-          {block.items.map((item, itemIndex) => (
-            <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedMembers, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <ul key={key}>
-          {block.items.map((item, itemIndex) => (
-            <li key={`${key}-${itemIndex}`}>
-              {renderInline(item, mentionedMembers, taskRefs, spaceSlug, `list-${blockIndex}-${itemIndex}`)}
-            </li>
-          ))}
-        </ul>
+    case "list": {
+      const checkboxMatches = block.items.map((item) => item.match(/^\[([ xX])\]\s+(.*)$/));
+      const ListTag = block.ordered ? "ol" : "ul";
+      return (
+        <ListTag key={key}>
+          {block.items.map((item, itemIndex) => {
+            const match = checkboxMatches[itemIndex];
+            const checked = match?.[1].toLowerCase() === "x";
+            return (
+              <li
+                key={`${key}-${itemIndex}`}
+                className={`${match ? "message-task-item" : ""}${match && checked ? " message-task-item--checked" : ""}`}
+              >
+                {match ? (
+                  <span
+                    className={`message-checkbox${checked ? " message-checkbox--checked" : ""}`}
+                    role="img"
+                    aria-label={checked ? "Task completed" : "Task pending"}
+                  >
+                    {checked ? <Check aria-hidden="true" /> : null}
+                  </span>
+                ) : null}
+                {renderInline(
+                  match ? match[2] : item,
+                  mentionedMembers,
+                  taskRefs,
+                  spaceSlug,
+                  `list-${blockIndex}-${itemIndex}`,
+                )}
+              </li>
+            );
+          })}
+        </ListTag>
       );
+    }
     case "quote":
       return (
         <blockquote key={key}>

@@ -25,6 +25,7 @@ import {
   getSpaceBySlug,
   joinChannel,
   listChannels,
+  listTasks,
   listAgents,
   listComputers,
   listDirectMessages,
@@ -35,12 +36,14 @@ import {
   type DirectMessage,
   type Member,
   type Space,
+  type Task,
   type User,
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { PixelIdentity } from "./PixelIdentity";
+import { PixelWord } from "./PixelWord";
 import { SumiMark } from "./SumiMark";
 
 export { PixelIdentity } from "./PixelIdentity";
@@ -120,6 +123,11 @@ export function SpaceShell({
     queryKey: ["computers", space.data?.id],
     queryFn: () => listComputers(space.data!.id),
     enabled: active === "computers" && Boolean(space.data),
+  });
+  const navTasks = useQuery({
+    queryKey: ["nav-tasks", space.data?.id],
+    queryFn: () => listTasks(space.data!.id),
+    enabled: active === "tasks" && Boolean(space.data),
   });
   useSpaceEvents(space.data?.id, ({ channelId }) => {
     if (channelId === viewingChannelId(location.pathname, channels.data?.channels, directMessages.data)) {
@@ -356,10 +364,7 @@ export function SpaceShell({
         }}
       >
         <header className="space-name-row">
-          <div>
-            <span className="space-name-eyebrow" title={space.data.name}>{space.data.name}</span>
-            <h2>{active === "channel" || active === "dm" ? "Conversations" : capitalize(active)}</h2>
-          </div>
+          <PixelWord text={space.data.name} className="space-name-pixel" />
           <button
             className="navigation-close icon-button"
             type="button"
@@ -415,7 +420,7 @@ export function SpaceShell({
           ) : active === "inbox" ? (
             <InboxNavigation />
           ) : active === "tasks" ? (
-            <TasksNavigation />
+            <TasksNavigation tasks={navTasks.data ?? []} spaceSlug={space.data.slug} pending={navTasks.isPending} />
           ) : (
             <>
           <div className="nav-section-heading">
@@ -614,14 +619,24 @@ function ComputersNavigation({ computers, spaceSlug, activeHash, canManage }: { 
 }
 
 function InboxNavigation() {
-  return <div className="context-groups" aria-label="Inbox groups"><span><strong>01</strong> DM &amp; mentions</span><span><strong>02</strong> Replies</span><span><strong>03</strong> Channel activity</span></div>;
+  return <div className="nav-empty nav-empty--centered">Inbox</div>;
 }
 
-function TasksNavigation() {
-  return <div className="context-groups" aria-label="Task status groups"><span><strong>01</strong> TODO</span><span><strong>02</strong> In Progress</span><span><strong>03</strong> In Review</span><span><strong>04</strong> Done / Closed</span></div>;
+function TasksNavigation({ tasks, spaceSlug, pending }: { tasks: Task[]; spaceSlug: string; pending: boolean }) {
+  if (pending) return <div className="nav-empty">Loading tasks…</div>;
+  if (!tasks.length) return <div className="nav-empty">No tasks yet</div>;
+  return (
+    <div className="nav-task-list">
+      <p className="nav-label">RECENT TASKS</p>
+      {tasks.slice(0, 6).map((task) => (
+        <Link key={task.id} className="nav-task-item" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: task.id }}>
+          <span className={`nav-task-status nav-task-status--${task.status}`}>{task.status.replace("_", " ")}</span>
+          <span title={task.title}>{task.title}</span>
+        </Link>
+      ))}
+    </div>
+  );
 }
-
-function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
 
 function viewingChannelId(
   pathname: string,

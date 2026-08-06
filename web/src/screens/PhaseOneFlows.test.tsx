@@ -148,7 +148,7 @@ describe("Phase one Human flows", () => {
     });
 
     fireEvent.click(screen.getAllByRole("link", { name: "Computers" })[0]);
-    expect(await screen.findByRole("heading", { name: "Computers" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Computers" })).toBeVisible();
   });
 
   it("keeps the invitation redirect on registration and login links", async () => {
