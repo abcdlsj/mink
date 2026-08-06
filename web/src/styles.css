@@ -3863,3 +3863,37 @@ pre {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/* Global button baseline: compact 30 / default 34 / primary 40 / icon 32. */
+.command-button,
+.secondary-action,
+.danger-button {
+  min-height: 34px !important;
+  padding: 0 12px !important;
+  gap: 6px;
+  border-radius: 0;
+  font-size: 13px !important;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.primary-action {
+  min-height: 40px !important;
+  padding: 0 16px !important;
+  font-size: 14px !important;
+}
+.icon-button {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  flex-basis: 32px !important;
+}
+.compact-action,
+.thread-action {
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  font-size: 12px !important;
+}
+.task-filters button { min-height: 32px !important; }
+.link-thread-form .command-button,
+.task-detail .danger-button { min-height: 34px !important; }
+.copy-field .icon-button { width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; }
+.members-header .command-button { min-height: 34px !important; }
