@@ -24,6 +24,7 @@ import {
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
+import { SumiSelect } from "../components/SumiSelect";
 
 export function MembersPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/members" });
@@ -278,20 +279,21 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
               <div className="member-controls">
                 <div className="access-value">
                   {ownerCanSetAccess ? (
-                    <select
-                      aria-label={`Access level for ${member.display_name}`}
+                    <SumiSelect
                       value={member.access_level}
-                      disabled={memberUpdate.isPending}
-                      onChange={(event) =>
+                      onChange={(next) =>
                         memberUpdate.mutate({
                           memberId: member.id,
-                          input: { access_level: event.target.value as "member" | "admin" },
+                          input: { access_level: next as "member" | "admin" },
                         })
                       }
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                      options={[
+                        { value: "member", label: "Member" },
+                        { value: "admin", label: "Admin" },
+                      ]}
+                      ariaLabel={`Access level for ${member.display_name}`}
+                      disabled={memberUpdate.isPending}
+                    />
                   ) : (
                     <strong>{capitalize(member.access_level)}</strong>
                   )}

@@ -122,12 +122,13 @@ describe("Phase one Human flows", () => {
     expect(new Set(linIdenticons)).toHaveLength(1);
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
-    expect(access).toHaveValue("member");
+    expect(access).toHaveTextContent("Member");
     // Permissions are managed in Agent detail; the Members list stays clean.
     const graceRow = screen.getAllByRole("article").find((row) => row.textContent?.includes("Grace Hopper"))!;
     expect(within(graceRow).queryByRole("checkbox")).not.toBeInTheDocument();
 
-    fireEvent.change(access, { target: { value: "admin" } });
+    fireEvent.click(access);
+    fireEvent.click(screen.getByRole("option", { name: "Admin" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
