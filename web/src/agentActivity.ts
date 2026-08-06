@@ -8,7 +8,6 @@ export function activityLabel(status?: Agent["activity_status"]): string {
 export type AgentActivityKind =
   | "message.send"
   | "task.create"
-  | "task.update"
   | "task.link_thread"
   | "task.unlink_thread"
   | "task.submit_review"

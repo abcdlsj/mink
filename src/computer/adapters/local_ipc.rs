@@ -410,15 +410,15 @@ mod tests {
                 assert_eq!(context.focus_thread_id, thread_id);
                 assert_eq!(context.run_id, run_id);
                 assert_eq!(context.message_snapshot_sequence, 9);
-                assert!(matches!(action, Action::TaskUpdate { .. }));
+                assert!(matches!(action, Action::TaskLinkThread { .. }));
                 Response::success(serde_json::json!({ "forwarded": true }))
             },
         );
         let client = client::call_with(
             &socket_path,
             driver_token.clone(),
-            Action::TaskUpdate {
-                title: "new title".to_owned(),
+            Action::TaskLinkThread {
+                thread_id: ThreadId::from_uuid(Uuid::now_v7()),
             },
             None,
         );

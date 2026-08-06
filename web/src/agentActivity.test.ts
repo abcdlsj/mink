@@ -58,26 +58,26 @@ describe("agent activity store", () => {
   it("keeps action details and distinguishes repeated commands with the same resource", () => {
     act(() => {
       recordAgentActivity(activityEvent("e1", {
-        kind: "task.update",
+        kind: "task.submit_review",
         task_id: "task-1",
-        arguments: [{ name: "title", value: "First title" }],
+        arguments: [{ name: "body", value: "First review" }],
         message_preview: "A bounded message preview",
         message_truncated: true,
       }));
       recordAgentActivity(activityEvent("e2", {
-        kind: "task.update",
+        kind: "task.submit_review",
         task_id: "task-1",
-        arguments: [{ name: "title", value: "Second title" }],
+        arguments: [{ name: "body", value: "Second review" }],
       }));
       recordAgentActivity(activityEvent("e3", {
-        kind: "task.update",
+        kind: "task.submit_review",
         task_id: "task-1",
-        arguments: [{ name: "title", value: "Second title" }],
+        arguments: [{ name: "body", value: "Second review" }],
       }));
     });
     const items = activityForAgent("agent-1");
     expect(items).toHaveLength(2);
-    expect(items[0].arguments[0]).toEqual({ name: "title", value: "Second title" });
+    expect(items[0].arguments[0]).toEqual({ name: "body", value: "Second review" });
     expect(items[1].messagePreview).toBe("A bounded message preview");
     expect(items[1].messageTruncated).toBe(true);
   });

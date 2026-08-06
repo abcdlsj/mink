@@ -39,6 +39,7 @@
 - Tasks 页面使用 list/detail 布局，是对话的辅助入口，不是项目管理页面；入口保留在侧边栏。
 - 筛选固定为 All open、TODO、In Progress、In Review、Done、Closed、Assigned to me；默认先显示 In Review，再显示 In Progress 和 TODO，各组按 updated_at 倒序。
 - Task 详情显示 title、status、assignee、Source Thread、Related Threads、Result（仅 Done）、Close reason（仅 Closed）、current Run 和 Focus、最近 Run outcomes、Session continuity。
+- Task 创建后 title 与 assignee 不可修改；对 Task 的操作只有状态流转（TODO → In Progress → In Review → Done / Closed）与 Close（记录原因）。
 - Session continuity 位于详情底部，取值 Warm / Cold / Reset required / Unavailable，只说明下次执行效率。
 - Working、Waiting、Failed 是 Run 或 attention 状态，不进入 Task 状态选择器。
 

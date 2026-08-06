@@ -106,10 +106,6 @@ enum TaskCommand {
     UnlinkThread {
         thread_id: ThreadId,
     },
-    Update {
-        #[arg(long)]
-        title: String,
-    },
     SubmitReview {
         #[arg(long)]
         body_file: std::path::PathBuf,
@@ -341,9 +337,6 @@ impl AgentCli {
             Command::Task(TaskArgs {
                 command: TaskCommand::UnlinkThread { thread_id },
             }) => (Action::TaskUnlinkThread { thread_id }, true),
-            Command::Task(TaskArgs {
-                command: TaskCommand::Update { title },
-            }) => (Action::TaskUpdate { title }, true),
             Command::Task(TaskArgs {
                 command: TaskCommand::SubmitReview { body_file, post_to },
             }) => {

@@ -63,9 +63,6 @@ pub(crate) enum Action {
     TaskUnlinkThread {
         thread_id: ThreadId,
     },
-    TaskUpdate {
-        title: String,
-    },
     TaskSubmitReview {
         body: String,
         post_to: PostTarget,
@@ -132,7 +129,6 @@ impl Action {
             Self::TaskCreate { .. } => "task.create",
             Self::TaskLinkThread { .. } => "task.link_thread",
             Self::TaskUnlinkThread { .. } => "task.unlink_thread",
-            Self::TaskUpdate { .. } => "task.update",
             Self::TaskSubmitReview { .. } => "task.submit_review",
             Self::TaskDone { .. } => "task.done",
             Self::TaskClose { .. } => "task.close",
@@ -155,7 +151,6 @@ impl Action {
             self,
             Self::TaskLinkThread { .. }
                 | Self::TaskUnlinkThread { .. }
-                | Self::TaskUpdate { .. }
                 | Self::TaskSubmitReview { .. }
                 | Self::TaskDone { .. }
                 | Self::TaskClose { .. }

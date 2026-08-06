@@ -15,7 +15,6 @@ import {
   startTask,
   submitTaskReview,
   unlinkTaskThread,
-  updateTask,
   type Run,
   type Task,
   type TaskStatus,
@@ -193,11 +192,6 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
   if (task.error || !task.data) return <div className="route-status route-status--error" role="alert">Task unavailable or outside your visible Threads.</div>;
   const value = task.data;
 
-  function rename(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const title = String(new FormData(event.currentTarget).get("title") ?? "").trim();
-    if (title && title !== value.title) change.mutate(() => updateTask(value.id, { title }));
-  }
   function linkThread(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -231,7 +225,7 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
       {change.error ? <p className="inline-notice inline-notice--error" role="alert">The Task change failed. The current Server state is unchanged.</p> : null}
       <div className="task-detail-scroll">
         <div className="task-detail-primary">
-        <section className="task-detail-section"><h2>Task facts</h2><form className="task-title-form" onSubmit={rename}><label htmlFor="task-title">Title</label><input id="task-title" name="title" defaultValue={value.title} required /><button className="command-button" type="submit" disabled={change.isPending}>Save title</button></form><dl className="detail-grid"><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
+        <section className="task-detail-section"><h2>Task facts</h2><dl className="detail-grid"><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
         {!value.finished_at ? (
           <section className="task-detail-section">
             <h2>Actions</h2>

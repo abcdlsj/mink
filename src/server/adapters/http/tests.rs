@@ -1476,12 +1476,6 @@ async fn agent_write_actions_emit_agent_activity_events() {
         .await
         .unwrap();
     let task_id = fixture.bind_task().await;
-    fixture
-        .execute(capability::Action::TaskUpdate {
-            title: "Renamed by Agent".into(),
-        })
-        .await
-        .unwrap();
     let created_channel = fixture
         .execute(capability::Action::ChannelCreate {
             slug: "news".into(),
@@ -1554,7 +1548,6 @@ async fn agent_write_actions_emit_agent_activity_events() {
         vec![
             "message.send",
             "task.create",
-            "task.update",
             "channel.create",
             "agent.create",
             "inbox.ack",
@@ -1579,25 +1572,25 @@ async fn agent_write_actions_emit_agent_activity_events() {
         serde_json::json!(task_id.into_uuid())
     );
     assert_eq!(
-        payloads[6]["task_id"],
+        payloads[5]["task_id"],
         serde_json::json!(task_id.into_uuid())
     );
-    assert_eq!(payloads[3]["channel_id"], created_channel["channel_id"]);
+    assert_eq!(payloads[2]["channel_id"], created_channel["channel_id"]);
     assert_eq!(
-        payloads[3]["arguments"],
+        payloads[2]["arguments"],
         serde_json::json!([
             {"name": "slug", "value": "news"},
             {"name": "topic", "value": "团队动态"},
             {"name": "private", "value": "false"}
         ])
     );
-    assert_eq!(payloads[4]["target_member_id"], created_agent["agent_id"]);
+    assert_eq!(payloads[3]["target_member_id"], created_agent["agent_id"]);
     assert_eq!(
-        payloads[5]["item_id"],
+        payloads[4]["item_id"],
         serde_json::json!(fixture.handled_item_id.into_uuid())
     );
-    assert_eq!(payloads[5]["arguments"][0]["name"], "source");
-    assert_eq!(payloads[5]["arguments"][1]["name"], "disposition");
+    assert_eq!(payloads[4]["arguments"][0]["name"], "source");
+    assert_eq!(payloads[4]["arguments"][1]["name"], "disposition");
 
     // A viewer who cannot read the scoped Channel receives no semantic activity payload.
     let viewer = MemberId::from_uuid(Uuid::now_v7());

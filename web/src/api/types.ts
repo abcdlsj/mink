@@ -621,11 +621,6 @@ export interface components {
             mention_all: boolean;
             mentions: string[];
         };
-        UpdateTaskRequest: {
-            /** Format: uuid */
-            assignee_agent_member_id?: string | null;
-            title?: string | null;
-        };
         UserResponse: {
             display_name: string;
             email: string;
@@ -691,7 +686,6 @@ export type ThreadReference = components["schemas"]["ThreadReferenceResponse"];
 export type ThreadRead = components["schemas"]["ThreadReadResponse"];
 export type ThreadSubscription = components["schemas"]["ThreadSubscriptionResponse"];
 export type UpdateAgentInput = components["schemas"]["UpdateAgentRequest"];
-export type UpdateTaskInput = components["schemas"]["UpdateTaskRequest"];
 export type LinkTaskThreadInput = components["schemas"]["LinkTaskThreadRequest"];
 export type CompleteTaskInput = components["schemas"]["CompleteTaskRequest"];
 export type CloseTaskInput = components["schemas"]["CloseTaskRequest"];

@@ -297,7 +297,6 @@ function humanize(value: string): string { return value.split("_").map(capitaliz
 const activityLabels: Record<AgentActivityItem["kind"], string> = {
   "message.send": "Sent a message",
   "task.create": "Created task",
-  "task.update": "Updated task",
   "task.link_thread": "Linked a thread to task",
   "task.unlink_thread": "Unlinked a thread from task",
   "task.submit_review": "Submitted task for review",

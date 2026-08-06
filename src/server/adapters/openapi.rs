@@ -63,7 +63,6 @@ use uuid::Uuid;
         RuntimeDiagnosticsResponse,
         TaskResponse,
         CreateTaskRequest,
-        UpdateTaskRequest,
         LinkTaskThreadRequest,
         CompleteTaskRequest,
         CloseTaskRequest,
@@ -742,11 +741,6 @@ pub(super) enum CloseReason {
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub(super) struct CreateTaskRequest {
-    title: Option<String>,
-    assignee_agent_member_id: Option<Uuid>,
-}
-#[derive(Serialize, Deserialize, ToSchema)]
-pub(super) struct UpdateTaskRequest {
     title: Option<String>,
     assignee_agent_member_id: Option<Uuid>,
 }

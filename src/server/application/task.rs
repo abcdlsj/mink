@@ -398,7 +398,6 @@ pub(in crate::server) struct LinkThreadInput {
 /// Task changes that publish no Message and reach no terminal state. Terminal outcomes belong to
 /// [`RecordTaskOutcome`], so `done`, `submit_review` and `close` are absent here.
 pub(in crate::server) enum TaskAction {
-    Rename { title: String },
     Start { assignee: MemberId },
     RequestChanges,
     ResetSession,
@@ -407,7 +406,6 @@ pub(in crate::server) enum TaskAction {
 impl TaskAction {
     fn name(&self) -> &'static str {
         match self {
-            Self::Rename { .. } => "task.rename",
             Self::Start { .. } => "task.start",
             Self::RequestChanges => "task.request_changes",
             Self::ResetSession => "task.reset_session",
@@ -447,10 +445,6 @@ impl UpdateTask {
                 return Err(ApplicationError::PermissionDenied);
             }
             let task_changed = match input.action {
-                TaskAction::Rename { title } => {
-                    task.rename(title, input.now);
-                    true
-                }
                 TaskAction::Start { assignee } => {
                     if !transaction.can_assign_agent(assignee, &source).await? {
                         return Err(ApplicationError::PermissionDenied);

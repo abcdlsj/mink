@@ -11,12 +11,6 @@ pub(super) struct CreateTaskRequest {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct UpdateTaskBody {
-    title: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct StartTaskBody {
     assignee_agent_member_id: Uuid,
 }
@@ -195,26 +189,6 @@ pub(super) async fn unlink_task_thread(
     .await
     .map_err(application_error)?;
     Ok(Json(task_detail(&state, task_id).await?))
-}
-
-pub(super) async fn update_task(
-    State(state): State<RuntimeState>,
-    jar: CookieJar,
-    headers: HeaderMap,
-    Path(task_id): Path<Uuid>,
-    Json(body): Json<UpdateTaskBody>,
-) -> Result<Json<TaskResponse>, ApiError> {
-    if body.title.trim().is_empty() {
-        return Err(ApiError::invalid("Task title is required"));
-    }
-    update_task_action(
-        &state,
-        &jar,
-        &headers,
-        task_id,
-        TaskAction::Rename { title: body.title },
-    )
-    .await
 }
 
 pub(super) async fn start_task(

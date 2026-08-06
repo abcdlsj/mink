@@ -60,7 +60,6 @@ const exportedTypes = {
   ThreadRead: "ThreadReadResponse",
   ThreadSubscription: "ThreadSubscriptionResponse",
   UpdateAgentInput: "UpdateAgentRequest",
-  UpdateTaskInput: "UpdateTaskRequest",
   LinkTaskThreadInput: "LinkTaskThreadRequest",
   CompleteTaskInput: "CompleteTaskRequest",
   CloseTaskInput: "CloseTaskRequest",

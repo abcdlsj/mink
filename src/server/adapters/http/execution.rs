@@ -790,59 +790,6 @@ pub(super) async fn execute_agent_action(
                     .map_err(api_to_capability)?,
             )
         }
-        capability::Action::TaskUpdate { title } => {
-            let activity_title = title.clone();
-            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
-            let key = request.idempotency_key.ok_or_else(|| {
-                capability_error(
-                    capability::ErrorCode::InvalidArgument,
-                    "Idempotency key is required",
-                    false,
-                )
-            })?;
-            let task_id = context.task_id.ok_or_else(|| {
-                capability_error(
-                    capability::ErrorCode::Conflict,
-                    "Run is not bound to a Task",
-                    false,
-                )
-            })?;
-            let mut storage = state.storage.clone();
-            UpdateTask::execute(
-                &mut storage,
-                UpdateTaskInput {
-                    task_id,
-                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
-                    idempotency_key: key,
-                    action: TaskAction::Rename { title },
-                    now: OffsetDateTime::now_utc(),
-                },
-            )
-            .await
-            .map_err(app_to_capability)?;
-            record_agent_activity(
-                state,
-                context.space_id.into_uuid(),
-                context.agent_id.into_uuid(),
-                "task.update",
-                agent_activity_details(
-                    json!({
-                        "run_id": context.run_id,
-                        "task_id": task_id,
-                        "thread_id": context.focus_thread_id,
-                        "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
-                    }),
-                    vec![("title", activity_title)],
-                    None,
-                ),
-            )
-            .await;
-            capability_value(
-                &task_projection(&state.read, task_id.into_uuid())
-                    .await
-                    .map_err(api_to_capability)?,
-            )
-        }
         capability::Action::TaskSubmitReview { body, post_to } => {
             finish_agent_task(
                 state,
