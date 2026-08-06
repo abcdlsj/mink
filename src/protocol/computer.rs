@@ -275,12 +275,12 @@ pub(crate) struct RunStart {
     pub(crate) task: Option<TaskSnapshot>,
     pub(crate) focus: FocusSnapshot,
     pub(crate) dispatched_items: Vec<InboxItemSnapshot>,
-    pub(crate) space_members: Vec<SpaceMemberSnapshot>,
+    pub(crate) channel_members: Vec<ChannelMemberSnapshot>,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SpaceMemberSnapshot {
+pub(crate) struct ChannelMemberSnapshot {
     pub(crate) member_id: MemberId,
     pub(crate) display_name: String,
 }
@@ -843,8 +843,8 @@ mod tests {
         };
         let value = serde_json::to_value(hello).unwrap();
 
-        assert_eq!(value["supported_versions"]["minimum"], 1);
-        assert_eq!(value["supported_versions"]["maximum"], 1);
+        assert_eq!(value["supported_versions"]["minimum"], 2);
+        assert_eq!(value["supported_versions"]["maximum"], 2);
         assert_eq!(value["capabilities"][0], "active_turn_steer");
     }
 
@@ -991,7 +991,7 @@ mod tests {
                 message_sequence: 1,
             },
             dispatched_items: Vec::new(),
-            space_members: Vec::new(),
+            channel_members: Vec::new(),
         });
 
         let diagnostic = command.diagnostic();

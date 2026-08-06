@@ -374,7 +374,7 @@ mod tests {
                     focus_messages: Vec::new(),
                     dispatched_items: Vec::<DispatchedItemInput>::new(),
                 },
-                space_members: Vec::new(),
+                channel_members: Vec::new(),
             },
         })
         .unwrap();

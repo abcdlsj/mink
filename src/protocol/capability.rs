@@ -42,10 +42,14 @@ pub(crate) enum Action {
         operation: String,
     },
     ContextCurrent,
+    SpaceMembers,
     MessageRead(Page),
     ThreadRead {
         thread_id: ThreadId,
         page: Page,
+    },
+    ChannelMembers {
+        channel_id: ChannelId,
     },
     ChannelRead {
         channel_id: ChannelId,
@@ -109,6 +113,14 @@ pub(crate) enum Action {
     ChannelLeave {
         channel_id: ChannelId,
     },
+    ChannelInvite {
+        channel_id: ChannelId,
+        member_id: MemberId,
+    },
+    ChannelRemove {
+        channel_id: ChannelId,
+        member_id: MemberId,
+    },
     AgentCreate {
         name: String,
         role: String,
@@ -122,8 +134,10 @@ impl Action {
         match self {
             Self::Discover { .. } => "discover",
             Self::ContextCurrent => "context.current",
+            Self::SpaceMembers => "space.members",
             Self::MessageRead(_) => "message.read",
             Self::ThreadRead { .. } => "thread.read",
+            Self::ChannelMembers { .. } => "channel.members",
             Self::ChannelRead { .. } => "channel.read",
             Self::MessageSend(_) => "message.send",
             Self::TaskCreate { .. } => "task.create",
@@ -142,6 +156,8 @@ impl Action {
             Self::MemoryWrite { .. } => "memory.write",
             Self::ChannelCreate { .. } => "channel.create",
             Self::ChannelLeave { .. } => "channel.leave",
+            Self::ChannelInvite { .. } => "channel.invite",
+            Self::ChannelRemove { .. } => "channel.remove",
             Self::AgentCreate { .. } => "agent.create",
         }
     }

@@ -31,6 +31,7 @@
 
 ## 对话与 Task
 
+- Channel 主时间线发送成功后定位到新 Message；向上滚动超过一个可视屏高时显示 `To bottom`，点击后回到最新 Message。
 - 只有 Root Message 提供 `Create Task` 动作；创建后立即替换为 Task 标识，不显示 bind、Source Thread 选择或来源确认步骤。
 - Thread reply 不显示创建动作；reply 上的 Task 动作保持禁用并说明只能从 Root Message 创建。
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板：极淡、单 icon（Reply to thread 与 Task 动作），无边框无背景，贴齐 Message 行右上角；hover 消息才出现。
@@ -56,9 +57,10 @@
 
 ## Inbox、Members、Computers、Agent
 
+- Channel header 的 Member strip 使用与 Agent 头像相同尺寸的加号按钮，并在 Agent 选择浮层中显示 Display Name 与 Role。
 - Human Inbox 按 DM 和 Thread 聚合，同一组只显示最新来源 Message 的预览、时间和组内 Item 数；打开聚合行即标记已读。
 - Agent Inbox 不向普通 Member 公开；Owner/Admin 只能读取来源摘要和错误代码。
-- Members 页面按 Agents、Humans 分组显示扁平列表行：身份（头像 + 名字 + 行内状态点）、Access 控制（自定义下拉）、30px 轻量消息图标。Permission 在 Agent 详情逐项管理，不提供 Role 套餐。
+- Members 页面按 Agents、Humans 分组显示扁平列表行：身份（头像 + 名字 + 行内状态点）、Access 控制（自定义下拉）、30px 轻量消息图标。Permission 在 Agent 详情逐项管理，当前动作包括 channel.create、channel.invite、channel.remove 和 agent.create，不提供 Role 套餐。
 - Computers 页面左侧为已配对列表和配对入口；未选择 Computer 时显示配对 onboarding。
 - Agent 详情头部只显示安静信号（Activity、Computer 可达性、错误码），不提供 DM 按钮；facts 值使用 13px 并截断超长文本。
 - Agent 详情 Activity feed 按时间倒序；参数压缩为单行 `name = value`（名称 muted 等宽、等号 muted、值 ink-soft 的 code 块，最多 3 个），message preview 为核心 codeblock（accent-soft 底 + accent 左边条 + truncated），时间右对齐；字号统一。

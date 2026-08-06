@@ -186,6 +186,41 @@ describe("agent avatar DM shortcut", () => {
   });
 });
 
+describe("timeline position", () => {
+  it("shows a jump to the latest message after scrolling more than one screen up", () => {
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 350 });
+    timeline.scrollTop = 0;
+    fireEvent.scroll(timeline);
+
+    const button = screen.getByRole("button", { name: "Go to latest message" });
+    expect(button).toHaveTextContent("To bottom");
+    fireEvent.click(button);
+    expect(timeline.scrollTop).toBe(350);
+    expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
+  });
+});
+
 function renderSystemNotices(messages: Message[]) {
   const page = pageWith(messages);
   return render(

@@ -446,6 +446,8 @@ pub(super) async fn list_members(
 pub(super) fn permission_action(action_code: &str) -> Result<PermissionAction, ApiError> {
     match action_code {
         "channel.create" => Ok(PermissionAction::ChannelCreate),
+        "channel.invite" => Ok(PermissionAction::ChannelInvite),
+        "channel.remove" => Ok(PermissionAction::ChannelRemove),
         "agent.create" => Ok(PermissionAction::AgentCreate),
         _ => Err(ApiError::invalid("Permission action code is not supported")),
     }

@@ -3,12 +3,11 @@ use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        ActivityEventInput, AgentInput, ApplicationError, AttentionNoticeInput,
+        ActivityEventInput, AgentInput, ApplicationError, AttentionNoticeInput, ChannelMemberInput,
         ContextMessageInput, ContinuityState, DeliveryState, DispatchedItemInput, DriverKind,
         ItemDisposition, LocalAgent, LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput,
         MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
-        SessionFingerprint, SessionScope, SpaceMemberInput, TaskInput, TerminalStatus, WorkInput,
-        WorkStrength,
+        SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
@@ -277,10 +276,10 @@ impl ServerConnectionAdapter {
                             .collect(),
                         dispatched_items,
                     },
-                    space_members: start
-                        .space_members
+                    channel_members: start
+                        .channel_members
                         .iter()
-                        .map(|member| SpaceMemberInput {
+                        .map(|member| ChannelMemberInput {
                             member_id: member.member_id,
                             display_name: member.display_name.clone(),
                         })
@@ -788,7 +787,7 @@ mod tests {
                             message_sequence: 1,
                         },
                         dispatched_items: Vec::new(),
-                        space_members: Vec::new(),
+                        channel_members: Vec::new(),
                     }),
                 },
             )

@@ -251,6 +251,23 @@ impl PostgresAdapter {
             .execute(&mut *transaction)
             .await?;
         }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 8 {
+            if version != 7 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE member_permissions DROP CONSTRAINT IF EXISTS member_permissions_action_code_check; \
+                 ALTER TABLE member_permissions ADD CONSTRAINT member_permissions_action_code_check CHECK (action_code IN ('channel.create', 'channel.invite', 'channel.remove', 'agent.create')); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (8, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await
     }
 

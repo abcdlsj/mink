@@ -182,7 +182,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         assert!(messages_self_fk);
         assert!(!legacy_session_table);
         assert!(slug_constraint);
-        assert_eq!(schema_version, 7);
+        assert_eq!(schema_version, 8);
 
         sqlx::raw_sql(
             "ALTER TABLE channels DROP CONSTRAINT channels_slug_form_check; \
@@ -190,7 +190,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
              DROP INDEX inbox_items_open_channel_ambient_aggregate; \
              DROP INDEX inbox_items_open_thread_ambient_aggregate; \
              ALTER TABLE inbox_items DROP COLUMN ambient_channel_id; \
-             UPDATE schema_meta SET version=5 WHERE version=7;",
+             UPDATE schema_meta SET version=5 WHERE version=8;",
         )
         .execute(&pool)
         .await
@@ -207,7 +207,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(migrated_version, 7);
+        assert_eq!(migrated_version, 8);
         assert!(migrated_constraint);
         pool.close().await;
     }
@@ -242,6 +242,7 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
         let owner = Uuid::now_v7();
         let agent = Uuid::now_v7();
         let second_agent = Uuid::now_v7();
+        let space_only = Uuid::now_v7();
         let computer = Uuid::now_v7();
         let channel = Uuid::now_v7();
         let root = Uuid::now_v7();
@@ -251,7 +252,8 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
              INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES
                ('{owner}','{space}','human','Owner','owner',now()),
                ('{agent}','{space}','agent','Agent','member',now()),
-               ('{second_agent}','{space}','agent','Second','member',now());
+               ('{second_agent}','{space}','agent','Second','member',now()),
+               ('{space_only}','{space}','human','SpaceOnly','member',now());
              INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer}','{space}','Computer','localhost','linux','mention-all-hash','offline',1,now());
              INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES
                ('{agent}','{space}','{computer}','Act',1,'active','codex',now()),
@@ -308,6 +310,33 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
         assert!(!targets.contains(&owner));
         assert!(targets.contains(&agent));
         assert!(targets.contains(&second_agent));
+
+        let run_id = RunId::from_uuid(Uuid::now_v7());
+        sqlx::query(
+            "INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at) \
+             VALUES($1,$2,$3,$4,'dispatched','mention',now())",
+        )
+        .bind(run_id.into_uuid())
+        .bind(space)
+        .bind(agent)
+        .bind(root)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let start = adapter
+            .transact(async |transaction| transaction.run_start(run_id).await)
+            .await
+            .unwrap();
+        let run_member_ids = start
+            .channel_members
+            .iter()
+            .map(|member| member.member_id.into_uuid())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(run_member_ids.len(), 3);
+        assert!(run_member_ids.contains(&owner));
+        assert!(run_member_ids.contains(&agent));
+        assert!(run_member_ids.contains(&second_agent));
+        assert!(!run_member_ids.contains(&space_only));
         pool.close().await;
     }
     .await;
@@ -1098,7 +1127,7 @@ async fn v6_to_v7_migration_merges_channel_aggregates_across_threads() {
              DROP INDEX inbox_items_open_thread_ambient_aggregate;
              ALTER TABLE inbox_items DROP COLUMN ambient_channel_id;
              CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate ON inbox_items(member_id,thread_id) WHERE strength='ambient' AND status='pending' AND retry_count=0;
-             UPDATE schema_meta SET version=6 WHERE version=7;
+             UPDATE schema_meta SET version=6 WHERE version=8;
              INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','migration-space','Migration Space','#F0602F','{owner}',now());
              INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now()),('{agent}','{space}','agent','Migrator','member',now());
              INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','migration',5,now());
@@ -1127,7 +1156,7 @@ async fn v6_to_v7_migration_merges_channel_aggregates_across_threads() {
                 .fetch_one(&pool)
                 .await
                 .unwrap(),
-            7
+            8
         );
         pool.close().await;
     }

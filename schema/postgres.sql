@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (7, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (8, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -86,7 +86,7 @@ CREATE UNIQUE INDEX space_invitations_one_pending_per_email
 CREATE TABLE member_permissions (
     member_id UUID NOT NULL,
     space_id UUID NOT NULL,
-    action_code TEXT NOT NULL CHECK (action_code IN ('channel.create', 'agent.create')),
+    action_code TEXT NOT NULL CHECK (action_code IN ('channel.create', 'channel.invite', 'channel.remove', 'agent.create')),
     granted_by_member_id UUID NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (member_id, action_code),

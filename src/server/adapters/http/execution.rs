@@ -452,11 +452,23 @@ pub(super) async fn execute_agent_action(
                 json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at)})).collect::<Vec<_>>(),"session_continuity":continuity}),
             )
         }
+        capability::Action::SpaceMembers => {
+            agent_read_space_members(state, context.space_id.into_uuid()).await
+        }
         capability::Action::MessageRead(page) => {
             agent_read_thread(state, context.focus_thread_id.into_uuid(), page).await
         }
         capability::Action::ThreadRead { thread_id, page } => {
             agent_read_thread(state, thread_id.into_uuid(), page).await
+        }
+        capability::Action::ChannelMembers { channel_id } => {
+            agent_read_channel_members(
+                state,
+                context.agent_id.into_uuid(),
+                context.space_id.into_uuid(),
+                channel_id.into_uuid(),
+            )
+            .await
         }
         capability::Action::ChannelRead {
             channel_id,
@@ -948,6 +960,108 @@ pub(super) async fn execute_agent_action(
             .await;
             Ok(json!({"channel_id": channel_id, "member_id": context.agent_id}))
         }
+        capability::Action::ChannelInvite {
+            channel_id,
+            member_id,
+        } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            let invited = InviteChannelMember::execute(
+                &mut storage,
+                MemberId::from_uuid(context.agent_id.into_uuid()),
+                channel_id,
+                member_id,
+                key,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(app_to_capability)?;
+            let channel_label = activity_channel_address(&state.read, channel_id)
+                .await
+                .unwrap_or_else(|| "Channel".to_owned());
+            let member_label = activity_member_label(&state.read, member_id)
+                .await
+                .unwrap_or_else(|| "Member".to_owned());
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "channel.invite",
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "channel_id": channel_id,
+                        "target_member_id": member_id,
+                        "scope_channel_id": channel_id,
+                    }),
+                    vec![("channel", channel_label), ("member", member_label)],
+                    None,
+                ),
+            )
+            .await;
+            Ok(json!({
+                "channel_id": channel_id,
+                "member_id": member_id,
+                "invited": invited,
+            }))
+        }
+        capability::Action::ChannelRemove {
+            channel_id,
+            member_id,
+        } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "Idempotency key is required",
+                    false,
+                )
+            })?;
+            let mut storage = state.storage.clone();
+            let removed = RemoveChannelMember::execute(
+                &mut storage,
+                MemberId::from_uuid(context.agent_id.into_uuid()),
+                channel_id,
+                member_id,
+                key,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .map_err(app_to_capability)?;
+            let channel_label = activity_channel_address(&state.read, channel_id)
+                .await
+                .unwrap_or_else(|| "Channel".to_owned());
+            let member_label = activity_member_label(&state.read, member_id)
+                .await
+                .unwrap_or_else(|| "Member".to_owned());
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "channel.remove",
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "channel_id": channel_id,
+                        "target_member_id": member_id,
+                        "scope_channel_id": channel_id,
+                    }),
+                    vec![("channel", channel_label), ("member", member_label)],
+                    None,
+                ),
+            )
+            .await;
+            Ok(json!({
+                "channel_id": channel_id,
+                "member_id": member_id,
+                "removed": removed,
+            }))
+        }
         capability::Action::AgentCreate {
             name,
             role,
@@ -1376,6 +1490,92 @@ pub(super) async fn agent_read_thread(
     Ok(
         json!({"thread_id":thread_id,"messages":rows.iter().map(|row|json!({"id":row.id,"seq":row.channel_seq,"author_member_id":row.author_member_id,"content":{"type":"text","body_markdown":row.body_markdown.clone().unwrap_or_default()},"created_at":timestamp(row.created_at)})).collect::<Vec<_>>()}),
     )
+}
+
+pub(super) async fn agent_read_space_members(
+    state: &RuntimeState,
+    space_id: Uuid,
+) -> Result<Value, capability::Error> {
+    let rows = state.read.members_in_space(space_id).await.map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Space Members could not be read",
+            false,
+        )
+    })?;
+    Ok(json!({
+        "members": rows
+            .iter()
+            .map(|row| json!({
+                "member_id": row.id,
+                "display_name": row.display_name,
+            }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+pub(super) async fn agent_read_channel_members(
+    state: &RuntimeState,
+    agent_id: Uuid,
+    space_id: Uuid,
+    channel_id: Uuid,
+) -> Result<Value, capability::Error> {
+    let mut storage = state.storage.clone();
+    let member = ReadAgentChannel::membership(
+        &mut storage,
+        ChannelId::from_uuid(channel_id),
+        MemberId::from_uuid(agent_id),
+    )
+    .await
+    .map_err(app_to_capability)?;
+    if !member {
+        return Err(capability_error(
+            capability::ErrorCode::PermissionDenied,
+            "Channel is not visible to the Agent",
+            false,
+        ));
+    }
+    let channel = state
+        .read
+        .channel(channel_id, agent_id)
+        .await
+        .map_err(|_| {
+            capability_error(
+                capability::ErrorCode::Internal,
+                "Channel could not be read",
+                false,
+            )
+        })?
+        .ok_or_else(|| {
+            capability_error(
+                capability::ErrorCode::NotFound,
+                "Channel was not found",
+                false,
+            )
+        })?;
+    if channel.space_id != space_id {
+        return Err(capability_error(
+            capability::ErrorCode::PermissionDenied,
+            "Channel is not visible to the Agent",
+            false,
+        ));
+    }
+    let rows = state.read.channel_members(channel_id).await.map_err(|_| {
+        capability_error(
+            capability::ErrorCode::Internal,
+            "Channel Members could not be read",
+            false,
+        )
+    })?;
+    Ok(json!({
+        "members": rows
+            .iter()
+            .map(|row| json!({
+                "member_id": row.id,
+                "display_name": row.display_name,
+            }))
+            .collect::<Vec<_>>(),
+    }))
 }
 
 pub(super) async fn agent_read_channel(

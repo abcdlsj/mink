@@ -99,6 +99,22 @@ pub(in crate::server) trait CollaborationTransaction {
         agent_id: MemberId,
         now: time::OffsetDateTime,
     ) -> Result<(), ApplicationError>;
+    async fn invite_channel_member(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        now: time::OffsetDateTime,
+    ) -> Result<bool, ApplicationError>;
+    async fn remove_channel_member(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        now: time::OffsetDateTime,
+    ) -> Result<bool, ApplicationError>;
     async fn leave_channel(
         &mut self,
         agent_id: MemberId,

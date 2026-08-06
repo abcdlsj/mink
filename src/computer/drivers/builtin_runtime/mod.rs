@@ -729,7 +729,7 @@ mod tests {
                 }],
                 dispatched_items: Vec::new(),
             },
-            space_members: Vec::new(),
+            channel_members: Vec::new(),
         }
     }
 }

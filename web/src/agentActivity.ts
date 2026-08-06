@@ -15,6 +15,8 @@ export type AgentActivityKind =
   | "task.close"
   | "channel.create"
   | "channel.leave"
+  | "channel.invite"
+  | "channel.remove"
   | "agent.create"
   | "inbox.ack"
   | "inbox.defer"
