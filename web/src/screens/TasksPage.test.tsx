@@ -69,7 +69,6 @@ describe("Task work index", () => {
     expect(await screen.findByRole("heading", { name: value.title })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Source Thread" })).toBeVisible();
     expect(screen.getByRole("link", { name: "source: #general:21" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "related: #design:31" })).toBeVisible();
     expect(screen.getByText("working")).toBeVisible();
     expect(screen.getByText("yielded")).toBeVisible();
     expect(screen.getByText("Warm").closest("div")).toHaveTextContent("WarmGeneration 2");

@@ -1,26 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowUpRight, Clock, Link2, RotateCcw, Unlink, XCircle } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { ArrowUpRight, Clock, RotateCcw, X, XCircle } from "lucide-react";
+import { useState } from "react";
 
 import {
   closeTask,
   completeTask,
   getTask,
-  linkTaskThread,
   listAgents,
   listTasks,
-  requestTaskChanges,
   resetTaskSession,
   startTask,
-  submitTaskReview,
-  unlinkTaskThread,
   type Run,
   type Task,
   type TaskStatus,
   type ThreadReference,
 } from "../api/client";
+import { DialogFrame } from "../components/DialogFrame";
 import { SpaceShell } from "../components/SpaceShell";
+import { SumiSelect } from "../components/SumiSelect";
 import { TaskStatusIcon } from "../components/taskStatusIcon";
 
 type TaskFilter = "all_open" | TaskStatus | "assigned_to_me";
@@ -187,26 +185,27 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
       void queryClient.invalidateQueries({ queryKey: ["tasks", updated.space_id] });
     },
   });
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState("invalid");
+  const [closeNote, setCloseNote] = useState("");
 
   if (task.isPending) return <div className="route-status">Loading Task…</div>;
   if (task.error || !task.data) return <div className="route-status route-status--error" role="alert">Task unavailable or outside your visible Threads.</div>;
   const value = task.data;
 
-  function linkThread(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const threadId = String(new FormData(form).get("thread_id") ?? "").trim();
-    if (threadId) change.mutate(() => linkTaskThread(value.id, { thread_id: threadId }), { onSuccess: () => form.reset() });
+  function markDone() {
+    change.mutate(() =>
+      completeTask(value.id, {
+        result_thread_id: value.current_run?.focus.id ?? value.source_thread.id,
+        result_markdown: "Task completed.",
+      }),
+    );
   }
-  function finish(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const result = String(new FormData(event.currentTarget).get("result") ?? "").trim();
-    if (result) change.mutate(() => completeTask(value.id, { result_thread_id: value.current_run?.focus.id ?? value.source_thread.id, result_markdown: result }));
-  }
-  function close(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    change.mutate(() => closeTask(value.id, { reason: String(form.get("reason")) as "invalid" | "duplicate" | "not_needed" | "obsolete" | "other", note: String(form.get("note") ?? "") || undefined }));
+  function confirmClose() {
+    change.mutate(() => closeTask(value.id, {
+      reason: closeReason as "invalid" | "duplicate" | "not_needed" | "obsolete" | "other",
+      note: closeNote.trim() || undefined,
+    }), { onSuccess: () => setCloseOpen(false) });
   }
 
   return (
@@ -225,43 +224,43 @@ function TaskDetail({ taskId, spaceId, spaceSlug }: { taskId: string; spaceId: s
       {change.error ? <p className="inline-notice inline-notice--error" role="alert">The Task change failed. The current Server state is unchanged.</p> : null}
       <div className="task-detail-scroll">
         <div className="task-detail-primary">
-        <section className="task-detail-section"><h2>Task facts</h2><dl className="detail-grid"><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl></section>
+        <section className="task-detail-section"><h2>Task facts</h2><dl className="detail-grid"><Field label="Created by" value={value.creator_name} /><Field label="Updated" value={new Date(value.updated_at).toLocaleString()} /></dl>{value.status === "todo" && !value.assignee_agent_member_id ? (
+          <div className="task-assignee"><span>Assignee</span><SumiSelect value="" onChange={(agentId) => change.mutate(() => startTask(value.id, agentId))} options={(agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active").map((agent) => ({ value: agent.member_id, label: agent.name }))} ariaLabel="Assign Agent" disabled={change.isPending} /></div>
+        ) : null}</section>
         {!value.finished_at ? (
-          <section className="task-detail-section">
-            <h2>Actions</h2>
+          <section className="task-detail-section"><h2>Actions</h2>
             <div className="task-actions">
-              <div className="task-action-block">
-                {value.status === "todo" ? (
-                  <label className="task-field">Assignee<select defaultValue="" onChange={(event) => event.target.value && change.mutate(() => startTask(value.id, event.target.value))}><option value="" disabled>Start with Agent…</option>{(agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active").map((agent) => <option key={agent.member_id} value={agent.member_id}>{agent.name}</option>)}</select></label>
-                ) : null}
-                {value.status === "in_progress" ? <button className="command-button" type="button" onClick={() => change.mutate(() => submitTaskReview(value.id))}>Submit review</button> : null}
-                {value.status === "in_review" ? <button className="command-button" type="button" onClick={() => change.mutate(() => requestTaskChanges(value.id))}>Request changes</button> : null}
-              </div>
-              {["in_progress", "in_review"].includes(value.status) ? (
-                <form className="task-action-block task-result-form" onSubmit={finish}>
-                  <label className="task-field">Result Message<textarea name="result" required /></label>
-                  <button className="command-button command-button--accent" type="submit">Mark Done</button>
-                </form>
-              ) : null}
-              <form className="task-action-block task-close-form" onSubmit={close}>
-                <label className="task-field">Close reason<select name="reason" defaultValue="invalid"><option value="invalid">Invalid</option><option value="duplicate">Duplicate</option><option value="not_needed">Not needed</option><option value="obsolete">Obsolete</option><option value="other">Other</option></select></label>
-                <label className="task-field">Note<input name="note" /></label>
-                <button className="danger-button" type="submit"><XCircle /> Close Task</button>
-              </form>
+              <button className="command-button command-button--accent" type="button" disabled={!["in_progress", "in_review"].includes(value.status) || change.isPending} onClick={markDone}>Done</button>
+              <button className="danger-button" type="button" disabled={change.isPending} onClick={() => setCloseOpen(true)}><XCircle /> Closed</button>
             </div>
           </section>
         ) : null}
         <section className="task-detail-section"><h2>Source Thread</h2><ThreadReferenceRow thread={value.source_thread} spaceSlug={spaceSlug} /></section>
-        <section className="task-detail-section"><h2>Related Threads</h2>{value.related_threads.length ? <ul className="linked-thread-list">{value.related_threads.map((thread) => <li key={thread.id}><ThreadReferenceRow thread={thread} spaceSlug={spaceSlug} /><button className="icon-button" type="button" aria-label={`Unlink ${threadDisplayLabel(thread)} Thread`} title={`Unlink ${threadDisplayLabel(thread)} Thread`} onClick={() => change.mutate(() => unlinkTaskThread(value.id, thread.id))}><Unlink /></button></li>)}</ul> : <p>No Related Threads.</p>} {!value.finished_at ? <form className="link-thread-form" onSubmit={linkThread}><label htmlFor="related-thread-id">Thread address or ID</label><input id="related-thread-id" name="thread_id" required /><button className="command-button" type="submit" disabled={change.isPending}><Link2 /> Link Thread</button></form> : null}</section>
         {value.status === "done" ? <section className="task-detail-section"><h2>Result</h2>{value.result_message?.content.type === "text" ? <p className="task-result">{value.result_message.content.body_markdown}</p> : <p>Result Message is unavailable.</p>}</section> : null}
         {value.status === "closed" ? <section className="task-detail-section"><h2>Close reason</h2><p>{closeReasonLabel(value.close_reason_code)}{value.close_reason_note ? ` — ${value.close_reason_note}` : ""}</p></section> : null}
         </div>
         <aside className="task-detail-sidebar" aria-label="Task execution">
         <section className="task-detail-section"><h2>Current Run and Focus</h2>{value.current_run ? <RunSummary run={value.current_run} spaceSlug={spaceSlug} /> : <p>No active Run. Task status does not imply an active Run.</p>}</section>
-        <section className="task-detail-section"><h2>Recent Run outcomes</h2>{value.recent_runs.length ? <ul className="run-history">{value.recent_runs.map((run) => <li key={run.id}><RunSummary run={run} spaceSlug={spaceSlug} /></li>)}</ul> : <p>No completed Runs.</p>}</section>
+        <section className="task-detail-section"><h2>Recent Run outcomes</h2>{value.recent_runs.length ? <ul className="run-history">{value.recent_runs.map((run) => <RunSummary key={run.id} run={run} spaceSlug={spaceSlug} />)}</ul> : <p>No completed Runs.</p>}</section>
         <section className="task-detail-section session-continuity"><h2>Session continuity</h2><SessionState task={value} /><p>This state only describes the next Run's startup cost. Message, Task and Result facts remain on Server.</p>{!["done", "closed"].includes(value.status) ? <button className="command-button" type="button" disabled={change.isPending} onClick={() => change.mutate(() => resetTaskSession(value.id))}><RotateCcw /> Reset continuity</button> : null}</section>
         </aside>
       </div>
+      {closeOpen ? (
+        <DialogFrame className="confirm-dialog" close={() => setCloseOpen(false)} labelId="close-task-title">
+          <header>
+            <div><p className="section-kicker">CLOSE TASK</p><h2 id="close-task-title">Close task</h2></div>
+            <button className="icon-button" type="button" aria-label="Close Close Task" onClick={() => setCloseOpen(false)}><X /></button>
+          </header>
+          <form onSubmit={(event) => { event.preventDefault(); confirmClose(); }}>
+            <label className="task-field">Reason<SumiSelect value={closeReason} onChange={setCloseReason} options={[{ value: "invalid", label: "Invalid" }, { value: "duplicate", label: "Duplicate" }, { value: "not_needed", label: "Not needed" }, { value: "obsolete", label: "Obsolete" }, { value: "other", label: "Other" }]} ariaLabel="Close reason" /></label>
+            <label className="task-field">Note<input value={closeNote} onChange={(event) => setCloseNote(event.target.value)} /></label>
+            <footer>
+              <button className="command-button" type="button" onClick={() => setCloseOpen(false)}>Cancel</button>
+              <button className="danger-button" type="submit" disabled={change.isPending}><XCircle /> Close Task</button>
+            </footer>
+          </form>
+        </DialogFrame>
+      ) : null}
     </section>
   );
 }
@@ -280,7 +279,17 @@ function ThreadLink({ thread, spaceSlug, label }: { thread: ThreadReference; spa
   return <Link className="task-source-link" to="/s/$spaceSlug/channels/$channelSlug" params={{ spaceSlug, channelSlug: thread.channel_slug }} hash={`message-${thread.root_message_id}`} aria-label={`${label}: ${address}`}><span>{address}</span><ArrowUpRight aria-hidden="true" /></Link>;
 }
 function ThreadReferenceRow({ thread, spaceSlug }: { thread: ThreadReference; spaceSlug: string }) { return <div className="thread-reference"><div className="thread-reference-main"><ThreadLink thread={thread} spaceSlug={spaceSlug} label={thread.relation} /><small>Root message {thread.root_message_seq}</small></div></div>; }
-function RunSummary({ run, spaceSlug }: { run: Run; spaceSlug: string }) { return <article className="run-summary"><span className={`run-status run-status--${run.status}`}><Clock aria-hidden="true" />{run.status.replace("_", " ")}</span><strong>{run.agent_name}</strong><ThreadLink thread={run.focus} spaceSlug={spaceSlug} label="Focus" />{run.outcome ? <small>Outcome: {run.outcome}</small> : null}{run.error_code ? <code>{run.error_code}</code> : null}{run.continuation_note ? <p>{run.continuation_note}</p> : null}</article>; }
+function RunSummary({ run, spaceSlug }: { run: Run; spaceSlug: string }) {
+  return (
+    <li className="run-summary">
+      <span className={`run-status run-status--${run.status}`}><Clock aria-hidden="true" />{run.status.replace("_", " ")}</span>
+      <strong>{run.agent_name}</strong>
+      <ThreadLink thread={run.focus} spaceSlug={spaceSlug} label="Focus" />
+      {run.error_code ? <code>{run.error_code}</code> : null}
+      <time>{run.started_at ? formatTaskTime(run.started_at) : ""}{run.finished_at ? ` → ${formatTaskTime(run.finished_at)}` : ""}</time>
+    </li>
+  );
+}
 function SessionState({ task }: { task: Task }) { const value = task.session_continuity; return <div className={`session-state session-state--${value.state}`}><strong>{sessionStateLabel(value.state)}</strong>{value.generation ? <span>Generation {value.generation}</span> : null}{value.reason_code ? <code>{value.reason_code}</code> : null}</div>; }
 function sessionStateLabel(value: Task["session_continuity"]["state"]): string { return value === "reset_required" ? "Reset required" : value.charAt(0).toUpperCase() + value.slice(1); }
 function Field({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }

@@ -3823,3 +3823,43 @@ pre {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+/* Task detail: compact scrollable run history, two-action controls. */
+.run-history {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 6px;
+}
+.run-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--line);
+}
+.run-summary:last-child { border-bottom: 0; }
+.run-summary time {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.run-summary .run-status { padding: 0; border: 0; background: transparent; font-size: 10px; }
+.task-actions { display: flex; gap: 10px; }
+.task-assignee {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.task-assignee > span {
+  color: var(--muted);
+  font: 700 10px var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
