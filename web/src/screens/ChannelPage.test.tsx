@@ -84,10 +84,12 @@ describe("ChannelPage", () => {
     const shell = screen.getByRole("main");
     const navigation = screen.getByRole("complementary", { name: "Space navigation" });
     fireEvent.click(within(navigation).getByRole("button", { name: "Close navigation" }));
-    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).queryByRole("img", { name: "Ada avatar" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    expect(navigation).toHaveClass("space-sidebar--open");
-    void shell;
+    expect(shell).toHaveClass("space-shell--navigation-collapsed");
+    const railOpen = within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("button", { name: "Open navigation" });
+    expect(within(screen.getByRole("complementary", { name: "Space tools" })).queryByRole("img", { name: "Ada avatar" })).not.toBeInTheDocument();
+    fireEvent.click(railOpen);
+    expect(shell).not.toHaveClass("space-shell--navigation-collapsed");
+    expect(navigation).toHaveClass("space-navigation--open");
 
     fireEvent.click(screen.getByRole("button", { name: "Create Channel" }));
     const dialog = screen.getByRole("dialog", { name: "Create Channel" });

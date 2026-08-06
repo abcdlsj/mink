@@ -113,10 +113,8 @@ describe("Phase one Human flows", () => {
 
     expect(await screen.findByRole("heading", { name: "Members", level: 1 })).toBeVisible();
     expect((await screen.findAllByText("Grace Hopper"))[0]).toBeVisible();
-    const membersLinks = screen.getAllByRole("link", { name: "Members" });
-    expect(membersLinks.some((link) => link.getAttribute("aria-current") === "page")).toBe(true);
-    const navMembers = within(screen.getByRole("complementary", { name: "Space navigation" })).getAllByRole("link", { name: "Members" });
-    expect(navMembers.some((link) => link.getAttribute("aria-current") === "page")).toBe(true);
+    expect(within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("heading", { name: /Agents/ })).toHaveTextContent("1");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: /Lin avatar.*Lin is Idle.*Lin/i })).toHaveAttribute("href", "/s/sumi-lab/agents/019c0000-0000-7000-8000-000000000030");
     const linIdenticons = screen.getAllByRole("img", { name: "Lin avatar" }).map((avatar) => avatar.getAttribute("data-agent-identicon"));
