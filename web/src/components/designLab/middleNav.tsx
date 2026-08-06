@@ -15,7 +15,7 @@ const DMS = [
   { name: "Leo", seed: "019c0000-0000-7000-8000-000000000020", online: true, unread: 0 },
 ];
 
-function Rail() {
+export function Rail() {
   const items = [
     { icon: MessageCircle, label: "Conversation", active: true },
     { icon: Inbox, label: "Inbox" },
@@ -77,7 +77,7 @@ function DmItems({ withStatus = false, dense = false }: { withStatus?: boolean; 
   ));
 }
 
-function MainMock() {
+export function MainMock() {
   return (
     <main className="dmn-main">
       <header className="dmn-channel-header"><Hash aria-hidden="true" /> general <span className="dmn-members">Mara · Iris · Leo · Nora</span></header>
@@ -137,16 +137,14 @@ function N3Demo() {
       <nav className="dmn dmn--n3">
         <Brand />
         <div className="dmn-scroll">
-          <section className="dmn-group">
-            <p className="dmn-label">CHANNELS <span>{CHANNELS.length}</span><button type="button" aria-label="Create Channel"><Plus aria-hidden="true" /></button></p>
-            <ChannelItems />
-            <p className="dmn-label">DISCOVER</p>
-            <DiscoverItems />
-          </section>
-          <section className="dmn-group">
-            <p className="dmn-label">DMS <span>{DMS.length}</span><button type="button" aria-label="Start DM"><Plus aria-hidden="true" /></button></p>
-            <DmItems withStatus />
-          </section>
+          <p className="dmn-label">CHANNELS <span>{CHANNELS.length}</span><button type="button" aria-label="Create Channel"><Plus aria-hidden="true" /></button></p>
+          <ChannelItems />
+          <div className="dmn-divider" />
+          <p className="dmn-label">DISCOVER</p>
+          <DiscoverItems />
+          <div className="dmn-divider" />
+          <p className="dmn-label">DMS <span>{DMS.length}</span><button type="button" aria-label="Start DM"><Plus aria-hidden="true" /></button></p>
+          <DmItems withStatus />
         </div>
       </nav>
       <MainMock />
@@ -161,16 +159,12 @@ function N4Demo() {
       <nav className="dmn dmn--n4">
         <Brand />
         <div className="dmn-scroll">
-          <p className="dmn-label"><span className="dmn-label-chip">CHANNELS</span> <span>{CHANNELS.length}</span><button type="button" aria-label="Create Channel"><Plus aria-hidden="true" /></button></p>
+          <p className="dmn-label">CHANNELS <span>{CHANNELS.length}</span><button type="button" aria-label="Create Channel"><Plus aria-hidden="true" /></button></p>
           <ChannelItems />
           <p className="dmn-label">DISCOVER</p>
           <DiscoverItems />
           <p className="dmn-label">DMS <span>{DMS.length}</span><button type="button" aria-label="Start DM"><Plus aria-hidden="true" /></button></p>
           <DmItems withStatus />
-          <p className="dmn-label">AGENTS</p>
-          {[{ name: "Nora", seed: "019c0000-0000-7000-8000-000000000022", status: "waiting" }].map((agent) => (
-            <span key={agent.name} className="dmn-item"><span className="dmn-avatar"><PixelIdentity name={agent.name} kind="agent" seed={agent.seed} /><i className={`dmn-presence-dot dmn-presence-dot--${agent.status}`} /></span> {agent.name}</span>
-          ))}
         </div>
       </nav>
       <MainMock />
@@ -181,6 +175,6 @@ function N4Demo() {
 export const MIDDLE_NAV_DEMOS: SurfaceDemo[] = [
   { id: "n1", label: "N1 · 现状", note: "当前中间栏：品牌像素字 + CHANNELS/DISCOVER/DMS 分组。", Component: N1Demo },
   { id: "n2", label: "N2 · 紧凑", note: "同样内容，行高与间距收紧，密度更高。", Component: N2Demo },
-  { id: "n3", label: "N3 · 分组卡片", note: "会话组用浅色圆角包裹，层级更清晰。", Component: N3Demo },
-  { id: "n4", label: "N4 · 信息增强", note: "频道未读徽章、DM 在线点、AGENTS 组，信息更丰富。", Component: N4Demo },
+  { id: "n3", label: "N3 · 物件感", note: "分组用 ink 分隔线，active 项硬边 + 硬阴影，保持物件语言。", Component: N3Demo },
+  { id: "n4", label: "N4 · 信号克制", note: "未读用硬边小方块，DM 在线点贴头像角，无装饰性徽章。", Component: N4Demo },
 ];

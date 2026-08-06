@@ -1932,7 +1932,8 @@
   height: 18px;
   margin-inline-start: auto;
   place-items: center;
-  border-radius: 999px;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
   background: var(--red);
   color: var(--paper);
   font: 800 10px var(--font-sans);
@@ -2035,23 +2036,17 @@
   cursor: pointer;
   font: 700 9px var(--font-sans);
 }
-.dmn-group {
-  display: grid;
-  gap: 2px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+.dmn-divider {
+  height: 2px;
+  margin: 8px 6px;
+  background: var(--ink);
+}
+.dmn--n3 .dmn-item--active {
+  border: 2px solid var(--ink);
   background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
 }
-.dmn-group + .dmn-group { margin-top: 10px; }
-.dmn-group .dmn-label { margin-top: 4px; }
-.dmn-label-chip {
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 9px;
-}
+.dmn--n3 .dmn-item { border: 2px solid transparent; }
 .dmn-avatar { position: relative; display: inline-flex; flex: 0 0 auto; }
 .dmn-presence-dot {
   position: absolute;
@@ -2073,3 +2068,40 @@
 }
 .dmn-msg > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .dmn-msg p { flex-basis: 100%; }
+.dmn-brand--seal {
+  margin: 8px 12px;
+  min-height: 0;
+  padding: 8px 12px;
+  border: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  justify-content: center;
+}
+.dmn-brand--shadow {
+  margin: 8px 12px;
+  min-height: 0;
+  padding: 8px 12px;
+  border: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+  justify-content: center;
+}
+.dmn-brand--block {
+  border-bottom: 2px solid var(--ink);
+  background: var(--space-accent);
+  color: var(--paper);
+  justify-content: center;
+}
+.dmn-brand--block .pixel-word { color: var(--paper); }
+.dmn-brand--rule {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border-bottom: 0;
+}
+.dmn-brand--rule .pixel-word {
+  padding: 10px 14px 8px;
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+}

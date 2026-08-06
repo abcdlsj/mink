@@ -25,6 +25,7 @@ import { MIDDLE_NAV_DEMOS } from "../components/designLab/middleNav";
 import { MESSAGES_DEMOS } from "../components/designLab/messages";
 import { ONBOARDING_DEMOS } from "../components/designLab/onboarding";
 import { SHELL_DEMOS } from "../components/designLab/shell";
+import { SPACE_WORDMARK_DEMOS } from "../components/designLab/spaceWordmark";
 import { THREAD_DEMOS } from "../components/designLab/thread";
 import { TASK_DETAIL_DEMOS } from "../components/designLab/taskDetail";
 import {
@@ -43,6 +44,7 @@ interface Surface {
 
 const SURFACES: Surface[] = [
   { id: "shell", label: "Shell layout", description: "三栏 / 紧凑双栏 / 顶栏式", demos: SHELL_DEMOS },
+  { id: "space-wordmark", label: "Space wordmark", description: "顶部艺术字 5 种变体", demos: SPACE_WORDMARK_DEMOS },
   { id: "middle-nav", label: "Middle navigation", description: "中间栏的 4 种设计", demos: MIDDLE_NAV_DEMOS },
   { id: "channel", label: "Channel", description: "行式 / 气泡 / 沉浸式", demos: CHANNEL_DEMOS },
   { id: "messages", label: "Message & Task", description: "Task 标识位置与浮控按钮", demos: MESSAGES_DEMOS },
