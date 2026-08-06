@@ -323,17 +323,26 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
         const link = activityLink(item, spaceSlug, channelById);
         return (
           <li className="agent-activity-row" key={item.eventId}>
-            <p><strong>{activityLabels[item.kind]}</strong>{link ? <> {link}</> : null}</p>
-            <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
-            <dl className="agent-activity-command" aria-label={`${item.kind} action details`}>
-              <div><dt>Command</dt><dd><code>{item.kind}</code></dd></div>
+            <div className="agent-activity-main">
+              <p>
+                <span className="agent-activity-kind">{activityLabels[item.kind]}</span>
+                {link ? <span className="agent-activity-link">{link}</span> : null}
+              </p>
               {item.arguments.length ? (
-                <div><dt>Arguments</dt><dd><ul className="agent-activity-arguments">{item.arguments.map((argument) => <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>)}</ul></dd></div>
+                <ul className="agent-activity-arguments" aria-label="Arguments">
+                  {item.arguments.map((argument) => (
+                    <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
+                  ))}
+                </ul>
               ) : null}
               {item.messagePreview ? (
-                <div><dt>Message</dt><dd><p className="agent-activity-message">{item.messagePreview}{item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}</p></dd></div>
+                <p className="agent-activity-message">
+                  {item.messagePreview}
+                  {item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}
+                </p>
               ) : null}
-            </dl>
+            </div>
+            <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
           </li>
         );
       })}

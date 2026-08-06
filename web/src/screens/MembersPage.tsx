@@ -309,11 +309,12 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
                   <button
                     className="member-message-button"
                     type="button"
+                    aria-label={`Message ${member.display_name}`}
+                    title={`Message ${member.display_name}`}
                     disabled={directMessage.isPending}
                     onClick={() => directMessage.mutate(member.id)}
                   >
                     <MessageCircle aria-hidden="true" />
-                    Message
                   </button>
                 ) : null}
               </div>

@@ -195,10 +195,10 @@ describe("Agent detail", () => {
     expect(screen.getByRole("heading", { name: "Activity" })).toBeVisible();
     expect(screen.getByText("Completed task")).toBeVisible();
     expect(screen.getByRole("link", { name: "View task" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
-    expect(screen.getByText("Sent a message")).toBeVisible();
+    expect(screen.getByText("Sent a message")).toHaveClass("agent-activity-kind");
     expect(screen.getByRole("link", { name: "#general" })).toHaveAttribute("href", "/s/sumi-lab/channels/general#message-message-1");
-    expect(screen.getByText("message.send")).toBeVisible();
-    expect(screen.getByText("Arguments")).toBeVisible();
+    expect(screen.getByText("target")).toBeVisible();
+    expect(screen.getByText("#general:12")).toBeVisible();
     expect(screen.getByText("The Agent sent this message.")).toBeVisible();
     expect(screen.queryByText("run-1")).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Agent activity" })).toHaveClass("agent-activity-list");
