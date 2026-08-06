@@ -48,7 +48,5 @@ function MembersPage({ variant }: { variant: "rows" | "groups" | "dense" }) {
 }
 
 export const MEMBERS_DEMOS: SurfaceDemo[] = [
-  { id: "m1", label: "M1 · 扁平行", note: "身份 + 状态 + 权限 + 消息按钮，行间细分隔。", Component: () => <MembersPage variant="rows" /> },
-  { id: "m2", label: "M2 · 分组", note: "Agents / Humans 分组，权限摘要一行。", Component: () => <MembersPage variant="groups" /> },
-  { id: "m3", label: "M3 · 密集", note: "行高收紧、权限省略、状态点更小。", Component: () => <MembersPage variant="dense" /> },
+  { id: "m1", label: "M1 · 扁平行", note: "身份 + 状态 + 权限 + 消息按钮，行间细分隔。已采用。", Component: () => <MembersPage variant="rows" /> },
 ];

@@ -36,7 +36,5 @@ function InboxPage({ variant }: { variant: "rows" | "cards" | "dense" }) {
 }
 
 export const INBOX_DEMOS: SurfaceDemo[] = [
-  { id: "i1", label: "I1 · 聚合行", note: "扁平行 + 分隔线；发送者、预览、时间、未读数。", Component: () => <InboxPage variant="rows" /> },
-  { id: "i2", label: "I2 · 卡片", note: "每组一张浅色卡片，圆角 + 细边框；组间留白更清晰。", Component: () => <InboxPage variant="cards" /> },
-  { id: "i3", label: "I3 · 密集", note: "行高收紧、预览单行省略；一屏看更多组。", Component: () => <InboxPage variant="dense" /> },
+  { id: "i1", label: "I1 · 聚合行", note: "扁平行 + 分隔线；发送者、预览、时间、未读数。已采用。", Component: () => <InboxPage variant="rows" /> },
 ];

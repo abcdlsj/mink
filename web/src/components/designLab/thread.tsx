@@ -46,7 +46,5 @@ function ThreadPage({ float = false, compact = false }: { float?: boolean; compa
 }
 
 export const THREAD_DEMOS: SurfaceDemo[] = [
-  { id: "t1", label: "T1 · 独立栏", note: "Thread 常驻主区右栏，2px 左分隔；可拖拽调宽。", Component: () => <ThreadPage /> },
-  { id: "t2", label: "T2 · 浮层", note: "Thread 覆盖在主区之上，带柔和阴影；窄屏天然适用。", Component: () => <ThreadPage float /> },
-  { id: "t3", label: "T3 · 紧凑", note: "更窄的栏宽，root 与 replies 间距收紧，元数据隐藏。", Component: () => <ThreadPage compact /> },
+  { id: "t1", label: "T1 · 独立栏", note: "Thread 常驻主区右栏，2px 左分隔；可拖拽调宽。已采用。", Component: () => <ThreadPage /> },
 ];

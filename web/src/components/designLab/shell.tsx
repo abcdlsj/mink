@@ -103,54 +103,6 @@ function L1Demo() {
   );
 }
 
-function L2Demo() {
-  return (
-    <div className="demo-page demo-page--l2">
-      <RailIcons />
-      <NavList compact />
-      <main className="demo-main">
-        <header className="demo-channel-header"><Hash aria-hidden="true" /> general <span className="demo-channel-members">4 members</span></header>
-        <Messages compact />
-        <Composer variant="f3" />
-      </main>
-    </div>
-  );
-}
-
-function L3Demo() {
-  return (
-    <div className="demo-page demo-page--l3">
-      <aside className="demo-l3-side">
-        <span className="demo-rail-space">S</span>
-        <div className="demo-l3-icons">
-          <span className="demo-rail-tool demo-rail-tool--active" title="Conversation"><MessageCircle aria-hidden="true" /></span>
-          <span className="demo-rail-tool" title="Inbox"><Inbox aria-hidden="true" /></span>
-          <span className="demo-rail-tool" title="Tasks"><ListTodo aria-hidden="true" /></span>
-          <span className="demo-rail-tool" title="Members"><Users aria-hidden="true" /></span>
-          <span className="demo-rail-tool" title="Computers"><Monitor aria-hidden="true" /></span>
-          <span className="demo-rail-tool" title="Design"><Palette aria-hidden="true" /></span>
-        </div>
-        <div className="demo-l3-nav">
-          <p className="demo-nav-label">CHANNELS</p>
-          <span className="demo-nav-item demo-nav-item--active"><Hash aria-hidden="true" /> general</span>
-          <span className="demo-nav-item"><Hash aria-hidden="true" /> design-lab</span>
-          <span className="demo-nav-item"><Hash aria-hidden="true" /> ship-metadata</span>
-          <p className="demo-nav-label">DMS</p>
-          <span className="demo-nav-item"><MessageCircle aria-hidden="true" /> Iris</span>
-          <span className="demo-nav-item"><MessageCircle aria-hidden="true" /> Leo</span>
-        </div>
-      </aside>
-      <main className="demo-main">
-        <header className="demo-channel-header"><Hash aria-hidden="true" /> general <span className="demo-channel-members">Mara · Iris · Leo · Nora</span></header>
-        <Messages />
-        <Composer variant="f2" />
-      </main>
-    </div>
-  );
-}
-
 export const SHELL_DEMOS: SurfaceDemo[] = [
-  { id: "l1", label: "L1 · 现状三栏", note: "rail + nav + 主区，Thread 在主区右栏；现有骨架的完整还原。", Component: L1Demo },
-  { id: "l2", label: "L2 · 紧凑双栏", note: "窄 rail + 紧凑 nav，无常驻 Thread；密度最高。", Component: L2Demo },
-  { id: "l3", label: "L3 · 顶栏式", note: "顶部全局条 + 频道列表 + 搜索，完全脱离三栏；Thread 以浮层出现。", Component: L3Demo },
+  { id: "l1", label: "L1 · 现状三栏", note: "rail + nav + 主区，Thread 在主区右栏；产品当前结构。", Component: L1Demo },
 ];

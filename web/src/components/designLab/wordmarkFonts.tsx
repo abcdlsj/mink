@@ -25,7 +25,5 @@ function FontPage({ variant }: { variant: "standard" | "bold" | "mini" }) {
 }
 
 export const WORDMARK_FONT_DEMOS: SurfaceDemo[] = [
-  { id: "f1", label: "F1 · 标准 5×7", note: "当前字形，笔画单像素。", Component: () => <FontPage variant="standard" /> },
-  { id: "f2", label: "F2 · 粗体", note: "同网格膨胀加粗，笔画更实。", Component: () => <FontPage variant="bold" /> },
-  { id: "f3", label: "F3 · 迷你 3×5", note: "更小的点阵字形，密而轻。", Component: () => <FontPage variant="mini" /> },
+  { id: "f2", label: "F2 · 粗体", note: "同网格膨胀加粗；产品已采用，长名字自适应换行。", Component: () => <FontPage variant="bold" /> },
 ];

@@ -53,30 +53,6 @@ function C1Demo() {
   );
 }
 
-function C2Demo() {
-  return (
-    <ChannelShell>
-      <div className="demo-timeline">
-        {ROWS.map((row) => <Row key={row.name} row={row} bubble />)}
-      </div>
-      <footer className="demo-composer demo-composer--f2"><span>Message #general...</span></footer>
-    </ChannelShell>
-  );
-}
-
-function C3Demo() {
-  return (
-    <ChannelShell centered>
-      <div className="demo-timeline demo-timeline--compact demo-timeline--narrow">
-        {ROWS.map((row) => <Row key={row.name} row={row} dense />)}
-      </div>
-      <footer className="demo-composer demo-composer--f3 demo-composer--narrow"><span>Message #general...</span></footer>
-    </ChannelShell>
-  );
-}
-
 export const CHANNEL_DEMOS: SurfaceDemo[] = [
-  { id: "c1", label: "C1 · 行式", note: "现状消息行，hover 显示动作；时间在 header。", Component: C1Demo },
-  { id: "c2", label: "C2 · 气泡式", note: "正文在浅色气泡内，头像保留；Human 与 Agent 同色。", Component: C2Demo },
-  { id: "c3", label: "C3 · 沉浸式", note: "窄栏居中，时间默认隐藏；阅读焦点完全在对话上。", Component: C3Demo },
+  { id: "c1", label: "C1 · 行式", note: "现状消息行，hover 显示动作；时间在 header。已采用。", Component: C1Demo },
 ];
