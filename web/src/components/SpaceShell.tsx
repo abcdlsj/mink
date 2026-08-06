@@ -6,6 +6,7 @@ import {
   LockKeyhole,
   ListTodo,
   LoaderCircle,
+  Menu,
   MessageCircle,
   Monitor,
   Palette,
@@ -70,7 +71,6 @@ export function SpaceShell({
   const authenticationRedirect = useRef(location.href);
   const queryClient = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const [navigationCollapsed, setNavigationCollapsed] = useState(false);
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
@@ -79,7 +79,6 @@ export function SpaceShell({
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
   function closeNavigation() {
     setNavigationOpen(false);
-    setNavigationCollapsed(true);
     window.requestAnimationFrame(() => (navigationTrigger ?? railNavigationTrigger.current)?.focus());
   }
   function dismissNavigationDrawer() {
@@ -87,7 +86,6 @@ export function SpaceShell({
   }
   function openNavigation() {
     setNavigationTrigger(document.activeElement as HTMLElement);
-    setNavigationCollapsed(false);
     setNavigationOpen(true);
   }
   const space = useQuery({
@@ -199,7 +197,6 @@ export function SpaceShell({
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (event.key === "Escape") {
         setNavigationOpen(false);
-        setNavigationCollapsed(true);
         window.requestAnimationFrame(() => navigationTrigger?.focus());
         return;
       }
@@ -272,73 +269,9 @@ export function SpaceShell({
       <a className="skip-link" href="#main-content">Skip to content</a>
       <main
         id="main-content"
-        className={`space-shell${navigationCollapsed ? " space-shell--navigation-collapsed" : ""}`}
+        className="space-shell"
         style={{ "--space-accent": space.data.accent } as CSSProperties}
       >
-      <aside
-        className="space-rail"
-        aria-label="Space tools"
-        onClick={(event) => {
-          if (!(event.target as HTMLElement).closest("a, button")) openNavigation();
-        }}
-      >
-        <Link
-          className="space-badge"
-          to="/s/$spaceSlug"
-          params={{ spaceSlug: space.data.slug }}
-          aria-label="Sumi home"
-          title="Sumi home"
-        >
-          <SumiMark className="space-brand-mark" />
-        </Link>
-        <nav className="rail-tools" aria-label="Space management">
-          <RailItem
-            icon={MessageCircle}
-            label="Conversation"
-            active={active === "channel" || active === "dm"}
-            href={`/s/${space.data.slug}/channels/general`}
-          />
-          <RailItem
-            icon={Inbox}
-            label="Inbox"
-            active={active === "inbox"}
-            href={`/s/${space.data.slug}/inbox`}
-          />
-          <RailItem
-            icon={ListTodo}
-            label="Tasks"
-            active={active === "tasks"}
-            href={`/s/${space.data.slug}/tasks`}
-          />
-          <RailItem
-            icon={Users}
-            label="Members"
-            active={active === "members" || active === "agents"}
-            href={`/s/${space.data.slug}/members`}
-          />
-          <RailItem
-            icon={Monitor}
-            label="Computers"
-            active={active === "computers"}
-            href={`/s/${space.data.slug}/computers`}
-          />
-          <RailItem
-            icon={Palette}
-            label="Design lab"
-            active={active === "design"}
-            href={`/s/${space.data.slug}/design-lab`}
-          />
-        </nav>
-        <button
-          ref={railNavigationTrigger}
-          className="rail-spacer"
-          type="button"
-          aria-label="Open navigation"
-          title="Open navigation"
-          onClick={openNavigation}
-        />
-      </aside>
-
       {navigationOpen ? (
         <button
           className="navigation-scrim"
@@ -347,18 +280,39 @@ export function SpaceShell({
           onClick={closeNavigation}
         />
       ) : null}
+      <button
+        ref={railNavigationTrigger}
+        className="navigation-rail-trigger"
+        type="button"
+        aria-label="Open navigation"
+        title="Open navigation"
+        onClick={openNavigation}
+      >
+        <Menu aria-hidden="true" />
+      </button>
       <aside
         ref={navigationPanel}
-        className={`space-navigation${navigationOpen ? " space-navigation--open" : ""}`}
+        className={`space-sidebar${navigationOpen ? " space-sidebar--open" : ""}`}
         aria-label="Space navigation"
         onClick={(event) => {
           if ((event.target as HTMLElement).closest("a")) dismissNavigationDrawer();
         }}
       >
-        <header className="space-name-row">
-          <div>
-            <span className="space-name-eyebrow" title={space.data.name}>{space.data.name}</span>
-            <h2>{active === "channel" || active === "dm" ? "Conversations" : capitalize(active)}</h2>
+        <header className="space-sidebar-brand">
+          <Link
+            className="space-badge"
+            to="/s/$spaceSlug"
+            params={{ spaceSlug: space.data.slug }}
+            aria-label="Sumi home"
+            title="Sumi home"
+          >
+            <SumiMark className="space-brand-mark" />
+          </Link>
+          <div className="space-name-row">
+            <div>
+              <span className="space-name-eyebrow" title={space.data.name}>{space.data.name}</span>
+              <h2>{active === "channel" || active === "dm" ? "Conversations" : capitalize(active)}</h2>
+            </div>
           </div>
           <button
             className="navigation-close icon-button"
@@ -370,7 +324,7 @@ export function SpaceShell({
             <X />
           </button>
         </header>
-        <nav>
+        <nav className="space-sidebar-nav">
           <div className="mobile-space-tools" aria-label="Space tools">
             <NavigationItem
               icon={MessageCircle}
@@ -505,6 +459,44 @@ export function SpaceShell({
           ))}
             </>
           )}
+        </nav>
+        <nav className="rail-tools space-sidebar-tools" aria-label="Space management">
+          <RailItem
+            icon={MessageCircle}
+            label="Conversation"
+            active={active === "channel" || active === "dm"}
+            href={`/s/${space.data.slug}/channels/general`}
+          />
+          <RailItem
+            icon={Inbox}
+            label="Inbox"
+            active={active === "inbox"}
+            href={`/s/${space.data.slug}/inbox`}
+          />
+          <RailItem
+            icon={ListTodo}
+            label="Tasks"
+            active={active === "tasks"}
+            href={`/s/${space.data.slug}/tasks`}
+          />
+          <RailItem
+            icon={Users}
+            label="Members"
+            active={active === "members" || active === "agents"}
+            href={`/s/${space.data.slug}/members`}
+          />
+          <RailItem
+            icon={Monitor}
+            label="Computers"
+            active={active === "computers"}
+            href={`/s/${space.data.slug}/computers`}
+          />
+          <RailItem
+            icon={Palette}
+            label="Design lab"
+            active={active === "design"}
+            href={`/s/${space.data.slug}/design-lab`}
+          />
         </nav>
       </aside>
 

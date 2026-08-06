@@ -119,7 +119,6 @@ export function MessageTimeline({
                     <header>
                       <strong>{message.author.display_name}</strong>
                       {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
-                      {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
                       <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
                       <span className="message-seq">@{message.seq}</span>
                     </header>
@@ -129,6 +128,7 @@ export function MessageTimeline({
                     spaceSlug={spaceSlug}
                     members={members}
                   />
+                  {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
                   {!message.deleted_at && message.attachments?.length ? (
                     <AttachmentList attachments={message.attachments} />
                   ) : null}
@@ -212,10 +212,10 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
         <header>
           <strong>{message.author.display_name}</strong>
           {message.author.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
-          {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
           <span className="message-seq">@{message.seq}</span>
         </header>
         <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
+        {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
         <AttentionFailureNotice message={message} members={members} />
         {!message.deleted_at && message.attachments?.length ? (
           <AttachmentList attachments={message.attachments} />
