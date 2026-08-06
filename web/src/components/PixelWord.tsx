@@ -49,8 +49,8 @@ export function PixelWord({ text, className }: { text: string; className?: strin
   const normalized = [...text.toUpperCase()];
   const glyphWidth = 6;
   const width = Math.max(1, normalized.length * glyphWidth - 1);
-  const maxPixels = 190;
-  const unit = Math.max(1, Math.min(3, Math.floor(maxPixels / width)));
+  const maxPixels = 260;
+  const unit = Math.max(1, Math.min(5, Math.floor(maxPixels / width)));
   return (
     <span
       className={`pixel-word${className ? ` ${className}` : ""}`}
