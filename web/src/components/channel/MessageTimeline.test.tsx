@@ -18,7 +18,7 @@ describe("System Notice timeline", () => {
       systemNotice(1, "Lin joined the channel", "2026-07-25T12:00:00Z"),
     ]);
 
-    const copy = screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Lin joined the channel");
+    const copy = screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Lin joined the channel");
     expect(copy.tagName).toBe("P");
     expect(copy).toHaveClass("system-event--message");
     expect(container.querySelector(".system-event-heading")).not.toBeInTheDocument();
@@ -33,14 +33,14 @@ describe("System Notice timeline", () => {
 
     const toggle = screen.getByRole("button", { name: "Show 2 system notices" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Lin joined the channel")).not.toBeVisible();
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Reviewer joined the channel")).not.toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Lin joined the channel")).not.toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Reviewer joined the channel")).not.toBeVisible();
 
     fireEvent.click(toggle);
 
     expect(screen.getByRole("button", { name: "Hide 2 system notices" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Lin joined the channel")).toBeVisible();
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Reviewer joined the channel")).toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Lin joined the channel")).toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Reviewer joined the channel")).toBeVisible();
   });
 
   it("keeps notices from different days in separate visible rows", () => {
@@ -50,8 +50,8 @@ describe("System Notice timeline", () => {
     ]);
 
     expect(screen.queryByRole("button", { name: /system notices/i })).not.toBeInTheDocument();
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Lin joined the channel")).toBeVisible();
-    expect(screen.getByText((content, element) => element?.classList.contains("system-event--message") && element?.textContent === "Reviewer joined the channel")).toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Lin joined the channel")).toBeVisible();
+    expect(screen.getByText((content, element) => Boolean(element?.classList.contains("system-event--message")) && element?.textContent === "Reviewer joined the channel")).toBeVisible();
   });
 
   it("resets Message identity grouping after a System Notice", () => {
