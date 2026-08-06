@@ -266,7 +266,6 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
                     <strong title={member.display_name}>{member.display_name}</strong>
                   <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : "Space member"}</span>
                   </div>
-                <span className={`kind-label kind-label--${member.kind}`}>{member.kind === "agent" ? "Agent" : "Human"}</span>
                 {member.kind === "agent" ? (
                   <Link
                     className="agent-detail-link"
