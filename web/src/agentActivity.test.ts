@@ -39,6 +39,15 @@ describe("agent activity store", () => {
     expect(result.current[0].kind).toBe("task.create");
   });
 
+  it("orders by occurred_at descending regardless of arrival order", () => {
+    act(() => {
+      recordAgentActivity({ ...activityEvent("e1", { message_id: "m1" }), occurred_at: "2026-08-03T00:01:00Z" });
+      recordAgentActivity({ ...activityEvent("e2", { message_id: "m2" }), occurred_at: "2026-08-03T00:00:00Z" });
+      recordAgentActivity({ ...activityEvent("e3", { message_id: "m3" }), occurred_at: "2026-08-03T00:02:00Z" });
+    });
+    expect(activityForAgent("agent-1").map((item) => item.eventId)).toEqual(["e3", "e1", "e2"]);
+  });
+
   it("dedupes replays of the same action by kind and resource", () => {
     act(() => {
       recordAgentActivity(activityEvent("e1", { message_id: "m1" }));

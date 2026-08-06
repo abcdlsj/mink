@@ -61,7 +61,7 @@
 - Members 页面按 Agents、Humans 分组显示扁平列表行：身份（头像 + 名字 + 行内状态点）、Access 控制（自定义下拉）、30px 轻量消息图标。Permission 在 Agent 详情逐项管理，不提供 Role 套餐。
 - Computers 页面左侧为已配对列表和配对入口；未选择 Computer 时显示配对 onboarding。
 - Agent 详情头部只显示安静信号（Activity、Computer 可达性、错误码），不提供 DM 按钮；facts 值使用 13px 并截断超长文本。
-- Agent 详情 Activity feed：动作标签（accent-soft）+ 参数 chips（名称 muted、值 ink-soft，最多显示 3 个）+ 高亮 preview（accent-soft 块，最多两行），时间右对齐；字号统一。
+- Agent 详情 Activity feed 按时间倒序；参数压缩为单行 `name = value`（名称 muted 等宽、等号 muted、值 ink-soft 的 code 块，最多 3 个），message preview 为核心 codeblock（accent-soft 底 + accent 左边条 + truncated），时间右对齐；字号统一。
 - 详情分区使用扁平布局：不绘制卡片边框、底色或阴影，用 2px ink 分隔线组织。
 
 ## 响应式与无障碍

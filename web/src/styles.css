@@ -2072,11 +2072,6 @@ pre {
 .agent-direct-message-list a { overflow: hidden; color: var(--ink); font-size: var(--text-body); font-weight: 700; text-overflow: ellipsis; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
 .agent-direct-message-list small { color: var(--muted); font-size: var(--text-meta); }
 .agent-direct-message-list time { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.agent-activity-command { display: grid; grid-column: 1 / -1; gap: 6px; margin: 4px 0 0; padding: 10px 12px; border-inline-start: 4px solid var(--cyan); background: var(--panel); }
-.agent-activity-command > div { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: start; gap: 12px; min-width: 0; }
-.agent-activity-command dt { color: var(--muted); font-size: var(--text-meta); font-weight: 700; letter-spacing: .08em; }
-.agent-activity-command dd { min-width: 0; margin: 0; }
-.agent-activity-command code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font: 11px/1.45 var(--font-mono); }
 .agent-activity-row a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .agent-settings,
 .agent-memory,
@@ -3141,27 +3136,6 @@ pre {
   font-weight: 650;
 }
 
-.agent-activity-command {
-  gap: 5px;
-  margin-top: 7px;
-  padding: 9px 12px;
-  background: var(--panel);
-}
-
-.agent-activity-command > div {
-  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
-  gap: 12px;
-}
-
-.agent-activity-command dt {
-  font-size: var(--text-meta);
-  text-transform: none;
-}
-
-.agent-activity-command code {
-  font-size: var(--text-meta);
-}
-
 .agent-header-signals .agent-state {
   display: inline-flex;
   min-height: 0;
@@ -3191,57 +3165,6 @@ pre {
 .agent-header-signals .agent-state--dispatched i { background: var(--accent); }
 .agent-header-signals .agent-state--suspended i { background: var(--orange); }
 .agent-header-signals .agent-state--error i { background: var(--red); }
-
-.agent-activity-command dt {
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-weight: 700;
-  letter-spacing: .04em;
-}
-
-.agent-activity-arguments {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.agent-activity-arguments li {
-  display: flex;
-  min-width: 0;
-  gap: 5px;
-  align-items: baseline;
-  overflow-wrap: anywhere;
-}
-
-.agent-activity-arguments li code:first-child {
-  color: var(--muted);
-}
-
-.agent-activity-message {
-  max-height: 11.2em;
-  margin: 0;
-  overflow: auto;
-  padding: 8px 10px;
-  border-inline-start: 3px solid var(--accent);
-  background: var(--paper);
-  font-size: var(--text-system);
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.agent-activity-truncated {
-  display: inline-block;
-  margin-inline-start: 8px;
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-style: normal;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
 
 .computer-detail .hosted-agent-list .agent-state--idle i { background: var(--green); }
 .computer-detail .hosted-agent-list .agent-state--working i,
@@ -3668,19 +3591,65 @@ pre {
 .agent-activity-link { color: var(--accent); font-size: 13px; font-weight: 700; }
 .agent-activity-link a { color: inherit; text-decoration: none; }
 .agent-activity-link a:hover { text-decoration: underline; }
+.agent-activity-truncated { margin-left: 6px; color: var(--muted); font-size: var(--text-meta); font-weight: 700; text-transform: uppercase; }
+.agent-activity-details {
+  display: grid;
+  gap: 6px;
+  margin: 7px 0 0;
+}
 .agent-activity-arguments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  display: grid;
+  gap: 3px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.agent-activity-arguments li { display: inline-flex; align-items: baseline; gap: 4px; }
-.agent-activity-arguments code { color: var(--ink-soft); font-family: var(--font-mono); font-size: var(--text-section-title); }
-.agent-activity-arguments span { color: var(--muted); }
-.agent-activity-message { margin: 0; color: var(--ink-soft); font-size: var(--text-system); line-height: 1.45; }
-.agent-activity-truncated { margin-left: 6px; color: var(--muted); font-size: var(--text-meta); font-weight: 700; text-transform: uppercase; }
+.agent-activity-arguments li {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: baseline;
+}
+.agent-activity-arguments li code:first-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.agent-activity-arguments span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.agent-activity-arguments li code:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.agent-activity-more { color: var(--muted); font: 700 10px var(--font-sans); }
+.agent-activity-message {
+  max-height: 9em;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 12px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.agent-activity-message .agent-activity-truncated { color: var(--accent); }
 /* Members rows: MM1 list form — identity with status, controls, light action. */
 .members-workspace .member-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -3812,23 +3781,6 @@ pre {
 }
 .agent-fact-strip dd a:hover { text-decoration: underline; }
 
-/* Agent activity: one size, distinct marks, highlighted preview. */
-.agent-activity-arguments code { font-size: var(--text-system); }
-.agent-activity-arguments li code:first-child { color: var(--muted); font-weight: 700; }
-.agent-activity-arguments li code:last-child { color: var(--ink-soft); }
-.agent-activity-more { color: var(--muted); font: 700 var(--text-meta) var(--font-sans); }
-.agent-activity-message {
-  display: -webkit-box;
-  overflow: hidden;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--ink);
-  font-size: var(--text-system);
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
 /* Task detail: compact scrollable run history, two-action controls. */
 .run-history {
   max-height: 280px;

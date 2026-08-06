@@ -319,19 +319,20 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
                 <span className="agent-activity-kind">{activityLabels[item.kind]}</span>
                 {link ? <span className="agent-activity-link">{link}</span> : null}
               </p>
-              {item.arguments.length ? (
-                <ul className="agent-activity-arguments" aria-label="Arguments">
-                  {item.arguments.slice(0, 3).map((argument) => (
-                    <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
-                  ))}
-                  {item.arguments.length > 3 ? <li className="agent-activity-more">+{item.arguments.length - 3} more</li> : null}
-                </ul>
-              ) : null}
-              {item.messagePreview ? (
-                <p className="agent-activity-message">
-                  {item.messagePreview}
-                  {item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}
-                </p>
+              {item.arguments.length || item.messagePreview ? (
+                <div className="agent-activity-details">
+                  {item.arguments.length ? (
+                    <ul className="agent-activity-arguments" aria-label="Arguments">
+                      {item.arguments.slice(0, 3).map((argument) => (
+                        <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
+                      ))}
+                      {item.arguments.length > 3 ? <li className="agent-activity-more">+{item.arguments.length - 3} more</li> : null}
+                    </ul>
+                  ) : null}
+                  {item.messagePreview ? (
+                    <pre className="agent-activity-message"><code>{item.messagePreview}</code>{item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}</pre>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
