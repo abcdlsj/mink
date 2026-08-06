@@ -181,6 +181,64 @@ describe("ChannelPage", () => {
     ));
   });
 
+  it("opens the Agent DM from a Channel Message avatar", async () => {
+    const channelId = "019c0000-0000-7000-8000-000000000003";
+    const spaceId = "019c0000-0000-7000-8000-000000000001";
+    const ownerId = "019c0000-0000-7000-8000-000000000002";
+    const linId = "019c0000-0000-7000-8000-000000000020";
+    const dmChannelId = "019c0000-0000-7000-8000-000000000031";
+    const owner = { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] };
+    const lin = { id: linId, kind: "agent", display_name: "Lin", access_level: "member", permissions: [] };
+    const dm = { channel_id: dmChannelId, space_id: spaceId, other_member: lin, created_at: "2026-07-25T00:00:00Z" };
+    let dmCreated = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) {
+        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#F0602F", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+      }
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) {
+        return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true }] });
+      }
+      if (path.endsWith("/dms") && !init?.method) return json(dmCreated ? [dm] : []);
+      if (path.endsWith("/dms") && init?.method === "POST") {
+        dmCreated = true;
+        return json(dm, 201);
+      }
+      if (path.endsWith("/agents") && !init?.method) return json([]);
+      if (path.endsWith("/computers") && !init?.method) return json([]);
+      if (path.endsWith(`/channels/${channelId}/members`) && !init?.method) return json({ members: [owner, lin], can_manage: true });
+      if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) {
+        return json({
+          channel_id: channelId,
+          snapshot_channel_seq: 1,
+          messages: [{ ...message(channelId, 1, "Can you review?"), author: { id: linId, kind: "agent", display_name: "Lin" } }],
+          has_more_before: false,
+          has_more_after: false,
+        });
+      }
+      if (path.endsWith(`/channels/${dmChannelId}/members`) && !init?.method) return json({ members: [owner, lin], can_manage: false });
+      if (path.endsWith(`/channels/${dmChannelId}/messages`) && !init?.method) {
+        return json({ channel_id: dmChannelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      }
+      if (path.endsWith("/members") && !init?.method) return json([owner, lin]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/channels/general");
+
+    expect(await screen.findByText("Can you review?")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Open DM with Lin" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/spaces/${spaceId}/dms`),
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ member_id: linId }) }),
+      );
+    });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Lin" })).toBeVisible());
+  });
+
   it("renders API Messages and sends structured mentions", async () => {
     const channelId = "019c0000-0000-7000-8000-000000000003";
     const linId = "019c0000-0000-7000-8000-000000000020";

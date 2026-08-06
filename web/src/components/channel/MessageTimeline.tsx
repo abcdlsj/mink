@@ -21,6 +21,8 @@ export function MessageTimeline({
   openThread,
   activityByMemberId,
   members,
+  direct = false,
+  onOpenAgentDm,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
   header?: ReactNode;
@@ -34,6 +36,8 @@ export function MessageTimeline({
   openThread: (threadId: string, trigger?: HTMLButtonElement) => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
   members: Member[];
+  direct?: boolean;
+  onOpenAgentDm?: (memberId: string) => void;
 }) {
   const [newMessageAnnouncement, setNewMessageAnnouncement] = useState("");
   const announcedMessageRef = useRef<string | null>(null);
@@ -112,7 +116,14 @@ export function MessageTimeline({
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
-                  <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityByMemberId.get(message.author.id)} />
+                  <MessageAvatar
+                    name={message.author.display_name}
+                    kind={message.author.kind}
+                    seed={message.author.id}
+                    activityStatus={activityByMemberId.get(message.author.id)}
+                    clickable={!direct}
+                    onOpenAgentDm={onOpenAgentDm}
+                  />
                 )}
                 <div className="message-content">
                   {grouped ? null : (
@@ -203,10 +214,17 @@ function SystemNoticeGroup({
   );
 }
 
-export function CompactMessage({ message, activityStatus, spaceSlug, members }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[] }) {
+export function CompactMessage({ message, activityStatus, spaceSlug, members, direct = false, onOpenAgentDm }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[]; direct?: boolean; onOpenAgentDm?: (memberId: string) => void }) {
   return (
     <article className="thread-message" id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1}>
-      <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityStatus} />
+      <MessageAvatar
+        name={message.author.display_name}
+        kind={message.author.kind}
+        seed={message.author.id}
+        activityStatus={activityStatus}
+        clickable={!direct}
+        onOpenAgentDm={onOpenAgentDm}
+      />
       <div>
         <header>
           <strong>{message.author.display_name}</strong>
@@ -220,6 +238,38 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
         ) : null}
       </div>
     </article>
+  );
+}
+
+function MessageAvatar({
+  name,
+  kind,
+  seed,
+  activityStatus,
+  clickable,
+  onOpenAgentDm,
+}: {
+  name: string;
+  kind: Member["kind"];
+  seed: string;
+  activityStatus?: Agent["activity_status"];
+  clickable: boolean;
+  onOpenAgentDm?: (memberId: string) => void;
+}) {
+  const identity = (
+    <PresenceIdentity name={name} kind={kind} seed={seed} activityStatus={activityStatus} />
+  );
+  if (kind !== "agent" || !clickable || !onOpenAgentDm) return identity;
+  return (
+    <button
+      className="message-avatar-button"
+      type="button"
+      aria-label={`Open DM with ${name}`}
+      title={`Open DM with ${name}`}
+      onClick={() => onOpenAgentDm(seed)}
+    >
+      {identity}
+    </button>
   );
 }
 

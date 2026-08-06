@@ -34,6 +34,7 @@
 - 只有 Root Message 提供 `Create Task` 动作；创建后立即替换为 Task 标识，不显示 bind、Source Thread 选择或来源确认步骤。
 - Thread reply 不显示创建动作；reply 上的 Task 动作保持禁用并说明只能从 Root Message 创建。
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板：极淡、单 icon（Reply to thread 与 Task 动作），无边框无背景，贴齐 Message 行右上角；hover 消息才出现。
+- Channel 消息与 Thread reply 中的 Agent 头像可点击，直接打开与该 Agent 的 DM；DM 消息中的头像不可点击。
 - Root Message 的 Task 标识位于消息正文左下角：`!<seq>`、状态文字与状态图形；title、assignee 不显示在消息上，hover 显示 title；当前 Run 在其他 Linked Thread 时显示 `· elsewhere`。只有 Root Message 显示。
 - Task 状态标签：TODO paper 背景、In Progress accent-soft、In Review orange、Done green、Closed stone；全部带状态图形。
 - Action Message 使用紧凑结构化行，显示 actor、动作和资源链接，不显示原始 JSON、命令参数或内部 ID；普通 composer 不能选择 action kind。

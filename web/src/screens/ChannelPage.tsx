@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { Asterisk, Check, Hash, LoaderCircle, MessageCircle, Monitor, Plus, X } from "lucide-react";
 import { type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
+  createDirectMessage,
   createMessage,
   listAgents,
   listChannelMembers,
@@ -81,6 +82,7 @@ export function MessageWorkspace({
 }) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const [threadId, setThreadId] = useState<string>();
   const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
   const [threadPaneWidth, setThreadPaneWidth] = useState(360);
@@ -238,6 +240,16 @@ export function MessageWorkspace({
       setAgentPickerOpen(false);
     },
   });
+  const openAgentDm = useMutation({
+    mutationFn: (memberId: string) => createDirectMessage(spaceId, memberId),
+    onSuccess: (dm) => {
+      void queryClient.invalidateQueries({ queryKey: ["direct-messages", spaceId] });
+      void navigate({
+        to: "/s/$spaceSlug/dm/$memberId",
+        params: { spaceSlug, memberId: dm.other_member.id },
+      });
+    },
+  });
 
   return (
     <section
@@ -290,6 +302,8 @@ export function MessageWorkspace({
         openThread={openThread}
         activityByMemberId={activityByMemberId}
         members={channelMembers.data?.members ?? []}
+        direct={direct}
+        onOpenAgentDm={direct ? undefined : (memberId) => openAgentDm.mutate(memberId)}
       />
       <MessageComposer
         spaceId={spaceId}
@@ -322,6 +336,8 @@ export function MessageWorkspace({
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
           activityByMemberId={activityByMemberId}
+          direct={direct}
+          onOpenAgentDm={direct ? undefined : (memberId) => openAgentDm.mutate(memberId)}
         />
       ) : null}
       {agentPickerOpen ? (

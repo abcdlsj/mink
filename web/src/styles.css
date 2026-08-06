@@ -1070,6 +1070,12 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-row--grouped { padding-top: 3px; padding-bottom: 3px; }
 .message-row > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; background: var(--space-accent); }
 .message-row > .presence-identity { width: 36px; height: 36px; flex-basis: 36px; }
+.message-avatar-button { display: inline-grid; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.message-avatar-button:hover .pixel-identity { box-shadow: 0 0 0 2px var(--accent-soft); }
+.message-row > .message-avatar-button > .presence-identity,
+.message-row > .message-avatar-button > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; }
+.thread-message > .message-avatar-button > .presence-identity,
+.thread-message > .message-avatar-button > .pixel-identity { width: 34px; height: 34px; flex-basis: 34px; }
 .message-row:hover,
 .message-row--has-thread:hover { background: rgb(20 17 17 / 3%); }
 .message-row:hover { background: rgb(20 17 17 / 3%); }
