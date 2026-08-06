@@ -104,7 +104,9 @@ async function api(method, path, { cookie, body } = {}) {
 }
 
 async function waitForHealth() {
-  const deadline = Date.now() + 30_000;
+  const startedAt = Date.now();
+  const deadline = startedAt + 120_000;
+  let nextProgressLog = startedAt + 10_000;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(new URL("/api/v1/health", SERVER));
@@ -112,9 +114,14 @@ async function waitForHealth() {
     } catch {
       // Server not up yet; keep polling.
     }
+    if (Date.now() >= nextProgressLog) {
+      const elapsed = Math.round((Date.now() - startedAt) / 1_000);
+      log(`server not healthy yet (${elapsed}s elapsed)`);
+      nextProgressLog += 10_000;
+    }
     await sleep(300);
   }
-  throw new Error("Sumi server did not become healthy within 30s");
+  throw new Error("Sumi server did not become healthy within 120s");
 }
 
 function sessionCookie(response) {
