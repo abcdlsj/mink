@@ -985,8 +985,9 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .space-name-row,
 .channel-header { height: 62px; min-height: 62px; }
 .space-name-row { display: flex; height: 62px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; border-bottom: 2px solid var(--ink); background: var(--panel); min-height: 62px; }
+.space-name-row { padding: 0 12px; }
 .space-name-pixel { display: inline-flex; color: var(--space-accent); }
-.space-name-pixel svg { display: block; }
+.space-name-pixel svg { display: block; width: auto; height: auto; flex: 0 0 auto; }
 .space-name-pixel svg rect { fill: currentColor; }
 .navigation-close { display: grid; width: 26px; height: 26px; flex-basis: 26px; border-width: 2px; box-shadow: none; }
 .navigation-close svg { width: 14px; height: 14px; }
@@ -3610,4 +3611,7 @@ pre {
   .agent-runtime .detail-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+@media (min-width: 1100px) {
+  .space-name-row .navigation-close { display: none; }
 }
