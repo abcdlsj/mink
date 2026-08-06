@@ -7,7 +7,6 @@ import {
   MailPlus,
   MessageCircle,
   Plus,
-  ShieldCheck,
   UserPlus,
   Users,
   X,
@@ -20,7 +19,6 @@ import {
   listAgents,
   listMembers,
   updateMember,
-  type Agent,
   type Member,
   type Space,
 } from "../api/client";
@@ -69,12 +67,6 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
   });
   const activityByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.activity_status] as const),
-  );
-  const roleByMemberId = new Map(
-    (agents.data ?? []).map((agent) => [agent.member_id, agent.role_text] as const),
-  );
-  const agentByMemberId = new Map(
-    (agents.data ?? []).map((agent) => [agent.member_id, agent] as const),
   );
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
@@ -262,10 +254,17 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
             <article className="member-row" key={member.id}>
               <div className="member-identity">
                 <PresenceIdentity name={member.display_name} kind={member.kind} seed={member.id} activityStatus={activityByMemberId.get(member.id)} />
-                  <div>
-                    <strong title={member.display_name}>{member.display_name}</strong>
-                  <span title={member.kind === "agent" ? roleByMemberId.get(member.id) ?? undefined : undefined}>{member.kind === "agent" ? roleByMemberId.get(member.id) ?? "Agent" : "Space member"}</span>
-                  </div>
+                <div>
+                  <strong title={member.display_name}>{member.display_name}</strong>
+                  <span className="member-status">
+                    {member.kind === "agent" ? (
+                      <>
+                        <i className={`member-status-dot member-status-dot--${activityByMemberId.get(member.id) ?? "waiting"}`} aria-hidden="true" />
+                        {activityLabel(activityByMemberId.get(member.id))}
+                      </>
+                    ) : "Space member"}
+                  </span>
+                </div>
                 {member.kind === "agent" ? (
                   <Link
                     className="agent-detail-link"
@@ -276,13 +275,8 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
                   </Link>
                 ) : null}
               </div>
-              <div className="member-presence">
-                {member.kind === "agent" ? <AgentPresence agent={agentByMemberId.get(member.id)} /> : <span className="member-presence-copy"><small className="member-field-label">Presence</small><strong>Human member</strong></span>}
-              </div>
-              <div className="access-control">
-                <span className="member-field-label">Access</span>
+              <div className="member-controls">
                 <div className="access-value">
-                  <ShieldCheck aria-hidden="true" />
                   {ownerCanSetAccess ? (
                     <select
                       aria-label={`Access level for ${member.display_name}`}
@@ -342,22 +336,6 @@ function MembersWorkspace({ space, directory }: { space: Space; directory: "memb
         </div>
       ) : null}
     </section>
-  );
-}
-
-function AgentPresence({ agent }: { agent?: Agent }) {
-  if (!agent) return <span className="member-presence-copy"><small className="member-field-label">Activity</small><strong>Status unavailable</strong></span>;
-  const activity = activityLabel(agent.activity_status);
-  const connection = agent.computer_reachable ? "Computer online" : "Computer offline";
-  return (
-    <span className="agent-presence-stack" aria-label={`${activity}; ${agent.computer_id ? connection : "No Computer assigned"}`}>
-      <span className={`agent-presence-signal agent-presence-signal--${agent.activity_status}`} aria-hidden="true" />
-      <span>
-        <small className="member-field-label">Activity</small>
-        <strong>{activity}</strong>
-        <small>{agent.computer_id ? connection : "No Computer assigned"}</small>
-      </span>
-    </span>
   );
 }
 

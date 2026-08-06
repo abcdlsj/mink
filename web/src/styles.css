@@ -3676,3 +3676,42 @@ pre {
 .agent-activity-arguments span { color: var(--muted); }
 .agent-activity-message { margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
 .agent-activity-truncated { margin-left: 6px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+/* Members rows: MM1 list form — identity with status, controls, light action. */
+.members-workspace .member-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  padding: 10px 20px;
+  align-items: center;
+}
+.member-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.member-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stone);
+}
+.member-status-dot--working { background: var(--green); }
+.member-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.member-controls .access-value strong { font-size: 12px; font-weight: 700; }
+.member-controls select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--paper);
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .members-workspace .member-row { grid-template-columns: 1fr; }
+  .member-controls { justify-self: start; }
+}

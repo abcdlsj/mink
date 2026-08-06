@@ -65,8 +65,7 @@ describe("Agent directory", () => {
     expect(manageLinks).toHaveLength(2);
     expect(manageLinks[0]).toHaveAttribute("href", `/s/sumi-lab/agents/${linId}`);
     expect(manageLinks[1]).toHaveAttribute("href", `/s/sumi-lab/agents/${reviewerId}`);
-    expect(screen.getByText("Computer online")).toBeVisible();
-    expect(screen.getByText("No Computer assigned")).toBeVisible();
+    expect(screen.getAllByText("Working").length).toBeGreaterThan(0);
   });
 
   it("keeps Members grouped while exposing Agent management links", async () => {
