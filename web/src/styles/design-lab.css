@@ -1926,14 +1926,6 @@
   border-width: 1px;
 }
 
-.dmn-dot {
-  width: 7px;
-  height: 7px;
-  margin-inline-start: auto;
-  border-radius: 50%;
-  background: var(--green);
-}
-
 .dmn-count {
   display: grid;
   min-width: 18px;
@@ -2060,8 +2052,19 @@
   color: var(--accent);
   font-size: 9px;
 }
-.dmn-dot--online { background: var(--green); }
-.dmn-dot--waiting { background: var(--stone); }
+.dmn-avatar { position: relative; display: inline-flex; flex: 0 0 auto; }
+.dmn-presence-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--stone);
+}
+.dmn-presence-dot--online { background: var(--green); }
+.dmn-presence-dot--waiting { background: var(--stone); }
 .dmn-msg time {
   margin-inline-start: auto;
   color: var(--muted);

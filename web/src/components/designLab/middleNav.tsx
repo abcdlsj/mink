@@ -67,8 +67,11 @@ function DiscoverItems() {
 function DmItems({ withStatus = false, dense = false }: { withStatus?: boolean; dense?: boolean }) {
   return DMS.map((dm) => (
     <span key={dm.name} className={`dmn-item${dense ? " dmn-item--dense" : ""}`}>
-      <PixelIdentity name={dm.name} kind="agent" seed={dm.seed} /> {dm.name}
-      {withStatus ? <i className={`dmn-dot${dm.online ? " dmn-dot--online" : ""}`} /> : null}
+      <span className="dmn-avatar">
+        <PixelIdentity name={dm.name} kind="agent" seed={dm.seed} />
+        {withStatus ? <i className={`dmn-presence-dot${dm.online ? " dmn-presence-dot--online" : ""}`} /> : null}
+      </span>
+      {dm.name}
       {dm.unread ? <b className="dmn-count">{dm.unread}</b> : null}
     </span>
   ));
@@ -166,7 +169,7 @@ function N4Demo() {
           <DmItems withStatus />
           <p className="dmn-label">AGENTS</p>
           {[{ name: "Nora", seed: "019c0000-0000-7000-8000-000000000022", status: "waiting" }].map((agent) => (
-            <span key={agent.name} className="dmn-item"><PixelIdentity name={agent.name} kind="agent" seed={agent.seed} /> {agent.name}<i className={`dmn-dot dmn-dot--${agent.status}`} /></span>
+            <span key={agent.name} className="dmn-item"><span className="dmn-avatar"><PixelIdentity name={agent.name} kind="agent" seed={agent.seed} /><i className={`dmn-presence-dot dmn-presence-dot--${agent.status}`} /></span> {agent.name}</span>
           ))}
         </div>
       </nav>
