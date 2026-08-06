@@ -86,7 +86,6 @@ describe("Agent detail", () => {
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getAllByRole("img", { name: "Lin avatar" })[0]).toHaveAttribute("data-agent-identicon");
     expect(screen.getAllByRole("status").find((status) => status.textContent === "Working")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Message Lin" })).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(await screen.findByRole("link", { name: "Rebuild WebUI" })).toHaveAttribute("href", "/s/sumi-lab/tasks/task");
     expect(screen.getByText("Another item is waiting. It is not part of the current Focus.")).toBeVisible();
@@ -119,7 +118,7 @@ describe("Agent detail", () => {
     ));
     fireEvent.click(screen.getByRole("button", { name: "Restart Agent" }));
     await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.body === JSON.stringify({ lifecycle: { action: "restart" } }))).toHaveLength(2));
-    expect(await screen.findByText("driver_unavailable")).toBeVisible();
+    expect(await screen.findByRole("status", { name: "Agent error: driver_unavailable" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /retry provision/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`/agents/${agentId}`),

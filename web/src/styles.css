@@ -3764,3 +3764,63 @@ pre {
 .sumi-select-option--highlighted { background: var(--accent-soft); }
 .sumi-select-option--selected { font-weight: 800; }
 .sumi-select-option svg { width: 13px; height: 13px; color: var(--accent); }
+/* Agent header signals: one quiet signal family. */
+.agent-workspace .entity-detail-header .agent-state,
+.agent-workspace .entity-detail-header .agent-connection-signal,
+.agent-workspace .entity-detail-header .agent-error-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 700 10px var(--font-sans);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agent-workspace .entity-detail-header .agent-state i,
+.agent-workspace .entity-detail-header .agent-connection-signal i,
+.agent-workspace .entity-detail-header .agent-error-signal i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--stone);
+}
+.agent-workspace .entity-detail-header .agent-connection-signal--online i { background: var(--green); }
+.agent-workspace .entity-detail-header .agent-connection-signal--offline i { background: var(--stone); }
+.agent-workspace .entity-detail-header .agent-error-signal { color: var(--red); }
+.agent-workspace .entity-detail-header .agent-error-signal i { background: var(--red); }
+
+/* Agent facts: calmer values with ellipsis. */
+.agent-fact-strip dd { font-size: 13px; }
+.agent-fact-strip dd a {
+  overflow: hidden;
+  color: var(--ink);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-fact-strip dd a:hover { text-decoration: underline; }
+
+/* Agent activity: one size, distinct marks, highlighted preview. */
+.agent-activity-arguments code { font-size: 12px; }
+.agent-activity-arguments li code:first-child { color: var(--muted); font-weight: 700; }
+.agent-activity-arguments li code:last-child { color: var(--ink-soft); }
+.agent-activity-more { color: var(--muted); font: 700 10px var(--font-sans); }
+.agent-activity-message {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}

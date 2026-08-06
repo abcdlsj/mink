@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Activity, Brain, Eye, LayoutDashboard, MessageCircle, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
+import { Link, useParams } from "@tanstack/react-router";
+import { Activity, Brain, Eye, LayoutDashboard, Pause, Play, RotateCcw, Save, Settings2, Trash2, X, type LucideIcon } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef, useState } from "react";
 
-import { createDirectMessage, getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMemberDirectMessages, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
+import { getAgent, getAgentRuntime, grantMemberPermission, listComputers, listMemberDirectMessages, listMembers, readAgentMemory, retireAgent, revokeMemberPermission, updateAgent, type Channel } from "../api/client";
 import { activityLabel, useAgentActivity, type AgentActivityItem } from "../agentActivity";
 import { DialogFrame } from "../components/DialogFrame";
 import { PresenceIdentity, SpaceShell } from "../components/SpaceShell";
@@ -37,7 +37,6 @@ export function AgentDetailPage() {
 
 function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { agentId: string; spaceId: string; spaceSlug: string; channels: Channel[]; canManage: boolean }) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [tab, setTab] = useState<AgentTab>("activity");
   const [cancelNow, setCancelNow] = useState(false);
   const [retireConfirmOpen, setRetireConfirmOpen] = useState(false);
@@ -79,17 +78,6 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
     mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => enabled ? grantMemberPermission(agentId, action) : revokeMemberPermission(agentId, action),
     onSuccess: (member) => queryClient.setQueryData(["members", spaceId], (current: Awaited<ReturnType<typeof listMembers>> | undefined) => current?.map((item) => item.id === member.id ? member : item)),
   });
-  const directMessage = useMutation({
-    mutationFn: (memberId: string) => createDirectMessage(spaceId, memberId),
-    onSuccess: (dm) => {
-      void queryClient.invalidateQueries({ queryKey: ["direct-messages", spaceId] });
-      void navigate({
-        to: "/s/$spaceSlug/dm/$memberId",
-        params: { spaceSlug, memberId: dm.other_member.id },
-      });
-    },
-  });
-
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -128,8 +116,12 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
           <span className={`agent-connection-signal${value.computer_reachable ? " agent-connection-signal--online" : " agent-connection-signal--offline"}`} aria-label={value.computer_reachable ? "Computer online" : "Computer offline"} title={value.computer_reachable ? "Computer online" : "Computer offline"}>
             <i aria-hidden="true" />{value.computer_reachable ? "Computer online" : "Computer offline"}
           </span>
+          {value.last_error_code ? (
+            <span className="agent-error-signal" role="status" aria-label={`Agent error: ${value.last_error_code}`} title={`Agent error: ${value.last_error_code}`}>
+              <i aria-hidden="true" />error
+            </span>
+          ) : null}
         </div>
-        <button className="agent-message-action icon-button" type="button" aria-label={`Message ${value.name}`} title={`Message ${value.name}`} disabled={directMessage.isPending} onClick={() => directMessage.mutate(value.member_id)}><MessageCircle /></button>
       </header>
       <dl className="agent-fact-strip" aria-label="Agent summary">
         <SummaryFact label="Lifecycle"><StateSignal tone={value.desired_lifecycle} label={humanize(value.desired_lifecycle)} /></SummaryFact>
@@ -157,7 +149,6 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
       </nav>
       <div className="agent-detail-scroll">
         {!value.computer_id ? <p className="inline-notice">No Computer is assigned. Pair a Computer before starting work.</p> : !value.computer_reachable ? <p className="inline-notice">Computer unreachable. Work already in progress keeps its status until the Computer reports the outcome.</p> : null}
-        {value.last_error_code ? <p className="inline-notice inline-notice--error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         {tab === "activity" ? (
           <div className="agent-tab-panel agent-activity-panel" id="agent-panel-activity" role="tabpanel" aria-labelledby="agent-tab-activity" tabIndex={0}>
             <DetailSection className="agent-activity" title="Activity">
@@ -330,9 +321,10 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
               </p>
               {item.arguments.length ? (
                 <ul className="agent-activity-arguments" aria-label="Arguments">
-                  {item.arguments.map((argument) => (
+                  {item.arguments.slice(0, 3).map((argument) => (
                     <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
                   ))}
+                  {item.arguments.length > 3 ? <li className="agent-activity-more">+{item.arguments.length - 3} more</li> : null}
                 </ul>
               ) : null}
               {item.messagePreview ? (
