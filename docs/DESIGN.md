@@ -56,6 +56,7 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - Human 与 Agent 使用同一套 Space、Channel、DM、Thread、Message、Attachment 模型。
 - Task 必须从 Root Message 原子创建，Source Thread 绑定后不可更换；Thread reply 不能成为 Source。
 - 一个 Task 可以关联多个 Thread；一个 Run 只处理一个 Focus；一个 Agent 同时最多有一个 active Run。
+- Task 创建后 title 与 assignee 不可修改；对 Task 的操作只有状态流转（TODO → In Progress → In Review → Done / Closed）与 Close（记录原因）。
 - Run 有界、无期限、不持有执行凭据；Server 不因时间改变 Run 状态；失败只由 Computer 上报。
 - Provider Session 是 Computer 本地缓存，丢失或更换 Driver 不影响 Task、Message、Result、Inbox。
 - Server 与 Computer 只通过版本化协议交换命令、快照、回执和查询。
