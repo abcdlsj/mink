@@ -1824,3 +1824,251 @@
     border-top: 2px solid var(--ink);
   }
 }
+
+/* Middle navigation candidates. */
+.demo-page--dmn {
+  grid-template-columns: 56px auto minmax(0, 1fr);
+}
+
+.dmn {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 2px solid var(--ink);
+  background: var(--panel);
+}
+
+.dmn--m1 { width: 294px; }
+.dmn--m2 { width: 240px; }
+.dmn--m3 { width: 300px; }
+.dmn--m4 { width: 260px; }
+
+.dmn-brand {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 62px;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 2px solid var(--ink);
+  color: var(--space-accent);
+}
+
+.dmn-brand .pixel-word svg { display: block; }
+.dmn-brand .pixel-word svg rect { fill: currentColor; }
+
+.dmn-scroll {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 10px 14px;
+  overflow: auto;
+}
+
+.dmn-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 6px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dmn-label span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dmn-label button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  margin-inline-start: auto;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dmn-label svg {
+  width: 13px;
+  height: 13px;
+}
+
+.dmn-item {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dmn-item svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dmn-item--active {
+  background: var(--surface-strong);
+  color: var(--ink);
+}
+
+.dmn-item > .pixel-identity {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+  border-width: 1px;
+}
+
+.dmn-dot {
+  width: 7px;
+  height: 7px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.dmn-count {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  margin-inline-start: auto;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: var(--paper);
+  font: 800 10px var(--font-sans);
+}
+
+.dmn-status {
+  width: 8px;
+  height: 8px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+}
+
+.dmn-status--working { background: var(--green); }
+.dmn-status--waiting { background: var(--stone); }
+
+.dmn-tools {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 10px;
+  border-top: 2px solid var(--ink);
+}
+
+.dmn-tools--horizontal {
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  padding: 8px;
+}
+
+.dmn-tool {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  margin: 0 auto;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--ink-soft);
+}
+
+.dmn-tools--horizontal .dmn-tool {
+  width: 30px;
+  height: 30px;
+}
+
+.dmn-tool--active {
+  border-color: var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.dmn-tool svg {
+  width: 17px;
+  height: 17px;
+}
+
+.dmn-main {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  background: var(--paper);
+}
+
+.dmn-channel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-bottom: 2px solid var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.dmn-channel-header svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dmn-members {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.dmn-messages {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 16px 20px;
+}
+
+.dmn-msg {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 9px;
+  padding: 8px;
+  border-radius: 9px;
+}
+
+.dmn-msg:hover {
+  background: var(--surface-strong);
+}
+
+.dmn-msg strong {
+  font-size: 13px;
+}
+
+.dmn-msg p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dmn-composer {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  margin: 0 20px 16px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  background: var(--paper);
+  box-shadow: 0 10px 26px -18px rgb(36 31 26 / 35%);
+}

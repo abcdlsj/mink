@@ -21,6 +21,7 @@ import type { SurfaceDemo } from "../components/designLab/demoTypes";
 import { INBOX_DEMOS } from "../components/designLab/inbox";
 import { MEMBER_MANAGEMENT_DEMOS } from "../components/designLab/memberManagement";
 import { MEMBERS_DEMOS } from "../components/designLab/members";
+import { MIDDLE_NAV_DEMOS } from "../components/designLab/middleNav";
 import { MESSAGES_DEMOS } from "../components/designLab/messages";
 import { ONBOARDING_DEMOS } from "../components/designLab/onboarding";
 import { SHELL_DEMOS } from "../components/designLab/shell";
@@ -42,6 +43,7 @@ interface Surface {
 
 const SURFACES: Surface[] = [
   { id: "shell", label: "Shell layout", description: "三栏 / 紧凑双栏 / 顶栏式", demos: SHELL_DEMOS },
+  { id: "middle-nav", label: "Middle navigation", description: "中间栏的 4 种设计", demos: MIDDLE_NAV_DEMOS },
   { id: "channel", label: "Channel", description: "行式 / 气泡 / 沉浸式", demos: CHANNEL_DEMOS },
   { id: "messages", label: "Message & Task", description: "Task 标识位置与浮控按钮", demos: MESSAGES_DEMOS },
   { id: "task-detail", label: "Task detail", description: "工作线主导 / 分区 / 双栏", demos: TASK_DETAIL_DEMOS },
