@@ -325,16 +325,16 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .channel-glyph svg { width: 22px; height: 22px; }
 .empty-channel h2 { margin: 0; font-size: var(--text-page-title); }
 .empty-channel p { max-width: 340px; margin: 0; color: var(--muted); font-size: var(--text-system); line-height: 1.5; }
-.composer-attachments > span { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 6px 8px; border: 2px solid var(--ink); background: var(--cyan); font-family: inherit; font-size: 12px; font-weight: 700; }
+.composer-attachments > span { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); color: var(--ink); font-family: inherit; font-size: 11px; font-weight: 600; }
 .composer-attachments svg { width: 14px; height: 14px; }
 .composer-attachments button { display: inline-grid; width: 20px; height: 20px; place-items: center; padding: 0; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
-.message-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.message-attachments a { display: inline-flex; align-items: center; gap: 9px; max-width: min(100%, 420px); padding: 8px 10px; border: 2px solid var(--ink); background: var(--cyan); color: var(--ink); text-decoration: none; box-shadow: 3px 3px 0 var(--ink); }
-.message-attachments a:hover { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--ink); }
-.message-attachments svg { width: 18px; flex: 0 0 auto; }
-.message-attachments span { display: grid; min-width: 0; }
-.message-attachments strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.message-attachments small { font-family: inherit; font-size: 10px; }
+.message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.message-attachments a { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 320px); min-height: 28px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); color: var(--ink); text-decoration: none; }
+.message-attachments a:hover { border-color: var(--accent); background: var(--accent-soft); }
+.message-attachments svg { width: 14px; flex: 0 0 auto; color: var(--accent); }
+.message-attachments span { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+.message-attachments strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.message-attachments small { color: var(--muted); font-family: inherit; font-size: 10px; }
 .inbox-empty-intro { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 16px; padding: 22px 0; }
 .inbox-empty-icon { display: grid; width: 48px; height: 48px; place-items: center; border: 2px solid var(--ink); background: var(--accent); color: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
 .inbox-empty-icon svg { width: 18px; height: 18px; }
