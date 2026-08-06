@@ -41,6 +41,7 @@ const GLYPHS: Record<string, readonly string[]> = {
   "-": [".....", ".....", ".....", "####", ".....", ".....", "....."],
   "_": [".....", ".....", ".....", ".....", ".....", ".....", "####"],
   "?": [".##.", "#..#", "...#", "..#.", ".#..", ".....", ".#.."],
+  ".": [".....", ".....", ".....", ".....", ".....", "..##.", "..##."],
 };
 
 const FALLBACK = GLYPHS["?"];
@@ -86,6 +87,7 @@ const MINI_GLYPHS: Record<string, readonly string[]> = {
   "-": ["...", "...", "###", "...", "..."],
   "_": ["...", "...", "...", "...", "###"],
   "?": [".#.", "#.#", "..#", ".#.", ".#."],
+  ".": ["...", "...", "...", "...", ".#."],
 };
 
 function boldGlyph(glyph: readonly string[]): string[] {
@@ -101,6 +103,28 @@ function boldGlyph(glyph: readonly string[]): string[] {
   return out.map((row) => row.join(""));
 }
 
+const MAX_LINES = 2;
+
+function splitLines(text: string, maxChars: number): string[] {
+  const words = text.split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length > MAX_LINES) {
+    lines[MAX_LINES - 1] = `${lines[MAX_LINES - 1].slice(0, maxChars - 1)}.`;
+  }
+  return lines.slice(0, MAX_LINES);
+}
+
 export function PixelWord({
   text,
   className,
@@ -114,9 +138,13 @@ export function PixelWord({
   const mini = variant === "mini";
   const glyphWidth = mini ? 4 : 6;
   const glyphHeight = mini ? 5 : 7;
-  const width = Math.max(1, normalized.length * glyphWidth - 1);
+  const textValue = normalized.join("");
+  const maxCharsPerLine = Math.floor(200 / (glyphWidth * 2));
+  const lines = splitLines(textValue, maxCharsPerLine);
+  const longestLine = Math.max(...lines.map((line) => line.length));
+  const width = Math.max(1, longestLine * glyphWidth - 1);
   const maxPixels = 200;
-  const unit = Math.max(1, Math.min(4, Math.floor(maxPixels / width)));
+  const unit = Math.max(2, Math.min(4, Math.floor(maxPixels / width)));
   return (
     <span
       className={`pixel-word${className ? ` ${className}` : ""}`}
@@ -124,25 +152,32 @@ export function PixelWord({
       role="img"
       aria-label={text}
     >
-      <svg
-        viewBox={`0 0 ${width} ${glyphHeight}`}
-        width={width * unit}
-        height={glyphHeight * unit}
-        shapeRendering="crispEdges"
-        aria-hidden="true"
-      >
-        {normalized.flatMap((char, charIndex) => {
-          const source = mini ? (MINI_GLYPHS[char] ?? MINI_GLYPHS["?"]) : (GLYPHS[char] ?? FALLBACK);
-          const glyph = !mini && variant === "bold" ? boldGlyph(source) : source;
-          return glyph.flatMap((row, y) =>
-            [...row].flatMap((cell, x) =>
-              cell === "#"
-                ? [<rect key={`${charIndex}-${x}-${y}`} x={charIndex * glyphWidth + x} y={y} width="1" height="1" />]
-                : [],
-            ),
-          );
-        })}
-      </svg>
+      {lines.map((line, lineIndex) => {
+        const chars = [...line];
+        const lineWidth = Math.max(1, chars.length * glyphWidth - 1);
+        return (
+          <svg
+            key={`${lineIndex}-${line}`}
+            viewBox={`0 0 ${lineWidth} ${glyphHeight}`}
+            width={lineWidth * unit}
+            height={glyphHeight * unit}
+            shapeRendering="crispEdges"
+            aria-hidden="true"
+          >
+            {chars.flatMap((char, charIndex) => {
+              const source = mini ? (MINI_GLYPHS[char] ?? MINI_GLYPHS["?"]) : (GLYPHS[char] ?? FALLBACK);
+              const glyph = !mini && variant === "bold" ? boldGlyph(source) : source;
+              return glyph.flatMap((row, y) =>
+                [...row].flatMap((cell, x) =>
+                  cell === "#"
+                    ? [<rect key={`${charIndex}-${x}-${y}`} x={charIndex * glyphWidth + x} y={y} width="1" height="1" />]
+                    : [],
+                ),
+              );
+            })}
+          </svg>
+        );
+      })}
     </span>
   );
 }

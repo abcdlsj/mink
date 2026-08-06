@@ -364,7 +364,7 @@ export function SpaceShell({
         }}
       >
         <header className="space-name-row">
-          <PixelWord text={space.data.name} className="space-name-pixel" />
+          <PixelWord text={space.data.name} className="space-name-pixel" variant="bold" />
           <button
             className="navigation-close icon-button"
             type="button"

@@ -986,6 +986,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .channel-header { height: 62px; min-height: 62px; }
 .space-name-row { display: flex; height: 62px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; border-bottom: 2px solid var(--ink); background: var(--panel); min-height: 62px; }
 .space-name-row { padding: 0 12px; }
+.pixel-word { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .space-name-pixel { display: inline-flex; color: var(--space-accent); }
 .space-name-pixel svg { display: block; width: auto; height: auto; flex: 0 0 auto; }
 .space-name-pixel svg rect { fill: currentColor; }
