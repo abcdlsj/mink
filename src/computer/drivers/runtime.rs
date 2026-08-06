@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     ffi::OsString,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
 };
@@ -213,6 +213,9 @@ impl CodexProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
+        if let Some((key, value)) = provider_environment(&codex_home).await? {
+            command.env(key, value);
+        }
         let mut executable_paths = Vec::new();
         if let Ok(current_executable) = std::env::current_exe()
             && let Some(parent) = current_executable.parent()
@@ -678,6 +681,45 @@ fn is_retryable_codex_failure(reason: &str) -> bool {
     .any(|marker| reason.contains(marker))
 }
 
+async fn provider_environment(
+    codex_home: &Path,
+) -> Result<Option<(String, String)>, ApplicationError> {
+    let Ok(encoded) = tokio::fs::read_to_string(codex_home.join("config.toml")).await else {
+        return Ok(None);
+    };
+    let Ok(config) = toml::from_str::<toml::Table>(&encoded) else {
+        return Ok(None);
+    };
+    let Some(provider_name) = config.get("model_provider").and_then(toml::Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(env_key) = config
+        .get("model_providers")
+        .and_then(toml::Value::as_table)
+        .and_then(|providers| providers.get(provider_name))
+        .and_then(toml::Value::as_table)
+        .and_then(|provider| provider.get("env_key"))
+        .and_then(toml::Value::as_str)
+        .filter(|key| !key.is_empty() && !key.contains(['=', '\0']))
+    else {
+        return Ok(None);
+    };
+
+    let from_auth = tokio::fs::read(codex_home.join("auth.json"))
+        .await
+        .ok()
+        .and_then(|encoded| serde_json::from_slice::<serde_json::Value>(&encoded).ok())
+        .and_then(|auth| {
+            auth.get(env_key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    let value = from_auth.or_else(|| std::env::var(env_key).ok());
+    Ok(value
+        .filter(|value| !value.is_empty())
+        .map(|value| (env_key.to_owned(), value)))
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
@@ -693,6 +735,30 @@ mod tests {
         },
         ids::{InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
+
+    #[tokio::test]
+    async fn codex_provider_environment_uses_the_declared_key_from_agent_auth() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("config.toml"),
+            "model_provider = \"local\"\n\n[model_providers.local]\nenv_key = \"LOCAL_API_KEY\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("auth.json"),
+            r#"{"LOCAL_API_KEY":"provider-secret"}"#,
+        )
+        .unwrap();
+
+        let environment = provider_environment(directory.path()).await.unwrap();
+
+        assert_eq!(
+            environment
+                .as_ref()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+            Some(("LOCAL_API_KEY", "provider-secret"))
+        );
+    }
 
     #[tokio::test]
     async fn codex_runtime_uses_structured_session_and_turn_methods() {

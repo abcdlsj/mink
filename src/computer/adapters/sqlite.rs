@@ -71,6 +71,7 @@ impl SqliteAdapter {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(5))
             .foreign_keys(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
         let mut connection = SqliteConnection::connect_with(&options)

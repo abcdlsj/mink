@@ -56,6 +56,10 @@ depends = ["lint-server", "lint-web"]
 description = "Run Rust unit, CLI, and PostgreSQL integration tests"
 run = "cargo test --all-features"
 
+[tasks.test-werewolf]
+description = "Run the live multi-Agent werewolf communication acceptance test"
+run = "cargo test --test werewolf_communication -- --ignored --nocapture"
+
 [tasks.test-web]
 description = "Run WebUI unit and component tests"
 run = "pnpm --dir web test"

@@ -332,6 +332,82 @@ pub fn write_computer_config(path: &Path, server: &Url, state_dir: &Path) -> Res
     Ok(())
 }
 
+pub fn default_codex_home() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("HOME is required for the live Codex test")?;
+    Ok(PathBuf::from(home).join(".codex"))
+}
+
+pub fn write_default_codex_computer_config(
+    path: &Path,
+    server: &Url,
+    state_dir: &Path,
+    max_concurrent_runs: usize,
+) -> Result<()> {
+    let codex_home = default_codex_home()?;
+    let base_path = codex_home
+        .parent()
+        .context("default Codex home has no parent")?
+        .join(".sumi")
+        .join("config.toml");
+    let mut config = if base_path.is_file() {
+        let source = std::fs::read_to_string(&base_path)
+            .with_context(|| format!("read default Sumi config at {}", base_path.display()))?;
+        toml::from_str::<toml::Value>(&source)
+            .with_context(|| format!("parse default Sumi config at {}", base_path.display()))?
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+    let root = config
+        .as_table_mut()
+        .context("default Sumi config root must be a TOML table")?;
+    let computer = root
+        .entry("computer".to_owned())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .context("default Sumi computer config must be a TOML table")?;
+    computer.insert(
+        "server_url".to_owned(),
+        toml::Value::String(server.to_string()),
+    );
+    computer.insert(
+        "state_dir".to_owned(),
+        toml::Value::String(state_dir.display().to_string()),
+    );
+    computer.insert(
+        "open_pairing_browser".to_owned(),
+        toml::Value::Boolean(false),
+    );
+    computer.insert(
+        "max_concurrent_runs".to_owned(),
+        toml::Value::Integer(i64::try_from(max_concurrent_runs)?),
+    );
+    computer.insert(
+        "per_agent_timeout_seconds".to_owned(),
+        toml::Value::Integer(600),
+    );
+    computer.insert(
+        "shutdown_grace_period_seconds".to_owned(),
+        toml::Value::Integer(1),
+    );
+    computer.insert(
+        "codex_config_source".to_owned(),
+        toml::Value::String(codex_home.join("config.toml").display().to_string()),
+    );
+    computer.insert(
+        "codex_auth_source".to_owned(),
+        toml::Value::String(codex_home.join("auth.json").display().to_string()),
+    );
+
+    std::fs::write(path, toml::to_string_pretty(&config)?)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
 pub fn write_builtin_computer_config(
     path: &Path,
     server: &Url,
@@ -370,6 +446,17 @@ pub fn spawn_computer(config: &Path) -> Result<SumiProcess> {
             config.as_os_str(),
         ],
         &[],
+    )
+}
+
+pub fn spawn_default_codex_computer(config: &Path) -> Result<SumiProcess> {
+    SumiProcess::spawn(
+        [
+            OsStr::new("computer"),
+            OsStr::new("--config"),
+            config.as_os_str(),
+        ],
+        [("SUMI_CODEX_COMMAND", OsStr::new("codex"))].as_slice(),
     )
 }
 
