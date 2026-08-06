@@ -45,9 +45,75 @@ const GLYPHS: Record<string, readonly string[]> = {
 
 const FALLBACK = GLYPHS["?"];
 
-export function PixelWord({ text, className }: { text: string; className?: string }) {
+const MINI_GLYPHS: Record<string, readonly string[]> = {
+  A: [".#.", "#.#", "###", "#.#", "#.#"],
+  B: ["##.", "#.#", "##.", "#.#", "##."],
+  C: [".##", "#..", "#..", "#..", ".##"],
+  D: ["##.", "#.#", "#.#", "#.#", "##."],
+  E: ["###", "#..", "##.", "#..", "###"],
+  F: ["###", "#..", "##.", "#..", "#.."],
+  G: [".##", "#..", "#.#", "#.#", ".##"],
+  H: ["#.#", "#.#", "###", "#.#", "#.#"],
+  I: ["###", ".#.", ".#.", ".#.", "###"],
+  J: ["..#", "..#", "..#", "#.#", ".#."],
+  K: ["#.#", "#.#", "##.", "#.#", "#.#"],
+  L: ["#..", "#..", "#..", "#..", "###"],
+  M: ["#.#", "###", "###", "#.#", "#.#"],
+  N: ["#.#", "###", "###", "#.#", "#.#"],
+  O: [".#.", "#.#", "#.#", "#.#", ".#."],
+  P: ["##.", "#.#", "##.", "#..", "#.."],
+  Q: [".#.", "#.#", "#.#", ".##", "..#"],
+  R: ["##.", "#.#", "##.", "#.#", "#.#"],
+  S: [".##", "#..", ".#.", "..#", "##."],
+  T: ["###", ".#.", ".#.", ".#.", ".#."],
+  U: ["#.#", "#.#", "#.#", "#.#", ".#."],
+  V: ["#.#", "#.#", "#.#", "#.#", ".#."],
+  W: ["#.#", "#.#", "###", "###", "#.#"],
+  X: ["#.#", "#.#", ".#.", "#.#", "#.#"],
+  Y: ["#.#", "#.#", ".#.", ".#.", ".#."],
+  Z: ["###", "..#", ".#.", "#..", "###"],
+  "0": [".#.", "#.#", "#.#", "#.#", ".#."],
+  "1": [".#.", "##.", ".#.", ".#.", "###"],
+  "2": ["##.", "..#", ".#.", "#..", "###"],
+  "3": ["##.", "..#", ".#.", "..#", "##."],
+  "4": ["#.#", "#.#", "###", "..#", "..#"],
+  "5": ["###", "#..", "##.", "..#", "##."],
+  "6": [".#.", "#..", "##.", "#.#", ".#."],
+  "7": ["###", "..#", ".#.", "#..", "#.."],
+  "8": [".#.", "#.#", ".#.", "#.#", ".#."],
+  "9": [".#.", "#.#", ".##", "..#", ".#."],
+  " ": ["...", "...", "...", "...", "..."],
+  "-": ["...", "...", "###", "...", "..."],
+  "_": ["...", "...", "...", "...", "###"],
+  "?": [".#.", "#.#", "..#", ".#.", ".#."],
+};
+
+function boldGlyph(glyph: readonly string[]): string[] {
+  const grid = glyph.map((row) => [...row]);
+  const out = grid.map((row) => [...row]);
+  for (let y = 0; y < grid.length; y += 1) {
+    for (let x = 0; x < grid[y].length; x += 1) {
+      if (grid[y][x] !== "#") continue;
+      if (x + 1 < grid[y].length) out[y][x + 1] = "#";
+      if (y + 1 < grid.length) out[y + 1][x] = "#";
+    }
+  }
+  return out.map((row) => row.join(""));
+}
+
+export function PixelWord({
+  text,
+  className,
+  variant = "standard",
+}: {
+  text: string;
+  className?: string;
+  variant?: "standard" | "bold" | "mini";
+}) {
   const normalized = [...text.toUpperCase()];
-  const glyphWidth = 6;
+  const mini = variant === "mini";
+  const glyphWidth = mini ? 4 : 6;
+  const glyphHeight = mini ? 5 : 7;
   const width = Math.max(1, normalized.length * glyphWidth - 1);
   const maxPixels = 200;
   const unit = Math.max(1, Math.min(4, Math.floor(maxPixels / width)));
@@ -59,14 +125,15 @@ export function PixelWord({ text, className }: { text: string; className?: strin
       aria-label={text}
     >
       <svg
-        viewBox={`0 0 ${width} 7`}
+        viewBox={`0 0 ${width} ${glyphHeight}`}
         width={width * unit}
-        height={7 * unit}
+        height={glyphHeight * unit}
         shapeRendering="crispEdges"
         aria-hidden="true"
       >
         {normalized.flatMap((char, charIndex) => {
-          const glyph = GLYPHS[char] ?? FALLBACK;
+          const source = mini ? (MINI_GLYPHS[char] ?? MINI_GLYPHS["?"]) : (GLYPHS[char] ?? FALLBACK);
+          const glyph = !mini && variant === "bold" ? boldGlyph(source) : source;
           return glyph.flatMap((row, y) =>
             [...row].flatMap((cell, x) =>
               cell === "#"
