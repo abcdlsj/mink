@@ -278,7 +278,9 @@ pub(super) fn run_dispatch_error_code(
         ApplicationError::PayloadTooLarge => "run_dispatch_payload_too_large",
         ApplicationError::PermissionDenied => "run_dispatch_permission_denied",
         ApplicationError::Conflict | ApplicationError::Domain(_) => "run_dispatch_conflict",
-        ApplicationError::ContextChanged => "run_dispatch_context_changed",
+        ApplicationError::ContextChanged | ApplicationError::StaleMessageContext { .. } => {
+            "run_dispatch_context_changed"
+        }
         ApplicationError::Unavailable => "run_dispatch_unavailable",
         ApplicationError::Internal => "run_dispatch_internal",
     }
@@ -581,7 +583,7 @@ pub(super) async fn execute_agent_action(
                 },
             )
             .await
-            .map_err(api_to_capability)?;
+            .map_err(app_to_capability)?;
             record_agent_activity(
                 state,
                 context.space_id.into_uuid(),
@@ -1487,8 +1489,36 @@ pub(super) fn api_to_capability(error: ApiError) -> capability::Error {
 pub(super) fn app_to_capability(
     error: crate::server::application::ports::ApplicationError,
 ) -> capability::Error {
-    let api = application_error(error);
-    api_to_capability(api)
+    let mut details = std::collections::BTreeMap::new();
+    if let crate::server::application::ports::ApplicationError::StaleMessageContext {
+        expected,
+        actual,
+    } = &error
+    {
+        details.insert("expected_snapshot".to_owned(), serde_json::json!(expected));
+        details.insert("actual_snapshot".to_owned(), serde_json::json!(actual));
+    }
+    let class = classify(&error);
+    capability::Error {
+        code: capability_code(class.code),
+        message: class.message.to_owned(),
+        retryable: class.retryable,
+        details,
+    }
+}
+
+fn capability_code(code: &str) -> capability::ErrorCode {
+    match code {
+        "invalid_argument" => capability::ErrorCode::InvalidArgument,
+        "unauthenticated" => capability::ErrorCode::Unauthenticated,
+        "permission_denied" => capability::ErrorCode::PermissionDenied,
+        "not_found" => capability::ErrorCode::NotFound,
+        "conflict" => capability::ErrorCode::Conflict,
+        "context_changed" => capability::ErrorCode::ContextChanged,
+        "rate_limited" => capability::ErrorCode::RateLimited,
+        "unavailable" => capability::ErrorCode::Unavailable,
+        _ => capability::ErrorCode::Internal,
+    }
 }
 
 /// Authorizes a Run-scoped call. The Computer's own token plus a `working` Run hosted by that

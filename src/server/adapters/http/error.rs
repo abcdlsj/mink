@@ -26,14 +26,6 @@ impl ApiError {
         }
     }
 
-    pub(in crate::server::adapters) fn permission_denied() -> Self {
-        Self {
-            status: StatusCode::FORBIDDEN,
-            code: "permission_denied",
-            message: "Member cannot access this resource",
-        }
-    }
-
     pub(in crate::server::adapters) fn not_found() -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
@@ -62,8 +54,152 @@ impl ApiError {
         Self {
             status: StatusCode::CONFLICT,
             code: "context_changed",
-            message: "Message context changed before the write",
+            message: "Run context changed before the write; re-read the current context, then retry once",
         }
+    }
+}
+
+/// Single source of truth for mapping an `ApplicationError` to the HTTP wire
+/// contract shared by REST responses and Agent capability responses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server::adapters) struct ErrorClass {
+    pub(in crate::server::adapters) status: StatusCode,
+    pub(in crate::server::adapters) code: &'static str,
+    pub(in crate::server::adapters) message: &'static str,
+    pub(in crate::server::adapters) retryable: bool,
+}
+
+pub(in crate::server::adapters) fn classify(
+    error: &crate::server::application::ports::ApplicationError,
+) -> ErrorClass {
+    use crate::server::application::ports::ApplicationError;
+    match error {
+        ApplicationError::NotFound => ErrorClass {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            message: "resource was not found",
+            retryable: false,
+        },
+        ApplicationError::Unauthenticated => ErrorClass {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthenticated",
+            message: "credential is missing or expired",
+            retryable: false,
+        },
+        ApplicationError::PayloadTooLarge => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "request payload exceeds the configured limit",
+            retryable: false,
+        },
+        ApplicationError::PermissionDenied => ErrorClass {
+            status: StatusCode::FORBIDDEN,
+            code: "permission_denied",
+            message: "actor is not allowed to perform this action",
+            retryable: false,
+        },
+        ApplicationError::Conflict => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
+            message: "request conflicts with current state",
+            retryable: false,
+        },
+        ApplicationError::ContextChanged => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "context_changed",
+            message: "Run context changed before the write; re-read the current context, then retry once",
+            retryable: false,
+        },
+        ApplicationError::StaleMessageContext { .. } => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "context_changed",
+            message: "Message context changed before the write; re-read the channel/thread to refresh context, then retry once",
+            retryable: false,
+        },
+        ApplicationError::Unavailable => ErrorClass {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "unavailable",
+            message: "external dependency is unavailable",
+            retryable: true,
+        },
+        ApplicationError::Internal => ErrorClass {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "internal",
+            message: "server adapter failed",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::GovernorRequired) => ErrorClass {
+            status: StatusCode::FORBIDDEN,
+            code: "permission_denied",
+            message: "Space Owner or Admin access is required",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::InvalidCredential) => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "display name, email, and a password of at least 12 characters are required",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::InvalidPairing) => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "Computer pairing request is invalid",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::InvalidChannelSlug) => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "Use 1-32 lowercase ASCII letters or numbers separated by single hyphens for the Channel slug. Use topic for the human-readable description; topic supports Unicode.",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::PairingLapsed) => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "pairing_lapsed",
+            message: "Computer pairing expired or was already confirmed",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::InvalidAttachment) => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "Attachment name and media type are required",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::AttachmentContentMismatch) => ErrorClass {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_argument",
+            message: "Attachment size or SHA-256 does not match uploaded content",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::AttachmentNotOpen) => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
+            message: "Attachment upload is not open",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::AttachmentNotOwned) => ErrorClass {
+            status: StatusCode::FORBIDDEN,
+            code: "permission_denied",
+            message: "actor is not allowed to perform this action",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::AttachmentNotReady) => ErrorClass {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            message: "resource was not found",
+            retryable: false,
+        },
+        ApplicationError::Domain(DomainError::ComputerHasAgents) => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "computer_has_agents",
+            message: "Computer still has assigned Agents",
+            retryable: false,
+        },
+        ApplicationError::Domain(_) => ErrorClass {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
+            message: "request conflicts with current state",
+            retryable: false,
+        },
     }
 }
 
@@ -79,65 +215,11 @@ pub(super) fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
 pub(in crate::server::adapters) fn application_error(
     error: crate::server::application::ports::ApplicationError,
 ) -> ApiError {
-    use crate::server::application::ports::ApplicationError;
-    match error {
-        ApplicationError::NotFound => ApiError::not_found(),
-        ApplicationError::Unauthenticated => ApiError::unauthenticated(),
-        ApplicationError::Domain(DomainError::GovernorRequired) => ApiError {
-            status: StatusCode::FORBIDDEN,
-            code: "permission_denied",
-            message: "Space Owner or Admin access is required",
-        },
-        ApplicationError::Domain(DomainError::InvalidCredential) => ApiError::invalid(
-            "display name, email, and a password of at least 12 characters are required",
-        ),
-        ApplicationError::Domain(DomainError::InvalidPairing) => {
-            ApiError::invalid("Computer pairing request is invalid")
-        }
-        ApplicationError::Domain(DomainError::InvalidChannelSlug) => ApiError::invalid(
-            "Use 1-32 lowercase ASCII letters or numbers separated by single hyphens for the Channel slug. Use topic for the human-readable description; topic supports Unicode.",
-        ),
-        ApplicationError::Domain(DomainError::PairingLapsed) => ApiError {
-            status: StatusCode::CONFLICT,
-            code: "pairing_lapsed",
-            message: "Computer pairing expired or was already confirmed",
-        },
-        ApplicationError::PayloadTooLarge => ApiError::invalid("Attachment is too large"),
-        ApplicationError::Domain(DomainError::InvalidAttachment) => {
-            ApiError::invalid("Attachment name and media type are required")
-        }
-        ApplicationError::Domain(DomainError::AttachmentContentMismatch) => {
-            ApiError::invalid("Attachment size or SHA-256 does not match uploaded content")
-        }
-        ApplicationError::Domain(DomainError::AttachmentNotOpen) => ApiError {
-            status: StatusCode::CONFLICT,
-            code: "conflict",
-            message: "Attachment upload is not open",
-        },
-        ApplicationError::Domain(DomainError::AttachmentNotOwned) => ApiError::permission_denied(),
-        ApplicationError::Domain(DomainError::AttachmentNotReady) => ApiError::not_found(),
-        ApplicationError::PermissionDenied => ApiError {
-            status: StatusCode::FORBIDDEN,
-            code: "permission_denied",
-            message: "actor is not allowed to perform this action",
-        },
-        ApplicationError::ContextChanged => ApiError::context_changed(),
-        ApplicationError::Domain(DomainError::ComputerHasAgents) => ApiError {
-            status: StatusCode::CONFLICT,
-            code: "computer_has_agents",
-            message: "Computer still has assigned Agents",
-        },
-        ApplicationError::Domain(_) | ApplicationError::Conflict => ApiError {
-            status: StatusCode::CONFLICT,
-            code: "conflict",
-            message: "request conflicts with current state",
-        },
-        ApplicationError::Unavailable => ApiError {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            code: "unavailable",
-            message: "dependency is unavailable",
-        },
-        ApplicationError::Internal => ApiError::internal(),
+    let class = classify(&error);
+    ApiError {
+        status: class.status,
+        code: class.code,
+        message: class.message,
     }
 }
 
@@ -183,66 +265,47 @@ impl From<ApplicationError> for HttpError {
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
-        let (status, code, message, retryable) = match self.0 {
-            ApplicationError::Domain(_) | ApplicationError::Conflict => (
-                StatusCode::CONFLICT,
-                "conflict",
-                "request conflicts with current state",
-                false,
-            ),
-            ApplicationError::NotFound => (
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "resource was not found",
-                false,
-            ),
-            ApplicationError::Unauthenticated => (
-                StatusCode::UNAUTHORIZED,
-                "unauthenticated",
-                "credential is missing or expired",
-                false,
-            ),
-            ApplicationError::PayloadTooLarge => (
-                StatusCode::BAD_REQUEST,
-                "invalid_argument",
-                "request payload exceeds the configured limit",
-                false,
-            ),
-            ApplicationError::PermissionDenied => (
-                StatusCode::FORBIDDEN,
-                "permission_denied",
-                "actor is not allowed to perform this action",
-                false,
-            ),
-            ApplicationError::ContextChanged => (
-                StatusCode::CONFLICT,
-                "context_changed",
-                "run context changed",
-                true,
-            ),
-            ApplicationError::Unavailable => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "unavailable",
-                "external dependency is unavailable",
-                true,
-            ),
-            ApplicationError::Internal => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "server adapter failed",
-                false,
-            ),
-        };
+        let class = classify(&self.0);
         (
-            status,
+            class.status,
             Json(ErrorBody {
                 error: ErrorDetail {
-                    code,
-                    message,
-                    retryable,
+                    code: class.code,
+                    message: class.message,
+                    retryable: class.retryable,
                 },
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::application::ports::ApplicationError;
+
+    #[test]
+    fn classify_context_changed_is_actionable_and_not_blindly_retryable() {
+        let stale = classify(&ApplicationError::StaleMessageContext {
+            expected: 4,
+            actual: 5,
+        });
+        assert_eq!(stale.code, "context_changed");
+        assert!(!stale.retryable);
+        assert!(stale.message.contains("re-read the channel/thread"));
+        assert!(stale.message.contains("retry once"));
+
+        let changed = classify(&ApplicationError::ContextChanged);
+        assert_eq!(changed.code, "context_changed");
+        assert!(!changed.retryable);
+        assert!(changed.message.contains("re-read the current context"));
+    }
+
+    #[test]
+    fn classify_marks_transient_dependencies_retryable() {
+        let unavailable = classify(&ApplicationError::Unavailable);
+        assert_eq!(unavailable.code, "unavailable");
+        assert!(unavailable.retryable);
     }
 }

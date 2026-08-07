@@ -1337,6 +1337,16 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
         .await
         .unwrap_err();
     assert_eq!(stale_message.code, capability::ErrorCode::ContextChanged);
+    assert!(!stale_message.retryable);
+    assert!(stale_message.message.contains("re-read the channel/thread"));
+    assert_eq!(
+        stale_message.details["expected_snapshot"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        stale_message.details["actual_snapshot"],
+        serde_json::json!(2)
+    );
     let stale_done = fixture
         .execute(capability::Action::TaskDone {
             result: "must not finish".into(),

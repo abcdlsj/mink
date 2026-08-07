@@ -181,6 +181,9 @@ pub(super) async fn create_root_message(
     Json(body): Json<CreateMessageBody>,
 ) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
     let member_id = channel_member(&state, &jar, channel_id).await?;
+    if body.body_markdown.trim().is_empty() {
+        return Err(ApiError::invalid("Message body is required"));
+    }
     let message_id = insert_message(
         &state,
         channel_id,
@@ -193,7 +196,8 @@ pub(super) async fn create_root_message(
         },
         body,
     )
-    .await?;
+    .await
+    .map_err(application_error)?;
     let row = state
         .read
         .message(message_id)
@@ -282,6 +286,9 @@ pub(super) async fn create_thread_reply(
         .ok_or_else(ApiError::not_found)?;
     let channel_id = row.channel_id;
     let member_id = channel_member(&state, &jar, channel_id).await?;
+    if body.body_markdown.trim().is_empty() {
+        return Err(ApiError::invalid("Message body is required"));
+    }
     let message_id = insert_message(
         &state,
         channel_id,
@@ -294,7 +301,8 @@ pub(super) async fn create_thread_reply(
         },
         body,
     )
-    .await?;
+    .await
+    .map_err(application_error)?;
     let row = state
         .read
         .message(message_id)
@@ -385,10 +393,7 @@ pub(super) async fn insert_message(
     author: Uuid,
     context: MessageWriteContext,
     body: CreateMessageBody,
-) -> Result<Uuid, ApiError> {
-    if body.body_markdown.trim().is_empty() {
-        return Err(ApiError::invalid("Message body is required"));
-    }
+) -> Result<Uuid, crate::server::application::ports::ApplicationError> {
     let message_id = MessageId::from_uuid(Uuid::now_v7());
     let mut storage = state.storage.clone();
     let published = PublishMessage::execute(
@@ -415,8 +420,7 @@ pub(super) async fn insert_message(
             now: OffsetDateTime::now_utc(),
         },
     )
-    .await
-    .map_err(application_error)?;
+    .await?;
     for item_id in published.hard_item_ids {
         let mut storage = state.storage.clone();
         if let Err(error) =

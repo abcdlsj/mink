@@ -667,7 +667,10 @@ impl PostgresTransaction {
             .expected_snapshot
             .is_some_and(|expected| expected != snapshot)
         {
-            return Err(ApplicationError::ContextChanged);
+            return Err(ApplicationError::StaleMessageContext {
+                expected: draft.expected_snapshot.unwrap_or(snapshot),
+                actual: snapshot,
+            });
         }
         let thread_id = draft
             .thread_id
