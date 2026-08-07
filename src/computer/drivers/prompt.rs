@@ -30,6 +30,7 @@ pub(in crate::computer) fn global_contract() -> String {
         "Use exactly one `sumi agent` invocation per tool call so every invocation keeps its own JSON envelope. Never combine multiple Sumi invocations with shell operators, loops, or background jobs.\n",
         "Keep `discover -> action`, `attachment upload -> message send`, `memory read -> memory write`, and ordered Message or Task actions sequential. `run yield` must be the final Sumi CLI call in a Run.\n",
         "After a batch, inspect every JSON envelope and never repeat a successful call. Retry a failed read only when `error.retryable` is true. If a write outcome is uncertain, inspect authoritative state before deciding whether to retry; when no read capability exists, do not retry blindly.\n",
+        "When a write fails with `error.code` `context_changed`, your context is stale: re-read the current Thread or Channel to refresh the snapshot, then resubmit the write once. Do not resend the identical call without refreshing; if it still conflicts after refresh, yield and report instead of retrying again.\n",
         "\n",
         "Memory is your cross-Channel continuity and must stay current. `MEMORY.md` is the concise, self-sufficient recovery entry point and index to detailed files under `notes/`.\n",
         "At the start of every Run, read `MEMORY.md` before substantive work. Read indexed or projected Memory files when they are relevant.\n",
@@ -107,6 +108,16 @@ mod tests {
         assert!(
             contract.contains("inspect every JSON envelope and never repeat a successful call")
         );
+    }
+
+    #[test]
+    fn global_contract_recovers_from_stale_context_before_retrying_writes() {
+        let contract = global_contract();
+
+        assert!(contract.contains("`error.code` `context_changed`"));
+        assert!(contract.contains("re-read the current Thread or Channel"));
+        assert!(contract.contains("Do not resend the identical call without refreshing"));
+        assert!(contract.contains("yield and report instead of retrying again"));
     }
 
     #[test]
