@@ -58,11 +58,13 @@ const MONITOR_HTML: &str = r##"<!doctype html>
     .event { display:grid; grid-template-columns:48px minmax(0,1fr); gap:10px; align-items:start; overflow-wrap:anywhere; }
     .avatar { display:block; width:40px; height:40px; margin-block-start:20px; border:2px solid var(--ink); border-radius:6px; background:var(--paper); box-shadow:2px 2px 0 var(--ink); image-rendering:pixelated; overflow:hidden; }
     .avatar-human { place-items:center; background:var(--strong); color:var(--muted); font:700 18px/1 "JetBrains Mono",monospace; }
+    .event[data-god="true"] .avatar { border-color:var(--accent); box-shadow:2px 2px 0 var(--accent); }
     .event-content { min-width:0; max-width:840px; }
     .event-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; min-height:20px; margin-block-end:5px; }
     .actor { font-weight:700; }
     .route { color:var(--muted); font-size:12px; }
     .kind-label { color:var(--accent); font:700 10px/1.5 "JetBrains Mono",monospace; letter-spacing:.06em; text-transform:uppercase; }
+    .god-badge { display:inline-flex; margin-inline-start:6px; padding:2px 5px; border:1px solid var(--accent); border-radius:3px; color:var(--accent); font:700 10px/1 "JetBrains Mono",monospace; letter-spacing:.06em; vertical-align:middle; }
     .bubble { width:fit-content; max-width:100%; padding:12px 14px; border-radius:4px 12px 12px; background:var(--panel); }
     .message-body { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; line-height:1.65; }
     .message-body[data-redacted="true"] { color:var(--muted); font-style:italic; }
@@ -84,6 +86,7 @@ const MONITOR_HTML: &str = r##"<!doctype html>
     .direct-pane { position:sticky; top:24px; min-width:0; }
     .direct-list { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
     .direct-item { display:grid; grid-template-columns:34px minmax(0,1fr); gap:10px; align-items:center; min-width:0; padding:10px; border-radius:8px; background:var(--panel); }
+    .direct-item[data-god="true"] { background:var(--accent-soft); }
     .direct-item .avatar { width:32px; height:32px; margin:0; }
     .direct-title { min-width:0; font-weight:700; overflow-wrap:anywhere; }
     .direct-preview { margin-block-start:2px; color:var(--muted); font-size:12px; }
@@ -145,7 +148,7 @@ const MONITOR_HTML: &str = r##"<!doctype html>
     }
     function shell(event,label){
       const item=node("li","event"), content=node("div","event-content"), head=node("div","event-head"), actor=node("span","actor",event.actor??"系统"), route=node("span","route",event.route??""), kind=node("span","kind-label",label);
-      head.append(actor); if(route.textContent)head.append(route); head.append(kind); content.append(head); item.append(avatar(event.actor??"系统"),content); return {item,content};
+      if(event.actor==="God"){item.dataset.god="true";const badge=node("span","god-badge","GOD");badge.title="游戏主持";head.append(actor,badge);}else head.append(actor); if(route.textContent)head.append(route); head.append(kind); content.append(head); item.append(avatar(event.actor??"系统"),content); return {item,content};
     }
     function renderMessage(event){
       const isDirect=event.channel_kind==="direct",{item,content}=shell(event,isDirect?"DM":"Message"),bubble=node("div","bubble"),body=node("p","message-body",isDirect?"私聊内容受 Channel 权限保护。":event.body??"消息正文不可用");
@@ -184,6 +187,7 @@ const MONITOR_HTML: &str = r##"<!doctype html>
       directCount.textContent=`${groups.size} 个会话`;
       directs.replaceChildren(...(groups.size?[...groups.values()].reverse().map(group=>{
         const item=node("li","direct-item"),latest=group.latest,title=node("div","direct-title",group.participants.join(" · ")),preview=node("div","direct-preview","内容受 Channel 权限保护"),detail=node("div","direct-meta",`${group.count} 条消息 · 最近 seq ${latest.channel_seq??"?"}`),content=node("div");
+        if(group.participants.includes("God")){item.dataset.god="true";const badge=node("span","god-badge","GOD");badge.title="游戏主持";title.append(badge);}
         content.append(title,preview,detail); item.append(avatar(group.participants[0]??"系统"),content); return item;
       }):[node("li","direct-empty","暂无私聊会话。")]));
       renderedDirectKey=nextKey;
