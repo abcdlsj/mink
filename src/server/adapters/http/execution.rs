@@ -278,9 +278,7 @@ pub(super) fn run_dispatch_error_code(
         ApplicationError::PayloadTooLarge => "run_dispatch_payload_too_large",
         ApplicationError::PermissionDenied => "run_dispatch_permission_denied",
         ApplicationError::Conflict | ApplicationError::Domain(_) => "run_dispatch_conflict",
-        ApplicationError::ContextChanged | ApplicationError::StaleMessageContext { .. } => {
-            "run_dispatch_context_changed"
-        }
+        ApplicationError::ContextChanged => "run_dispatch_context_changed",
         ApplicationError::Unavailable => "run_dispatch_unavailable",
         ApplicationError::Internal => "run_dispatch_internal",
     }
@@ -486,10 +484,6 @@ pub(super) async fn execute_agent_action(
             let message_preview = agent_activity_preview(&send.body);
             let attachment_count = send.attachment_ids.len();
             let handles_item = send.handle_item_id.is_some();
-            let expected_snapshot = send.snapshot_sequence.or_else(|| {
-                matches!(&send.target, capability::MessageTarget::Focus)
-                    .then_some(context.message_snapshot_sequence)
-            });
             let (channel_id, thread_id) = match send.target {
                 capability::MessageTarget::Focus => {
                     let mut storage = state.storage.clone();
@@ -568,7 +562,6 @@ pub(super) async fn execute_agent_action(
                     handled_item: send
                         .handle_item_id
                         .map(|item_id| (context.run_id.into_uuid(), item_id.into_uuid())),
-                    expected_snapshot,
                 },
                 CreateMessageBody {
                     body_markdown: send.body,
@@ -1489,21 +1482,12 @@ pub(super) fn api_to_capability(error: ApiError) -> capability::Error {
 pub(super) fn app_to_capability(
     error: crate::server::application::ports::ApplicationError,
 ) -> capability::Error {
-    let mut details = std::collections::BTreeMap::new();
-    if let crate::server::application::ports::ApplicationError::StaleMessageContext {
-        expected,
-        actual,
-    } = &error
-    {
-        details.insert("expected_snapshot".to_owned(), serde_json::json!(expected));
-        details.insert("actual_snapshot".to_owned(), serde_json::json!(actual));
-    }
     let class = classify(&error);
     capability::Error {
         code: capability_code(class.code),
         message: class.message.to_owned(),
         retryable: class.retryable,
-        details,
+        details: std::collections::BTreeMap::new(),
     }
 }
 

@@ -281,7 +281,6 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
                         mention_all: true,
                         attachment_ids: Vec::new(),
                         handled_item: None,
-                        expected_snapshot: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await
@@ -388,7 +387,6 @@ async fn agent_messages_do_not_create_ambient_items_for_other_agents() {
                         mention_all: false,
                         attachment_ids: Vec::new(),
                         handled_item: None,
-                        expected_snapshot: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await
@@ -422,7 +420,6 @@ async fn agent_messages_do_not_create_ambient_items_for_other_agents() {
                         mention_all: false,
                         attachment_ids: Vec::new(),
                         handled_item: None,
-                        expected_snapshot: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await
@@ -568,7 +565,6 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
                             mention_all: false,
                             attachment_ids: Vec::new(),
                             handled_item: None,
-                            expected_snapshot: None,
                             now: OffsetDateTime::now_utc(),
                         })
                         .await
@@ -743,7 +739,6 @@ async fn concurrent_ambient_messages_accumulate_into_one_bounded_aggregate() {
                                         mention_all: false,
                                         attachment_ids: Vec::new(),
                                         handled_item: None,
-                                        expected_snapshot: None,
                                         now: OffsetDateTime::now_utc(),
                                     })
                                     .await
@@ -940,7 +935,6 @@ async fn channel_member_activity_preserves_order_and_stops_after_leave() {
                         mention_all: false,
                         attachment_ids: Vec::new(),
                         handled_item: None,
-                        expected_snapshot: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await
@@ -977,7 +971,6 @@ async fn channel_member_activity_preserves_order_and_stops_after_leave() {
                         mention_all: false,
                         attachment_ids: Vec::new(),
                         handled_item: None,
-                        expected_snapshot: None,
                         now: OffsetDateTime::now_utc(),
                     })
                     .await

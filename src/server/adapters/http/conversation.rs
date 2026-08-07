@@ -4,7 +4,6 @@ pub(super) struct MessageWriteContext {
     pub(in crate::server::adapters) idempotency_key: IdempotencyKey,
     pub(in crate::server::adapters) thread_id: Option<Uuid>,
     pub(in crate::server::adapters) handled_item: Option<(Uuid, Uuid)>,
-    pub(in crate::server::adapters) expected_snapshot: Option<u64>,
 }
 
 pub(super) async fn list_channels(
@@ -192,7 +191,6 @@ pub(super) async fn create_root_message(
             idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             thread_id: None,
             handled_item: None,
-            expected_snapshot: None,
         },
         body,
     )
@@ -297,7 +295,6 @@ pub(super) async fn create_thread_reply(
             idempotency_key: IdempotencyKey::from_uuid(idempotency_header(&headers)?),
             thread_id: Some(thread_id),
             handled_item: None,
-            expected_snapshot: None,
         },
         body,
     )
@@ -416,7 +413,6 @@ pub(super) async fn insert_message(
             handled_item: context.handled_item.map(|(run_id, item_id)| {
                 (RunId::from_uuid(run_id), InboxItemId::from_uuid(item_id))
             }),
-            expected_snapshot: context.expected_snapshot,
             now: OffsetDateTime::now_utc(),
         },
     )

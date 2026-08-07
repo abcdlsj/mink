@@ -37,8 +37,6 @@ pub(in crate::server) enum ApplicationError {
     Conflict,
     #[error("run context changed")]
     ContextChanged,
-    #[error("message context changed (expected {expected}, actual {actual})")]
-    StaleMessageContext { expected: u64, actual: u64 },
     #[error("external dependency is unavailable")]
     Unavailable,
     #[error("server adapter failed")]
@@ -363,7 +361,6 @@ pub(in crate::server) struct MessageDraft {
     pub(in crate::server) mention_all: bool,
     pub(in crate::server) attachment_ids: Vec<AttachmentId>,
     pub(in crate::server) handled_item: Option<(RunId, InboxItemId)>,
-    pub(in crate::server) expected_snapshot: Option<u64>,
     pub(in crate::server) now: time::OffsetDateTime,
 }
 

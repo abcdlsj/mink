@@ -645,13 +645,11 @@ impl PostgresTransaction {
         &mut self,
         draft: MessageDraft,
     ) -> Result<PublishedMessage, ApplicationError> {
-        let channel = sqlx::query(
-            "SELECT space_id,kind,next_seq-1 AS snapshot FROM channels WHERE id=$1 FOR UPDATE",
-        )
-        .bind(draft.channel_id.into_uuid())
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(map_sqlx)?;
+        let channel = sqlx::query("SELECT space_id,kind FROM channels WHERE id=$1 FOR UPDATE")
+            .bind(draft.channel_id.into_uuid())
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
         let space_id: Uuid = channel.get("space_id");
         let channel_kind: String = channel.get("kind");
         let author_is_agent: bool =
@@ -661,17 +659,6 @@ impl PostgresTransaction {
                 .fetch_one(&mut *self.connection)
                 .await
                 .map_err(map_sqlx)?;
-        let snapshot = u64::try_from(channel.get::<i64, _>("snapshot"))
-            .map_err(|_| ApplicationError::Internal)?;
-        if draft
-            .expected_snapshot
-            .is_some_and(|expected| expected != snapshot)
-        {
-            return Err(ApplicationError::StaleMessageContext {
-                expected: draft.expected_snapshot.unwrap_or(snapshot),
-                actual: snapshot,
-            });
-        }
         let thread_id = draft
             .thread_id
             .unwrap_or_else(|| ThreadId::from_uuid(draft.message_id.into_uuid()));

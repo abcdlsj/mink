@@ -434,7 +434,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: Some(focus_id),
             handled_item: None,
-            expected_snapshot: None,
         },
         CreateMessageBody {
             body_markdown: "same Focus".into(),
@@ -483,7 +482,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: None,
             handled_item: None,
-            expected_snapshot: None,
         },
         CreateMessageBody {
             body_markdown: "different Focus".into(),
@@ -526,7 +524,6 @@ async fn message_hard_items_attach_same_focus_and_notice_different_focus() {
             idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
             thread_id: Some(focus_id),
             handled_item: None,
-            expected_snapshot: None,
         },
         CreateMessageBody {
             body_markdown: "after terminal run".into(),
@@ -1290,7 +1287,7 @@ async fn capability_message_send_mounts_ready_attachments_from_uploader() {
 }
 
 #[tokio::test]
-async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
+async fn channel_read_is_authorized_and_chat_writes_are_not_snapshot_gated() {
     let mut fixture = CapabilityFixture::create().await;
     let channel_id: Uuid =
         sqlx::query_scalar("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
@@ -1326,27 +1323,17 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
             .await
             .unwrap();
 
-    let stale_message = fixture
+    let committed = fixture
         .execute(capability::Action::MessageSend(capability::MessageSend {
             target: capability::MessageTarget::Focus,
-            body: "must not commit".into(),
+            body: "must commit".into(),
             attachment_ids: Vec::new(),
             handle_item_id: None,
             snapshot_sequence: None,
         }))
         .await
-        .unwrap_err();
-    assert_eq!(stale_message.code, capability::ErrorCode::ContextChanged);
-    assert!(!stale_message.retryable);
-    assert!(stale_message.message.contains("re-read the channel/thread"));
-    assert_eq!(
-        stale_message.details["expected_snapshot"],
-        serde_json::json!(1)
-    );
-    assert_eq!(
-        stale_message.details["actual_snapshot"],
-        serde_json::json!(2)
-    );
+        .unwrap();
+    assert!(committed["message_id"].is_string());
     let stale_done = fixture
         .execute(capability::Action::TaskDone {
             result: "must not finish".into(),
@@ -1357,14 +1344,14 @@ async fn channel_read_is_authorized_and_stale_writes_are_rejected() {
     assert_eq!(stale_done.code, capability::ErrorCode::ContextChanged);
     let facts: (String, String, i64) = sqlx::query_as(
             "SELECT tasks.status,runs.status, \
-             (SELECT count(*) FROM messages WHERE body_markdown IN ('must not commit','must not finish')) \
+             (SELECT count(*) FROM messages WHERE body_markdown IN ('must commit','must not finish')) \
              FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
         )
         .bind(task_id.into_uuid())
         .fetch_one(&fixture.state.pool)
         .await
         .unwrap();
-    assert_eq!(facts, ("in_progress".into(), "working".into(), 0));
+    assert_eq!(facts, ("in_progress".into(), "working".into(), 1));
     fixture.destroy().await;
 }
 

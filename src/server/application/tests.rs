@@ -2125,7 +2125,6 @@ async fn publishing_a_reply_refreshes_the_thread_and_each_notified_inbox() {
             mention_all: false,
             attachment_ids: Vec::new(),
             handled_item: None,
-            expected_snapshot: None,
             now: OffsetDateTime::UNIX_EPOCH,
         },
     )
@@ -2414,7 +2413,6 @@ async fn publishing_a_message_requires_ready_attachments_from_the_same_space() {
         mention_all: false,
         attachment_ids,
         handled_item: None,
-        expected_snapshot: None,
         now,
     };
 
