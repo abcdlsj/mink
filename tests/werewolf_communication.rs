@@ -1,13 +1,27 @@
+//! Live collaboration acceptance test using a Werewolf scenario.
+//!
+//! Sumi is a Human-Agent collaboration platform. Werewolf is only a scenario
+//! used to exercise role-based collaboration and action-driven communication;
+//! the platform has no game-specific feature and this test must not invent one.
+//!
+//! Core principle:
+//! - Agents are never made to obey behavior through prompt text.
+//! - Agents collaborate through the rules carried by their Role and through
+//!   generic platform actions (messages, private DMs, memory, structured
+//!   mentions). The host only publishes game-state facts.
+//! - Collaboration must emerge naturally: the test waits for the facts the
+//!   agents produce and never narrates step-by-step instructions.
+
 mod support;
 
 use std::{
+    collections::BTreeSet,
     net::SocketAddr,
     path::PathBuf,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, ensure};
-use futures_util::future::try_join_all;
 use reqwest::{Client, StatusCode, header};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -22,6 +36,7 @@ use support::{
 };
 
 const PHASE_TIMEOUT: Duration = Duration::from_secs(600);
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(600);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy)]
@@ -38,26 +53,9 @@ struct LiveAgent {
 }
 
 #[derive(Clone, Copy)]
-struct RoleAssignment {
-    agent: LiveAgent,
-    channel_id: Uuid,
-    message_id: Uuid,
-    thread_id: Uuid,
-}
-
-#[derive(Clone, Copy)]
 struct PublicPhase {
     message_id: Uuid,
     thread_id: Uuid,
-}
-
-#[derive(Clone, Copy)]
-struct AgentDmExchange {
-    channel_id: Uuid,
-    source_id: Uuid,
-    source_message_id: Uuid,
-    target_message_id: Uuid,
-    target_id: Uuid,
 }
 
 #[derive(sqlx::FromRow)]
@@ -110,6 +108,27 @@ const AGENT_PROFILES: [AgentProfile; 4] = [
         secret_role: "村民",
     },
 ];
+
+const PUBLIC_RULES: &str = concat!(
+    "公开规则（所有玩家共同遵守）：\n",
+    "1. 本局共四名玩家：Aster、Briar、Cedar、Dawn；主持人 Process_Test_Owner 不是玩家。\n",
+    "2. 阶段按顺序推进：白天公开讨论、夜晚私下协商、公开投票、主持人公布结果。\n",
+    "3. 白天在 #werewolf 频道进行公开讨论，发言只能基于公开事实。\n",
+    "4. 夜晚进行私下协商：公开投票前，每名玩家至少与一名其他玩家完成一次私下信息交换；对象和内容自行决定，通过私信完成。\n",
+    "5. 公开投票时，在投票消息的线程中回复，正文用 @玩家名 提及你投票的对象；只能投一名玩家，不能投自己。\n",
+    "6. 秘密身份和私聊内容在结果公布前属于私人事实，不得写入公开频道、公开消息或 Memory。\n",
+);
+
+fn role_text(profile: AgentProfile) -> String {
+    format!(
+        "你是玩家 {}，参加一局四人狼人杀。\n\n{}\n你的秘密身份是{}，在结果公布前不得公开。",
+        profile.name, PUBLIC_RULES, profile.secret_role
+    )
+}
+
+fn secret_identity_phrase(profile: AgentProfile) -> String {
+    format!("你的秘密身份是{}", profile.secret_role)
+}
 
 #[tokio::test]
 #[ignore = "requires the default Codex home and a configured Builtin provider"]
@@ -247,69 +266,54 @@ async fn run_werewolf_game(database: &TestDatabase) -> Result<()> {
         pool: &pool,
     };
 
-    let role_assignments = assign_roles(&client, &server_url, &owner, space.id, &agents).await?;
-    for assignment in &role_assignments {
-        wait_for_item_handled(
-            &pool,
-            assignment.message_id,
-            assignment.agent.member_id,
-            PHASE_TIMEOUT,
-        )
-        .await?;
-        assert_direct_role_channel(&pool, *assignment).await?;
-    }
-    wait_for_agents_quiet(&client, &server_url, &owner, &agents, PHASE_TIMEOUT).await?;
-
     let group_channel_id =
         create_werewolf_group(&client, &server_url, &owner, space.id, &agents).await?;
     assert_group_setup(&pool, group_channel_id, &agents).await?;
 
+    // The host publishes game-state facts only. Every rule that shapes behavior
+    // lives in the Agents' Role, so no phase message tells anyone what to do.
+    let dm_baseline = list_agent_agent_dm_message_ids(&pool, space.id, &agents).await?;
     let day = scenario
         .post_public_phase(
             group_channel_id,
-            "白天讨论阶段开始。四名玩家回到村庄的公开讨论中；本阶段的共同事实是根据目前知道的公开信息判断谁最可能是狼人。秘密身份和私下谈话仍然属于私人信息。",
+            "白天讨论阶段。四名玩家都在场，主持人尚未公布任何结果。",
+            true,
         )
         .await?;
-    assert_no_private_role_assignment_leak(&pool, group_channel_id, &role_assignments).await?;
-
-    wait_for_agents_quiet(&client, &server_url, &owner, &agents, PHASE_TIMEOUT).await?;
-    let mut private_dm_baselines = Vec::with_capacity(agents.len());
-    for source in &agents {
-        private_dm_baselines
-            .push(list_agent_dm_message_ids(&pool, space.id, source.member_id).await?);
-    }
+    assert_no_secret_role_leak(&pool, group_channel_id, &agents).await?;
 
     let night = scenario
         .post_public_phase(
             group_channel_id,
-            "夜幕降临。公开投票前的游戏规则事实是：每名仍在场玩家至少与一名其他玩家完成一次私下信息交换；协商对象、内容和顺序由玩家自行决定。主持人不属于玩家，当前阶段和可见玩家名单是游戏事实，秘密身份和私聊内容仍是私人事实。",
+            "夜幕降临。四名玩家都在场，公开事实不变。",
+            false,
         )
         .await?;
-    assert_no_private_role_assignment_leak(&pool, group_channel_id, &role_assignments).await?;
+    assert_no_secret_role_leak(&pool, group_channel_id, &agents).await?;
 
-    let exchanges = try_join_all(agents.iter().zip(&private_dm_baselines).map(
-        |(source, before)| {
-            wait_for_agent_dm_exchange(&pool, space.id, *source, &agents, before, PHASE_TIMEOUT)
-        },
-    ))
-    .await?;
-    assert_agent_dm_coverage(&pool, space.id, &agents, &exchanges).await?;
+    wait_for_dm_coverage(&pool, space.id, &agents, &dm_baseline, PHASE_TIMEOUT).await?;
     wait_for_all_agent_dm_items_handled(&pool, space.id, &agents, PHASE_TIMEOUT).await?;
+    assert_agent_dm_coverage(&pool, space.id, &agents, &dm_baseline).await?;
 
     let vote = scenario
         .post_public_phase(
             group_channel_id,
-            "公开投票阶段开始。当前游戏事实是：投票应综合白天讨论和私下协商得到的判断，目标是一名玩家；公开发言不包含任何人的秘密身份或私聊原文。",
+            "公开投票阶段。四名玩家都在场，公开事实不变。",
+            false,
         )
         .await?;
-    assert_no_private_role_assignment_leak(&pool, group_channel_id, &role_assignments).await?;
+    assert_no_secret_role_leak(&pool, group_channel_id, &agents).await?;
+    wait_for_agent_votes(&pool, vote.thread_id, &agents, PHASE_TIMEOUT).await?;
+    assert_agent_votes(&pool, vote.thread_id, &agents).await?;
 
     let result = scenario
         .post_public_phase(
             group_channel_id,
-            "主持人公布结果：Briar 被淘汰，他的身份是狼人；村民获胜。本局结束。最终复盘阶段仍在公共讨论中，判断依据来自公开信息和已完成的私人协商。",
+            "主持人公布结果：Briar 被淘汰，他的身份是狼人；村民获胜。本局结束。",
+            false,
         )
         .await?;
+    assert_no_secret_role_leak(&pool, group_channel_id, &agents).await?;
 
     assert!(day.thread_id != night.thread_id);
     assert!(night.thread_id != vote.thread_id);
@@ -319,7 +323,8 @@ async fn run_werewolf_game(database: &TestDatabase) -> Result<()> {
     assert_public_thread_is_group(&pool, group_channel_id, vote).await?;
     assert_public_thread_is_group(&pool, group_channel_id, result).await?;
     assert_public_agent_participation(&pool, group_channel_id, &agents).await?;
-    wait_for_agents_quiet(&client, &server_url, &owner, &agents, PHASE_TIMEOUT).await?;
+
+    wait_for_game_settled(&pool, &agents, SETTLE_TIMEOUT).await?;
     assert_all_game_hard_items_handled(&pool, &agents).await?;
     assert_no_dead_agent_inbox_items(&pool, &agents).await?;
     assert_all_agent_runs_terminal(&pool, &agents).await?;
@@ -338,10 +343,6 @@ async fn create_agent(
     computer_id: Uuid,
     profile: AgentProfile,
 ) -> Result<LiveAgent> {
-    let role_text = format!(
-        "你正在参加一局四人狼人杀。你的公开身份是玩家 {}，主持人 Process_Test_Owner 不属于玩家。你的秘密身份是 {}，只能依据游戏中的公开结果在允许公开时揭示。本局规则包含白天公开讨论、夜间私人协商、公开投票和主持人公布结果；公开投票前，每名仍在场玩家都必须至少与一名其他玩家完成一次私下信息交换；秘密身份和私聊内容在结果公布前属于私人游戏事实。",
-        profile.name, profile.secret_role
-    );
     let response = client
         .post(server.join(&format!("/api/v1/spaces/{space_id}/agents"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -349,7 +350,7 @@ async fn create_agent(
         .json(&serde_json::json!({
             "computer_id": computer_id,
             "name": profile.name,
-            "role_text": role_text,
+            "role_text": role_text(profile),
             "access_level": "member",
             "driver_kind": profile.driver,
         }))
@@ -461,40 +462,13 @@ async fn wait_for_agents_ready(
     }
 }
 
-async fn assign_roles(
-    client: &Client,
-    server: &Url,
-    owner: &str,
-    space_id: Uuid,
-    agents: &[LiveAgent],
-) -> Result<Vec<RoleAssignment>> {
-    let mut assignments = Vec::with_capacity(agents.len());
-    for agent in agents {
-        let channel_id = open_dm(client, server, owner, space_id, agent.member_id).await?;
-        let root = post_root_message(
-            client,
-            server,
-            owner,
-            channel_id,
-            &format!(
-                "主持人私下告知：你的秘密身份是{}。这个身份在公共讨论和结果公布前不得向其他玩家透露；它是本局狼人杀的私人游戏事实。",
-                agent.profile.secret_role
-            ),
-            &[],
-        )
-        .await?;
-        assignments.push(RoleAssignment {
-            agent: *agent,
-            channel_id,
-            message_id: uuid_field(&root, "id")?,
-            thread_id: uuid_field(&root, "thread_id")?,
-        });
-    }
-    Ok(assignments)
-}
-
 impl<'a> GameScenario<'a> {
-    async fn post_public_phase(&self, channel_id: Uuid, body: &str) -> Result<PublicPhase> {
+    async fn post_public_phase(
+        &self,
+        channel_id: Uuid,
+        body: &str,
+        require_replies: bool,
+    ) -> Result<PublicPhase> {
         let root = post_root_message(
             self.client,
             self.server,
@@ -508,15 +482,14 @@ impl<'a> GameScenario<'a> {
             message_id: uuid_field(&root, "id")?,
             thread_id: uuid_field(&root, "thread_id")?,
         };
-        self.wait_for_public_replies(phase.thread_id, PHASE_TIMEOUT)
-            .await?;
+        if require_replies {
+            self.wait_for_public_replies(phase.thread_id, PHASE_TIMEOUT)
+                .await?;
+        }
         for agent in self.agents {
             wait_for_item_handled(self.pool, phase.message_id, agent.member_id, PHASE_TIMEOUT)
                 .await?;
         }
-        wait_for_message_runs_terminal(self.pool, phase.message_id, self.agents, PHASE_TIMEOUT)
-            .await?;
-        assert_message_runs_terminal(self.pool, phase.message_id, self.agents).await?;
         Ok(phase)
     }
 
@@ -546,29 +519,6 @@ impl<'a> GameScenario<'a> {
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     }
-}
-
-async fn open_dm(
-    client: &Client,
-    server: &Url,
-    owner: &str,
-    space_id: Uuid,
-    member_id: Uuid,
-) -> Result<Uuid> {
-    let response = client
-        .post(server.join(&format!("/api/v1/spaces/{space_id}/dms"))?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .header(header::COOKIE, owner)
-        .json(&serde_json::json!({"member_id": member_id}))
-        .send()
-        .await?;
-    ensure!(
-        response.status().is_success(),
-        "open DM returned {}",
-        response.status()
-    );
-    let body: Value = response.json().await?;
-    uuid_field(&body, "channel_id")
 }
 
 async fn post_root_message(
@@ -618,111 +568,6 @@ async fn missing_thread_replies(
         .filter(|agent| !replied.contains(&agent.member_id))
         .map(|agent| agent.profile.name)
         .collect())
-}
-
-async fn assert_message_runs_terminal(
-    pool: &PgPool,
-    message_id: Uuid,
-    agents: &[LiveAgent],
-) -> Result<()> {
-    let rows: Vec<(Uuid, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT i.member_id,i.status,r.status,r.outcome_code \
-         FROM inbox_items i JOIN run_items ri ON ri.inbox_item_id=i.id \
-         JOIN agent_runs r ON r.id=ri.run_id \
-         WHERE i.message_id=$1 AND i.member_id=ANY($2) \
-         ORDER BY i.member_id,r.created_at",
-    )
-    .bind(message_id)
-    .bind(agent_ids(agents))
-    .fetch_all(pool)
-    .await?;
-    ensure!(
-        rows.len() == agents.len(),
-        "public phase Message {message_id} did not produce one Run Item per Agent"
-    );
-    for (member_id, item_status, run_status, outcome_code) in rows {
-        ensure!(
-            item_status == "handled"
-                && matches!(run_status.as_str(), "completed" | "yielded")
-                && outcome_code.as_deref() == Some(run_status.as_str()),
-            "public phase Run for Agent {member_id} did not reach a terminal success state: item_status={item_status}, run_status={run_status}, outcome_code={outcome_code:?}"
-        );
-    }
-    Ok(())
-}
-
-async fn wait_for_message_runs_terminal(
-    pool: &PgPool,
-    message_id: Uuid,
-    agents: &[LiveAgent],
-    timeout: Duration,
-) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-            "SELECT i.status,r.status,r.outcome_code \
-             FROM inbox_items i JOIN run_items ri ON ri.inbox_item_id=i.id \
-             JOIN agent_runs r ON r.id=ri.run_id \
-             WHERE i.message_id=$1 AND i.member_id=ANY($2) \
-             ORDER BY i.member_id,r.created_at",
-        )
-        .bind(message_id)
-        .bind(agent_ids(agents))
-        .fetch_all(pool)
-        .await?;
-        if rows.len() == agents.len()
-            && rows.iter().all(|(item_status, run_status, outcome_code)| {
-                item_status == "handled"
-                    && matches!(run_status.as_str(), "completed" | "yielded")
-                    && outcome_code.as_deref() == Some(run_status.as_str())
-            })
-        {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            ensure!(
-                false,
-                "Message {message_id} did not reach terminal successful Runs for every Agent"
-            );
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-async fn wait_for_item_run_terminal(
-    pool: &PgPool,
-    message_id: Uuid,
-    member_id: Uuid,
-    timeout: Duration,
-) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let status: Option<(String, String, Option<String>)> = sqlx::query_as(
-            "SELECT i.status,r.status,r.outcome_code \
-             FROM inbox_items i JOIN run_items ri ON ri.inbox_item_id=i.id \
-             JOIN agent_runs r ON r.id=ri.run_id \
-             WHERE i.message_id=$1 AND i.member_id=$2 \
-             ORDER BY r.created_at DESC LIMIT 1",
-        )
-        .bind(message_id)
-        .bind(member_id)
-        .fetch_optional(pool)
-        .await?;
-        if status.is_some_and(|(item_status, run_status, outcome_code)| {
-            item_status == "handled"
-                && matches!(run_status.as_str(), "completed" | "yielded")
-                && outcome_code.as_deref() == Some(run_status.as_str())
-        }) {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            ensure!(
-                false,
-                "Message {message_id} for Agent {member_id} did not reach a terminal successful Run"
-            );
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
 }
 
 async fn wait_for_item_handled(
@@ -785,48 +630,6 @@ async fn item_lifecycle_summary(
     Ok(format!("[{}]", entries.join(",")))
 }
 
-fn remaining_timeout(deadline: Instant) -> Duration {
-    deadline.saturating_duration_since(Instant::now())
-}
-
-async fn wait_for_agents_quiet(
-    client: &Client,
-    server: &Url,
-    owner: &str,
-    agents: &[LiveAgent],
-    timeout: Duration,
-) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let mut quiet = true;
-        for agent in agents {
-            let response = client
-                .get(server.join(&format!("/api/v1/agents/{}/runs/current", agent.member_id))?)
-                .header(header::COOKIE, owner)
-                .send()
-                .await?;
-            ensure!(
-                response.status().is_success(),
-                "read current Run for Agent {} returned {}",
-                agent.profile.name,
-                response.status()
-            );
-            let body: Value = response.json().await?;
-            quiet &= body["current_run"].is_null();
-        }
-        if quiet {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            ensure!(
-                false,
-                "Agents did not become quiet before the phase timeout"
-            );
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
 async fn assert_group_setup(pool: &PgPool, channel_id: Uuid, agents: &[LiveAgent]) -> Result<()> {
     let member_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=ANY($2)",
@@ -851,48 +654,14 @@ async fn assert_group_setup(pool: &PgPool, channel_id: Uuid, agents: &[LiveAgent
     Ok(())
 }
 
-async fn assert_direct_role_channel(pool: &PgPool, assignment: RoleAssignment) -> Result<()> {
-    let members: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT m.id,m.kind FROM channel_members cm JOIN members m ON m.id=cm.member_id \
-         WHERE cm.channel_id=$1 ORDER BY m.id",
-    )
-    .bind(assignment.channel_id)
-    .fetch_all(pool)
-    .await?;
-    ensure!(
-        members.len() == 2
-            && members
-                .iter()
-                .any(|(id, kind)| *id == assignment.agent.member_id && kind == "agent")
-            && members
-                .iter()
-                .any(|(id, kind)| *id != assignment.agent.member_id && kind == "human"),
-        "role assignment channel for Agent {} is not a private Human-Agent DM",
-        assignment.agent.profile.name
-    );
-    let thread_channel: Option<Uuid> = sqlx::query_scalar(
-        "SELECT channel_id FROM messages WHERE id=$1 AND thread_id=$2 AND placement='root'",
-    )
-    .bind(assignment.message_id)
-    .bind(assignment.thread_id)
-    .fetch_optional(pool)
-    .await?;
-    ensure!(
-        thread_channel == Some(assignment.channel_id),
-        "role assignment Message {message_id} is not rooted in its private DM",
-        message_id = assignment.message_id
-    );
-    Ok(())
-}
-
-async fn assert_no_private_role_assignment_leak(
+async fn assert_no_secret_role_leak(
     pool: &PgPool,
     group_channel_id: Uuid,
-    assignments: &[RoleAssignment],
+    agents: &[LiveAgent],
 ) -> Result<()> {
-    let private_phrases = assignments
+    let private_phrases = agents
         .iter()
-        .map(|assignment| format!("你的秘密身份是{}", assignment.agent.profile.secret_role))
+        .map(|agent| secret_identity_phrase(agent.profile))
         .collect::<Vec<_>>();
     let leaked: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM messages \
@@ -904,7 +673,7 @@ async fn assert_no_private_role_assignment_leak(
     .await?;
     ensure!(
         leaked == 0,
-        "private role assignment text appeared in the public group"
+        "private role rule text appeared in the public group"
     );
     Ok(())
 }
@@ -965,280 +734,149 @@ async fn assert_public_agent_participation(
     Ok(())
 }
 
-async fn count_agent_dm_messages(pool: &PgPool, space_id: Uuid, author_id: Uuid) -> Result<i64> {
-    sqlx::query_scalar(
-        "SELECT count(*) FROM messages m JOIN channels c ON c.id=m.channel_id \
-         WHERE m.space_id=$1 AND m.author_member_id=$2 AND m.content_kind='text' \
-           AND c.kind='direct' \
-           AND (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=m.channel_id)=2 \
-           AND EXISTS (SELECT 1 FROM channel_members cm JOIN members peer ON peer.id=cm.member_id \
-                       WHERE cm.channel_id=m.channel_id AND cm.member_id<>$2 AND peer.kind='agent')",
-    )
-    .bind(space_id)
-    .bind(author_id)
-    .fetch_one(pool)
-    .await
-    .context("count Agent-to-Agent DM messages")
-}
-
-async fn wait_for_agent_dm_exchange(
+async fn list_agent_agent_dm_message_ids(
     pool: &PgPool,
     space_id: Uuid,
-    source: LiveAgent,
     agents: &[LiveAgent],
-    previous_source_dm_ids: &[Uuid],
+) -> Result<Vec<Uuid>> {
+    sqlx::query_scalar(
+        "SELECT m.id FROM messages m JOIN channels c ON c.id=m.channel_id \
+         WHERE m.space_id=$1 AND m.content_kind='text' AND c.kind='direct' \
+           AND (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id)=2 \
+           AND (SELECT count(*) FROM channel_members cm JOIN members peer ON peer.id=cm.member_id \
+                WHERE cm.channel_id=c.id AND peer.kind='agent' AND peer.id=ANY($2))=2 \
+         ORDER BY m.created_at,m.id",
+    )
+    .bind(space_id)
+    .bind(agent_ids(agents))
+    .fetch_all(pool)
+    .await
+    .context("list Agent-to-Agent DM messages")
+}
+
+async fn new_agent_agent_dm_messages(
+    pool: &PgPool,
+    space_id: Uuid,
+    agents: &[LiveAgent],
+    previous_ids: &[Uuid],
+) -> Result<Vec<(Uuid, Uuid, Uuid)>> {
+    sqlx::query_as(
+        "SELECT m.id,m.channel_id,m.author_member_id FROM messages m \
+         JOIN channels c ON c.id=m.channel_id \
+         WHERE m.space_id=$1 AND m.content_kind='text' AND c.kind='direct' \
+           AND (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=c.id)=2 \
+           AND (SELECT count(*) FROM channel_members cm JOIN members peer ON peer.id=cm.member_id \
+                WHERE cm.channel_id=c.id AND peer.kind='agent' AND peer.id=ANY($2))=2 \
+           AND m.id <> ALL($3) \
+         ORDER BY m.created_at,m.id",
+    )
+    .bind(space_id)
+    .bind(agent_ids(agents))
+    .bind(previous_ids)
+    .fetch_all(pool)
+    .await
+    .context("read new Agent-to-Agent DM messages")
+}
+
+async fn dm_peer(pool: &PgPool, channel_id: Uuid, author_id: Uuid) -> Result<Option<Uuid>> {
+    sqlx::query_scalar(
+        "SELECT member_id FROM channel_members WHERE channel_id=$1 AND member_id<>$2",
+    )
+    .bind(channel_id)
+    .bind(author_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(Into::into)
+}
+
+async fn wait_for_dm_coverage(
+    pool: &PgPool,
+    space_id: Uuid,
+    agents: &[LiveAgent],
+    baseline: &[Uuid],
     timeout: Duration,
-) -> Result<AgentDmExchange> {
+) -> Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        let new_messages = new_agent_dm_messages(
-            pool,
-            space_id,
-            source.member_id,
-            &agent_ids(agents),
-            previous_source_dm_ids,
-        )
-        .await?;
-        let mut exchange = None;
-        for (source_message_id, channel_id, source_seq) in new_messages {
-            if let Some((target_id, target_message_id)) =
-                target_dm_reply(pool, channel_id, source.member_id, source_seq).await?
-            {
-                exchange = Some((source_message_id, channel_id, target_id, target_message_id));
-                break;
+        let messages = new_agent_agent_dm_messages(pool, space_id, agents, baseline).await?;
+        let mut sent = BTreeSet::new();
+        let mut received = BTreeSet::new();
+        for (_, channel_id, author_id) in &messages {
+            sent.insert(*author_id);
+            if let Some(peer) = dm_peer(pool, *channel_id, *author_id).await? {
+                received.insert(peer);
             }
         }
-        if let Some((source_message_id, channel_id, target_id, target_message_id)) = exchange {
-            wait_for_item_handled(
-                pool,
-                source_message_id,
-                target_id,
-                remaining_timeout(deadline),
-            )
-            .await?;
-            wait_for_item_handled(
-                pool,
-                target_message_id,
-                source.member_id,
-                remaining_timeout(deadline),
-            )
-            .await?;
-            wait_for_item_run_terminal(
-                pool,
-                source_message_id,
-                target_id,
-                remaining_timeout(deadline),
-            )
-            .await?;
-            wait_for_item_run_terminal(
-                pool,
-                target_message_id,
-                source.member_id,
-                remaining_timeout(deadline),
-            )
-            .await?;
-            return Ok(AgentDmExchange {
-                channel_id,
-                source_id: source.member_id,
-                source_message_id,
-                target_message_id,
-                target_id,
-            });
+        let covered = agents
+            .iter()
+            .all(|agent| sent.contains(&agent.member_id) && received.contains(&agent.member_id));
+        if covered {
+            return Ok(());
         }
         if Instant::now() >= deadline {
             let diagnostics =
-                agent_dm_exchange_summary(pool, space_id, source, agents, previous_source_dm_ids)
-                    .await?;
+                dm_coverage_summary(pool, space_id, agents, baseline, &sent, &received).await?;
             ensure!(
                 false,
-                "Agent {} did not complete a bidirectional Agent-to-Agent DM exchange; {diagnostics}",
-                source.profile.name,
+                "Agents did not reach private DM coverage (every Agent sent and received at least one DM); {diagnostics}"
             );
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 }
 
-async fn list_agent_dm_message_ids(
+async fn dm_coverage_summary(
     pool: &PgPool,
     space_id: Uuid,
-    source_id: Uuid,
-) -> Result<Vec<Uuid>> {
-    sqlx::query_scalar(
-        "SELECT m.id FROM messages m JOIN channels c ON c.id=m.channel_id \
-         WHERE m.space_id=$1 AND m.author_member_id=$2 AND m.content_kind='text' AND c.kind='direct' \
-           AND (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=m.channel_id)=2 \
-           AND EXISTS (SELECT 1 FROM channel_members cm JOIN members peer ON peer.id=cm.member_id \
-                       WHERE cm.channel_id=m.channel_id AND cm.member_id<>$2 AND peer.kind='agent') \
-         ORDER BY m.created_at,m.id",
-    )
-    .bind(space_id)
-    .bind(source_id)
-    .fetch_all(pool)
-    .await
-    .context("list Agent-to-Agent DM messages")
-}
-
-async fn new_agent_dm_messages(
-    pool: &PgPool,
-    space_id: Uuid,
-    source_id: Uuid,
-    agent_ids: &[Uuid],
-    previous_source_dm_ids: &[Uuid],
-) -> Result<Vec<(Uuid, Uuid, i64)>> {
-    sqlx::query_as(
-        "SELECT m.id,m.channel_id,m.channel_seq FROM messages m JOIN channels c ON c.id=m.channel_id \
-         WHERE m.space_id=$1 AND m.author_member_id=$2 AND m.content_kind='text' AND c.kind='direct' \
-           AND (SELECT count(*) FROM channel_members cm WHERE cm.channel_id=m.channel_id)=2 \
-           AND EXISTS (SELECT 1 FROM channel_members cm JOIN members peer ON peer.id=cm.member_id \
-                       WHERE cm.channel_id=m.channel_id AND cm.member_id<>$2 \
-                         AND cm.member_id=ANY($3) AND peer.kind='agent') \
-           AND m.id <> ALL($4) \
-         ORDER BY m.created_at,m.id",
-    )
-    .bind(space_id)
-    .bind(source_id)
-    .bind(agent_ids)
-    .bind(previous_source_dm_ids)
-    .fetch_all(pool)
-    .await
-    .context("read new Agent-to-Agent DM messages")
-}
-
-async fn target_dm_reply(
-    pool: &PgPool,
-    channel_id: Uuid,
-    source_id: Uuid,
-    source_seq: i64,
-) -> Result<Option<(Uuid, Uuid)>> {
-    let Some(target_id) = target_dm_target(pool, channel_id, source_id).await? else {
-        return Ok(None);
-    };
-    let target_message_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM messages WHERE channel_id=$1 AND author_member_id=$2 \
-         AND content_kind='text' AND channel_seq>$3 ORDER BY channel_seq LIMIT 1",
-    )
-    .bind(channel_id)
-    .bind(target_id)
-    .bind(source_seq)
-    .fetch_optional(pool)
-    .await?;
-    Ok(target_message_id.map(|message_id| (target_id, message_id)))
-}
-
-async fn target_dm_target(
-    pool: &PgPool,
-    channel_id: Uuid,
-    source_id: Uuid,
-) -> Result<Option<Uuid>> {
-    sqlx::query_scalar(
-        "SELECT cm.member_id FROM channel_members cm JOIN members m ON m.id=cm.member_id \
-         WHERE cm.channel_id=$1 AND cm.member_id<>$2 AND m.kind='agent'",
-    )
-    .bind(channel_id)
-    .bind(source_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(Into::into)
-}
-
-async fn agent_dm_exchange_summary(
-    pool: &PgPool,
-    space_id: Uuid,
-    source: LiveAgent,
     agents: &[LiveAgent],
-    previous_source_dm_ids: &[Uuid],
+    baseline: &[Uuid],
+    sent: &BTreeSet<Uuid>,
+    received: &BTreeSet<Uuid>,
 ) -> Result<String> {
-    let messages = new_agent_dm_messages(
-        pool,
-        space_id,
-        source.member_id,
-        &agent_ids(agents),
-        previous_source_dm_ids,
-    )
-    .await?;
-    if messages.is_empty() {
-        return Ok("source_messages=[]".to_owned());
-    }
-    let mut entries = Vec::with_capacity(messages.len());
-    for (message_id, channel_id, channel_seq) in messages {
-        let target_id = target_dm_target(pool, channel_id, source.member_id).await?;
-        let target_item = match target_id {
-            Some(target_id) => item_lifecycle_summary(pool, message_id, target_id).await?,
-            None => "target=[]".to_owned(),
-        };
-        let reply = target_dm_reply(pool, channel_id, source.member_id, channel_seq)
-            .await?
-            .is_some();
-        entries.push(format!(
-            "message={message_id},channel={channel_id},target={target_id:?},reply={reply},target_item={target_item}"
-        ));
-    }
-    Ok(format!("source_messages=[{}]", entries.join(";")))
+    let missing = agents
+        .iter()
+        .filter(|agent| !sent.contains(&agent.member_id) || !received.contains(&agent.member_id))
+        .map(|agent| {
+            format!(
+                "{}: sent={},received={}",
+                agent.profile.name,
+                sent.contains(&agent.member_id),
+                received.contains(&agent.member_id)
+            )
+        })
+        .collect::<Vec<_>>();
+    let messages = new_agent_agent_dm_messages(pool, space_id, agents, baseline).await?;
+    let open_items = open_agent_dm_item_summary(pool, space_id, agents).await?;
+    Ok(format!(
+        "missing={missing:?}, dm_messages={}, open_items={open_items}",
+        messages.len()
+    ))
 }
 
 async fn assert_agent_dm_coverage(
     pool: &PgPool,
     space_id: Uuid,
     agents: &[LiveAgent],
-    exchanges: &[AgentDmExchange],
+    baseline: &[Uuid],
 ) -> Result<()> {
-    ensure!(
-        exchanges.len() == agents.len(),
-        "every Agent must complete one private negotiation round"
-    );
-    for exchange in exchanges {
-        ensure!(
-            agents
-                .iter()
-                .any(|agent| agent.member_id == exchange.target_id),
-            "Agent-to-Agent DM target is not a live game Agent"
-        );
-        let message_ids = vec![exchange.source_message_id, exchange.target_message_id];
-        let messages_in_channel: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM messages WHERE id=ANY($1) AND channel_id=$2")
-                .bind(&message_ids)
-                .bind(exchange.channel_id)
-                .fetch_one(pool)
-                .await?;
-        ensure!(
-            messages_in_channel == 2,
-            "Agent-to-Agent DM exchange did not retain both messages"
-        );
-        let receivers = vec![exchange.source_id, exchange.target_id];
-        let handled: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM inbox_items WHERE message_id=ANY($1) \
-             AND member_id=ANY($2) AND status='handled'",
-        )
-        .bind(&message_ids)
-        .bind(&receivers)
-        .fetch_one(pool)
-        .await?;
-        ensure!(
-            handled == 2,
-            "Agent-to-Agent DM exchange did not handle both directions"
-        );
+    let messages = new_agent_agent_dm_messages(pool, space_id, agents, baseline).await?;
+    let mut sent = BTreeSet::new();
+    let mut received = BTreeSet::new();
+    for (_, channel_id, author_id) in &messages {
+        sent.insert(*author_id);
+        if let Some(peer) = dm_peer(pool, *channel_id, *author_id).await? {
+            received.insert(peer);
+        }
     }
-    let channels: Vec<Uuid> = exchanges
-        .iter()
-        .map(|exchange| exchange.channel_id)
-        .collect();
-    let handled_exchange_messages: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM inbox_items i JOIN messages m ON m.id=i.message_id \
-         WHERE m.channel_id=ANY($1) AND i.status='handled'",
-    )
-    .bind(&channels)
-    .fetch_one(pool)
-    .await?;
-    ensure!(
-        handled_exchange_messages >= i64::try_from(exchanges.len() * 2)?,
-        "Agent-to-Agent DM exchanges did not handle both directions"
-    );
     for agent in agents {
-        let authored = count_agent_dm_messages(pool, space_id, agent.member_id).await?;
         ensure!(
-            authored >= 1,
+            sent.contains(&agent.member_id),
             "Agent {} did not send an Agent-to-Agent DM",
+            agent.profile.name
+        );
+        ensure!(
+            received.contains(&agent.member_id),
+            "Agent {} did not receive an Agent-to-Agent DM",
             agent.profile.name
         );
     }
@@ -1320,6 +958,139 @@ async fn open_agent_dm_item_summary(
         })
         .collect::<Vec<_>>();
     Ok(format!("open_items=[{}]", entries.join(",")))
+}
+
+async fn first_agent_vote(
+    pool: &PgPool,
+    thread_id: Uuid,
+    agent: LiveAgent,
+    agents: &[LiveAgent],
+) -> Result<Option<(Uuid, Uuid)>> {
+    let replies: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT id,channel_seq FROM messages \
+         WHERE thread_id=$1 AND author_member_id=$2 AND placement='reply' \
+           AND content_kind='text' ORDER BY channel_seq",
+    )
+    .bind(thread_id)
+    .bind(agent.member_id)
+    .fetch_all(pool)
+    .await?;
+    for (message_id, _) in replies {
+        let targets: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT mm.member_id FROM message_mentions mm JOIN members m ON m.id=mm.member_id \
+             WHERE mm.message_id=$1 AND m.kind='agent' AND m.id<>$2",
+        )
+        .bind(message_id)
+        .bind(agent.member_id)
+        .fetch_all(pool)
+        .await?;
+        if targets.len() == 1
+            && agents
+                .iter()
+                .any(|candidate| candidate.member_id == targets[0])
+        {
+            return Ok(Some((message_id, targets[0])));
+        }
+    }
+    Ok(None)
+}
+
+async fn wait_for_agent_votes(
+    pool: &PgPool,
+    thread_id: Uuid,
+    agents: &[LiveAgent],
+    timeout: Duration,
+) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let mut votes = Vec::with_capacity(agents.len());
+        for agent in agents {
+            votes.push(first_agent_vote(pool, thread_id, *agent, agents).await?);
+        }
+        if votes.iter().all(Option::is_some) {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let missing = agents
+                .iter()
+                .zip(&votes)
+                .filter_map(|(agent, vote)| vote.is_none().then_some(agent.profile.name))
+                .collect::<Vec<_>>();
+            let summary = agent_failure_summary(pool, agents).await?;
+            ensure!(
+                false,
+                "Agents did not all cast a structured vote in Thread {thread_id}; missing={missing:?}; {summary}"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn assert_agent_votes(pool: &PgPool, thread_id: Uuid, agents: &[LiveAgent]) -> Result<()> {
+    for agent in agents {
+        let vote = first_agent_vote(pool, thread_id, *agent, agents).await?;
+        let (message_id, target_id) =
+            vote.with_context(|| format!("Agent {} cast no structured vote", agent.profile.name))?;
+        ensure!(
+            agents
+                .iter()
+                .any(|candidate| candidate.member_id == target_id),
+            "Agent {} voted for a member that is not a live game Agent",
+            agent.profile.name
+        );
+        ensure!(
+            target_id != agent.member_id,
+            "Agent {} voted for itself",
+            agent.profile.name
+        );
+        let in_thread: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM messages WHERE id=$1 AND thread_id=$2")
+                .bind(message_id)
+                .bind(thread_id)
+                .fetch_one(pool)
+                .await?;
+        ensure!(
+            in_thread == 1,
+            "Agent {} vote Message {message_id} is not in the vote Thread",
+            agent.profile.name
+        );
+    }
+    Ok(())
+}
+
+async fn wait_for_game_settled(
+    pool: &PgPool,
+    agents: &[LiveAgent],
+    timeout: Duration,
+) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let working: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM agent_runs WHERE agent_id=ANY($1) \
+             AND status IN ('dispatched','working')",
+        )
+        .bind(agent_ids(agents))
+        .fetch_one(pool)
+        .await?;
+        let open_hard: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM inbox_items WHERE member_id=ANY($1) \
+             AND strength='hard' AND status<>'handled'",
+        )
+        .bind(agent_ids(agents))
+        .fetch_one(pool)
+        .await?;
+        if working == 0 && open_hard == 0 {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let summary = agent_failure_summary(pool, agents).await?;
+            ensure!(
+                false,
+                "Werewolf Agents did not settle: working_runs={working}, open_hard_items={open_hard}; {summary}"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 async fn assert_all_game_hard_items_handled(pool: &PgPool, agents: &[LiveAgent]) -> Result<()> {

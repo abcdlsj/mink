@@ -333,8 +333,16 @@ pub fn write_computer_config(path: &Path, server: &Url, state_dir: &Path) -> Res
 }
 
 pub fn default_codex_home() -> Result<PathBuf> {
+    if let Some(override_home) = std::env::var_os("SUMI_TEST_CODEX_HOME")
+        && !override_home.is_empty()
+    {
+        return Ok(PathBuf::from(override_home));
+    }
     let home = std::env::var_os("HOME").context("HOME is required for the live Codex test")?;
-    Ok(PathBuf::from(home).join(".codex"))
+    Ok(PathBuf::from(home)
+        .join(".codex")
+        .join("profiles")
+        .join("sumi-test"))
 }
 
 pub fn write_default_codex_computer_config(
@@ -344,11 +352,8 @@ pub fn write_default_codex_computer_config(
     max_concurrent_runs: usize,
 ) -> Result<()> {
     let codex_home = default_codex_home()?;
-    let base_path = codex_home
-        .parent()
-        .context("default Codex home has no parent")?
-        .join(".sumi")
-        .join("config.toml");
+    let home = std::env::var_os("HOME").context("HOME is required for the live Codex test")?;
+    let base_path = PathBuf::from(home).join(".sumi/config.toml");
     let mut config = if base_path.is_file() {
         let source = std::fs::read_to_string(&base_path)
             .with_context(|| format!("read default Sumi config at {}", base_path.display()))?;
