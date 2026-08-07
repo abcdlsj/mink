@@ -79,6 +79,16 @@ const MONITOR_HTML: &str = r##"<!doctype html>
     .status[data-tone="failed"]::before,.status[data-tone="dead"]::before { content:"▲"; color:var(--red); }
     .status[data-tone="pending"]::before,.status[data-tone="dispatched"]::before { color:var(--indigo); }
     .empty { padding:24px; border-radius:9px; background:var(--panel); color:var(--muted); }
+    .conversation-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:32px; align-items:start; }
+    .public-pane { min-width:0; }
+    .direct-pane { position:sticky; top:24px; min-width:0; }
+    .direct-list { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+    .direct-item { display:grid; grid-template-columns:34px minmax(0,1fr); gap:10px; align-items:center; min-width:0; padding:10px; border-radius:8px; background:var(--panel); }
+    .direct-item .avatar { width:32px; height:32px; margin:0; }
+    .direct-title { min-width:0; font-weight:700; overflow-wrap:anywhere; }
+    .direct-preview { margin-block-start:2px; color:var(--muted); font-size:12px; }
+    .direct-meta { margin-block-start:4px; color:var(--muted); font:600 10px/1.4 "JetBrains Mono",monospace; }
+    .direct-empty { padding:14px 0; color:var(--muted); font-size:13px; }
     @media (max-width:520px) {
       main { padding-inline:16px; }
       header { align-items:flex-start; }
@@ -89,6 +99,10 @@ const MONITOR_HTML: &str = r##"<!doctype html>
       .bubble,.system-card { width:100%; }
       .meta span + span::before { content:none; margin:0; }
     }
+    @media (max-width:760px) {
+      .conversation-layout { grid-template-columns:1fr; gap:28px; }
+      .direct-pane { position:static; }
+    }
     @media (forced-colors:active) { button { box-shadow:none; } }
   </style>
 </head>
@@ -98,16 +112,22 @@ const MONITOR_HTML: &str = r##"<!doctype html>
       <div><p class="eyebrow">Live acceptance test</p><h1>Werewolf Agent Conversation</h1><p class="lede">只读展示公开频道的完整对话。私聊内容仅对其 Channel 成员可见，Human 身份不会显示。</p></div>
       <button id="pause" type="button" aria-pressed="false">暂停刷新</button>
     </header>
-    <section aria-labelledby="events-heading">
-      <div class="section-head"><h2 id="events-heading">公开对话</h2><span id="connection" role="status" aria-live="polite">正在连接</span></div>
-      <p class="stream-note">最新消息在上。私聊保留参与者与路由，但不显示内容。</p>
-      <ol id="events"></ol>
-    </section>
+    <div class="conversation-layout">
+      <section class="public-pane" aria-labelledby="events-heading">
+        <div class="section-head"><h2 id="events-heading">公开对话</h2><span id="connection" role="status" aria-live="polite">正在连接</span></div>
+        <p class="stream-note">最新消息在上。这里显示 Agent 的实际公开发言。</p>
+        <ol id="events"></ol>
+      </section>
+      <aside class="direct-pane" aria-labelledby="direct-heading">
+        <div class="section-head"><h2 id="direct-heading">私聊会话</h2><span id="direct-count" class="route">0</span></div>
+        <ul id="directs" class="direct-list"></ul>
+      </aside>
+    </div>
   </main>
   <script>
-    const events=document.querySelector("#events"), connection=document.querySelector("#connection"), pause=document.querySelector("#pause");
+    const events=document.querySelector("#events"), directs=document.querySelector("#directs"), directCount=document.querySelector("#direct-count"), connection=document.querySelector("#connection"), pause=document.querySelector("#pause");
     const avatarColors=["#f0602f","#e8b42d","#3c9e8f","#6c5ce7","#3d5aa9","#5b9253"];
-    let paused=false, renderedEventCount=-1;
+    let paused=false, renderedEventCount=-1, renderedDirectKey="";
     pause.addEventListener("click",()=>{paused=!paused; pause.setAttribute("aria-pressed",String(paused)); pause.textContent=paused?"继续刷新":"暂停刷新"; connection.textContent=paused?"刷新已暂停":"正在连接"; if(!paused) refresh();});
     function node(tag,className,text){const element=document.createElement(tag); if(className)element.className=className; if(text!==undefined)element.textContent=text; return element;}
     function hashName(name){let hash=2166136261; for(const character of name){hash^=character.codePointAt(0); hash=Math.imul(hash,16777619);} return hash>>>0;}
@@ -153,9 +173,25 @@ const MONITOR_HTML: &str = r##"<!doctype html>
       else events.replaceChildren(...(rawEvents.length?rawEvents.slice().reverse().map(renderEvent):[Object.assign(document.createElement("li"),{className:"empty",textContent:"等待第一个交互事件。"})]));
       renderedEventCount=rawEvents.length;
     }
+    function renderDirects(rawEvents){
+      const groups=new Map();
+      for(const event of rawEvents){
+        const peers=event.participants?.length?event.participants:[String(event.route??"").replace(/^[^A-Za-z<]+/,"")],participants=[event.actor,...peers].filter(Boolean).sort(),key=participants.join("|");
+        const current=groups.get(key)??{participants,count:0,latest:event}; current.count+=1; current.latest=event; groups.set(key,current);
+      }
+      const nextKey=[...groups].map(([key,group])=>`${key}:${group.count}:${group.latest.id}`).join(";");
+      if(nextKey===renderedDirectKey)return;
+      directCount.textContent=`${groups.size} 个会话`;
+      directs.replaceChildren(...(groups.size?[...groups.values()].reverse().map(group=>{
+        const item=node("li","direct-item"),latest=group.latest,title=node("div","direct-title",group.participants.join(" · ")),preview=node("div","direct-preview","内容受 Channel 权限保护"),detail=node("div","direct-meta",`${group.count} 条消息 · 最近 seq ${latest.channel_seq??"?"}`),content=node("div");
+        content.append(title,preview,detail); item.append(avatar(group.participants[0]??"系统"),content); return item;
+      }):[node("li","direct-empty","暂无私聊会话。")]));
+      renderedDirectKey=nextKey;
+    }
     function render(data){
       const messages=(data.events??[]).filter(event=>event.kind==="Message");
-      renderEvents(messages);
+      renderEvents(messages.filter(event=>event.channel_kind!=="direct"));
+      renderDirects(messages.filter(event=>event.channel_kind==="direct"));
       connection.dataset.tone="ok"; connection.textContent=`已同步 ${messages.length} 条对话`;
     }
     async function refresh(){if(paused)return;try{const response=await fetch(`/werewolf-trace.json?t=${Date.now()}`,{cache:"no-store"});if(!response.ok)throw new Error(String(response.status));render(await response.json());}catch(error){connection.dataset.tone="error";connection.textContent="监测数据暂不可用";}}
@@ -845,6 +881,7 @@ impl InteractionObserver {
                     "kind": "Message",
                     "actor": row.author_name,
                     "channel_kind": row.channel_kind,
+                    "participants": row.recipient_names,
                     "route": if row.channel_kind == "direct" {
                         format!("→ {}", row.recipient_names.join("、"))
                     } else {
