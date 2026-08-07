@@ -3278,6 +3278,59 @@ async fn run_result_accepts_a_matching_disposition_already_applied_during_recove
 }
 
 #[tokio::test]
+async fn terminal_released_result_keeps_server_recorded_explicit_disposition() {
+    let run_id = run(1650);
+    let item_id = item(1651);
+    let agent_id = member(1652);
+    let focus = thread(1653);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent_id]);
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent_id));
+    // The Server already recorded an explicit Handled disposition from the Agent's message send,
+    // but the Computer failed to mirror it locally and reports the default Released at yield.
+    let mut current = running_run(run_id, agent_id, focus, None, vec![item_id]);
+    update_test_run(&mut current, |snapshot| {
+        snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+    });
+    port.state.runs.insert(run_id, current);
+    let mut assigned = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
+    update_test_item(&mut assigned, |snapshot| {
+        snapshot.assigned_run_id = Some(run_id);
+    });
+    port.state.items.insert(item_id, assigned);
+
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(1654),
+            run_id,
+            computer_id: computer(999),
+            outcome: RunOutcome::Yielded,
+            error_code: None,
+            item_dispositions: vec![ItemDispositionInput {
+                item_id,
+                disposition: InboxItemDisposition::Released,
+            }],
+            continuation_note: None,
+            now: OffsetDateTime::UNIX_EPOCH,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(port.state.runs[&run_id].view().status, RunStatus::Yielded);
+    assert_eq!(
+        port.state.runs[&run_id].items().next().unwrap().disposition,
+        Some(InboxItemDisposition::Handled)
+    );
+    let handled = port.state.items[&item_id].view();
+    assert_eq!(handled.status, InboxItemStatus::Handled);
+}
+
+#[tokio::test]
 async fn late_result_for_a_terminal_run_is_idempotent_after_recovery() {
     let run_id = run(1629);
     let item_id = item(1630);

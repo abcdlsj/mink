@@ -52,6 +52,7 @@ Driver：
 - 与 active Run 的 Agent、Task scope、Focus 一致的 hard Item 尝试 attach；不一致的保持 pending 并发送 notice，notice 不泄露正文。
 - Run 失败时未处理 Items 返回 pending 并增加 retry_count；超过 max_retry_count 进入 dead，并创建不含正文的 system Item。
 - Agent 显式 release 的 Item 不增加 retry_count；重复 command、receipt 丢失和重复 result 不重复计数。
+- 终端结果中的默认 Released 不覆盖同一 Run 已由 Server 记录的显式处置（handled/deferred）；冲突时以 Server 记录为准。
 - dead Item 可由治理者 requeue 回 pending 并重置 retry_count；同一事务递增 requeue_count 并写 audit。
 - Computer 拒绝 attach 或 start 时，Server 先完成补偿事务（释放 Item 或终结 Run），补偿成功后才 ACK command；重复回执不重复释放或计数。
 

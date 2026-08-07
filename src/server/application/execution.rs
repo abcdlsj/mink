@@ -589,14 +589,31 @@ impl CompleteRun {
                 if failed && item_input.disposition == InboxItemDisposition::Released {
                     continue;
                 }
-                run.set_item_disposition(item_input.item_id, item_input.disposition)?;
+                // A terminal report's default `Released` never overrides an explicit disposition the
+                // Server already recorded from the same Run (message send, ack, defer). The Computer
+                // may have failed to mirror that record locally, so keeping the explicit disposition
+                // keeps the terminal result acceptable instead of rejecting it without a receipt.
+                let effective_disposition = match (
+                    run.items()
+                        .find(|run_item| run_item.inbox_item_id == item_input.item_id)
+                        .and_then(|run_item| run_item.disposition),
+                    item_input.disposition,
+                ) {
+                    (Some(existing), InboxItemDisposition::Released)
+                        if existing != InboxItemDisposition::Released =>
+                    {
+                        existing
+                    }
+                    (_, disposition) => disposition,
+                };
+                run.set_item_disposition(item_input.item_id, effective_disposition)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
                 let item_view = item.view();
                 if item_view.status == InboxItemStatus::Assigned {
-                    item.apply_disposition(run_id, item_input.disposition, input.now)?;
+                    item.apply_disposition(run_id, effective_disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;
                 } else if !matches!(
-                    (item_view.status, item_input.disposition),
+                    (item_view.status, effective_disposition),
                     (InboxItemStatus::Handled, InboxItemDisposition::Handled)
                         | (InboxItemStatus::Deferred, InboxItemDisposition::Deferred)
                         | (InboxItemStatus::Pending, InboxItemDisposition::Released)
