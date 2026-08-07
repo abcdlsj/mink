@@ -246,11 +246,13 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                             tool,
                             summary,
                             error_code,
+                            error,
                         } => {
                             tracing::warn!(
                                 tool,
                                 summary,
                                 failure_code = error_code,
+                                error,
                                 "Builtin tool failed"
                             );
                         }

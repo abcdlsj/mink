@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use super::types::{ToolCall, ToolResult};
 
 const TOOL_SUMMARY_MAX_CHARS: usize = 800;
+const TOOL_ERROR_MAX_CHARS: usize = 800;
 
 /// Events published during tool execution.
 #[derive(Clone, Debug)]
@@ -24,6 +25,7 @@ pub(super) enum ToolEvent {
         tool: String,
         summary: String,
         error_code: &'static str,
+        error: String,
     },
 }
 
@@ -134,6 +136,7 @@ async fn run_one_tool(
                 tool: call.name.clone(),
                 summary,
                 error_code: "blocked",
+                error: truncate_error(&error),
             })
             .await;
         return ToolResult {
@@ -164,6 +167,7 @@ async fn run_one_tool(
                     tool: call.name.clone(),
                     summary,
                     error_code: tool_error_code(&error),
+                    error: truncate_error(&error),
                 })
                 .await;
             ToolResult {
@@ -183,10 +187,18 @@ fn tool_summary(name: &str, args: &Value) -> String {
     }
     .unwrap_or_default()
     .to_owned();
-    if value.len() <= TOOL_SUMMARY_MAX_CHARS {
+    truncate_at_char_boundary(value, TOOL_SUMMARY_MAX_CHARS)
+}
+
+fn truncate_error(error: &str) -> String {
+    truncate_at_char_boundary(error.to_owned(), TOOL_ERROR_MAX_CHARS)
+}
+
+fn truncate_at_char_boundary(value: String, max: usize) -> String {
+    if value.len() <= max {
         return value;
     }
-    let mut boundary = TOOL_SUMMARY_MAX_CHARS;
+    let mut boundary = max;
     while !value.is_char_boundary(boundary) {
         boundary -= 1;
     }
@@ -194,6 +206,9 @@ fn tool_summary(name: &str, args: &Value) -> String {
 }
 
 fn tool_error_code(error: &str) -> &'static str {
+    if let Some(code) = capability_error_code(error) {
+        return code;
+    }
     if error == "sandbox unavailable" {
         "sandbox_unavailable"
     } else if error.starts_with("failed to start sandboxed shell") {
@@ -209,6 +224,29 @@ fn tool_error_code(error: &str) -> &'static str {
     } else {
         "tool_error"
     }
+}
+
+const CAPABILITY_ERROR_CODES: &[&str] = &[
+    "invalid_argument",
+    "unauthenticated",
+    "permission_denied",
+    "not_found",
+    "conflict",
+    "context_changed",
+    "rate_limited",
+    "unavailable",
+    "internal",
+];
+
+fn capability_error_code(error: &str) -> Option<&'static str> {
+    const NEEDLE: &str = "\"code\":\"";
+    let start = error.find(NEEDLE)? + NEEDLE.len();
+    let end = error[start..].find('"')? + start;
+    let code = &error[start..end];
+    CAPABILITY_ERROR_CODES
+        .iter()
+        .find(|candidate| **candidate == code)
+        .copied()
 }
 
 /// Only parallelize when all tool calls are `read`.
@@ -244,6 +282,15 @@ mod tests {
     }
 
     #[test]
+    fn failed_event_error_is_bounded_at_a_char_boundary() {
+        let error = "界".repeat(300);
+        let truncated = truncate_error(&error);
+
+        assert!(truncated.chars().count() <= TOOL_ERROR_MAX_CHARS + 1);
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
     fn tool_error_code_is_stable_for_known_failures() {
         assert_eq!(tool_error_code("shell command timed out"), "timeout");
         assert_eq!(
@@ -254,5 +301,27 @@ mod tests {
             tool_error_code("sandbox unavailable"),
             "sandbox_unavailable"
         );
+    }
+
+    #[test]
+    fn tool_error_code_extracts_capability_code_from_cli_failure() {
+        let error = "shell exited with exit status: 1: {\"schema_version\":1,\"ok\":false,"
+            .to_owned()
+            + "\"error\":{\"code\":\"context_changed\",\"message\":\"Message context changed\","
+            + "\"retryable\":false,\"details\":{\"expected_snapshot\":4,\"actual_snapshot\":5}}}";
+
+        assert_eq!(tool_error_code(&error), "context_changed");
+        assert_eq!(capability_error_code(&error), Some("context_changed"));
+    }
+
+    #[test]
+    fn capability_error_code_ignores_unknown_codes() {
+        assert_eq!(
+            capability_error_code(
+                "shell exited with exit status: 1: {\"error\":{\"code\":\"mystery\"}}"
+            ),
+            None
+        );
+        assert_eq!(capability_error_code("no json here"), None);
     }
 }
