@@ -278,7 +278,9 @@ pub(super) fn run_dispatch_error_code(
         ApplicationError::PayloadTooLarge => "run_dispatch_payload_too_large",
         ApplicationError::PermissionDenied => "run_dispatch_permission_denied",
         ApplicationError::Conflict | ApplicationError::Domain(_) => "run_dispatch_conflict",
-        ApplicationError::ContextChanged => "run_dispatch_context_changed",
+        ApplicationError::ContextChanged | ApplicationError::StaleMessageContext { .. } => {
+            "run_dispatch_context_changed"
+        }
         ApplicationError::Unavailable => "run_dispatch_unavailable",
         ApplicationError::Internal => "run_dispatch_internal",
     }
@@ -453,10 +455,16 @@ pub(super) async fn execute_agent_action(
             )
         }
         capability::Action::MessageRead(page) => {
-            agent_read_thread(state, context.focus_thread_id.into_uuid(), page).await
+            let value = agent_read_thread(state, context.focus_thread_id.into_uuid(), page).await?;
+            record_observed_thread_sequence(state, context).await;
+            Ok(value)
         }
         capability::Action::ThreadRead { thread_id, page } => {
-            agent_read_thread(state, thread_id.into_uuid(), page).await
+            let value = agent_read_thread(state, thread_id.into_uuid(), page).await?;
+            if thread_id == context.focus_thread_id {
+                record_observed_thread_sequence(state, context).await;
+            }
+            Ok(value)
         }
         capability::Action::ChannelRead {
             channel_id,
@@ -470,14 +478,20 @@ pub(super) async fn execute_agent_action(
                     false,
                 ));
             }
-            agent_read_channel(
+            let value = agent_read_channel(
                 state,
                 context.agent_id.into_uuid(),
                 channel_id.into_uuid(),
                 around_message_id.map(MessageId::into_uuid),
                 limit,
             )
-            .await
+            .await?;
+            if channel_contains_focus_thread(state, context.focus_thread_id, channel_id.into_uuid())
+                .await
+            {
+                record_observed_thread_sequence(state, context).await;
+            }
+            Ok(value)
         }
         capability::Action::MessageSend(send) => {
             let target = activity_message_target(state, context, &send.target).await;
@@ -1449,6 +1463,56 @@ pub(super) async fn agent_read_channel(
     }))
 }
 
+async fn record_observed_thread_sequence(state: &RuntimeState, context: &capability::RunContext) {
+    let sequence = match state
+        .read
+        .thread_max_sequence(context.focus_thread_id.into_uuid())
+        .await
+    {
+        Ok(sequence) => sequence,
+        Err(error) => {
+            tracing::warn!(
+                run_id = ?context.run_id,
+                error = ?error,
+                "observed thread sequence read failed"
+            );
+            return;
+        }
+    };
+    let mut storage = state.storage.clone();
+    if let Err(error) = storage
+        .transact(async |transaction| {
+            transaction
+                .record_observed_thread_sequence(context.run_id, sequence)
+                .await
+        })
+        .await
+    {
+        tracing::warn!(
+            run_id = ?context.run_id,
+            error = ?error,
+            "observed thread sequence record failed"
+        );
+    }
+}
+
+async fn channel_contains_focus_thread(
+    state: &RuntimeState,
+    focus_thread_id: crate::ids::ThreadId,
+    channel_id: Uuid,
+) -> bool {
+    let mut storage = state.storage.clone();
+    storage
+        .transact(async |transaction| {
+            transaction
+                .channel_for_thread(focus_thread_id)
+                .await
+                .map(|channel| channel.is_some_and(|id| id.into_uuid() == channel_id))
+        })
+        .await
+        .unwrap_or(false)
+}
+
 pub(super) fn capability_error(
     code: capability::ErrorCode,
     message: &str,
@@ -1482,12 +1546,21 @@ pub(super) fn api_to_capability(error: ApiError) -> capability::Error {
 pub(super) fn app_to_capability(
     error: crate::server::application::ports::ApplicationError,
 ) -> capability::Error {
+    let mut details = std::collections::BTreeMap::new();
+    if let crate::server::application::ports::ApplicationError::StaleMessageContext {
+        expected,
+        actual,
+    } = &error
+    {
+        details.insert("expected_snapshot".to_owned(), serde_json::json!(expected));
+        details.insert("actual_snapshot".to_owned(), serde_json::json!(actual));
+    }
     let class = classify(&error);
     capability::Error {
         code: capability_code(class.code),
         message: class.message.to_owned(),
         retryable: class.retryable,
-        details: std::collections::BTreeMap::new(),
+        details,
     }
 }
 

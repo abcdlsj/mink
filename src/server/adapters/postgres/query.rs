@@ -265,6 +265,20 @@ impl PostgresQueries {
             .map_err(map_sqlx)
     }
 
+    pub(in crate::server::adapters) async fn thread_max_sequence(
+        &self,
+        thread_id: Uuid,
+    ) -> Result<u64, ApplicationError> {
+        let sequence: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(max(channel_seq), 0) FROM messages WHERE thread_id=$1",
+        )
+        .bind(thread_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        u64::try_from(sequence).map_err(|_| ApplicationError::Internal)
+    }
+
     pub(in crate::server::adapters) async fn thread_following(
         &self,
         thread_id: Uuid,

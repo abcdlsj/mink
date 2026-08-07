@@ -16,6 +16,15 @@ pub(in crate::server) trait ExecutionTransaction {
         computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError>;
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
+    async fn observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+    ) -> Result<Option<u64>, ApplicationError>;
+    async fn record_observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+        sequence: u64,
+    ) -> Result<(), ApplicationError>;
     async fn dispatchable_work(
         &mut self,
         now: time::OffsetDateTime,

@@ -37,6 +37,8 @@ pub(in crate::server) enum ApplicationError {
     Conflict,
     #[error("run context changed")]
     ContextChanged,
+    #[error("message context changed (expected {expected}, actual {actual})")]
+    StaleMessageContext { expected: u64, actual: u64 },
     #[error("external dependency is unavailable")]
     Unavailable,
     #[error("server adapter failed")]

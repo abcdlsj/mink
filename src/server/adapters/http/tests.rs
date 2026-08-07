@@ -176,6 +176,31 @@ impl CapabilityFixture {
     }
 }
 
+async fn insert_focus_message(fixture: &CapabilityFixture, channel_id: Uuid, body: &str) -> i64 {
+    let sequence: i64 = sqlx::query_scalar(
+        "UPDATE channels SET next_seq=next_seq+1 WHERE id=$1 RETURNING next_seq-1",
+    )
+    .bind(channel_id)
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) \
+         VALUES($1,$2,$3,$4,$5,'reply','text',$6,$7,now())",
+    )
+    .bind(Uuid::now_v7())
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(channel_id)
+    .bind(fixture.context.focus_thread_id.into_uuid())
+    .bind(sequence)
+    .bind(fixture.owner_id)
+    .bind(body)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    sequence
+}
+
 #[tokio::test]
 async fn agent_capability_discovery_lists_creation_choices_and_permission_state() {
     let fixture = CapabilityFixture::create().await;
@@ -1342,6 +1367,13 @@ async fn channel_read_is_authorized_and_chat_writes_are_not_snapshot_gated() {
         .await
         .unwrap_err();
     assert_eq!(stale_done.code, capability::ErrorCode::ContextChanged);
+    assert!(!stale_done.retryable);
+    assert!(stale_done.message.contains("re-read the channel/thread"));
+    assert_eq!(
+        stale_done.details["expected_snapshot"],
+        serde_json::json!(1)
+    );
+    assert_eq!(stale_done.details["actual_snapshot"], serde_json::json!(3));
     let facts: (String, String, i64) = sqlx::query_as(
             "SELECT tasks.status,runs.status, \
              (SELECT count(*) FROM messages WHERE body_markdown IN ('must commit','must not finish')) \
@@ -1352,6 +1384,58 @@ async fn channel_read_is_authorized_and_chat_writes_are_not_snapshot_gated() {
         .await
         .unwrap();
     assert_eq!(facts, ("in_progress".into(), "working".into(), 1));
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn task_outcomes_follow_the_latest_observed_thread_sequence() {
+    let mut fixture = CapabilityFixture::create().await;
+    let channel_id: Uuid =
+        sqlx::query_scalar("SELECT channel_id FROM messages WHERE id=$1 AND placement='root'")
+            .bind(fixture.context.focus_thread_id.into_uuid())
+            .fetch_one(&fixture.state.pool)
+            .await
+            .unwrap();
+
+    let task_id = fixture.bind_task().await;
+    insert_focus_message(&fixture, channel_id, "moved before first read").await;
+    let stale = fixture
+        .execute(capability::Action::TaskDone {
+            result: "stale first".into(),
+            post_to: capability::PostTarget::Focus,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(stale.code, capability::ErrorCode::ContextChanged);
+    assert_eq!(stale.details["expected_snapshot"], serde_json::json!(1));
+    assert_eq!(stale.details["actual_snapshot"], serde_json::json!(2));
+
+    fixture
+        .execute(capability::Action::ChannelRead {
+            channel_id: ChannelId::from_uuid(channel_id),
+            around_message_id: None,
+            limit: 20,
+        })
+        .await
+        .unwrap();
+    fixture
+        .execute(capability::Action::TaskDone {
+            result: "first done".into(),
+            post_to: capability::PostTarget::Focus,
+        })
+        .await
+        .unwrap();
+
+    let done: (String, String, i64) = sqlx::query_as(
+        "SELECT tasks.status,runs.status, \
+         (SELECT count(*) FROM messages WHERE body_markdown='first done') \
+         FROM tasks JOIN agent_runs runs ON runs.task_id=tasks.id WHERE tasks.id=$1",
+    )
+    .bind(task_id.into_uuid())
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(done, ("done".into(), "completed".into(), 1));
     fixture.destroy().await;
 }
 

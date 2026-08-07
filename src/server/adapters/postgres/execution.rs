@@ -266,6 +266,38 @@ impl PostgresTransaction {
         Ok(())
     }
 
+    pub(super) async fn observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+    ) -> Result<Option<u64>, ApplicationError> {
+        let sequence: Option<Option<i64>> =
+            sqlx::query_scalar("SELECT observed_thread_seq FROM agent_runs WHERE id=$1")
+                .bind(run_id.into_uuid())
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
+        sequence
+            .flatten()
+            .map(|value| u64::try_from(value).map_err(|_| ApplicationError::Internal))
+            .transpose()
+    }
+
+    pub(super) async fn record_observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+        sequence: u64,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "UPDATE agent_runs SET observed_thread_seq=GREATEST(observed_thread_seq,$2) WHERE id=$1",
+        )
+        .bind(run_id.into_uuid())
+        .bind(i64::try_from(sequence).map_err(|_| ApplicationError::Conflict)?)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     pub(super) async fn active_run_for_agent(
         &mut self,
         agent_id: MemberId,
@@ -524,6 +556,19 @@ impl ExecutionTransaction for PostgresTransaction {
     }
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.save_run(run).await
+    }
+    async fn observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+    ) -> Result<Option<u64>, ApplicationError> {
+        self.observed_thread_sequence(run_id).await
+    }
+    async fn record_observed_thread_sequence(
+        &mut self,
+        run_id: RunId,
+        sequence: u64,
+    ) -> Result<(), ApplicationError> {
+        self.record_observed_thread_sequence(run_id, sequence).await
     }
     async fn dispatchable_work(
         &mut self,

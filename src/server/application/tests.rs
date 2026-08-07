@@ -1442,6 +1442,19 @@ impl ExecutionTransaction for MemoryTransaction {
         self.state.runs.insert(run.view().id, run);
         Ok(())
     }
+    async fn observed_thread_sequence(
+        &mut self,
+        _run_id: RunId,
+    ) -> Result<Option<u64>, ApplicationError> {
+        Ok(None)
+    }
+    async fn record_observed_thread_sequence(
+        &mut self,
+        _run_id: RunId,
+        _sequence: u64,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
     async fn dispatchable_work(
         &mut self,
         _now: OffsetDateTime,

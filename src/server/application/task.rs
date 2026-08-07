@@ -219,12 +219,18 @@ impl RecordTaskOutcome {
                     {
                         return Err(ApplicationError::PermissionDenied);
                     }
-                    if transaction
+                    let current = transaction
                         .thread_message_sequence(run.view().focus_thread_id)
+                        .await?;
+                    let observed = transaction
+                        .observed_thread_sequence(context.run_id)
                         .await?
-                        != context.message_snapshot_sequence
-                    {
-                        return Err(ApplicationError::ContextChanged);
+                        .unwrap_or(context.message_snapshot_sequence);
+                    if current != observed {
+                        return Err(ApplicationError::StaleMessageContext {
+                            expected: observed,
+                            actual: current,
+                        });
                     }
                     Some(run)
                 }
