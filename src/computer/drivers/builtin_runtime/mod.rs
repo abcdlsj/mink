@@ -33,7 +33,7 @@ use crate::{
             input::{DispatchedItemInput, RunInput},
         },
     },
-    config::ComputerConfig,
+    config::{ComputerConfig, daemon_socket_path},
     ids::{AgentId, RunId},
 };
 
@@ -46,7 +46,7 @@ use self::{
     types::{Message, ToolDef},
     workspace::{agent_rooted_path, collect_shell_output, edit_utf8, read_utf8, write_utf8},
 };
-use super::{contract::StructuredProviderClient, prompt};
+use super::{agent_home, contract::StructuredProviderClient, prompt};
 
 const MAX_TOOL_OUTPUT_BYTES: usize = 1024 * 1024;
 
@@ -72,7 +72,7 @@ impl BuiltinRuntimeClient {
         driver_secret: [u8; 32],
     ) -> Result<Self, ApplicationError> {
         let provider = config::load(config).map_err(|_| ApplicationError::DriverUnavailable)?;
-        let socket_path = crate::config::runtime_dir_for(&computer_home).join("daemon.sock");
+        let socket_path = daemon_socket_path(&computer_home);
         Ok(Self {
             computer_home,
             socket_path,
@@ -85,7 +85,7 @@ impl BuiltinRuntimeClient {
     }
 
     fn agent_home(&self, agent_id: AgentId) -> PathBuf {
-        self.computer_home.join("agents").join(agent_id.to_string())
+        agent_home(&self.computer_home, agent_id)
     }
 
     fn session_path(&self, agent_id: AgentId, locator: &str) -> PathBuf {
@@ -574,9 +574,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        computer::core::input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
+        computer::core::{
+            input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
+            scheduler::WorkStrength,
+        },
         config::{BuiltinOpenAiConfig, ConfigSecret},
-        ids::{InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
+        ids::{ChannelId, InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
 
     #[tokio::test]
@@ -606,7 +609,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
-        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        let agent_home = agent_home(&computer_home, agent_id);
         for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }
@@ -639,9 +642,9 @@ mod tests {
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         source_kind: "mention".to_owned(),
-                        strength: crate::computer::core::scheduler::WorkStrength::Hard,
+                        strength: WorkStrength::Hard,
                         task_id: None,
-                        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+                        channel_id: ChannelId::from_uuid(Uuid::nil()),
                         thread_id: input.context.focus_thread_id,
                         message_id: None,
                         content: Some("new item".to_owned()),
@@ -669,7 +672,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
-        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        let agent_home = agent_home(&computer_home, agent_id);
         for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
             fs::create_dir_all(agent_home.join(relative)).unwrap();
         }

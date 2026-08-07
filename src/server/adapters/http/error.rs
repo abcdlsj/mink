@@ -69,10 +69,7 @@ pub(in crate::server::adapters) struct ErrorClass {
     pub(in crate::server::adapters) retryable: bool,
 }
 
-pub(in crate::server::adapters) fn classify(
-    error: &crate::server::application::ports::ApplicationError,
-) -> ErrorClass {
-    use crate::server::application::ports::ApplicationError;
+pub(in crate::server::adapters) fn classify(error: &ApplicationError) -> ErrorClass {
     match error {
         ApplicationError::NotFound => ErrorClass {
             status: StatusCode::NOT_FOUND,
@@ -206,9 +203,7 @@ pub(super) fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
         .ok_or_else(ApiError::unauthenticated)
 }
 
-pub(in crate::server::adapters) fn application_error(
-    error: crate::server::application::ports::ApplicationError,
-) -> ApiError {
+pub(in crate::server::adapters) fn application_error(error: ApplicationError) -> ApiError {
     let class = classify(&error);
     ApiError {
         status: class.status,
@@ -277,7 +272,6 @@ impl IntoResponse for HttpError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::application::ports::ApplicationError;
 
     #[test]
     fn classify_context_changed_is_actionable_and_not_blindly_retryable() {

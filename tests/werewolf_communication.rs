@@ -23,9 +23,9 @@ use url::Url;
 use uuid::Uuid;
 
 use support::{
-    SumiProcess, TestDatabase, default_codex_home, reserve_local_port,
-    spawn_default_codex_computer, spawn_server, wait_for_computer_status_for, wait_for_health,
-    write_default_codex_computer_config, write_server_config,
+    SumiProcess, TestDatabase, default_codex_home, register_with, reserve_local_port,
+    short_temp_root, spawn_default_codex_computer, spawn_server, wait_for_computer_status_for,
+    wait_for_health, write_default_codex_computer_config, write_server_config,
 };
 
 const AGENT_READY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -425,10 +425,16 @@ async fn run_werewolf_game(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register_observer(&client, &server_url).await?;
+    let owner = register_with(
+        &client,
+        &server_url,
+        "Observer",
+        &format!("observer-{}@example.test", Uuid::now_v7()),
+    )
+    .await?;
     let space = support::create_space(&client, &server_url, &owner).await?;
 
-    let state_root = TempDir::with_prefix_in("sumi-werewolf-", short_temp_root())?;
+    let state_root = TempDir::with_prefix_in("sumi-werewolf-", short_temp_root()?)?;
     let state_dir = state_root.path().join("computer");
     std::fs::create_dir(&state_dir)?;
     let computer_config = root.path().join("computer.toml");
@@ -526,33 +532,6 @@ async fn run_werewolf_game(database: &TestDatabase) -> Result<()> {
     computer.interrupt().await?;
     server.interrupt().await?;
     Ok(())
-}
-
-async fn register_observer(client: &Client, server: &Url) -> Result<String> {
-    let response = client
-        .post(server.join("/api/v1/auth/register")?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .json(&serde_json::json!({
-            "display_name": "Observer",
-            "email": format!("observer-{}@example.test", Uuid::now_v7()),
-            "password": "correct horse battery staple",
-        }))
-        .send()
-        .await?;
-    ensure!(
-        response.status() == StatusCode::CREATED,
-        "register observer returned {}",
-        response.status()
-    );
-    Ok(response
-        .headers()
-        .get(header::SET_COOKIE)
-        .context("observer registration did not set a Session cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .context("observer Session cookie is empty")?
-        .to_owned())
 }
 
 async fn create_agent(
@@ -1079,13 +1058,4 @@ fn uuid_field(value: &Value, field: &str) -> Result<Uuid> {
         .with_context(|| format!("Response is missing {field}"))?
         .parse()
         .with_context(|| format!("Response field {field} is not a UUID"))
-}
-
-fn short_temp_root() -> PathBuf {
-    let candidate = PathBuf::from("/tmp");
-    if candidate.is_dir() {
-        candidate
-    } else {
-        std::env::temp_dir()
-    }
 }

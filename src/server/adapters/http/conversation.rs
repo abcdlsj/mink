@@ -390,7 +390,7 @@ pub(super) async fn insert_message(
     author: Uuid,
     context: MessageWriteContext,
     body: CreateMessageBody,
-) -> Result<Uuid, crate::server::application::ports::ApplicationError> {
+) -> Result<Uuid, ApplicationError> {
     let message_id = MessageId::from_uuid(Uuid::now_v7());
     let mut storage = state.storage.clone();
     let published = PublishMessage::execute(

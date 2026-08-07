@@ -28,6 +28,8 @@ use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoCl
 use uuid::Uuid;
 
 use crate::{
+    cli::ComputerArgs,
+    config::{daemon_socket_path, load, runtime_dir_for},
     ids::{AttachmentId, DaemonSessionId, EventId, IdempotencyKey, RunId},
     protocol::{
         capability,
@@ -75,8 +77,8 @@ struct AgentActionRequest {
     idempotency_key: Option<IdempotencyKey>,
 }
 
-pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
-    let mut config = crate::config::load(args.config.as_ref())?.computer;
+pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
+    let mut config = load(args.config.as_ref())?.computer;
     if let Some(server) = args.server {
         config.server_url = server;
     }
@@ -89,7 +91,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     let mut storage = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
-    let runtime_dir = crate::config::runtime_dir_for(&computer_home);
+    let runtime_dir = runtime_dir_for(&computer_home);
     tokio::fs::create_dir_all(&runtime_dir)
         .await
         .context("failed to create Computer runtime directory")?;
@@ -105,7 +107,7 @@ pub(crate) async fn run(args: crate::cli::ComputerArgs) -> anyhow::Result<()> {
     let mut capability_store = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
-    let ipc = LocalIpcAdapter::bind(&runtime_dir.join("daemon.sock"))
+    let ipc = LocalIpcAdapter::bind(&daemon_socket_path(&computer_home))
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
     let capability_endpoint = config.server_url.join(&format!(

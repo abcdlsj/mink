@@ -11,7 +11,8 @@ use url::Url;
 use uuid::Uuid;
 
 use support::{
-    TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
+    TestDatabase, create_space_with_slug, register_with, reserve_local_port, spawn_server,
+    wait_for_health, write_server_config,
 };
 
 #[tokio::test]
@@ -42,8 +43,8 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
-    let owner = register(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
-    let space = create_space(&client, &server_url, &owner, "sumi-lab").await?;
+    let owner = register_with(&client, &server_url, "Ada_Lovelace", "ada@example.test").await?;
+    let space = create_space_with_slug(&client, &server_url, &owner, "sumi-lab").await?;
     let space_id = space["id"].as_str().context("Space ID")?.to_owned();
 
     let invite_key = Uuid::now_v7();
@@ -110,7 +111,7 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let unknown: Value = unknown.json().await?;
     ensure!(unknown["error"]["code"] == "invitation_unavailable");
 
-    let stranger = register(&client, &server_url, "Alan_Turing", "alan@example.test").await?;
+    let stranger = register_with(&client, &server_url, "Alan_Turing", "alan@example.test").await?;
     let rejected = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &stranger)
@@ -124,7 +125,8 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
     let rejected: Value = rejected.json().await?;
     ensure!(rejected["error"]["code"] == "invitation_email_mismatch");
 
-    let recipient = register(&client, &server_url, "Grace_Hopper", "grace@example.test").await?;
+    let recipient =
+        register_with(&client, &server_url, "Grace_Hopper", "grace@example.test").await?;
     let accepted = client
         .post(server_url.join(&format!("/api/v1/invites/{token}/accept"))?)
         .header(header::COOKIE, &recipient)
@@ -216,49 +218,4 @@ async fn run_invitation_flow(database: &TestDatabase) -> Result<()> {
 
     server.interrupt().await?;
     Ok(())
-}
-
-async fn register(
-    client: &Client,
-    server: &Url,
-    display_name: &str,
-    email: &str,
-) -> Result<String> {
-    let response = client
-        .post(server.join("/api/v1/auth/register")?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .json(&serde_json::json!({
-            "display_name": display_name,
-            "email": email,
-            "password": "correct horse battery staple"
-        }))
-        .send()
-        .await?;
-    ensure!(response.status() == StatusCode::CREATED);
-    session_cookie(&response)
-}
-
-async fn create_space(client: &Client, server: &Url, cookie: &str, slug: &str) -> Result<Value> {
-    Ok(client
-        .post(server.join("/api/v1/spaces")?)
-        .header("idempotency-key", Uuid::now_v7().to_string())
-        .header(header::COOKIE, cookie)
-        .json(&serde_json::json!({"name": slug, "slug": slug, "accent": "#F0602F"}))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?)
-}
-
-fn session_cookie(response: &reqwest::Response) -> Result<String> {
-    Ok(response
-        .headers()
-        .get(header::SET_COOKIE)
-        .context("registration did not set a Session cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .context("Session cookie is empty")?
-        .to_owned())
 }

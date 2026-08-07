@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use reqwest::{Client, StatusCode, header};
 use serde::Deserialize;
+use serde_json::Value;
 use sqlx::{Connection, Executor, PgConnection, postgres::PgConnectOptions};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -466,12 +467,27 @@ pub fn spawn_default_codex_computer(config: &Path) -> Result<SumiProcess> {
 }
 
 pub async fn register_human(client: &Client, server: &Url) -> Result<String> {
+    register_with(
+        client,
+        server,
+        "Process_Test_Owner",
+        &format!("process-{}@example.test", Uuid::now_v7()),
+    )
+    .await
+}
+
+pub async fn register_with(
+    client: &Client,
+    server: &Url,
+    display_name: &str,
+    email: &str,
+) -> Result<String> {
     let response = client
         .post(server.join("/api/v1/auth/register")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .json(&serde_json::json!({
-            "display_name": "Process_Test_Owner",
-            "email": format!("process-{}@example.test", Uuid::now_v7()),
+            "display_name": display_name,
+            "email": email,
             "password": "correct horse battery staple"
         }))
         .send()
@@ -481,6 +497,10 @@ pub async fn register_human(client: &Client, server: &Url) -> Result<String> {
         "register Human: {}",
         response.status()
     );
+    session_cookie(&response)
+}
+
+pub fn session_cookie(response: &reqwest::Response) -> Result<String> {
     Ok(response
         .headers()
         .get(header::SET_COOKIE)
@@ -493,13 +513,29 @@ pub async fn register_human(client: &Client, server: &Url) -> Result<String> {
 }
 
 pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result<SpaceResponse> {
+    let value = create_space_with_slug(
+        client,
+        server,
+        cookie,
+        &format!("process-{}", &Uuid::now_v7().simple().to_string()[..8]),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(Into::into)
+}
+
+pub async fn create_space_with_slug(
+    client: &Client,
+    server: &Url,
+    cookie: &str,
+    slug: &str,
+) -> Result<Value> {
     let response = client
         .post(server.join("/api/v1/spaces")?)
         .header("idempotency-key", Uuid::now_v7().to_string())
         .header(header::COOKIE, cookie)
         .json(&serde_json::json!({
-            "name": "Process Test Lab",
-            "slug": format!("process-{}", &Uuid::now_v7().simple().to_string()[..8]),
+            "name": slug,
+            "slug": slug,
             "accent": "#F0602F"
         }))
         .send()
@@ -510,6 +546,14 @@ pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result
         response.status()
     );
     Ok(response.json().await?)
+}
+
+pub fn short_temp_root() -> Result<PathBuf> {
+    let candidate = PathBuf::from("/tmp");
+    if candidate.is_dir() {
+        return Ok(candidate);
+    }
+    Ok(std::env::temp_dir())
 }
 
 pub async fn pairing_url_from_daemon(daemon: &mut SumiProcess) -> Result<Url> {
