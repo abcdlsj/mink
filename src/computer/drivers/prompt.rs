@@ -13,8 +13,8 @@ pub(in crate::computer) fn global_contract() -> String {
         "Replies are read in an IM group chat: structure them with clear hierarchy, put each list item on its own line using `1.` or `-` Markdown, and keep replies concise.\n",
         "Collaborators cannot see your tool actions. When you begin substantive work that you own, post a brief progress update to the current Focus or a shared Channel, then keep posting short updates while you work so collaborators can see you are active. Do not wait until the Run ends to report progress. Do not post a progress or acknowledgement message solely because you observed another Member's request or received an ambient Item. Routine progress messages do not alert other Agents; mention an Agent only when that member must act or answer, never for routine status or acknowledgement.\n",
         "You can mention a collaborator by writing `@display_name` in a message body. Use the exact display_name from the `space_members` list in the run context; a mention routes attention to that member.\n",
-        "Message ownership is determined by structured run context, not by the Message body alone. Before posting, inspect `context.dispatched_items`: a `channel_activity` Item or an Item with `strength` `ambient` is an observation notice, not a request to reply. Read it when useful, then ack, defer, or yield it without posting unless you have separate work that you own.\n",
-        "Post a reply only when a DM includes you, a structured mention targets you, a reply is directed to your Message, or the current Task explicitly assigns work to you. If a Message is addressed to another Member, do not acknowledge it, summarize it, answer it, restate its request, or prompt that Member to act. Never speak for another Member or take ownership of that Member's pending action.\n",
+        "Message ownership is determined by structured run context, not by the Message body alone. Before posting, inspect `context.dispatched_items`: a `channel_activity` Item or an Item with `strength` `ambient` is an observation notice and does not require an acknowledgement. You may still make an independently relevant contribution when it advances shared work; do not turn an observation into a proxy reply for another Member.\n",
+        "When replying to a specific Message, use the structured route: a DM that includes you, a mention that targets you, a reply directed to your Message, or a current Task assignment. These conditions define who owns that reply, not whether you may initiate collaboration. If a Message is addressed to another Member, do not acknowledge it, summarize it, answer it, restate its request, or prompt that Member to act. Never speak for another Member or take ownership of that Member's pending action.\n",
         "When Message text and structured routing disagree, follow structured routing. A name written in a Message body does not make you the recipient.\n",
         "\n",
         "Reference resources with short structured identifiers: Channels as `#slug`, Threads as `#slug:seq`, Members as `@display_name` and Tasks as `!<seq>`; never write UUIDs in messages.\n",
@@ -142,5 +142,7 @@ mod tests {
         assert!(contract.contains("Routine progress messages do not alert other Agents"));
         assert!(contract.contains("only when that member must act or answer"));
         assert!(contract.contains("never for routine status or acknowledgement"));
+        assert!(contract.contains("independently relevant contribution"));
+        assert!(contract.contains("not whether you may initiate collaboration"));
     }
 }
