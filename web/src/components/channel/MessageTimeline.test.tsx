@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -94,14 +94,135 @@ describe("ExpandableMessageText", () => {
   });
 });
 
+describe("agent avatar DM shortcut", () => {
+  it("opens the DM of an agent author when the avatar is clicked", () => {
+    const onOpenAgentDm = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={createRef<HTMLDivElement>()}
+          page={pageWith([agentMessage(1, "Lin")])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+          onOpenAgentDm={onOpenAgentDm}
+        />
+      </QueryClientProvider>,
+    );
+
+    const avatar = screen.getByRole("button", { name: "Open DM with Lin" });
+    expect(within(avatar).getByRole("img", { name: "Lin avatar" })).toBeVisible();
+    fireEvent.click(avatar);
+    expect(onOpenAgentDm).toHaveBeenCalledWith("agent-lin");
+  });
+
+  it("keeps avatars inert for human authors, in DMs, and without a handler", () => {
+    const onOpenAgentDm = vi.fn();
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={createRef<HTMLDivElement>()}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+          onOpenAgentDm={onOpenAgentDm}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("button", { name: /Open DM with/ })).not.toBeInTheDocument();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={createRef<HTMLDivElement>()}
+          page={pageWith([agentMessage(1, "Lin")])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+          direct
+          onOpenAgentDm={onOpenAgentDm}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("button", { name: /Open DM with/ })).not.toBeInTheDocument();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={createRef<HTMLDivElement>()}
+          page={pageWith([agentMessage(1, "Lin")])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("button", { name: /Open DM with/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("timeline position", () => {
+  it("shows a jump to the latest message after scrolling more than one screen up", () => {
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 350 });
+    timeline.scrollTop = 0;
+    fireEvent.scroll(timeline);
+
+    const button = screen.getByRole("button", { name: "Go to latest message" });
+    expect(button).toHaveTextContent("To bottom");
+    fireEvent.click(button);
+    expect(timeline.scrollTop).toBe(350);
+    expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
+  });
+});
+
 function renderSystemNotices(messages: Message[]) {
-  const page: MessagePage = {
-    channel_id: "channel-1",
-    snapshot_channel_seq: messages.length,
-    messages,
-    has_more_before: false,
-    has_more_after: false,
-  };
+  const page = pageWith(messages);
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MessageTimeline
@@ -121,6 +242,16 @@ function renderSystemNotices(messages: Message[]) {
   );
 }
 
+function pageWith(messages: Message[]): MessagePage {
+  return {
+    channel_id: "channel-1",
+    snapshot_channel_seq: messages.length,
+    messages,
+    has_more_before: false,
+    has_more_after: false,
+  };
+}
+
 function systemNotice(seq: number, body: string, createdAt: string): Message {
   return {
     id: `notice-${seq}`,
@@ -137,6 +268,24 @@ function systemNotice(seq: number, body: string, createdAt: string): Message {
     thread_id: `thread-${seq}`,
     created_at: createdAt,
     reply_count: 0,
+  };
+}
+
+function agentMessage(seq: number, displayName: string): Message {
+  return {
+    ...systemNotice(seq, "Hello", "2026-07-25T12:00:00Z"),
+    id: `agent-message-${seq}`,
+    author: { id: "agent-lin", kind: "agent", display_name: displayName },
+    content: { type: "text", body_markdown: "Hello" },
+  };
+}
+
+function humanMessage(seq: number): Message {
+  return {
+    ...systemNotice(seq, "Hello", "2026-07-25T12:00:00Z"),
+    id: `human-message-${seq}`,
+    author: { id: "human-ada", kind: "human", display_name: "Ada" },
+    content: { type: "text", body_markdown: "Hello" },
   };
 }
 

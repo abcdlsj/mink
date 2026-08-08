@@ -204,7 +204,7 @@ function AgentWorkspace({ agentId, spaceId, spaceSlug, channels, canManage }: { 
             </DetailSection> : null}
             <DetailSection className="agent-permissions" title="Action permissions">
               <div className="permission-list" aria-label="Agent action permissions">
-                {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
+                {[{ action: "channel.create", description: "Create channels in this Space." }, { action: "channel.invite", description: "Invite Members to a Channel." }, { action: "channel.remove", description: "Remove Members from a Channel." }, { action: "agent.create", description: "Create Agents in this Space." }].map(({ action, description }) => {
                   const enabled = agentMember?.permissions.includes(action) ?? false;
                   return (
                     <label key={action} className="permission-row">
@@ -295,6 +295,8 @@ const activityLabels: Record<AgentActivityItem["kind"], string> = {
   "task.close": "Closed task",
   "channel.create": "Created channel",
   "channel.leave": "Left channel",
+  "channel.invite": "Invited member to channel",
+  "channel.remove": "Removed member from channel",
   "agent.create": "Created agent",
   "inbox.ack": "Acknowledged an inbox item",
   "inbox.defer": "Deferred an inbox item",
@@ -319,19 +321,20 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
                 <span className="agent-activity-kind">{activityLabels[item.kind]}</span>
                 {link ? <span className="agent-activity-link">{link}</span> : null}
               </p>
-              {item.arguments.length ? (
-                <ul className="agent-activity-arguments" aria-label="Arguments">
-                  {item.arguments.slice(0, 3).map((argument) => (
-                    <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
-                  ))}
-                  {item.arguments.length > 3 ? <li className="agent-activity-more">+{item.arguments.length - 3} more</li> : null}
-                </ul>
-              ) : null}
-              {item.messagePreview ? (
-                <p className="agent-activity-message">
-                  {item.messagePreview}
-                  {item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}
-                </p>
+              {item.arguments.length || item.messagePreview ? (
+                <div className="agent-activity-details">
+                  {item.arguments.length ? (
+                    <ul className="agent-activity-arguments" aria-label="Arguments">
+                      {item.arguments.slice(0, 3).map((argument) => (
+                        <li key={argument.name}><code>{argument.name}</code><span>=</span><code>{argument.value}</code></li>
+                      ))}
+                      {item.arguments.length > 3 ? <li className="agent-activity-more">+{item.arguments.length - 3} more</li> : null}
+                    </ul>
+                  ) : null}
+                  {item.messagePreview ? (
+                    <pre className="agent-activity-message"><code>{item.messagePreview}</code>{item.messageTruncated ? <span className="agent-activity-truncated">truncated</span> : null}</pre>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <time dateTime={item.occurredAt}>{activityTime(item.occurredAt)}</time>
@@ -343,7 +346,7 @@ function AgentActivityFeed({ agentId, spaceSlug, channels }: { agentId: string; 
 }
 
 function activityLink(item: AgentActivityItem, spaceSlug: string, channelById: Map<string, Channel>): ReactNode {
-  if ((item.kind === "message.send" || item.kind === "channel.create" || item.kind === "channel.leave") && item.channelId) {
+  if ((item.kind === "message.send" || item.kind === "channel.create" || item.kind === "channel.leave" || item.kind === "channel.invite" || item.kind === "channel.remove") && item.channelId) {
     const channel = channelById.get(item.channelId);
     if (!channel) return null;
     return <Link

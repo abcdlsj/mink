@@ -2080,7 +2080,7 @@ fn test_input<const N: usize>(
                 .map(|(item_id, task_id, thread_id)| claimed_item(item_id, task_id, thread_id))
                 .collect(),
         },
-        space_members: Vec::new(),
+        channel_members: Vec::new(),
     }
 }
 

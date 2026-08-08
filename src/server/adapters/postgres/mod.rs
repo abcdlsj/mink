@@ -262,6 +262,8 @@ impl PostgresAdapter {
             }
             sqlx::raw_sql(
                 "ALTER TABLE agent_runs ADD COLUMN observed_thread_seq BIGINT; \
+                 ALTER TABLE member_permissions DROP CONSTRAINT IF EXISTS member_permissions_action_code_check; \
+                 ALTER TABLE member_permissions ADD CONSTRAINT member_permissions_action_code_check CHECK (action_code IN ('channel.create', 'channel.invite', 'channel.remove', 'agent.create')); \
                  INSERT INTO schema_meta (version, applied_at) VALUES (8, now());",
             )
             .execute(&mut *transaction)

@@ -44,8 +44,8 @@ use super::{
     conversation::{
         AddChannelAgents, CreateAgent, CreateAgentAction, CreateAgentActionInput, CreateAgentInput,
         CreateChannel, CreateChannelAction, CreateChannelActionInput, CreateChannelInput,
-        DeleteMessage, EditMessage, EditMessageInput, LeaveChannel, OpenDirectMessage,
-        OpenDirectMessageInput, PublishMessage,
+        DeleteMessage, EditMessage, EditMessageInput, InviteChannelMember, LeaveChannel,
+        OpenDirectMessage, OpenDirectMessageInput, PublishMessage, RemoveChannelMember,
     },
     execution::{
         AcknowledgeDelivery, AcknowledgeDeliveryInput, ApplyCommandResult, CompleteRun,
@@ -287,6 +287,122 @@ async fn an_agent_can_leave_a_channel_and_replay_the_same_request() {
 }
 
 #[tokio::test]
+async fn permissioned_channel_member_actions_are_idempotent() {
+    let mut port = MemoryPort::default();
+    let space_id = space(950);
+    let actor = member(951);
+    let target = member(952);
+    let channel_id = channel(953);
+    let now = OffsetDateTime::UNIX_EPOCH;
+    for (id, name) in [(actor, "Operator"), (target, "Reviewer")] {
+        port.state.members.insert(
+            id,
+            Member {
+                id,
+                space_id,
+                display_name: name.into(),
+                access_level: AccessLevel::Member,
+                created_at: now,
+            },
+        );
+    }
+    port.state.channels.insert(
+        channel_id,
+        Channel::create(
+            channel_id,
+            space_id,
+            BTreeSet::from([actor]),
+            ChannelKind::Public,
+            Some("work".into()),
+            None,
+            now,
+        )
+        .unwrap(),
+    );
+    port.state.permissions.extend([
+        (actor, PermissionAction::ChannelInvite),
+        (actor, PermissionAction::ChannelRemove),
+    ]);
+
+    assert!(
+        InviteChannelMember::execute(&mut port, actor, channel_id, target, idempotency(954), now,)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !InviteChannelMember::execute(&mut port, actor, channel_id, target, idempotency(954), now,)
+            .await
+            .unwrap()
+    );
+    assert!(port.state.channels[&channel_id].audience.contains(&target));
+
+    assert!(
+        RemoveChannelMember::execute(&mut port, actor, channel_id, target, idempotency(955), now,)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !RemoveChannelMember::execute(&mut port, actor, channel_id, target, idempotency(955), now,)
+            .await
+            .unwrap()
+    );
+    assert!(!port.state.channels[&channel_id].audience.contains(&target));
+}
+
+#[tokio::test]
+async fn channel_member_actions_require_the_declared_permission() {
+    let mut port = MemoryPort::default();
+    let space_id = space(956);
+    let actor = member(957);
+    let target = member(958);
+    let channel_id = channel(959);
+    let now = OffsetDateTime::UNIX_EPOCH;
+    for (id, name) in [(actor, "Operator"), (target, "Reviewer")] {
+        port.state.members.insert(
+            id,
+            Member {
+                id,
+                space_id,
+                display_name: name.into(),
+                access_level: AccessLevel::Member,
+                created_at: now,
+            },
+        );
+    }
+    port.state.channels.insert(
+        channel_id,
+        Channel::create(
+            channel_id,
+            space_id,
+            BTreeSet::from([actor]),
+            ChannelKind::Public,
+            Some("work".into()),
+            None,
+            now,
+        )
+        .unwrap(),
+    );
+
+    assert_eq!(
+        InviteChannelMember::execute(&mut port, actor, channel_id, target, idempotency(960), now,)
+            .await,
+        Err(ApplicationError::PermissionDenied)
+    );
+    assert!(!port.state.channels[&channel_id].audience.contains(&target));
+
+    port.state
+        .members
+        .get_mut(&actor)
+        .expect("actor was inserted above")
+        .access_level = AccessLevel::Admin;
+    assert_eq!(
+        InviteChannelMember::execute(&mut port, actor, channel_id, target, idempotency(961), now,)
+            .await,
+        Err(ApplicationError::PermissionDenied)
+    );
+}
+
+#[tokio::test]
 async fn command_result_updates_only_its_target_agent_through_the_domain() {
     let mut port = MemoryPort::default();
     let computer_id = computer(940);
@@ -409,6 +525,7 @@ struct MemoryState {
     channel_agent_additions: HashMap<(MemberId, ChannelId, IdempotencyKey), Vec<MemberId>>,
     channel_agent_leaves: HashSet<(MemberId, ChannelId, IdempotencyKey)>,
     agent_channel_members: HashSet<(ChannelId, MemberId)>,
+    channel_member_memberships: HashSet<(ChannelId, MemberId)>,
     agent_provision_commands: HashMap<(ComputerId, CommandId, u64), Option<MemberId>>,
 }
 
@@ -1252,6 +1369,135 @@ impl CollaborationTransaction for MemoryTransaction {
         } else {
             Err(ApplicationError::NotFound)
         }
+    }
+    async fn invite_channel_member(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        _now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        let idempotency = (actor, "channel.invite".to_owned(), idempotency_key);
+        if let Some(resource_id) = self.state.resource_idempotency.get(&idempotency) {
+            if *resource_id != channel_id.into_uuid() {
+                return Err(ApplicationError::Conflict);
+            }
+            return Ok(false);
+        }
+        let channel = self
+            .state
+            .channels
+            .get(&channel_id)
+            .ok_or(ApplicationError::NotFound)?;
+        if channel.kind == ChannelKind::Direct {
+            return Err(ApplicationError::Conflict);
+        }
+        if !channel.audience.contains(&actor)
+            && !self
+                .state
+                .channel_member_memberships
+                .contains(&(channel_id, actor))
+        {
+            return Err(ApplicationError::NotFound);
+        }
+        let target = self
+            .state
+            .members
+            .get(&member_id)
+            .filter(|member| member.space_id == channel.space_id)
+            .ok_or(ApplicationError::NotFound)?;
+        if self
+            .state
+            .agents
+            .get(&member_id)
+            .is_some_and(|agent| agent.lifecycle == AgentLifecycle::Retired)
+        {
+            return Err(ApplicationError::NotFound);
+        }
+        let _ = target;
+        let inserted = self
+            .state
+            .channel_member_memberships
+            .insert((channel_id, member_id));
+        self.state
+            .channels
+            .get_mut(&channel_id)
+            .expect("channel was checked above")
+            .audience
+            .insert(member_id);
+        self.state
+            .resource_idempotency
+            .insert(idempotency, channel_id.into_uuid());
+        Ok(inserted)
+    }
+    async fn remove_channel_member(
+        &mut self,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        _now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        let idempotency = (actor, "channel.remove".to_owned(), idempotency_key);
+        if let Some(resource_id) = self.state.resource_idempotency.get(&idempotency) {
+            if *resource_id != channel_id.into_uuid() {
+                return Err(ApplicationError::Conflict);
+            }
+            return Ok(false);
+        }
+        let channel = self
+            .state
+            .channels
+            .get(&channel_id)
+            .ok_or(ApplicationError::NotFound)?;
+        if channel.kind == ChannelKind::Direct {
+            return Err(ApplicationError::Conflict);
+        }
+        if !channel.audience.contains(&actor)
+            && !self
+                .state
+                .channel_member_memberships
+                .contains(&(channel_id, actor))
+        {
+            return Err(ApplicationError::NotFound);
+        }
+        let target = self
+            .state
+            .members
+            .get(&member_id)
+            .filter(|member| member.space_id == channel.space_id)
+            .ok_or(ApplicationError::NotFound)?;
+        if self
+            .state
+            .agents
+            .get(&member_id)
+            .is_some_and(|agent| agent.lifecycle == AgentLifecycle::Retired)
+        {
+            return Err(ApplicationError::NotFound);
+        }
+        let _ = target;
+        let was_member = channel.audience.contains(&member_id)
+            || self
+                .state
+                .channel_member_memberships
+                .contains(&(channel_id, member_id));
+        if !was_member {
+            return Err(ApplicationError::NotFound);
+        }
+        self.state
+            .channel_member_memberships
+            .remove(&(channel_id, member_id));
+        self.state
+            .channels
+            .get_mut(&channel_id)
+            .expect("channel was checked above")
+            .audience
+            .remove(&member_id);
+        self.state
+            .resource_idempotency
+            .insert(idempotency, channel_id.into_uuid());
+        Ok(true)
     }
     async fn leave_channel(
         &mut self,

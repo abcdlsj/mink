@@ -90,10 +90,10 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .channel-workspace--thread-open { grid-template-columns: minmax(480px, 1fr) var(--thread-pane-width, 360px); }
 .channel-workspace--thread-resizing { cursor: col-resize; user-select: none; }
 .channel-workspace--thread-open > .channel-header,
-.channel-workspace--thread-open > .message-timeline,
+.channel-workspace--thread-open > .message-timeline-shell,
 .channel-workspace--thread-open > .composer { grid-column: 1; }
 .channel-workspace--thread-open > .channel-header { grid-column: 1; grid-row: 1; }
-.channel-workspace--thread-open > .message-timeline { grid-column: 1; grid-row: 2; }
+.channel-workspace--thread-open > .message-timeline-shell { grid-column: 1; grid-row: 2; }
 .channel-workspace--thread-open > .composer { grid-column: 1; grid-row: 3; }
 .message-timeline .empty-channel { min-height: 100%; }
 .timeline-status--error { background: #ffe3e1; }
@@ -1070,6 +1070,12 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .message-row--grouped { padding-top: 3px; padding-bottom: 3px; }
 .message-row > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; background: var(--space-accent); }
 .message-row > .presence-identity { width: 36px; height: 36px; flex-basis: 36px; }
+.message-avatar-button { display: inline-grid; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.message-avatar-button:hover .pixel-identity { box-shadow: 0 0 0 2px var(--accent-soft); }
+.message-row > .message-avatar-button > .presence-identity,
+.message-row > .message-avatar-button > .pixel-identity { width: 36px; height: 36px; flex-basis: 36px; }
+.thread-message > .message-avatar-button > .presence-identity,
+.thread-message > .message-avatar-button > .pixel-identity { width: 34px; height: 34px; flex-basis: 34px; }
 .message-row:hover,
 .message-row--has-thread:hover { background: rgb(20 17 17 / 3%); }
 .message-row:hover { background: rgb(20 17 17 / 3%); }
@@ -2066,11 +2072,6 @@ pre {
 .agent-direct-message-list a { overflow: hidden; color: var(--ink); font-size: var(--text-body); font-weight: 700; text-overflow: ellipsis; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
 .agent-direct-message-list small { color: var(--muted); font-size: var(--text-meta); }
 .agent-direct-message-list time { color: var(--muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.agent-activity-command { display: grid; grid-column: 1 / -1; gap: 6px; margin: 4px 0 0; padding: 10px 12px; border-inline-start: 4px solid var(--cyan); background: var(--panel); }
-.agent-activity-command > div { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: start; gap: 12px; min-width: 0; }
-.agent-activity-command dt { color: var(--muted); font-size: var(--text-meta); font-weight: 700; letter-spacing: .08em; }
-.agent-activity-command dd { min-width: 0; margin: 0; }
-.agent-activity-command code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font: 11px/1.45 var(--font-mono); }
 .agent-activity-row a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .agent-settings,
 .agent-memory,
@@ -3135,27 +3136,6 @@ pre {
   font-weight: 650;
 }
 
-.agent-activity-command {
-  gap: 5px;
-  margin-top: 7px;
-  padding: 9px 12px;
-  background: var(--panel);
-}
-
-.agent-activity-command > div {
-  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
-  gap: 12px;
-}
-
-.agent-activity-command dt {
-  font-size: var(--text-meta);
-  text-transform: none;
-}
-
-.agent-activity-command code {
-  font-size: var(--text-meta);
-}
-
 .agent-header-signals .agent-state {
   display: inline-flex;
   min-height: 0;
@@ -3185,57 +3165,6 @@ pre {
 .agent-header-signals .agent-state--dispatched i { background: var(--accent); }
 .agent-header-signals .agent-state--suspended i { background: var(--orange); }
 .agent-header-signals .agent-state--error i { background: var(--red); }
-
-.agent-activity-command dt {
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-weight: 700;
-  letter-spacing: .04em;
-}
-
-.agent-activity-arguments {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.agent-activity-arguments li {
-  display: flex;
-  min-width: 0;
-  gap: 5px;
-  align-items: baseline;
-  overflow-wrap: anywhere;
-}
-
-.agent-activity-arguments li code:first-child {
-  color: var(--muted);
-}
-
-.agent-activity-message {
-  max-height: 11.2em;
-  margin: 0;
-  overflow: auto;
-  padding: 8px 10px;
-  border-inline-start: 3px solid var(--accent);
-  background: var(--paper);
-  font-size: var(--text-system);
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.agent-activity-truncated {
-  display: inline-block;
-  margin-inline-start: 8px;
-  color: var(--muted);
-  font-size: var(--text-meta);
-  font-style: normal;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
 
 .computer-detail .hosted-agent-list .agent-state--idle i { background: var(--green); }
 .computer-detail .hosted-agent-list .agent-state--working i,
@@ -3662,19 +3591,65 @@ pre {
 .agent-activity-link { color: var(--accent); font-size: 13px; font-weight: 700; }
 .agent-activity-link a { color: inherit; text-decoration: none; }
 .agent-activity-link a:hover { text-decoration: underline; }
+.agent-activity-truncated { margin-left: 6px; color: var(--muted); font-size: var(--text-meta); font-weight: 700; text-transform: uppercase; }
+.agent-activity-details {
+  display: grid;
+  gap: 6px;
+  margin: 7px 0 0;
+}
 .agent-activity-arguments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  display: grid;
+  gap: 3px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.agent-activity-arguments li { display: inline-flex; align-items: baseline; gap: 4px; }
-.agent-activity-arguments code { color: var(--ink-soft); font-family: var(--font-mono); font-size: var(--text-section-title); }
-.agent-activity-arguments span { color: var(--muted); }
-.agent-activity-message { margin: 0; color: var(--ink-soft); font-size: var(--text-system); line-height: 1.45; }
-.agent-activity-truncated { margin-left: 6px; color: var(--muted); font-size: var(--text-meta); font-weight: 700; text-transform: uppercase; }
+.agent-activity-arguments li {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: baseline;
+}
+.agent-activity-arguments li code:first-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.agent-activity-arguments span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.agent-activity-arguments li code:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.agent-activity-more { color: var(--muted); font: 700 10px var(--font-sans); }
+.agent-activity-message {
+  max-height: 9em;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: 12px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.agent-activity-message .agent-activity-truncated { color: var(--accent); }
 /* Members rows: MM1 list form — identity with status, controls, light action. */
 .members-workspace .member-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -3806,23 +3781,6 @@ pre {
 }
 .agent-fact-strip dd a:hover { text-decoration: underline; }
 
-/* Agent activity: one size, distinct marks, highlighted preview. */
-.agent-activity-arguments code { font-size: var(--text-system); }
-.agent-activity-arguments li code:first-child { color: var(--muted); font-weight: 700; }
-.agent-activity-arguments li code:last-child { color: var(--ink-soft); }
-.agent-activity-more { color: var(--muted); font: 700 var(--text-meta) var(--font-sans); }
-.agent-activity-message {
-  display: -webkit-box;
-  overflow: hidden;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--ink);
-  font-size: var(--text-system);
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
 /* Task detail: compact scrollable run history, two-action controls. */
 .run-history {
   max-height: 280px;
@@ -3897,3 +3855,74 @@ pre {
 .task-detail .danger-button { min-height: 34px !important; }
 .copy-field .icon-button { width: 32px !important; height: 32px !important; min-width: 32px !important; min-height: 32px !important; }
 .members-header .command-button { min-height: 34px !important; }
+
+/* Channel timeline owns the scrollport; the shell keeps the jump control over the paper. */
+.channel-workspace > .message-timeline-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 2;
+}
+.message-timeline-shell > .message-timeline {
+  height: 100%;
+}
+.to-bottom-button {
+  position: absolute;
+  z-index: 2;
+  right: 20px;
+  bottom: 16px;
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--text-system);
+  font-weight: 700;
+  transition: background-color 100ms linear, box-shadow 100ms linear, transform 100ms ease-out;
+}
+.to-bottom-button svg { width: 14px; height: 14px; }
+.to-bottom-button:hover:not(:disabled) { background: var(--accent-soft); box-shadow: 3px 3px 0 var(--ink); transform: translateY(-1px); }
+.to-bottom-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.member-strip { gap: 3px; }
+.channel-member-avatars { gap: 3px; padding: 0; }
+.member-strip .pixel-identity,
+.member-strip .presence-identity { width: 26px; height: 26px; flex-basis: 26px; }
+.channel-member-add.icon-button {
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
+  flex: 0 0 26px !important;
+  flex-basis: 26px !important;
+  padding: 0 !important;
+}
+.channel-member-add.icon-button svg { width: 14px; height: 14px; }
+.channel-agent-picker strong { font-size: var(--text-system); line-height: 1.25; }
+.channel-agent-picker small { margin-top: 2px; color: var(--muted); font-size: var(--text-meta); line-height: 1.3; }
+
+/* Agent detail follows the UI type scale: body values 14px, facts 13px, labels 11px. */
+.agent-workspace .agent-fact-strip dd { font-size: var(--text-system); font-weight: 500; line-height: 1.4; }
+.agent-workspace .agent-summary-signal { font-size: var(--text-system); }
+.agent-detail-scroll .detail-section > h2,
+.agent-detail-scroll .agent-memory > div:first-child h2,
+.agent-detail-scroll .agent-lifecycle h2,
+.agent-detail-scroll .agent-settings-policy-heading h2 { font-size: var(--text-section-title); }
+.agent-detail-scroll .detail-grid dd { font-size: var(--text-system); font-weight: 500; line-height: 1.4; }
+.agent-detail-scroll .detail-grid dd.tabular { font-size: var(--text-system); }
+.agent-work-facts p { font-size: var(--text-body); font-weight: 500; line-height: 1.4; }
+.agent-work-facts p .agent-summary-signal { font-size: var(--text-system); }
+.agent-overview-grid > .detail-section > h2,
+.agent-memory-heading h2,
+.agent-settings-policy-heading h2,
+.agent-lifecycle h2 { font-size: var(--text-section-title); }
+
+@media (max-width: 1099px) {
+  .to-bottom-button { right: 14px; bottom: 14px; }
+}

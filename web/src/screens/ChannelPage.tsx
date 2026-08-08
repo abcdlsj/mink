@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { Asterisk, Check, Hash, LoaderCircle, MessageCircle, Monitor, Plus, X } from "lucide-react";
 import { type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   addChannelAgents,
+  createDirectMessage,
   createMessage,
   listAgents,
   listChannelMembers,
@@ -81,6 +82,7 @@ export function MessageWorkspace({
 }) {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const [threadId, setThreadId] = useState<string>();
   const [threadOpenedAtMainSeq, setThreadOpenedAtMainSeq] = useState(0);
   const [threadPaneWidth, setThreadPaneWidth] = useState(360);
@@ -206,6 +208,12 @@ export function MessageWorkspace({
     0,
     ...(messages.data?.messages.map((message) => message.seq) ?? []),
   );
+  const availableAgents = (spaceMembers.data ?? [])
+    .filter((member) => member.kind === "agent" && !channelMembers.data?.members.some((joined) => joined.id === member.id))
+    .map((member) => ({
+      ...member,
+      role_text: agents.data?.find((agent) => agent.member_id === member.id)?.role_text?.trim() || "Agent",
+    }));
   useEffect(() => {
     if (!messages.data || !location.hash.startsWith("message-")) return;
     window.requestAnimationFrame(() => {
@@ -229,6 +237,14 @@ export function MessageWorkspace({
       has_more_before: current?.has_more_before ?? false,
       has_more_after: false,
     }));
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`message-${message.id}`);
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "end" });
+      } else if (timeline.current) {
+        timeline.current.scrollTop = timeline.current.scrollHeight;
+      }
+    });
   }
 
   const addAgents = useMutation({
@@ -236,6 +252,16 @@ export function MessageWorkspace({
     onSuccess: (result) => {
       queryClient.setQueryData<ChannelMembers>(["channel-members", channel.id], result);
       setAgentPickerOpen(false);
+    },
+  });
+  const openAgentDm = useMutation({
+    mutationFn: (memberId: string) => createDirectMessage(spaceId, memberId),
+    onSuccess: (dm) => {
+      void queryClient.invalidateQueries({ queryKey: ["direct-messages", spaceId] });
+      void navigate({
+        to: "/s/$spaceSlug/dm/$memberId",
+        params: { spaceSlug, memberId: dm.other_member.id },
+      });
     },
   });
 
@@ -263,7 +289,7 @@ export function MessageWorkspace({
             ))}
           </ul>
         {!direct && channelMembers.data?.can_manage ? (
-            <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
+            <button className="icon-button channel-member-add" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
           ) : null}
         </div>
       </header>
@@ -290,6 +316,8 @@ export function MessageWorkspace({
         openThread={openThread}
         activityByMemberId={activityByMemberId}
         members={channelMembers.data?.members ?? []}
+        direct={direct}
+        onOpenAgentDm={direct ? undefined : (memberId) => openAgentDm.mutate(memberId)}
       />
       <MessageComposer
         spaceId={spaceId}
@@ -322,11 +350,13 @@ export function MessageWorkspace({
           close={closeThread}
           showLatestChannelMessages={showLatestChannelMessages}
           activityByMemberId={activityByMemberId}
+          direct={direct}
+          onOpenAgentDm={direct ? undefined : (memberId) => openAgentDm.mutate(memberId)}
         />
       ) : null}
       {agentPickerOpen ? (
         <AddAgentsDialog
-          agents={(spaceMembers.data ?? []).filter((member) => member.kind === "agent" && !channelMembers.data?.members.some((joined) => joined.id === member.id))}
+          agents={availableAgents}
           pending={addAgents.isPending}
           error={addAgents.error?.message}
           close={() => setAgentPickerOpen(false)}
@@ -397,7 +427,7 @@ function SetupStrip({
   );
 }
 
-function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Member[]; pending: boolean; error?: string; close: () => void; submit: (ids: string[]) => void }) {
+function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Array<Member & { role_text: string }>; pending: boolean; error?: string; close: () => void; submit: (ids: string[]) => void }) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     submit(new FormData(event.currentTarget).getAll("agent_member_ids").map(String));
@@ -408,7 +438,7 @@ function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Me
         <form onSubmit={handleSubmit}>
           <fieldset className="channel-agent-picker">
             <legend>Available Agents</legend>
-            {agents.length ? agents.map((agent, index) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} {...(index === 0 ? { "data-dialog-initial-focus": true } : {})} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong></span></label>) : <p>Every active Agent is already in this Channel.</p>}
+            {agents.length ? agents.map((agent, index) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} aria-label={agent.display_name} {...(index === 0 ? { "data-dialog-initial-focus": true } : {})} /><PixelIdentity name={agent.display_name} kind="agent" seed={agent.id} /><span><strong>{agent.display_name}</strong><small>{agent.role_text}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
           </fieldset>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null} Add selected</button></footer>

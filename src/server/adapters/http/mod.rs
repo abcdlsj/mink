@@ -68,8 +68,9 @@ use crate::{
             AddChannelAgents, ArchiveChannel, CreateAgent, CreateAgentAction,
             CreateAgentActionInput, CreateAgentInput, CreateChannel, CreateChannelAction,
             CreateChannelActionInput, CreateChannelInput, DeleteMessage, EditMessage,
-            EditMessageInput, JoinChannel, LeaveChannel, ListDirectMessages, OpenDirectMessage,
-            OpenDirectMessageInput, PublishMessage, RemoveChannelAgent, SetThreadSubscription,
+            EditMessageInput, InviteChannelMember, JoinChannel, LeaveChannel, ListDirectMessages,
+            OpenDirectMessage, OpenDirectMessageInput, PublishMessage, RemoveChannelAgent,
+            RemoveChannelMember, SetThreadSubscription,
         },
         application::task::{
             CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,

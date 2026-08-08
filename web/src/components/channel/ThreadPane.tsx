@@ -31,6 +31,8 @@ export function ThreadPane({
   close,
   showLatestChannelMessages,
   activityByMemberId,
+  direct = false,
+  onOpenAgentDm,
 }: {
   channelId: string;
   spaceId: string;
@@ -47,6 +49,8 @@ export function ThreadPane({
   close: () => void;
   showLatestChannelMessages: () => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
+  direct?: boolean;
+  onOpenAgentDm?: (memberId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -145,9 +149,9 @@ export function ThreadPane({
         {thread.data ? (
           <>
             <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} />
+            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />
             <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} />)}
+            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />)}
           </>
         ) : null}
       </div>

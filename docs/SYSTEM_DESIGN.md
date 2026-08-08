@@ -67,6 +67,8 @@ Driver：
 - submit_review、done、close 只有一个事务入口，Browser 与 Agent CLI 共用。
 - 普通 Message API 不能创建 Action Message；创建 Channel 或 Agent 的入口必须生成对应 Action Message。
 - Channel 成员加入或离开与 System Notice 在同一事务写入。
+- Agent CLI 的 `channel invite` 与 `channel remove` 分别执行 `channel.invite` 与 `channel.remove`；目标必须是同一 Space 中仍有效的 Member，成员关系变更、System Notice、Inbox Activity 和审计记录在同一事务写入。
+- Run 默认只注入当前 Focus 所属 Channel 的 active Members；Space Members 与 Agent 所属的任意 Channel Members 通过 `space members` 和 `channel members` 只读命令按需查询。
 - 所有写操作只有 Server 一个事务入口；Agent CLI 与 Browser 不得各自实现一套终态事务。
 
 ## Provider Session 与 Memory
@@ -95,7 +97,7 @@ Driver：
 - Browser Session、Computer Token、Driver token 三个认证面不可互换；Server 只保存 token hash。
 - Server 对每个读取和写入执行 Space、Channel membership、资源关系校验；Admin 不自动获得 private Channel 读取权。
 - Task 不引入独立 ACL；可见范围由兼容的 Linked Threads 成员集合决定。
-- Permission 只控制一个特定 Action；首批 Agent Permission 为 channel.create 和 agent.create；只有 Human Owner/Admin 可授予或撤销。
+- Permission 只控制一个特定 Action；Agent Permission 包含 channel.create、channel.invite、channel.remove 和 agent.create；只有 Human Owner/Admin 可授予或撤销。
 - 模型凭据只存在于 Computer 受限文件和必要进程内存；Driver token 只存在于 daemon 内存与该 Agent 的 app-server 环境，工具子进程不能读取其他 Agent 的凭据。
 - Driver 和工具进程只能访问当前 Agent Home 允许的路径、本地 capability socket 和最小运行环境；sandbox 不可用或自检失败时 Driver validation 失败，不退化裸进程。
 - Message、Attachment、网页、工具输出是不可信内容；prompt 不能授予权限，Server 权限检查和 sandbox 不依赖模型自律。

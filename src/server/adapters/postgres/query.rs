@@ -108,7 +108,7 @@ impl PostgresQueries {
         sqlx::query_as(
             "SELECT members.id,members.kind,members.display_name,members.access_level
              FROM channel_members JOIN members ON members.id=channel_members.member_id
-             WHERE channel_members.channel_id=$1
+             WHERE channel_members.channel_id=$1 AND members.retired_at IS NULL
              ORDER BY channel_members.joined_at,members.id",
         )
         .bind(channel_id)

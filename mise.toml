@@ -129,6 +129,8 @@ cargo run -- server &
 pnpm --dir web dev &
 if [ "${SUMI_DEV_SEED:-0}" = "1" ]; then
   node scripts/dev-seed.mjs &
+  seed_pid=$!
+  wait "$seed_pid" || exit 1
 fi
 wait
 '''

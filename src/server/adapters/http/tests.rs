@@ -993,6 +993,126 @@ async fn agent_channel_leave_replay_requires_the_original_run_context() {
 }
 
 #[tokio::test]
+async fn agent_channel_membership_commands_commit_notices_and_replay_idempotently() {
+    let fixture = CapabilityFixture::create().await;
+    sqlx::query(
+        "INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) \
+         VALUES($1,$2,$3,'Peer role',1,'active','codex',now())",
+    )
+    .bind(fixture.peer_agent_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.computer_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    for action in ["channel.invite", "channel.remove"] {
+        sqlx::query(
+            "INSERT INTO member_permissions(member_id,space_id,action_code,granted_by_member_id,created_at) \
+             VALUES($1,$2,$3,$4,now())",
+        )
+        .bind(fixture.context.agent_id.into_uuid())
+        .bind(fixture.context.space_id.into_uuid())
+        .bind(action)
+        .bind(fixture.owner_id)
+        .execute(&fixture.state.pool)
+        .await
+        .unwrap();
+    }
+
+    let invite_key = IdempotencyKey::from_uuid(Uuid::now_v7());
+    let invited = fixture
+        .execute_with_key(
+            capability::Action::ChannelInvite {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+                member_id: crate::ids::MemberId::from_uuid(fixture.peer_agent_id),
+            },
+            invite_key,
+        )
+        .await
+        .unwrap();
+    assert_eq!(invited["invited"], true);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=$2",
+        )
+        .bind(fixture.channel_id)
+        .bind(fixture.peer_agent_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+        )
+        .bind(fixture.channel_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap(),
+        1
+    );
+    let replayed = fixture
+        .execute_with_key(
+            capability::Action::ChannelInvite {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+                member_id: crate::ids::MemberId::from_uuid(fixture.peer_agent_id),
+            },
+            invite_key,
+        )
+        .await
+        .unwrap();
+    assert_eq!(replayed["invited"], false);
+
+    let remove_key = IdempotencyKey::from_uuid(Uuid::now_v7());
+    let removed = fixture
+        .execute_with_key(
+            capability::Action::ChannelRemove {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+                member_id: crate::ids::MemberId::from_uuid(fixture.peer_agent_id),
+            },
+            remove_key,
+        )
+        .await
+        .unwrap();
+    assert_eq!(removed["removed"], true);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM channel_members WHERE channel_id=$1 AND member_id=$2",
+        )
+        .bind(fixture.channel_id)
+        .bind(fixture.peer_agent_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM messages WHERE channel_id=$1 AND content_kind='system_notice'",
+        )
+        .bind(fixture.channel_id)
+        .fetch_one(&fixture.state.pool)
+        .await
+        .unwrap(),
+        2
+    );
+    let remove_replay = fixture
+        .execute_with_key(
+            capability::Action::ChannelRemove {
+                channel_id: ChannelId::from_uuid(fixture.channel_id),
+                member_id: crate::ids::MemberId::from_uuid(fixture.peer_agent_id),
+            },
+            remove_key,
+        )
+        .await
+        .unwrap();
+    assert_eq!(remove_replay["removed"], false);
+
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn capability_task_done_commits_collaboration_facts_and_replays() {
     let mut fixture = CapabilityFixture::create().await;
     let task_id = fixture.bind_task().await;
@@ -1308,6 +1428,73 @@ async fn capability_message_send_mounts_ready_attachments_from_uploader() {
         .await
         .unwrap_err();
     assert_eq!(rejected.code, capability::ErrorCode::Conflict);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
+async fn agent_member_queries_separate_space_and_visible_channel_members() {
+    let fixture = CapabilityFixture::create().await;
+
+    let space = fixture
+        .execute(capability::Action::SpaceMembers)
+        .await
+        .unwrap();
+    let space_member_ids = space["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| member["member_id"].as_str().unwrap().to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(space_member_ids.len(), 3);
+    assert!(space_member_ids.contains(&fixture.peer_agent_id.to_string()));
+
+    let channel = fixture
+        .execute(capability::Action::ChannelMembers {
+            channel_id: ChannelId::from_uuid(fixture.channel_id),
+        })
+        .await
+        .unwrap();
+    let channel_member_ids = channel["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| member["member_id"].as_str().unwrap().to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(channel_member_ids.len(), 2);
+    assert!(!channel_member_ids.contains(&fixture.peer_agent_id.to_string()));
+
+    let hidden_channel_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at) \
+         VALUES($1,$2,'private',$3,1,now())",
+    )
+    .bind(hidden_channel_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(format!(
+        "hidden-{}",
+        &hidden_channel_id.simple().to_string()[..8]
+    ))
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) \
+         VALUES($1,$2,$3,now(),0)",
+    )
+    .bind(hidden_channel_id)
+    .bind(fixture.context.space_id.into_uuid())
+    .bind(fixture.owner_id)
+    .execute(&fixture.state.pool)
+    .await
+    .unwrap();
+    let denied = fixture
+        .execute(capability::Action::ChannelMembers {
+            channel_id: ChannelId::from_uuid(hidden_channel_id),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(denied.code, capability::ErrorCode::PermissionDenied);
+
     fixture.destroy().await;
 }
 

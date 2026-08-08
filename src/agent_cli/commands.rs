@@ -22,6 +22,7 @@ pub(crate) struct AgentCli {
 pub(crate) enum Command {
     Discover { operation: String },
     Context(ContextArgs),
+    Space(SpaceArgs),
     Message(MessageArgs),
     Task(TaskArgs),
     Run(RunArgs),
@@ -41,6 +42,17 @@ pub(crate) struct ContextArgs {
 #[derive(Debug, Subcommand)]
 enum ContextCommand {
     Current,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SpaceArgs {
+    #[command(subcommand)]
+    command: SpaceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum SpaceCommand {
+    Members,
 }
 
 #[derive(Debug, Args)]
@@ -189,8 +201,19 @@ enum ChannelCommand {
         #[arg(long, default_value_t = 50)]
         limit: u16,
     },
+    Members {
+        channel_id: ChannelId,
+    },
     Leave {
         channel_id: ChannelId,
+    },
+    Invite {
+        channel_id: ChannelId,
+        member_id: MemberId,
+    },
+    Remove {
+        channel_id: ChannelId,
+        member_id: MemberId,
     },
 }
 
@@ -291,6 +314,9 @@ impl AgentCli {
             Command::Context(ContextArgs {
                 command: ContextCommand::Current,
             }) => (Action::ContextCurrent, false),
+            Command::Space(SpaceArgs {
+                command: SpaceCommand::Members,
+            }) => (Action::SpaceMembers, false),
             Command::Message(MessageArgs {
                 command: MessageCommand::Read(page),
             }) => (Action::MessageRead(page.into()), false),
@@ -428,8 +454,37 @@ impl AgentCli {
                 false,
             ),
             Command::Channel(ChannelArgs {
+                command: ChannelCommand::Members { channel_id },
+            }) => (Action::ChannelMembers { channel_id }, false),
+            Command::Channel(ChannelArgs {
                 command: ChannelCommand::Leave { channel_id },
             }) => (Action::ChannelLeave { channel_id }, true),
+            Command::Channel(ChannelArgs {
+                command:
+                    ChannelCommand::Invite {
+                        channel_id,
+                        member_id,
+                    },
+            }) => (
+                Action::ChannelInvite {
+                    channel_id,
+                    member_id,
+                },
+                true,
+            ),
+            Command::Channel(ChannelArgs {
+                command:
+                    ChannelCommand::Remove {
+                        channel_id,
+                        member_id,
+                    },
+            }) => (
+                Action::ChannelRemove {
+                    channel_id,
+                    member_id,
+                },
+                true,
+            ),
             Command::Agent(AgentArgs {
                 command:
                     AgentCommand::Create {
@@ -655,6 +710,85 @@ mod tests {
                 channel_id: channel
             }
         );
+    }
+
+    #[tokio::test]
+    async fn channel_membership_commands_map_to_permissioned_actions() {
+        let channel = ChannelId::from_uuid(uuid::Uuid::from_u128(12));
+        let member = MemberId::from_uuid(uuid::Uuid::from_u128(13));
+        let channel_str = channel.to_string();
+        let member_str = member.to_string();
+        let invite = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "channel",
+            "invite",
+            &channel_str,
+            &member_str,
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (invite_action, invite_key) = invite.action(None).await.unwrap();
+        assert_eq!(invite_action.name(), "channel.invite");
+        assert!(invite_key.is_some());
+        assert_eq!(
+            invite_action,
+            Action::ChannelInvite {
+                channel_id: channel,
+                member_id: member,
+            }
+        );
+
+        let remove = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "channel",
+            "remove",
+            &channel_str,
+            &member_str,
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (remove_action, remove_key) = remove.action(None).await.unwrap();
+        assert_eq!(remove_action.name(), "channel.remove");
+        assert!(remove_key.is_some());
+        assert_eq!(
+            remove_action,
+            Action::ChannelRemove {
+                channel_id: channel,
+                member_id: member,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn member_queries_map_to_read_actions_without_idempotency_keys() {
+        let channel = ChannelId::from_uuid(uuid::Uuid::from_u128(14));
+        let space = TestAgentCli::try_parse_from(["sumi-agent", "space", "members", "--json"])
+            .unwrap()
+            .agent;
+        let (space_action, space_key) = space.action(None).await.unwrap();
+        assert_eq!(space_action, Action::SpaceMembers);
+        assert!(space_key.is_none());
+
+        let channel_str = channel.to_string();
+        let channel = TestAgentCli::try_parse_from([
+            "sumi-agent",
+            "channel",
+            "members",
+            &channel_str,
+            "--json",
+        ])
+        .unwrap()
+        .agent;
+        let (channel_action, channel_key) = channel.action(None).await.unwrap();
+        assert_eq!(
+            channel_action,
+            Action::ChannelMembers {
+                channel_id: ChannelId::from_uuid(uuid::Uuid::from_u128(14)),
+            }
+        );
+        assert!(channel_key.is_none());
     }
 
     #[tokio::test]

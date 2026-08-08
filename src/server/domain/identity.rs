@@ -72,6 +72,8 @@ impl AccessLevel {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::server) enum PermissionAction {
     ChannelCreate,
+    ChannelInvite,
+    ChannelRemove,
     AgentCreate,
 }
 
@@ -79,6 +81,8 @@ impl PermissionAction {
     pub(in crate::server) fn code(self) -> &'static str {
         match self {
             Self::ChannelCreate => "channel.create",
+            Self::ChannelInvite => "channel.invite",
+            Self::ChannelRemove => "channel.remove",
             Self::AgentCreate => "agent.create",
         }
     }

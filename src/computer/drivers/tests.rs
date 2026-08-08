@@ -285,7 +285,7 @@ fn test_run(driver: DriverKind) -> LocalRun {
                 focus_messages: Vec::new(),
                 dispatched_items: Vec::new(),
             },
-            space_members: Vec::new(),
+            channel_members: Vec::new(),
         },
     })
     .unwrap();

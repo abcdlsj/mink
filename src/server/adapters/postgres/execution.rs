@@ -1,6 +1,6 @@
 use super::*;
 use crate::protocol::computer::{
-    AgentConfiguration, DriverKind, RoleSnapshot, SpaceMemberSnapshot,
+    AgentConfiguration, ChannelMemberSnapshot, DriverKind, RoleSnapshot,
 };
 
 /// Maps the Inbox Item kind that produced the work onto the Run's Trigger. Both `direct` and `reply`
@@ -435,27 +435,29 @@ impl PostgresTransaction {
     }
 
     pub(super) async fn run_start(&mut self, run_id: RunId) -> Result<RunStart, ApplicationError> {
-        let row = sqlx::query(
-            "SELECT agent_id,task_id,focus_thread_id,space_id FROM agent_runs WHERE id=$1",
-        )
-        .bind(run_id.into_uuid())
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(map_sqlx)?;
+        let row =
+            sqlx::query("SELECT agent_id,task_id,focus_thread_id FROM agent_runs WHERE id=$1")
+                .bind(run_id.into_uuid())
+                .fetch_one(&mut *self.connection)
+                .await
+                .map_err(map_sqlx)?;
         let agent_id = MemberId::from_uuid(row.get("agent_id"));
-        let space_id: Uuid = row.get("space_id");
         let task_id = row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid);
         let focus_thread_id = ThreadId::from_uuid(row.get("focus_thread_id"));
-        let space_members = sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT id, display_name FROM members \
-             WHERE space_id=$1 AND retired_at IS NULL ORDER BY display_name",
+        let channel_members = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT members.id,members.display_name FROM messages \
+             JOIN channel_members ON channel_members.channel_id=messages.channel_id \
+             JOIN members ON members.id=channel_members.member_id \
+             WHERE messages.id=$1 AND messages.placement='root' \
+               AND members.retired_at IS NULL \
+             ORDER BY members.display_name,members.id",
         )
-        .bind(space_id)
+        .bind(focus_thread_id.into_uuid())
         .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?
         .into_iter()
-        .map(|(member_id, display_name)| SpaceMemberSnapshot {
+        .map(|(member_id, display_name)| ChannelMemberSnapshot {
             member_id: MemberId::from_uuid(member_id),
             display_name,
         })
@@ -480,7 +482,7 @@ impl PostgresTransaction {
             },
             focus: self.focus_snapshot(focus_thread_id).await?,
             dispatched_items,
-            space_members,
+            channel_members,
         })
     }
 

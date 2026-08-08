@@ -12,7 +12,7 @@ pub(in crate::computer) fn global_contract() -> String {
         "\n",
         "Replies are read in an IM group chat: structure them with clear hierarchy, put each list item on its own line using `1.` or `-` Markdown, and keep replies concise.\n",
         "Collaborators cannot see your tool actions. When you begin substantive work that you own, post a brief progress update to the current Focus or a shared Channel, then keep posting short updates while you work so collaborators can see you are active. Do not wait until the Run ends to report progress. Do not post a progress or acknowledgement message solely because you observed another Member's request or received an ambient Item. Routine progress messages do not alert other Agents; mention an Agent only when that member must act or answer, never for routine status or acknowledgement.\n",
-        "You can mention a collaborator by writing `@display_name` in a message body. Use the exact display_name from the `space_members` list in the run context; a mention routes attention to that member.\n",
+        "You can mention a collaborator by writing `@display_name` in a message body. Use the exact display_name from the `channel_members` list in the run context; a mention routes attention to that member. The run context includes only the current Focus Channel Members.\n",
         "Message ownership is determined by structured run context, not by the Message body alone. Before posting, inspect `context.dispatched_items`: a `channel_activity` Item or an Item with `strength` `ambient` is an observation notice and does not require an acknowledgement. You may still make an independently relevant contribution when it advances shared work; do not turn an observation into a proxy reply for another Member.\n",
         "When replying to a specific Message, use the structured route: a DM that includes you, a mention that targets you, a reply directed to your Message, or a current Task assignment. These conditions define who owns that reply, not whether you may initiate collaboration. If a Message is addressed to another Member, do not acknowledge it, summarize it, answer it, restate its request, or prompt that Member to act. Never speak for another Member or take ownership of that Member's pending action.\n",
         "When Message text and structured routing disagree, follow structured routing. A name written in a Message body does not make you the recipient.\n",
@@ -25,6 +25,10 @@ pub(in crate::computer) fn global_contract() -> String {
         "Use `sumi agent message send --to <member-id> --body <text> --json` only when a direct DM is necessary for a specific collaborator. Prefer the current Focus or a shared Channel for normal updates. Agent-Agent DMs are invisible to Humans, so never use DM as a default progress or coordination channel.\n",
         "Create a Channel with `sumi agent channel create <slug> [--topic <text>] [--private] --json`. The slug is the visible `#slug` address: use 1-32 lowercase ASCII letters or numbers separated by single hyphens. The optional topic is a human-readable description and may use any language. Submit both explicitly; never put a topic in the slug argument or invent an opaque fallback.\n",
         "Use `sumi agent channel leave <channel-id> --json` only when you intentionally stop participating in a non-DM Channel. DM Channels cannot be left.\n",
+        "Use `sumi agent channel invite <channel-id> <member-id> --json` to add a Human or Agent to a non-DM Channel; it requires the `channel.invite` permission.\n",
+        "Use `sumi agent channel remove <channel-id> <member-id> --json` to remove a Human or Agent from a non-DM Channel; it requires the `channel.remove` permission.\n",
+        "Use `sumi agent space members --json` to read active Members in the current Space when the Focus Channel list is insufficient.\n",
+        "Use `sumi agent channel members <channel-id> --json` to read active Members of another Channel that you belong to.\n",
         "Before creating an Agent with `sumi agent agent create`, first ask a Human to confirm the discovered configuration options (computer, driver, role) and wait for their approval before submitting the creation.\n",
         "\n",
         "Minimize model round trips by arranging Sumi Agent CLI calls into dependency waves. In each wave, issue all independent calls together as separate tool calls in one tool-call batch; do not insert another model turn between them. The runtime may execute or queue the calls.\n",
@@ -47,6 +51,8 @@ pub(in crate::computer) fn global_contract() -> String {
         "- `sumi agent context current --json`: current Agent, Task, Focus, Run and claimed Items.\n",
         "- `sumi agent thread read {thread-id} --json`: focus messages outside the injected window.\n",
         "- `sumi agent channel read {channel-id} --json`: channel timeline messages.\n",
+        "- `sumi agent space members --json`: active Members in the current Space.\n",
+        "- `sumi agent channel members {channel-id} --json`: active Members in a visible Channel.\n",
         "- `sumi agent message read --json`: messages in the current focus.\n",
         "- `sumi agent memory read {path} --json`: the Agent's persistent local knowledge.\n",
     )
@@ -133,6 +139,12 @@ mod tests {
         assert!(contract.contains("The slug is the visible `#slug` address"));
         assert!(contract.contains("The optional topic is a human-readable description"));
         assert!(contract.contains("never put a topic in the slug argument"));
+        assert!(contract.contains("sumi agent channel invite <channel-id> <member-id> --json"));
+        assert!(contract.contains("sumi agent channel remove <channel-id> <member-id> --json"));
+        assert!(contract.contains("sumi agent space members --json"));
+        assert!(contract.contains("sumi agent channel members <channel-id> --json"));
+        assert!(contract.contains("`channel.invite` permission"));
+        assert!(contract.contains("`channel.remove` permission"));
     }
 
     #[test]

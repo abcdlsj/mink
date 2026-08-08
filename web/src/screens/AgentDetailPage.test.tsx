@@ -166,6 +166,11 @@ describe("Agent detail", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     recordAgentActivity({
+      event_id: "evt-2",
+      occurred_at: "2026-08-03T00:01:00Z",
+      data: { member_id: agentId, kind: "task.done", task_id: "task" },
+    });
+    recordAgentActivity({
       event_id: "evt-1",
       occurred_at: "2026-08-03T00:00:00Z",
       data: {
@@ -182,11 +187,6 @@ describe("Agent detail", () => {
         message_preview: "The Agent sent this message.",
       },
     });
-    recordAgentActivity({
-      event_id: "evt-2",
-      occurred_at: "2026-08-03T00:01:00Z",
-      data: { member_id: agentId, kind: "task.done", task_id: "task" },
-    });
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
@@ -199,8 +199,12 @@ describe("Agent detail", () => {
     expect(screen.getByText("target")).toBeVisible();
     expect(screen.getByText("#general:12")).toBeVisible();
     expect(screen.getByText("The Agent sent this message.")).toBeVisible();
+    expect(screen.getByRole("list", { name: "Arguments" })).toHaveClass("agent-activity-arguments");
+    expect(screen.getByText("The Agent sent this message.").closest("pre")).toHaveClass("agent-activity-message");
     expect(screen.queryByText("run-1")).not.toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Agent activity" })).toHaveClass("agent-activity-list");
+    const activityList = screen.getByRole("list", { name: "Agent activity" });
+    expect(activityList).toHaveClass("agent-activity-list");
+    expect(activityList.textContent!.indexOf("Completed task")).toBeLessThan(activityList.textContent!.indexOf("Sent a message"));
 
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");

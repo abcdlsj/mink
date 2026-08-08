@@ -283,6 +283,8 @@ pub(super) fn permission_str(value: PermissionAction) -> &'static str {
 pub(super) fn permission_from_str(value: &str) -> Result<PermissionAction, ApplicationError> {
     match value {
         "channel.create" => Ok(PermissionAction::ChannelCreate),
+        "channel.invite" => Ok(PermissionAction::ChannelInvite),
+        "channel.remove" => Ok(PermissionAction::ChannelRemove),
         "agent.create" => Ok(PermissionAction::AgentCreate),
         _ => Err(ApplicationError::Internal),
     }

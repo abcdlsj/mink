@@ -632,6 +632,84 @@ impl RemoveChannelAgent {
     }
 }
 
+pub(in crate::server) struct InviteChannelMember;
+
+impl InviteChannelMember {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        port.transact(async |transaction| {
+            if let Some(resource_id) = transaction
+                .resource_for_idempotency(actor, "channel.invite", idempotency_key)
+                .await?
+            {
+                if resource_id != channel_id.into_uuid() {
+                    return Err(ApplicationError::Conflict);
+                }
+                return Ok(false);
+            }
+            let channel = transaction.channel(channel_id).await?;
+            transaction
+                .member_access_level(actor, channel.space_id)
+                .await?;
+            if !transaction
+                .has_permission(actor, PermissionAction::ChannelInvite)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            transaction
+                .invite_channel_member(actor, channel_id, member_id, idempotency_key, now)
+                .await
+        })
+        .await
+    }
+}
+
+pub(in crate::server) struct RemoveChannelMember;
+
+impl RemoveChannelMember {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        actor: MemberId,
+        channel_id: ChannelId,
+        member_id: MemberId,
+        idempotency_key: IdempotencyKey,
+        now: OffsetDateTime,
+    ) -> Result<bool, ApplicationError> {
+        port.transact(async |transaction| {
+            if let Some(resource_id) = transaction
+                .resource_for_idempotency(actor, "channel.remove", idempotency_key)
+                .await?
+            {
+                if resource_id != channel_id.into_uuid() {
+                    return Err(ApplicationError::Conflict);
+                }
+                return Ok(false);
+            }
+            let channel = transaction.channel(channel_id).await?;
+            transaction
+                .member_access_level(actor, channel.space_id)
+                .await?;
+            if !transaction
+                .has_permission(actor, PermissionAction::ChannelRemove)
+                .await?
+            {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            transaction
+                .remove_channel_member(actor, channel_id, member_id, idempotency_key, now)
+                .await
+        })
+        .await
+    }
+}
+
 pub(in crate::server) struct LeaveChannel;
 
 impl LeaveChannel {

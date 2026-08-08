@@ -259,6 +259,7 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
         let owner = Uuid::now_v7();
         let agent = Uuid::now_v7();
         let second_agent = Uuid::now_v7();
+        let space_only = Uuid::now_v7();
         let computer = Uuid::now_v7();
         let channel = Uuid::now_v7();
         let root = Uuid::now_v7();
@@ -268,7 +269,8 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
              INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES
                ('{owner}','{space}','human','Owner','owner',now()),
                ('{agent}','{space}','agent','Agent','member',now()),
-               ('{second_agent}','{space}','agent','Second','member',now());
+               ('{second_agent}','{space}','agent','Second','member',now()),
+               ('{space_only}','{space}','human','SpaceOnly','member',now());
              INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer}','{space}','Computer','localhost','linux','mention-all-hash','offline',1,now());
              INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES
                ('{agent}','{space}','{computer}','Act',1,'active','codex',now()),
@@ -324,6 +326,33 @@ async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
         assert!(!targets.contains(&owner));
         assert!(targets.contains(&agent));
         assert!(targets.contains(&second_agent));
+
+        let run_id = RunId::from_uuid(Uuid::now_v7());
+        sqlx::query(
+            "INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at) \
+             VALUES($1,$2,$3,$4,'dispatched','mention',now())",
+        )
+        .bind(run_id.into_uuid())
+        .bind(space)
+        .bind(agent)
+        .bind(root)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let start = adapter
+            .transact(async |transaction| transaction.run_start(run_id).await)
+            .await
+            .unwrap();
+        let run_member_ids = start
+            .channel_members
+            .iter()
+            .map(|member| member.member_id.into_uuid())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(run_member_ids.len(), 3);
+        assert!(run_member_ids.contains(&owner));
+        assert!(run_member_ids.contains(&agent));
+        assert!(run_member_ids.contains(&second_agent));
+        assert!(!run_member_ids.contains(&space_only));
         pool.close().await;
     }
     .await;

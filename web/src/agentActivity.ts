@@ -15,6 +15,8 @@ export type AgentActivityKind =
   | "task.close"
   | "channel.create"
   | "channel.leave"
+  | "channel.invite"
+  | "channel.remove"
   | "agent.create"
   | "inbox.ack"
   | "inbox.defer"
@@ -133,7 +135,12 @@ export function recordAgentActivity(event: AgentActivityEvent): void {
 }
 
 export function activityForAgent(agentMemberId: string): readonly AgentActivityItem[] {
-  return activityByAgent.get(agentMemberId) ?? [];
+  // The feed is time-descending regardless of arrival order: replays stream
+  // oldest first while live events can interleave, so insertion order alone
+  // is not a reliable sort.
+  return [...(activityByAgent.get(agentMemberId) ?? [])].sort(
+    (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
+  );
 }
 
 export function clearAgentActivity(): void {

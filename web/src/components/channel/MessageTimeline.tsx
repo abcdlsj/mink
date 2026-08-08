@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
+import { ArrowDown, Check, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskRef, type MessageTaskSummary } from "../../api/client";
@@ -21,6 +21,8 @@ export function MessageTimeline({
   openThread,
   activityByMemberId,
   members,
+  direct = false,
+  onOpenAgentDm,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
   header?: ReactNode;
@@ -34,9 +36,31 @@ export function MessageTimeline({
   openThread: (threadId: string, trigger?: HTMLButtonElement) => void;
   activityByMemberId: ReadonlyMap<string, Agent["activity_status"]>;
   members: Member[];
+  direct?: boolean;
+  onOpenAgentDm?: (memberId: string) => void;
 }) {
   const [newMessageAnnouncement, setNewMessageAnnouncement] = useState("");
+  const [showToBottom, setShowToBottom] = useState(false);
   const announcedMessageRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const element = timelineRef.current;
+    if (!element) return;
+    const updateScrollState = () => {
+      const distanceFromBottom = element.scrollHeight - element.clientHeight - element.scrollTop;
+      setShowToBottom(distanceFromBottom > element.clientHeight);
+    };
+    updateScrollState();
+    element.addEventListener("scroll", updateScrollState, { passive: true });
+    return () => element.removeEventListener("scroll", updateScrollState);
+  }, [page?.messages.length, timelineRef]);
+
+  function scrollToBottom() {
+    const element = timelineRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+    setShowToBottom(false);
+  }
 
   // The timeline itself must not be a live region: a polite region on the
   // whole list makes screen readers re-read every message on each update.
@@ -59,6 +83,7 @@ export function MessageTimeline({
   const timelineGroups = groupTimelineMessages(page?.messages ?? []);
 
   return (
+    <div className="message-timeline-shell">
       <div ref={timelineRef} className="message-timeline">
         <div className="visually-hidden" role="status">{newMessageAnnouncement}</div>
         {header}
@@ -112,7 +137,14 @@ export function MessageTimeline({
                     {formatMessageTime(message.created_at)}
                   </time>
                 ) : (
-                  <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityByMemberId.get(message.author.id)} />
+                  <MessageAvatar
+                    name={message.author.display_name}
+                    kind={message.author.kind}
+                    seed={message.author.id}
+                    activityStatus={activityByMemberId.get(message.author.id)}
+                    clickable={!direct}
+                    onOpenAgentDm={onOpenAgentDm}
+                  />
                 )}
                 <div className="message-content">
                   {grouped ? null : (
@@ -152,6 +184,19 @@ export function MessageTimeline({
           );
         })}
       </div>
+      {showToBottom ? (
+        <button
+          className="to-bottom-button"
+          type="button"
+          aria-label="Go to latest message"
+          title="Go to latest message"
+          onClick={scrollToBottom}
+        >
+          <ArrowDown aria-hidden="true" />
+          <span>To bottom</span>
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -203,10 +248,17 @@ function SystemNoticeGroup({
   );
 }
 
-export function CompactMessage({ message, activityStatus, spaceSlug, members }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[] }) {
+export function CompactMessage({ message, activityStatus, spaceSlug, members, direct = false, onOpenAgentDm }: { message: Message; activityStatus?: Agent["activity_status"]; spaceSlug: string; members: Member[]; direct?: boolean; onOpenAgentDm?: (memberId: string) => void }) {
   return (
     <article className="thread-message" id={`message-${message.id}`} data-message-id={message.id} tabIndex={-1}>
-      <PresenceIdentity name={message.author.display_name} kind={message.author.kind} seed={message.author.id} activityStatus={activityStatus} />
+      <MessageAvatar
+        name={message.author.display_name}
+        kind={message.author.kind}
+        seed={message.author.id}
+        activityStatus={activityStatus}
+        clickable={!direct}
+        onOpenAgentDm={onOpenAgentDm}
+      />
       <div>
         <header>
           <strong>{message.author.display_name}</strong>
@@ -220,6 +272,38 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members }: 
         ) : null}
       </div>
     </article>
+  );
+}
+
+function MessageAvatar({
+  name,
+  kind,
+  seed,
+  activityStatus,
+  clickable,
+  onOpenAgentDm,
+}: {
+  name: string;
+  kind: Member["kind"];
+  seed: string;
+  activityStatus?: Agent["activity_status"];
+  clickable: boolean;
+  onOpenAgentDm?: (memberId: string) => void;
+}) {
+  const identity = (
+    <PresenceIdentity name={name} kind={kind} seed={seed} activityStatus={activityStatus} />
+  );
+  if (kind !== "agent" || !clickable || !onOpenAgentDm) return identity;
+  return (
+    <button
+      className="message-avatar-button"
+      type="button"
+      aria-label={`Open DM with ${name}`}
+      title={`Open DM with ${name}`}
+      onClick={() => onOpenAgentDm(seed)}
+    >
+      {identity}
+    </button>
   );
 }
 
