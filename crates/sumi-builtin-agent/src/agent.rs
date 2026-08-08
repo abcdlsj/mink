@@ -376,6 +376,21 @@ impl AgentRuntime {
         Ok(())
     }
 
+    /// Returns the latest non-empty assistant reply from the persisted session.
+    ///
+    /// Channel plugins read this after a completed turn to deliver the final
+    /// text to the external conversation.
+    pub async fn latest_reply(&self, locator: &str) -> Result<Option<String>, AgentError> {
+        let agent_id = self.owner_for_locator(locator)?;
+        let session = self.load_session(agent_id, locator).await?;
+        Ok(session
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == "assistant" && !message.content.trim().is_empty())
+            .map(|message| message.content.clone()))
+    }
+
     pub fn process_evidence(&self, run_id: Uuid) -> bool {
         self.turns.contains_key(&run_id)
     }
@@ -693,6 +708,10 @@ mod tests {
                 run_id,
                 outcome: TurnOutcome::Completed,
             }
+        );
+        assert_eq!(
+            runtime.latest_reply(&locator).await.unwrap().as_deref(),
+            Some("completed")
         );
         runtime.steer(&locator).await.unwrap();
         runtime.notice(&locator).await.unwrap();
