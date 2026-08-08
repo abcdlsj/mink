@@ -384,7 +384,7 @@ mod tests {
             .transact(async |transaction| transaction.save_run(run))
             .await
             .unwrap();
-        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None);
+        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None, None);
         homes
             .provision(LocalAgent {
                 agent_id,

@@ -26,6 +26,7 @@ impl SandboxAdapter {
         driver_home: &Path,
         socket: &Path,
         driver_token: &str,
+        company_dir: Option<&Path>,
     ) -> Result<Command, ApplicationError> {
         Self::validate()?;
         #[cfg(target_os = "macos")]
@@ -39,18 +40,23 @@ impl SandboxAdapter {
             let agent_home = canonicalize_or_original(agent_home);
             let driver_home = canonicalize_or_original(driver_home);
             let socket = canonicalize_or_original(socket);
+            let company_dir = company_dir.map(canonicalize_or_original);
+            let company_scope = match &company_dir {
+                Some(path) => format!("(subpath \"{}\")", escape(path)?),
+                None => String::new(),
+            };
             let profile = format!(
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
                   (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
                   (subpath \"/private\") (literal \"/\") (literal \"/dev/null\") \
-                  (literal \"/dev/urandom\") \
+                  (literal \"/dev/urandom\") {company_scope} \
                   (literal \"{}\") (literal \"{}\") (literal \"{}\") \
                   (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
                   (literal \"{}\"))\
                  (allow file-read-metadata)\
                  (allow sysctl-read)\
-                 (allow file-write* (subpath \"{}\") (subpath \"{}\") \
+                 (allow file-write* (subpath \"{}\") (subpath \"{}\") {company_scope} \
                   (literal \"{}\") (literal \"/dev/null\"))",
                 escape(&executable)?,
                 escape(&sumi_executable)?,
@@ -111,6 +117,12 @@ impl SandboxAdapter {
                 .arg("--bind")
                 .arg(agent_home.join("runs"))
                 .arg("/agent/runs")
+                .arg("--dir")
+                .arg("/agent/company");
+            if let Some(company_dir) = company_dir {
+                command.arg("--bind").arg(company_dir).arg("/agent/company");
+            }
+            command
                 .arg("--ro-bind")
                 .arg(driver_home)
                 .arg("/agent/driver")
@@ -208,6 +220,7 @@ mod tests {
             &home.path().join("drivers/builtin"),
             &socket,
             "test-token",
+            None,
         )
         .unwrap();
         let output = command.arg("-c").arg("pwd -P").output().await.unwrap();
@@ -220,6 +233,50 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout).trim(),
             expected.to_str().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn sandbox_shell_writes_into_the_company_mount() {
+        if SandboxAdapter::validate().is_err() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("runs")).unwrap();
+        std::fs::create_dir_all(home.path().join("workspace")).unwrap();
+        let drive = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink("../company", home.path().join("workspace/company")).unwrap();
+            symlink(drive.path(), home.path().join("company")).unwrap();
+        }
+        let socket = home.path().join("runtime/daemon.sock");
+        let mut command = SandboxAdapter::command(
+            Path::new("/bin/sh"),
+            home.path(),
+            &home.path().join("drivers/builtin"),
+            &socket,
+            "test-token",
+            Some(drive.path()),
+        )
+        .unwrap();
+        let output = command
+            .arg("-c")
+            .arg("printf 'hello' > workspace/company/note.txt && cat workspace/company/note.txt")
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "company write failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+        assert_eq!(
+            std::fs::read(drive.path().join("note.txt")).unwrap(),
+            b"hello"
         );
     }
 }

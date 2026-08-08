@@ -9,8 +9,12 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 const MAX_TOOL_FILE_BYTES: u64 = 1024 * 1024;
 
-pub(super) async fn read_utf8(root: &Path, relative: &Path) -> Result<String> {
-    let path = resolve_existing_file(root, relative).await?;
+pub(super) async fn read_utf8(
+    root: &Path,
+    relative: &Path,
+    company_root: Option<&Path>,
+) -> Result<String> {
+    let path = resolve_existing_file(root, relative, company_root).await?;
     let metadata = tokio::fs::metadata(&path).await?;
     ensure!(
         metadata.len() <= MAX_TOOL_FILE_BYTES,
@@ -21,12 +25,17 @@ pub(super) async fn read_utf8(root: &Path, relative: &Path) -> Result<String> {
         .context("file is not readable UTF-8")
 }
 
-pub(super) async fn write_utf8(root: &Path, relative: &Path, content: &str) -> Result<()> {
+pub(super) async fn write_utf8(
+    root: &Path,
+    relative: &Path,
+    content: &str,
+    company_root: Option<&Path>,
+) -> Result<()> {
     ensure!(
         content.len() as u64 <= MAX_TOOL_FILE_BYTES,
         "content exceeds the 1 MiB tool limit"
     );
-    let path = resolve_write_file(root, relative).await?;
+    let path = resolve_write_file(root, relative, company_root).await?;
     tokio::fs::write(path, content).await?;
     Ok(())
 }
@@ -36,10 +45,11 @@ pub(super) async fn edit_utf8(
     relative: &Path,
     old_text: &str,
     new_text: &str,
+    company_root: Option<&Path>,
 ) -> Result<()> {
     ensure!(!old_text.is_empty(), "old_text cannot be empty");
-    let path = resolve_existing_file(root, relative).await?;
-    let content = read_utf8(root, relative).await?;
+    let path = resolve_existing_file(root, relative, company_root).await?;
+    let content = read_utf8(root, relative, company_root).await?;
     let Some(position) = content.find(old_text) else {
         bail!("old_text was not found");
     };
@@ -188,11 +198,17 @@ impl Drop for ProcessGroupGuard {
     }
 }
 
-async fn resolve_existing_file(root: &Path, relative: &Path) -> Result<PathBuf> {
-    validate_relative_path(relative)?;
-    let canonical_root = tokio::fs::canonicalize(root).await?;
-    let mut candidate = root.to_owned();
-    for component in relative.components() {
+async fn resolve_existing_file(
+    root: &Path,
+    relative: &Path,
+    company_root: Option<&Path>,
+) -> Result<PathBuf> {
+    let (effective_root, effective_relative) =
+        effective_root_and_relative(root, relative, company_root).await?;
+    validate_relative_path(effective_relative)?;
+    let canonical_root = tokio::fs::canonicalize(&effective_root).await?;
+    let mut candidate = effective_root.to_owned();
+    for component in effective_relative.components() {
         let Component::Normal(component) = component else {
             bail!("path is invalid");
         };
@@ -215,11 +231,17 @@ async fn resolve_existing_file(root: &Path, relative: &Path) -> Result<PathBuf> 
     Ok(canonical)
 }
 
-async fn resolve_write_file(root: &Path, relative: &Path) -> Result<PathBuf> {
-    validate_relative_path(relative)?;
-    let canonical_root = tokio::fs::canonicalize(root).await?;
-    let components = relative.components().collect::<Vec<_>>();
-    let mut parent = root.to_owned();
+async fn resolve_write_file(
+    root: &Path,
+    relative: &Path,
+    company_root: Option<&Path>,
+) -> Result<PathBuf> {
+    let (effective_root, effective_relative) =
+        effective_root_and_relative(root, relative, company_root).await?;
+    validate_relative_path(effective_relative)?;
+    let canonical_root = tokio::fs::canonicalize(&effective_root).await?;
+    let components = effective_relative.components().collect::<Vec<_>>();
+    let mut parent = effective_root.to_owned();
     for component in &components[..components.len() - 1] {
         let Component::Normal(component) = component else {
             bail!("path is invalid");
@@ -263,6 +285,37 @@ async fn resolve_write_file(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(candidate)
 }
 
+async fn effective_root_and_relative<'a>(
+    root: &'a Path,
+    relative: &'a Path,
+    company_root: Option<&Path>,
+) -> Result<(PathBuf, &'a Path)> {
+    match company_relative(relative) {
+        Some(rest) => match company_root {
+            Some(company_root) => {
+                let canonical_company = tokio::fs::canonicalize(company_root)
+                    .await
+                    .context("company mount is not available")?;
+                Ok((canonical_company, rest))
+            }
+            None => bail!("path cannot contain a symlink"),
+        },
+        None => Ok((root.to_owned(), relative)),
+    }
+}
+
+fn company_relative(relative: &Path) -> Option<&Path> {
+    let mut components = relative.components();
+    if matches!(
+        components.next(),
+        Some(Component::Normal(part)) if part == std::ffi::OsStr::new("company")
+    ) {
+        Some(components.as_path())
+    } else {
+        None
+    }
+}
+
 fn validate_relative_path(path: &Path) -> Result<()> {
     ensure!(
         !path.as_os_str().is_empty()
@@ -295,7 +348,7 @@ mod tests {
         assert!(validated_relative("/etc/passwd").is_err());
         #[cfg(unix)]
         assert!(
-            read_utf8(root.path(), Path::new("link/secret"))
+            read_utf8(root.path(), Path::new("link/secret"), None)
                 .await
                 .is_err()
         );
@@ -304,17 +357,82 @@ mod tests {
     #[tokio::test]
     async fn file_tools_read_write_and_edit_inside_root() {
         let root = tempfile::tempdir().unwrap();
-        write_utf8(root.path(), Path::new("notes/item.md"), "before")
+        write_utf8(root.path(), Path::new("notes/item.md"), "before", None)
             .await
             .unwrap();
-        edit_utf8(root.path(), Path::new("notes/item.md"), "before", "after")
-            .await
-            .unwrap();
+        edit_utf8(
+            root.path(),
+            Path::new("notes/item.md"),
+            "before",
+            "after",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(
-            read_utf8(root.path(), Path::new("notes/item.md"))
+            read_utf8(root.path(), Path::new("notes/item.md"), None)
                 .await
                 .unwrap(),
             "after"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_tools_reach_the_company_mount_only_through_the_fixed_link() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let drive = tempfile::tempdir().unwrap();
+        symlink(drive.path(), root.path().join("company")).unwrap();
+        write_utf8(
+            root.path(),
+            Path::new("company/note.md"),
+            "before",
+            Some(drive.path()),
+        )
+        .await
+        .unwrap();
+        edit_utf8(
+            root.path(),
+            Path::new("company/note.md"),
+            "before",
+            "after",
+            Some(drive.path()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            read_utf8(
+                root.path(),
+                Path::new("company/note.md"),
+                Some(drive.path())
+            )
+            .await
+            .unwrap(),
+            "after"
+        );
+        assert_eq!(
+            std::fs::read_to_string(drive.path().join("note.md")).unwrap(),
+            "after"
+        );
+
+        assert!(
+            read_utf8(root.path(), Path::new("company/note.md"), None)
+                .await
+                .is_err()
+        );
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), b"hidden").unwrap();
+        symlink(outside.path(), drive.path().join("escape")).unwrap();
+        assert!(
+            read_utf8(
+                root.path(),
+                Path::new("company/escape/secret"),
+                Some(drive.path())
+            )
+            .await
+            .is_err()
         );
     }
 

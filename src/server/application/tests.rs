@@ -1833,6 +1833,7 @@ impl AttachmentTransaction for MemoryTransaction {
     }
 }
 
+#[async_trait::async_trait]
 impl CompanyFileTransaction for MemoryTransaction {
     async fn company_file(
         &mut self,

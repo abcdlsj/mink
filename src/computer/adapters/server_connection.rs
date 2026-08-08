@@ -728,7 +728,7 @@ mod tests {
         let mut store = SqliteAdapter::open(&directory.path().join("daemon.db"))
             .await
             .unwrap();
-        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None);
+        let mut homes = AgentHomeAdapter::new(directory.path().join("computer"), None, None, None);
         let adapter = ServerConnectionAdapter::new("contract".to_owned());
         let mut driver = NoopDriver;
         let agent_id = AgentId::from_uuid(Uuid::now_v7());

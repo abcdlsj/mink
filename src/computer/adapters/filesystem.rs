@@ -16,6 +16,7 @@ pub(in crate::computer) struct AgentHomeAdapter {
     computer_home: PathBuf,
     codex_config_source: Option<PathBuf>,
     codex_auth_source: Option<PathBuf>,
+    company_drive_root: Option<PathBuf>,
 }
 
 impl AgentHomeAdapter {
@@ -23,11 +24,13 @@ impl AgentHomeAdapter {
         computer_home: PathBuf,
         codex_config_source: Option<PathBuf>,
         codex_auth_source: Option<PathBuf>,
+        company_drive_root: Option<PathBuf>,
     ) -> Self {
         Self {
             computer_home,
             codex_config_source,
             codex_auth_source,
+            company_drive_root,
         }
     }
 
@@ -49,6 +52,7 @@ impl AgentHomeAdapter {
             self.install_codex_sources(&home.join("drivers/codex"))
                 .await?;
         }
+        self.install_company_mount(agent).await?;
         let profile = serde_json::to_vec(agent).map_err(|_| ApplicationError::Internal)?;
         let profile_path = home.join("profile.json");
         let temporary = home.join(format!("profile.{}.tmp", Uuid::now_v7()));
@@ -107,6 +111,27 @@ impl AgentHomeAdapter {
         Ok(())
     }
 
+    async fn install_company_mount(&self, agent: &LocalAgent) -> Result<(), ApplicationError> {
+        let Some(root) = &self.company_drive_root else {
+            return Ok(());
+        };
+        let drive_dir = root
+            .join("spaces")
+            .join(agent.space_id.into_uuid().to_string())
+            .join("company");
+        create_private_dir(&drive_dir).await?;
+        let canonical_drive = tokio::fs::canonicalize(&drive_dir)
+            .await
+            .map_err(|_| ApplicationError::Internal)?;
+        let home = self.agent_home(agent);
+        // The absolute link makes the drive visible at the Agent Home root on the host; the
+        // relative link keeps `workspace/company` resolvable inside the Linux sandbox, where the
+        // drive is bound at /agent/company.
+        ensure_symlink(&home.join("company"), &canonical_drive).await?;
+        ensure_symlink(&home.join("workspace/company"), Path::new("../company")).await?;
+        Ok(())
+    }
+
     async fn fingerprint(&self, agent_id: AgentId) -> Result<String, ApplicationError> {
         let workspace = self.agent_home_for_id(agent_id).join("workspace");
         let canonical = tokio::fs::canonicalize(&workspace)
@@ -144,7 +169,11 @@ impl AgentHomeAdapter {
         let target = tokio::fs::canonicalize(home.join(path))
             .await
             .map_err(|_| ApplicationError::NotFound)?;
-        if !target.starts_with(&home) {
+        let company_root = self.company_root_for_agent(&home).await?;
+        let within_company = company_root
+            .as_deref()
+            .is_some_and(|root| target.starts_with(root));
+        if !target.starts_with(&home) && !within_company {
             return Err(ApplicationError::Conflict);
         }
         let metadata = tokio::fs::symlink_metadata(&target)
@@ -180,7 +209,11 @@ impl AgentHomeAdapter {
         let parent = tokio::fs::canonicalize(&requested_parent)
             .await
             .map_err(|_| ApplicationError::Internal)?;
-        if !parent.starts_with(&home) {
+        let company_root = self.company_root_for_agent(&home).await?;
+        let within_company = company_root
+            .as_deref()
+            .is_some_and(|root| parent.starts_with(root));
+        if !parent.starts_with(&home) && !within_company {
             return Err(ApplicationError::Conflict);
         }
         let target = parent.join(path.file_name().ok_or(ApplicationError::Conflict)?);
@@ -189,6 +222,21 @@ impl AgentHomeAdapter {
 
     fn agent_home_for_id(&self, agent_id: AgentId) -> PathBuf {
         self.computer_home.join("agents").join(agent_id.to_string())
+    }
+
+    async fn company_root_for_agent(
+        &self,
+        home: &Path,
+    ) -> Result<Option<PathBuf>, ApplicationError> {
+        if self.company_drive_root.is_none() {
+            return Ok(None);
+        }
+        let company = home.join("company");
+        match tokio::fs::canonicalize(&company).await {
+            Ok(root) => Ok(Some(root)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(ApplicationError::Internal),
+        }
     }
 }
 
@@ -396,6 +444,42 @@ async fn create_private_dir(path: &Path) -> Result<(), ApplicationError> {
     Ok(())
 }
 
+async fn ensure_symlink(path: &Path, target: &Path) -> Result<(), ApplicationError> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) => {
+            if !metadata.file_type().is_symlink() {
+                return Err(ApplicationError::Conflict);
+            }
+            let current = tokio::fs::read_link(path)
+                .await
+                .map_err(|_| ApplicationError::Internal)?;
+            if current == target {
+                return Ok(());
+            }
+            let resolved = if target.is_absolute() {
+                tokio::fs::canonicalize(target).await
+            } else {
+                tokio::fs::canonicalize(path.parent().unwrap_or_else(|| Path::new("")).join(target))
+                    .await
+            };
+            if tokio::fs::canonicalize(path)
+                .await
+                .map_err(|_| ApplicationError::Internal)?
+                == resolved.map_err(|_| ApplicationError::Internal)?
+            {
+                return Ok(());
+            }
+            Err(ApplicationError::Conflict)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            tokio::fs::symlink(target, path)
+                .await
+                .map_err(|_| ApplicationError::Internal)
+        }
+        Err(_) => Err(ApplicationError::Internal),
+    }
+}
+
 async fn restrict_file(path: &Path) -> Result<(), ApplicationError> {
     #[cfg(unix)]
     {
@@ -574,7 +658,7 @@ mod tests {
     async fn profile_has_one_filesystem_owner_and_retire_removes_only_target_home() {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
-        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None, None);
         let agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
@@ -628,7 +712,7 @@ mod tests {
     async fn provision_initializes_primary_memory_without_overwriting_agent_updates() {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
-        let mut homes = AgentHomeAdapter::new(computer_home, None, None);
+        let mut homes = AgentHomeAdapter::new(computer_home, None, None, None);
         let mut agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
@@ -684,7 +768,7 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
-        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None, None);
         let agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
@@ -740,11 +824,82 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn company_mount_is_installed_and_attachment_paths_cross_it() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let company_root = directory.path().join("company");
+        let mut homes = AgentHomeAdapter::new(
+            computer_home.clone(),
+            None,
+            None,
+            Some(company_root.clone()),
+        );
+        let agent = LocalAgent {
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            space_id: SpaceId::from_uuid(Uuid::now_v7()),
+            name: "agent".to_owned(),
+            role_revision: 1,
+            role: "role".to_owned(),
+            driver: DriverKind::Codex,
+            state: LocalAgentState::Active,
+        };
+        let agent_id = agent.agent_id;
+        let space_id = agent.space_id;
+        homes.provision(agent).await.unwrap();
+        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        let drive_dir = company_root
+            .join("spaces")
+            .join(space_id.into_uuid().to_string())
+            .join("company");
+
+        let home_link = std::fs::read_link(agent_home.join("company")).unwrap();
+        assert_eq!(home_link, std::fs::canonicalize(&drive_dir).unwrap());
+        assert_eq!(
+            std::fs::read_link(agent_home.join("workspace/company")).unwrap(),
+            std::path::PathBuf::from("../company")
+        );
+
+        std::fs::write(drive_dir.join("shared.txt"), b"shared").unwrap();
+        let (name, content) = homes
+            .read_attachment_source(agent_id, Path::new("workspace/company/shared.txt"))
+            .await
+            .unwrap();
+        assert_eq!(name, "shared.txt");
+        assert_eq!(content, b"shared");
+
+        homes
+            .write_attachment_output(
+                agent_id,
+                Path::new("workspace/company/result.txt"),
+                b"result",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(drive_dir.join("result.txt")).unwrap(),
+            b"result"
+        );
+
+        let outside = directory.path().join("outside.txt");
+        std::fs::write(&outside, b"secret").unwrap();
+        symlink(&outside, drive_dir.join("link.txt")).unwrap();
+        assert!(matches!(
+            homes
+                .read_attachment_source(agent_id, Path::new("workspace/company/link.txt"))
+                .await,
+            Err(ApplicationError::Conflict)
+        ));
+    }
+
     #[tokio::test]
     async fn memory_listing_walks_subdirectories_and_skips_symlinks() {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
-        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None);
+        let mut homes = AgentHomeAdapter::new(computer_home.clone(), None, None, None);
         let agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),
             space_id: SpaceId::from_uuid(Uuid::now_v7()),
@@ -823,6 +978,7 @@ command = "must-not-copy"
             computer_home.clone(),
             Some(config_source),
             Some(auth_source),
+            None,
         );
         let agent = LocalAgent {
             agent_id: AgentId::from_uuid(Uuid::now_v7()),

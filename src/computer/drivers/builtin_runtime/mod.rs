@@ -54,6 +54,7 @@ pub(super) struct BuiltinRuntimeClient {
     computer_home: PathBuf,
     socket_path: PathBuf,
     driver_secret: [u8; 32],
+    company_drive_root: Option<PathBuf>,
     provider: Option<BuiltinProviderConfig>,
     sessions: BTreeMap<String, AgentId>,
     turns: BTreeMap<RunId, BuiltinTurn>,
@@ -77,6 +78,7 @@ impl BuiltinRuntimeClient {
             computer_home,
             socket_path,
             driver_secret,
+            company_drive_root: config.company_drive_root.clone(),
             provider,
             sessions: BTreeMap::new(),
             turns: BTreeMap::new(),
@@ -134,6 +136,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             &home.join("drivers/builtin"),
             &self.socket_path,
             "validation-token",
+            None,
         )?;
         let status = tokio::time::timeout(
             Duration::from_secs(10),
@@ -209,6 +212,11 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         let session = self.load_session(agent_id, locator).await?;
         let agent_home = self.agent_home(agent_id);
         let socket_path = self.socket_path.clone();
+        let company_drive = self.company_drive_root.as_ref().map(|root| {
+            root.join("spaces")
+                .join(input.agent.space_id.into_uuid().to_string())
+                .join("company")
+        });
         let locator_owned = locator.to_owned();
         let session_path = self.session_path(agent_id, locator);
         let driver_token = CapabilityService::driver_token(&self.driver_secret, agent_id);
@@ -218,6 +226,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 agent_home,
                 socket_path,
                 driver_token,
+                company_drive,
             });
             let engine = match OpenAiProvider::new(provider) {
                 Ok(provider) => Engine::new(
@@ -479,6 +488,7 @@ struct BuiltinTools {
     agent_home: PathBuf,
     socket_path: PathBuf,
     driver_token: String,
+    company_drive: Option<PathBuf>,
 }
 
 #[async_trait]
@@ -488,13 +498,13 @@ impl ToolRunner for BuiltinTools {
             "read" => {
                 let path = required_string(args, "path")?;
                 let (root, relative) = agent_rooted_path(&self.agent_home, path)?;
-                read_utf8(&root, &relative).await
+                read_utf8(&root, &relative, self.company_drive.as_deref()).await
             }
             "write" => {
                 let path = required_string(args, "path")?;
                 let content = required_string(args, "content")?;
                 let (root, relative) = agent_rooted_path(&self.agent_home, path)?;
-                write_utf8(&root, &relative, content).await?;
+                write_utf8(&root, &relative, content, self.company_drive.as_deref()).await?;
                 Ok(format!("Wrote {path}"))
             }
             "edit" => {
@@ -502,7 +512,14 @@ impl ToolRunner for BuiltinTools {
                 let old_text = required_string(args, "old_text")?;
                 let new_text = required_string(args, "new_text")?;
                 let (root, relative) = agent_rooted_path(&self.agent_home, path)?;
-                edit_utf8(&root, &relative, old_text, new_text).await?;
+                edit_utf8(
+                    &root,
+                    &relative,
+                    old_text,
+                    new_text,
+                    self.company_drive.as_deref(),
+                )
+                .await?;
                 Ok(format!("Edited {path}"))
             }
             "bash" => self.run_shell(required_string(args, "command")?).await,
@@ -519,6 +536,7 @@ impl BuiltinTools {
             &self.agent_home.join("drivers/builtin"),
             &self.socket_path,
             &self.driver_token,
+            self.company_drive.as_deref(),
         )
         .map_err(|_| anyhow::anyhow!("sandbox unavailable"))?;
         #[cfg(unix)]
