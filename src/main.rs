@@ -17,7 +17,7 @@ async fn main() -> ExitCode {
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
-        Err(error) => return handle_parse_error(error),
+        Err(error) => return handle_parse_error(error).await,
     };
     let (result, exit_code) = match cli.command {
         Command::Server(args) => (server::run(args).await, None),
@@ -59,7 +59,7 @@ async fn main() -> ExitCode {
     }
 }
 
-fn handle_parse_error(error: clap::Error) -> ExitCode {
+async fn handle_parse_error(error: clap::Error) -> ExitCode {
     if matches!(
         error.kind(),
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
@@ -70,11 +70,39 @@ fn handle_parse_error(error: clap::Error) -> ExitCode {
     let agent_json = std::env::args_os().nth(1).is_some_and(|arg| arg == "agent")
         && std::env::args_os().any(|arg| arg == "--json");
     if agent_json {
+        let error_text = error.to_string();
         let (message, details) = agent_cli::classify_error(
-            &error.to_string(),
+            &error_text,
             protocol::capability::ErrorCode::InvalidArgument,
             false,
         );
+        let mut details = details;
+        if error_text.contains("--computer-id")
+            && let Ok(response) = agent_cli::client::call(
+                protocol::capability::Action::Discover {
+                    operation: "agent.create".to_owned(),
+                },
+                None,
+            )
+            .await
+            && response.ok
+        {
+            let available = response.data.and_then(|data| {
+                data.pointer("/input/fields")
+                    .and_then(|fields| fields.as_array())
+                    .and_then(|fields| {
+                        fields.iter().find(|field| {
+                            field.get("name").and_then(serde_json::Value::as_str)
+                                == Some("computer_id")
+                        })
+                    })
+                    .and_then(|field| field.get("available"))
+                    .cloned()
+            });
+            if let Some(available) = available {
+                details.insert("available_computers".to_owned(), available);
+            }
+        }
         let response = protocol::capability::Response::<serde_json::Value>::failure(
             protocol::capability::Error {
                 code: protocol::capability::ErrorCode::InvalidArgument,

@@ -91,6 +91,14 @@ pub(crate) fn classify_error(
                 "display name: Unicode letters and underscores only (no digits or spaces, max 40 characters); role must be non-empty",
             ),
         )
+    } else if normalized.contains("channel is not visible to the agent") {
+        (
+            "Channel is not visible to the Agent".to_owned(),
+            "channel_not_visible",
+            Some(
+                "the Agent can only read Channels it belongs to: ask a Human or Admin to invite it with `sumi agent channel invite <channel-id> <member-id> --json`, or read a Channel the Agent already belongs to; do not retry without membership",
+            ),
+        )
     } else if normalized.contains("request conflicts with current state") && agent_create {
         (
             "Computer is not online or does not belong to this Space".to_owned(),
@@ -214,6 +222,27 @@ pub(crate) fn classify_error(
     details.insert("reason".to_owned(), serde_json::json!(reason));
     if let Some(next_action) = next_action {
         details.insert("next_action".to_owned(), serde_json::json!(next_action));
+    }
+    match reason {
+        "invalid_driver" => {
+            details.insert(
+                "allowed_values".to_owned(),
+                serde_json::json!(["codex", "builtin"]),
+            );
+        }
+        "invalid_post_target" => {
+            details.insert(
+                "allowed_values".to_owned(),
+                serde_json::json!(["focus", "source"]),
+            );
+        }
+        "invalid_close_reason" => {
+            details.insert(
+                "allowed_values".to_owned(),
+                serde_json::json!(["invalid", "duplicate", "not_needed", "obsolete", "other"]),
+            );
+        }
+        _ => {}
     }
     (diagnosis, details)
 }

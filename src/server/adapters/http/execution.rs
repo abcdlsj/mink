@@ -1093,7 +1093,7 @@ pub(super) async fn execute_agent_action(
             let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
             let agent_id = MemberId::from_uuid(Uuid::now_v7());
             let mut storage = state.storage.clone();
-            let agent = CreateAgentAction::execute(
+            let agent = match CreateAgentAction::execute(
                 &mut storage,
                 CreateAgentActionInput {
                     agent_member_id: agent_id,
@@ -1118,7 +1118,56 @@ pub(super) async fn execute_agent_action(
                 },
             )
             .await
-            .map_err(app_to_capability)?;
+            {
+                Ok(agent) => agent,
+                Err(ApplicationError::Conflict) => {
+                    let computers = state
+                        .read
+                        .computer_options(context.space_id.into_uuid())
+                        .await
+                        .map_err(|_| {
+                            capability_error(
+                                capability::ErrorCode::Internal,
+                                "Computer options could not be read",
+                                false,
+                            )
+                        })?;
+                    let mut details = std::collections::BTreeMap::new();
+                    details.insert(
+                        "reason".to_owned(),
+                        serde_json::json!("computer_not_available"),
+                    );
+                    details.insert(
+                        "next_action".to_owned(),
+                        serde_json::json!(
+                            "run `sumi agent discover agent.create --json` and reuse one of its `computer_id` values"
+                        ),
+                    );
+                    details.insert(
+                        "available_computers".to_owned(),
+                        serde_json::json!(
+                            computers
+                                .iter()
+                                .map(|row| json!({
+                                    "value": row.id,
+                                    "label": row.name,
+                                    "hostname": row.hostname,
+                                    "os": row.os,
+                                    "status": row.connection_status,
+                                    "available": row.connection_status == "online"
+                                }))
+                                .collect::<Vec<_>>()
+                        ),
+                    );
+                    return Err(capability::Error {
+                        code: capability::ErrorCode::Conflict,
+                        message: "Computer is not online or does not belong to this Space".into(),
+                        retryable: false,
+                        details,
+                    });
+                }
+                Err(error) => return Err(app_to_capability(error)),
+            };
             record_agent_activity(
                 state,
                 context.space_id.into_uuid(),
