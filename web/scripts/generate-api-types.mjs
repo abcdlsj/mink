@@ -21,6 +21,7 @@ const exportedTypes = {
   Channel: "ChannelResponse",
   ChannelList: "ChannelListResponse",
   ChannelMembers: "ChannelMembersResponse",
+  CompanyFile: "CompanyFileResponse",
   CompleteUploadInput: "CompleteUploadRequest",
   Computer: "ComputerResponse",
   ConfirmPairingInput: "ConfirmPairingRequest",

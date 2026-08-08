@@ -98,6 +98,34 @@ describe("Task work index", () => {
     expect(screen.getByLabelText("Focus: DM · message 21")).toBeVisible();
     expect(screen.queryAllByRole("link", { name: /#.*@21/ })).toHaveLength(0);
   });
+
+  it("claims a TODO Task from the Board", async () => {
+    const open = task("todo", "Design claim flow", 17);
+    const claimed = { ...open, status: "in_progress", assignee_agent_member_id: "agent", assignee_name: "Lin" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const shell = shellResponse(path);
+      if (shell) return shell;
+      if (path.endsWith("/agents")) return json([{ member_id: "agent", name: "Lin", desired_lifecycle: "active" }]);
+      if (path.endsWith("/tasks") && !init?.method) return json([open]);
+      if (path.endsWith("/tasks/task-todo/start") && init?.method === "POST") return json(claimed);
+      throw new Error(`Unexpected request: ${path} ${init?.method ?? ""}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRoute("/s/sumi-lab/tasks");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Board" }));
+    const todoBoard = await screen.findByRole("region", { name: "TODO board" });
+    expect(within(todoBoard).getByRole("link", { name: /Design claim flow/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("combobox", { name: "Claim Design claim flow" }));
+    fireEvent.click(screen.getByRole("option", { name: "Lin" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/tasks/task-todo/start"),
+      expect.objectContaining({ method: "POST" }),
+    ));
+    expect(within(screen.getByRole("region", { name: "In progress board" })).getByText(/Lin/)).toBeVisible();
+  });
 });
 
 function task(status: "todo" | "in_progress" | "in_review" | "done" | "closed", title: string, seq: number, assignee?: string): Task {

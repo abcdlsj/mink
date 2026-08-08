@@ -30,6 +30,7 @@ import type {
   MessagePage,
   CreateMessageInput,
   Attachment,
+  CompanyFile,
   InboxItem,
   Task,
   CreateTaskInput,
@@ -42,7 +43,7 @@ import type {
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, CompanyFile, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;
@@ -378,6 +379,35 @@ export function closeTask(taskId: string, input: CloseTaskInput): Promise<Task> 
 
 export function resetTaskSession(taskId: string): Promise<Task> {
   return mutate<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/reset-session`, "POST");
+}
+
+export function listCompanyFiles(spaceId: string): Promise<CompanyFile[]> {
+  return apiRequest<CompanyFile[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/company/files`);
+}
+
+export async function uploadCompanyFile(spaceId: string, file: File): Promise<CompanyFile> {
+  const params = new URLSearchParams({
+    name: file.name,
+    media_type: file.type || "application/octet-stream",
+  });
+  const response = await fetch(
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/company/files?${params.toString()}`,
+    {
+      method: "POST",
+      body: file,
+      credentials: "same-origin",
+      headers: { "Idempotency-Key": uuidv7() },
+    },
+  );
+  if (!response.ok) await throwResponseError(response);
+  return response.json() as Promise<CompanyFile>;
+}
+
+export function deleteCompanyFile(spaceId: string, fileId: string): Promise<void> {
+  return mutate<void>(
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/company/files/${encodeURIComponent(fileId)}`,
+    "DELETE",
+  );
 }
 
 export function getAgentRuntime(agentId: string): Promise<AgentRuntime> {

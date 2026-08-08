@@ -76,7 +76,23 @@ export function TasksPage() {
 
 function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; spaceSlug: string; currentMemberId: string }) {
   const [filter, setFilter] = useState<TaskFilter>("all_open");
+  const [view, setView] = useState<"list" | "board">("list");
+  const queryClient = useQueryClient();
   const tasks = useQuery({ queryKey: ["tasks", spaceId], queryFn: () => listTasks(spaceId) });
+  const agents = useQuery({
+    queryKey: ["agents", spaceId],
+    queryFn: () => listAgents(spaceId),
+    enabled: view === "board",
+  });
+  const claim = useMutation({
+    mutationFn: (input: { taskId: string; agentId: string }) =>
+      startTask(input.taskId, input.agentId),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<Task[]>(["tasks", spaceId], (current = []) =>
+        current.map((task) => (task.id === updated.id ? updated : task)),
+      );
+    },
+  });
   const visible = (tasks.data ?? [])
     .filter((task) => filter === "all_open"
       ? !["done", "closed"].includes(task.status)
@@ -90,7 +106,22 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
     <section className="tasks-workspace" aria-labelledby="tasks-heading">
       <header className="tasks-header">
         <div className="page-title"><h1 id="tasks-heading">Tasks</h1><p>Formal work stays connected to its Threads and Result.</p></div>
+        <div className="task-view-toggle" role="group" aria-label="Task view">
+          <button type="button" aria-pressed={view === "list"} onClick={() => setView("list")}>List</button>
+          <button type="button" aria-pressed={view === "board"} onClick={() => setView("board")}>Board</button>
+        </div>
       </header>
+      {view === "board" ? (
+        <TaskBoard
+          tasks={tasks.data ?? []}
+          spaceSlug={spaceSlug}
+          agents={(agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active")}
+          claimPending={claim.isPending}
+          onClaim={(taskId, agentId) => claim.mutate({ taskId, agentId })}
+        />
+      ) : null}
+      {view === "list" ? (
+      <>
       <nav className="task-filters" aria-label="Task filters">
         {filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
       </nav>
@@ -132,7 +163,65 @@ function TaskList({ spaceId, spaceSlug, currentMemberId }: { spaceId: string; sp
           ))}
         </div>
       ) : null}
+      </>
+      ) : null}
     </section>
+  );
+}
+
+const boardStatuses: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "closed"];
+
+function TaskBoard({
+  tasks,
+  spaceSlug,
+  agents,
+  claimPending,
+  onClaim,
+}: {
+  tasks: Task[];
+  spaceSlug: string;
+  agents: Array<{ member_id: string; name: string }>;
+  claimPending: boolean;
+  onClaim: (taskId: string, agentId: string) => void;
+}) {
+  return (
+    <div className="task-board" aria-label="Task board">
+      {boardStatuses.map((status) => {
+        const column = tasks.filter((task) => task.status === status);
+        return (
+          <section className={`task-board-column task-board-column--${status}`} key={status} aria-label={`${statusLabels[status]} board`}>
+            <header className="task-board-heading">
+              <TaskStatusLabel status={status} />
+              <span>{column.length}</span>
+            </header>
+            <div className="task-board-cards">
+              {column.map((task) => (
+                <article className="task-board-card" key={task.id}>
+                  <Link className="task-board-card-main" to="/s/$spaceSlug/tasks/$taskId" params={{ spaceSlug, taskId: task.id }}>
+                    <span className="task-row-reference">!{task.seq}</span>
+                    <strong>{task.title}</strong>
+                    <small>{task.assignee_name ?? "Unassigned"} · {new Date(task.updated_at).toLocaleDateString()}</small>
+                  </Link>
+                  {status === "todo" && !task.assignee_agent_member_id ? (
+                    <label className="task-board-claim">
+                      <span>Claim</span>
+                      <SumiSelect
+                        value=""
+                        onChange={(agentId) => onClaim(task.id, agentId)}
+                        options={agents.map((agent) => ({ value: agent.member_id, label: agent.name }))}
+                        ariaLabel={`Claim ${task.title}`}
+                        disabled={claimPending}
+                      />
+                    </label>
+                  ) : null}
+                </article>
+              ))}
+              {column.length === 0 ? <p className="task-board-empty">No Tasks</p> : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
   );
 }
 

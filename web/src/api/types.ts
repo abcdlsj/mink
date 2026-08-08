@@ -139,6 +139,22 @@ export interface components {
             note?: string | null;
             reason: components["schemas"]["CloseReason"];
         };
+        CompanyFileResponse: {
+            created_at: string;
+            download_path: string;
+            /** Format: uuid */
+            id: string;
+            media_type: string;
+            name: string;
+            sha256: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: uuid */
+            space_id: string;
+            /** Format: uuid */
+            uploader_member_id: string;
+            uploader_name: string;
+        };
         CompleteTaskRequest: {
             result_markdown: string;
             /** Format: uuid */
@@ -647,6 +663,7 @@ export type AttentionConfig = components["schemas"]["AttentionConfig"];
 export type Channel = components["schemas"]["ChannelResponse"];
 export type ChannelList = components["schemas"]["ChannelListResponse"];
 export type ChannelMembers = components["schemas"]["ChannelMembersResponse"];
+export type CompanyFile = components["schemas"]["CompanyFileResponse"];
 export type CompleteUploadInput = components["schemas"]["CompleteUploadRequest"];
 export type Computer = components["schemas"]["ComputerResponse"];
 export type ConfirmPairingInput = components["schemas"]["ConfirmPairingRequest"];

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Hash,
+  Building2,
   Inbox,
   LockKeyhole,
   ListTodo,
@@ -66,7 +67,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -308,6 +309,12 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/channels/general`}
           />
           <RailItem
+            icon={Building2}
+            label="Company"
+            active={active === "company"}
+            href={`/s/${space.data.slug}/company`}
+          />
+          <RailItem
             icon={Inbox}
             label="Inbox"
             active={active === "inbox"}
@@ -385,6 +392,12 @@ export function SpaceShell({
               label="Conversation"
               active={active === "channel" || active === "dm"}
               href={`/s/${space.data.slug}/channels/general`}
+            />
+            <NavigationItem
+              icon={Building2}
+              label="Company"
+              active={active === "company"}
+              href={`/s/${space.data.slug}/company`}
             />
             <NavigationItem
               icon={Inbox}
