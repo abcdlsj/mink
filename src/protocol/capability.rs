@@ -61,6 +61,10 @@ pub(crate) enum Action {
         title: Option<String>,
         assignee: Option<MemberId>,
     },
+    TaskOpen,
+    TaskStart {
+        task: TaskReference,
+    },
     TaskLinkThread {
         thread_id: ThreadId,
     },
@@ -141,6 +145,8 @@ impl Action {
             Self::ChannelRead { .. } => "channel.read",
             Self::MessageSend(_) => "message.send",
             Self::TaskCreate { .. } => "task.create",
+            Self::TaskOpen => "task.open",
+            Self::TaskStart { .. } => "task.start",
             Self::TaskLinkThread { .. } => "task.link_thread",
             Self::TaskUnlinkThread { .. } => "task.unlink_thread",
             Self::TaskSubmitReview { .. } => "task.submit_review",
@@ -172,6 +178,13 @@ impl Action {
                 | Self::TaskClose { .. }
         )
     }
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub(crate) enum TaskReference {
+    Seq(u64),
+    Id(TaskId),
 }
 
 impl fmt::Debug for Action {

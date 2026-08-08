@@ -699,6 +699,85 @@ pub(super) async fn execute_agent_action(
                     .map_err(api_to_capability)?,
             )
         }
+        capability::Action::TaskOpen => {
+            let tasks = state
+                .read
+                .open_tasks_for_member(context.agent_id.into_uuid())
+                .await
+                .map_err(app_to_capability)?;
+            capability_value(&tasks)
+        }
+        capability::Action::TaskStart { task } => {
+            let key = request.idempotency_key.ok_or_else(|| {
+                capability_error(
+                    capability::ErrorCode::InvalidArgument,
+                    "idempotency key is required",
+                    false,
+                )
+            })?;
+            let task_id = match task {
+                capability::TaskReference::Seq(seq) => {
+                    let seq = i64::try_from(seq).map_err(|_| {
+                        capability_error(
+                            capability::ErrorCode::InvalidArgument,
+                            "Task seq is out of range",
+                            false,
+                        )
+                    })?;
+                    let task_id = state
+                        .read
+                        .task_id_for_seq(context.space_id.into_uuid(), seq)
+                        .await
+                        .map_err(app_to_capability)?
+                        .ok_or_else(|| {
+                            capability_error(
+                                capability::ErrorCode::NotFound,
+                                "Task was not found",
+                                false,
+                            )
+                        })?;
+                    TaskId::from_uuid(task_id)
+                }
+                capability::TaskReference::Id(task_id) => task_id,
+            };
+            let mut storage = state.storage.clone();
+            UpdateTask::execute(
+                &mut storage,
+                UpdateTaskInput {
+                    task_id,
+                    actor_member_id: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    idempotency_key: key,
+                    action: TaskAction::Start {
+                        assignee: MemberId::from_uuid(context.agent_id.into_uuid()),
+                    },
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .map_err(app_to_capability)?;
+            record_agent_activity(
+                state,
+                context.space_id.into_uuid(),
+                context.agent_id.into_uuid(),
+                "task.start",
+                agent_activity_details(
+                    json!({
+                        "run_id": context.run_id,
+                        "task_id": task_id,
+                        "thread_id": context.focus_thread_id,
+                        "scope_channel_id": None::<Uuid>,
+                    }),
+                    vec![("action", "claim".to_owned())],
+                    None,
+                ),
+            )
+            .await;
+            capability_value(
+                &task_projection(&state.read, task_id.into_uuid())
+                    .await
+                    .map_err(api_to_capability)?,
+            )
+        }
         capability::Action::TaskLinkThread { thread_id } => {
             let target = activity_thread_reference(&state.read, thread_id).await;
             let key = request.idempotency_key.ok_or_else(|| {

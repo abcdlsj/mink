@@ -7,6 +7,7 @@ use crate::{
     },
     protocol::capability::{
         Action, CloseReason, DriverKind, MessageSend, MessageTarget, Page, PostTarget,
+        TaskReference,
     },
 };
 
@@ -111,6 +112,10 @@ enum TaskCommand {
         title: Option<String>,
         #[arg(long)]
         assign: Option<MemberId>,
+    },
+    Open,
+    Claim {
+        reference: String,
     },
     LinkThread {
         thread_id: ThreadId,
@@ -367,6 +372,17 @@ impl AgentCli {
                 true,
             ),
             Command::Task(TaskArgs {
+                command: TaskCommand::Open,
+            }) => (Action::TaskOpen, false),
+            Command::Task(TaskArgs {
+                command: TaskCommand::Claim { reference },
+            }) => (
+                Action::TaskStart {
+                    task: parse_task_reference(&reference)?,
+                },
+                true,
+            ),
+            Command::Task(TaskArgs {
                 command: TaskCommand::LinkThread { thread_id },
             }) => (Action::TaskLinkThread { thread_id }, true),
             Command::Task(TaskArgs {
@@ -602,6 +618,23 @@ fn parse_close_reason(value: &str) -> Result<CloseReason, &'static str> {
     }
 }
 
+fn parse_task_reference(value: &str) -> Result<TaskReference, &'static str> {
+    let value = value.strip_prefix('!').unwrap_or(value).trim();
+    if value.is_empty() {
+        return Err("task reference must be !<seq> or a task UUID");
+    }
+    if let Ok(seq) = value.parse::<u64>() {
+        if seq == 0 {
+            return Err("task seq must be positive");
+        }
+        return Ok(TaskReference::Seq(seq));
+    }
+    value
+        .parse()
+        .map(TaskReference::Id)
+        .map_err(|_| "task reference must be !<seq> or a task UUID")
+}
+
 impl From<PageArgs> for Page {
     fn from(value: PageArgs) -> Self {
         Self {
@@ -640,6 +673,49 @@ mod tests {
         ])
         .unwrap();
         assert!(parse(["sumi-agent", "task", "create", "--task", "bad", "--json"]).is_err());
+    }
+
+    #[tokio::test]
+    async fn task_open_and_claim_map_to_read_and_write_actions() {
+        let open = parse(["sumi-agent", "task", "open", "--json"]).unwrap();
+        let (action, key) = open.action(None).await.unwrap();
+        assert_eq!(action, Action::TaskOpen);
+        assert!(key.is_none());
+
+        let claim = parse(["sumi-agent", "task", "claim", "!7", "--json"]).unwrap();
+        let (action, key) = claim.action(None).await.unwrap();
+        assert_eq!(
+            action,
+            Action::TaskStart {
+                task: TaskReference::Seq(7)
+            }
+        );
+        assert!(key.is_some());
+
+        let task_id = uuid::Uuid::from_u128(99);
+        let claim = TestAgentCli::try_parse_from(vec![
+            "sumi-agent".to_owned(),
+            "task".to_owned(),
+            "claim".to_owned(),
+            task_id.to_string(),
+            "--json".to_owned(),
+        ])
+        .unwrap()
+        .agent;
+        let (action, _) = claim.action(None).await.unwrap();
+        assert_eq!(
+            action,
+            Action::TaskStart {
+                task: TaskReference::Id(crate::ids::TaskId::from_uuid(task_id))
+            }
+        );
+        assert!(
+            parse(["sumi-agent", "task", "claim", "bad", "--json"])
+                .unwrap()
+                .action(None)
+                .await
+                .is_err()
+        );
     }
 
     #[test]

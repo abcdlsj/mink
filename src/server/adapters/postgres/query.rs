@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -22,6 +23,18 @@ pub(in crate::server::adapters) struct PostgresQueries {
     pool: PgPool,
 }
 
+#[derive(Clone, Debug, Serialize, FromRow)]
+pub(in crate::server::adapters) struct TaskOpenRow {
+    pub(in crate::server::adapters) id: Uuid,
+    pub(in crate::server::adapters) seq: i64,
+    pub(in crate::server::adapters) title: String,
+    pub(in crate::server::adapters) status: String,
+    pub(in crate::server::adapters) assignee_name: Option<String>,
+    pub(in crate::server::adapters) channel_slug: Option<String>,
+    pub(in crate::server::adapters) root_message_seq: i64,
+    pub(in crate::server::adapters) updated_at: OffsetDateTime,
+}
+
 impl PostgresQueries {
     pub(in crate::server::adapters) fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -43,6 +56,48 @@ impl PostgresQueries {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)
+    }
+
+    pub(in crate::server::adapters) async fn open_tasks_for_member(
+        &self,
+        member_id: Uuid,
+    ) -> Result<Vec<TaskOpenRow>, ApplicationError> {
+        sqlx::query_as(
+            "SELECT t.id,t.seq,t.title,t.status,a.display_name AS assignee_name, \
+                    c.slug AS channel_slug, root.channel_seq AS root_message_seq, t.updated_at \
+             FROM tasks t \
+             JOIN messages root ON root.id=t.source_thread_id \
+             JOIN channels c ON c.id=root.channel_id \
+             LEFT JOIN members a ON a.id=t.assignee_agent_member_id \
+             WHERE t.status NOT IN ('done','closed') \
+               AND EXISTS ( \
+                   SELECT 1 FROM channel_members cm \
+                   WHERE cm.channel_id=root.channel_id AND cm.member_id=$1 \
+                   UNION \
+                   SELECT 1 FROM task_threads links \
+                   JOIN messages linked ON linked.id=links.thread_id \
+                   JOIN channel_members lcm ON lcm.channel_id=linked.channel_id \
+                   WHERE links.task_id=t.id AND lcm.member_id=$1 \
+               ) \
+             ORDER BY t.updated_at DESC,t.id DESC LIMIT 100",
+        )
+        .bind(member_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)
+    }
+
+    pub(in crate::server::adapters) async fn task_id_for_seq(
+        &self,
+        space_id: Uuid,
+        seq: i64,
+    ) -> Result<Option<Uuid>, ApplicationError> {
+        sqlx::query_scalar("SELECT id FROM tasks WHERE space_id=$1 AND seq=$2")
+            .bind(space_id)
+            .bind(seq)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_sqlx)
     }
 
     pub(in crate::server::adapters) async fn space_for_user_slug(
