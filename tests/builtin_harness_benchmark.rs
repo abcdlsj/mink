@@ -308,7 +308,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
             .join("agents")
             .join(agent_id.to_string())
             .join("workspace")
-            .join(scenario_paths(profile.driver).ledger);
+            .join("ledger.md");
         let driver_report = match profile.driver {
             "builtin" => {
                 let agent_home = computer_home.join("agents").join(agent_id.to_string());
