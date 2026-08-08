@@ -346,6 +346,43 @@ pub fn default_codex_home() -> Result<PathBuf> {
         .join("sumi-test"))
 }
 
+pub fn ensure_special_codex_home() -> Result<()> {
+    let home = default_codex_home()?;
+    ensure!(
+        home.join("config.toml").is_file(),
+        "special Codex home must contain config.toml at {}",
+        home.join("config.toml").display()
+    );
+    ensure!(
+        home.join("auth.json").is_file(),
+        "special Codex home must contain auth.json at {}",
+        home.join("auth.json").display()
+    );
+    Ok(())
+}
+
+pub fn ensure_default_builtin_config() -> Result<()> {
+    let home = std::env::var_os("HOME").context("HOME is required for the live test")?;
+    let config_path = PathBuf::from(home).join(".sumi/config.toml");
+    ensure!(
+        config_path.is_file(),
+        "default Sumi config must contain the configured Builtin provider"
+    );
+    let encoded = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("read default Sumi config at {}", config_path.display()))?;
+    let config: toml::Value = toml::from_str(&encoded)
+        .with_context(|| format!("parse default Sumi config at {}", config_path.display()))?;
+    ensure!(
+        config
+            .get("computer")
+            .and_then(toml::Value::as_table)
+            .and_then(|computer| computer.get("builtin"))
+            .is_some(),
+        "default Sumi config must contain [computer.builtin]"
+    );
+    Ok(())
+}
+
 pub fn write_default_codex_computer_config(
     path: &Path,
     server: &Url,

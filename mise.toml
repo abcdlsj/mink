@@ -60,6 +60,10 @@ run = "cargo test --all-features"
 description = "Run the live multi-Agent werewolf communication acceptance test"
 run = "cargo test --test werewolf_communication -- --ignored --nocapture"
 
+[tasks.brain-in-vat]
+description = "Run the isolated one-shot Agent smoke test (brain in a vat) against Codex and Builtin drivers"
+run = "cargo test --test brain_in_vat -- --ignored --nocapture"
+
 [tasks.test-web]
 description = "Run WebUI unit and component tests"
 run = "pnpm --dir web test"
