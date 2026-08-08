@@ -373,8 +373,14 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
     )?;
 
     pool.close().await;
-    computer.interrupt().await?;
-    server.interrupt().await?;
+    // The benchmark measurements are complete here; shutdown is best-effort so a slow
+    // daemon (for example one still draining a codex app-server) cannot fail the run.
+    if let Err(error) = computer.interrupt().await {
+        eprintln!("HARNESS computer shutdown warning: {error}");
+    }
+    if let Err(error) = server.interrupt().await {
+        eprintln!("HARNESS server shutdown warning: {error}");
+    }
     Ok(())
 }
 
