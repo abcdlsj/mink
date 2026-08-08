@@ -24,6 +24,10 @@ name = "brain_in_vat"
 path = "tests/brain_in_vat.rs"
 
 [[test]]
+name = "builtin_harness_benchmark"
+path = "tests/builtin_harness_benchmark.rs"
+
+[[test]]
 name = "cli"
 path = "tests/normal/cli.rs"
 

@@ -470,6 +470,47 @@ pub fn write_builtin_computer_config(
     Ok(())
 }
 
+pub struct HarnessBuiltinConfig {
+    pub api_base: String,
+    pub model: String,
+    pub token: String,
+    pub context_window_tokens: usize,
+    pub compaction_trigger_ratio: f64,
+}
+
+pub fn write_harness_computer_config(
+    path: &Path,
+    server: &Url,
+    state_dir: &Path,
+    max_concurrent_runs: usize,
+    builtin: &HarnessBuiltinConfig,
+    codex_home: Option<&Path>,
+) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let codex_sources = codex_home.map_or_else(String::new, |home| {
+        format!(
+            "codex_config_source = '{}'\ncodex_auth_source = '{}'\n",
+            home.join("config.toml").display(),
+            home.join("auth.json").display()
+        )
+    });
+    std::fs::write(
+        path,
+        format!(
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nmax_concurrent_runs = {max_concurrent_runs}\nper_agent_timeout_seconds = 1200\nshutdown_grace_period_seconds = 1\n{codex_sources}\n[computer.builtin]\napi_base = '{}'\ntoken = '{}'\nmodel = '{}'\ncontext_window_tokens = {}\ncompaction_trigger_ratio = {}\n",
+            state_dir.display(),
+            builtin.api_base,
+            builtin.token,
+            builtin.model,
+            builtin.context_window_tokens,
+            builtin.compaction_trigger_ratio,
+        ),
+    )?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
 pub fn spawn_server(config: &Path) -> Result<SumiProcess> {
     SumiProcess::spawn(
         [
