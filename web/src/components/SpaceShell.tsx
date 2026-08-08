@@ -40,6 +40,7 @@ import {
   type User,
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
+import { designLabEnabled } from "../featureFlags";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { PixelIdentity } from "./PixelIdentity";
@@ -330,12 +331,14 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
-          <RailItem
-            icon={Palette}
-            label="Design lab"
-            active={active === "design"}
-            href={`/s/${space.data.slug}/design-lab`}
-          />
+          {designLabEnabled() ? (
+            <RailItem
+              icon={Palette}
+              label="Design lab"
+              active={active === "design"}
+              href={`/s/${space.data.slug}/design-lab`}
+            />
+          ) : null}
         </nav>
         <button
           ref={railNavigationTrigger}

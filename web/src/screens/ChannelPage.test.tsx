@@ -61,6 +61,7 @@ describe("ChannelPage", () => {
     renderRoute("/s/sumi-lab/channels/general");
 
     expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Design lab" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sumi home" })).toBeVisible();
     expect(screen.getByRole("region", { name: "Finish your Space setup" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Pair" })).toHaveAttribute(
