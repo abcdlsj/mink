@@ -436,8 +436,9 @@ describe("highlightMentions", () => {
       />,
     );
 
-    expect(container.querySelectorAll("mark.message-mention")).toHaveLength(1);
-    expect(container.querySelector("mark.message-mention")).toHaveTextContent("@Lin");
+    expect(container.querySelectorAll("mark.message-mention")).toHaveLength(2);
+    expect(container.querySelectorAll("mark.message-mention")[0]).toHaveTextContent("@Lin");
+    expect(container.querySelectorAll("mark.message-mention")[1]).toHaveTextContent("@Lin");
     expect(container).toHaveTextContent("@Lin please check email@lin, @lincoln, and (@Lin).");
   });
 

@@ -301,7 +301,7 @@ function MentionInput({ ariaLabel, placeholder, rows, value, members, direct, on
 function mentionMatch(value: string, cursor: number): { start: number; query: string } | undefined {
   if (cursor < 0) return undefined;
   const prefix = value.slice(0, cursor);
-  const match = prefix.match(/(?:^|\s)@([\p{L}_]*)$/iu);
+  const match = prefix.match(/(?:^|[^\p{L}\p{N}_@])@([\p{L}_]*)$/iu);
   if (!match) return undefined;
   return { start: cursor - match[1].length - 1, query: match[1] };
 }
@@ -310,7 +310,7 @@ function mentionMatch(value: string, cursor: number): { start: number; query: st
 function mentionIds(body: string, members: Member[]): string[] {
   const byName = new Map(members.map((member) => [member.display_name.toLowerCase(), member.id]));
   const ids = new Set<string>();
-  for (const match of body.matchAll(/(^|\s)@([\p{L}_]+)/giu)) {
+  for (const match of body.matchAll(/(^|[^\p{L}\p{N}_@])@([\p{L}_]+)/giu)) {
     const id = byName.get(match[2].toLowerCase());
     if (id) ids.add(id);
   }

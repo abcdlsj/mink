@@ -9,7 +9,9 @@ use crate::server::domain::{
 /// Resolve `@display_name` tokens in an Agent message body against the target
 /// Channel Members. The Server never parses message bodies for consumers, but
 /// the Agent CLI sends plain Markdown, so the Server resolves mentions from the
-/// body at the single write entry point.
+/// body at the single write entry point. A token starts at the beginning of the
+/// body or after any character that cannot be part of a display name (letter,
+/// digit, underscore, or another `@`).
 async fn agent_mention_ids(
     queries: &PostgresQueries,
     channel_id: Uuid,
@@ -28,7 +30,12 @@ async fn agent_mention_ids(
     let mut index = 0;
     while index < chars.len() {
         let (offset, character) = chars[index];
-        if character == '@' && (index == 0 || chars[index - 1].1.is_whitespace()) {
+        if character == '@'
+            && (index == 0
+                || !(chars[index - 1].1.is_alphanumeric()
+                    || chars[index - 1].1 == '_'
+                    || chars[index - 1].1 == '@'))
+        {
             let mut end = index + 1;
             while end < chars.len() && (chars[end].1.is_alphabetic() || chars[end].1 == '_') {
                 end += 1;

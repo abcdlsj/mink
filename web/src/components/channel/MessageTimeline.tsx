@@ -484,7 +484,7 @@ function highlightMentions(
   keyPrefix: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const mentionPattern = /(^|\s)(@[\p{L}_]+)/giu;
+  const mentionPattern = /(^|[^\p{L}\p{N}_@])(@[\p{L}_]+)/giu;
   let cursor = 0;
 
   for (const match of body.matchAll(mentionPattern)) {
