@@ -193,8 +193,8 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
                     },
                 )
                 .await;
-            if result.is_err() {
-                tracing::warn!("local Agent capability request failed");
+            if let Err(error) = result {
+                tracing::warn!(%error, "local Agent capability request failed");
             }
         }
     });
@@ -509,7 +509,13 @@ where
         anyhow::bail!("Server returned a non-text Computer handshake");
     };
     match serde_json::from_str::<ServerHandshake>(&handshake)? {
-        ServerHandshake::Welcome { .. } => {}
+        ServerHandshake::Welcome { .. } => {
+            tracing::info!(
+                computer_id = %secrets.computer_id,
+                daemon_session_id = %daemon_session_id,
+                "Computer connected to Server"
+            );
+        }
         ServerHandshake::Rejected { code, .. } => {
             anyhow::bail!("Server rejected Computer protocol: {code:?}")
         }
@@ -522,7 +528,13 @@ where
     let mut lost_driver_check = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!(
+                    computer_id = %secrets.computer_id,
+                    "Computer disconnected from Server on shutdown"
+                );
+                return Ok(());
+            }
             Some(run_id) = yield_interrupts.recv() => {
                 RunPipelineService::interrupt_yielded(
                     storage,

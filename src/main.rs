@@ -27,7 +27,7 @@ async fn main() -> ExitCode {
                 use tokio::io::AsyncReadExt;
                 let mut input = String::new();
                 if let Err(error) = tokio::io::stdin().read_to_string(&mut input).await {
-                    tracing::error!(?error, "failed to read Agent command stdin");
+                    tracing::error!(%error, "failed to read Agent command stdin");
                     return ExitCode::from(1);
                 }
                 Some(input)
@@ -53,7 +53,7 @@ async fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(error = ?error, "command failed");
+            tracing::error!(%error, "command failed");
             ExitCode::from(1)
         }
     }
@@ -121,12 +121,14 @@ async fn handle_parse_error(error: clap::Error) -> ExitCode {
 }
 
 fn init_tracing() {
+    use std::io::IsTerminal;
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "sumi=info,tower_http=info".into());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_target(false)
+        .with_target(true)
+        .with_ansi(std::io::stderr().is_terminal())
         .with_writer(std::io::stderr)
-        .compact()
         .init();
 }

@@ -88,9 +88,10 @@ async fn dispatch_available_work_forever(state: http::RuntimeState) {
                 "some Runs could not be dispatched; their Items stay pending for the next pass"
             ),
             Ok(_) => {}
-            Err(error) => {
-                tracing::error!(?error, "dispatch pass failed; retrying on the next tick")
-            }
+            Err(error) => tracing::error!(
+                %error,
+                "dispatch pass failed; retrying on the next tick"
+            ),
         }
     }
 }

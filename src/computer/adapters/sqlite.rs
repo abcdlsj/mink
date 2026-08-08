@@ -207,7 +207,7 @@ impl SqliteAdapter {
         for run_snapshot in run_snapshots.into_values() {
             let run_id = run_snapshot.id;
             let run = LocalRun::rehydrate(run_snapshot).map_err(|error| {
-                tracing::error!(%run_id, ?error, "failed to rehydrate local Run");
+                tracing::error!(%run_id, %error, "failed to rehydrate local Run");
                 ApplicationError::Internal
             })?;
             snapshot.runs.insert(run_id, run);

@@ -97,6 +97,12 @@ pub(super) async fn computer_socket(
     if !matches!(handshake, ServerHandshake::Welcome { .. }) {
         return;
     }
+    tracing::info!(
+        %computer_id,
+        daemon_version = %hello.daemon_version,
+        live_run_count = hello.live_run_ids.len(),
+        "Computer connected"
+    );
     let _=sqlx::query("UPDATE computers SET connection_status='online',daemon_version=$2,last_seen_at=$3 WHERE id=$1")
         .bind(computer_id).bind(&hello.daemon_version).bind(OffsetDateTime::now_utc()).execute(&pool).await;
     // Reconcile before replaying commands. The Computer just told us which Runs it still holds; every
@@ -124,7 +130,11 @@ pub(super) async fn computer_socket(
                 "reconnecting Computer no longer holds these Runs; their Items returned to the queue"
             ),
             Ok(_) => {}
-            Err(error) => tracing::error!(%computer_id, ?error, "Computer Run sync failed"),
+            Err(error) => tracing::error!(
+                %computer_id,
+                %error,
+                "Computer Run sync failed"
+            ),
         }
     }
     let mut sent_watermark = replay_pending_commands(
@@ -361,6 +371,7 @@ pub(super) async fn computer_socket(
     }
     commands.disconnect(command_connection);
     queries.disconnect(connection);
+    tracing::info!(%computer_id, "Computer disconnected");
     let _ = sqlx::query("UPDATE computers SET connection_status='offline' WHERE id=$1")
         .bind(computer_id)
         .execute(&pool)

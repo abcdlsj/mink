@@ -124,5 +124,8 @@ Driver：
 ## 运维与诊断
 
 - 诊断必须能沿 message → inbox item → task → run → command → result event 串联。
+- 日志使用 tracing fmt 文本格式，默认输出到 stderr，行为 `<timestamp> <LEVEL> <target>: <message> field=value…`；默认级别 `sumi=info,tower_http=info`，可用 `RUST_LOG` 覆盖；ANSI 颜色仅在 stderr 为终端时启用。
+- 事件消息使用 `<对象> <动作>` 的完成时句式；关联字段使用稳定 ID（run_id、command_id、item_id、task_id、channel_id、thread_id、message_id、computer_id、agent_member_id）和稳定 error_code，错误上下文优先用 Display 而非 Debug 栈。
+- 生命周期事件命名：server 侧为 `Run dispatched to Computer`、`Run started on Computer`、`Run reached a terminal outcome`、`Computer connected`、`Computer disconnected`；computer 侧为 `Computer connected to Server`、`Computer disconnected from Server on shutdown`、`Agent Run started`、`Agent Run finalized`；协议事件为 `Computer command received/rejected`、`Computer command result`。
 - 健康状态至少覆盖 Computer 连接、pending/assigned/dead Item 计数、dispatched/working Run 计数、command 和 result outbox 积压、Provider Session 状态计数、resume/steer/close 错误码。
 - 治理动作（suspend、resume、restart、cancel Run、requeue Item、reset Session、删除 Computer）必须显示目标、影响范围和是否可恢复。

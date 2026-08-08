@@ -1759,8 +1759,8 @@ async fn record_observed_thread_sequence(state: &RuntimeState, context: &capabil
         Ok(sequence) => sequence,
         Err(error) => {
             tracing::warn!(
-                run_id = ?context.run_id,
-                error = ?error,
+                %context.run_id,
+                %error,
                 "observed thread sequence read failed"
             );
             return;
@@ -1776,8 +1776,8 @@ async fn record_observed_thread_sequence(state: &RuntimeState, context: &capabil
         .await
     {
         tracing::warn!(
-            run_id = ?context.run_id,
-            error = ?error,
+            %context.run_id,
+            %error,
             "observed thread sequence record failed"
         );
     }

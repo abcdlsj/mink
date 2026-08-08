@@ -230,6 +230,14 @@ impl DispatchRun {
                 }
             }
             transaction.emit(Effect::RunDispatched(run.view().id));
+            let run_view = run.view();
+            tracing::info!(
+                run_id = %run_view.id,
+                agent_id = %run_view.agent_id,
+                task_id = ?run_view.task_id,
+                trigger = ?run_view.trigger,
+                "Run dispatched to Computer"
+            );
             Ok(run)
         })
         .await
@@ -267,6 +275,14 @@ impl StartRun {
                 return Ok(run);
             }
             run.start(input.now)?;
+            let run_view = run.view();
+            tracing::info!(
+                run_id = %run_view.id,
+                computer_id = %input.computer_id.into_uuid(),
+                agent_id = %run_view.agent_id,
+                task_id = ?run_view.task_id,
+                "Run started on Computer"
+            );
             transaction.save_run(run.clone()).await?;
             transaction.emit(Effect::RunStarted(run.view().id));
             // The assignee's first Task Run reaching `working` is what makes the Task in progress;
@@ -550,6 +566,14 @@ impl SyncComputerRuns {
                 synced.runs_failed += 1;
                 synced.items_released += released;
                 synced.items_dead += dead;
+                tracing::warn!(
+                    %run_id,
+                    computer_id = %input.computer_id.into_uuid(),
+                    error_code = "computer_restarted",
+                    items_released = released,
+                    items_dead = dead,
+                    "Run failed because the Computer restarted without it"
+                );
             }
         }
         Ok(synced)
@@ -684,6 +708,15 @@ impl CompleteRun {
                 .settle_run_commands(run_id, input.computer_id)
                 .await?;
             transaction.emit(Effect::RunCompleted(run_id));
+            let run_view = run.view();
+            tracing::info!(
+                run_id = %run_view.id,
+                computer_id = %input.computer_id.into_uuid(),
+                agent_id = %run_view.agent_id,
+                outcome = ?run_view.outcome,
+                error_code = ?run_view.error_code,
+                "Run reached a terminal outcome"
+            );
             Ok(run)
         })
         .await

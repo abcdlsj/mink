@@ -235,6 +235,13 @@ impl RunService {
             .start_turn(&run, provider_session.view().locator)
             .await?;
         run.started(scope, generation)?;
+        let run_view = run.view();
+        tracing::info!(
+            %run_id,
+            agent_id = %run_view.agent_id,
+            session_generation = generation,
+            "Agent Run started"
+        );
         store
             .transact(async |transaction| {
                 transaction.save_session(provider_session)?;
@@ -386,6 +393,12 @@ impl RunService {
         continuation_note: Option<String>,
         error_code: Option<LocalErrorCode>,
     ) -> Result<EventId, ApplicationError> {
+        tracing::info!(
+            %run_id,
+            status = ?status,
+            error_code = ?error_code,
+            "Agent Run finalized"
+        );
         store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
