@@ -518,6 +518,14 @@ async function main() {
   const agents = await ensureAgents(cookie, space.id, computer.id);
   await ensurePmPermissions(cookie, agents);
   await addAgentsToChannel(cookie, space.general_channel_id, agents.map((agent) => agent.member_id));
+  const channels = await api("GET", `/api/v1/spaces/${space.id}/channels`, { cookie });
+  if (channels.ok) {
+    const hq = (await channels.json()).channels?.find((channel) => channel.slug === "hq");
+    if (hq) {
+      await addAgentsToChannel(cookie, hq.id, agents.map((agent) => agent.member_id));
+      log(`Agents joined #${hq.slug}`);
+    }
+  }
   log(`Agents ready in #${DEV_CHANNEL_SLUG}: ${AGENT_PROFILES.map((profile) => profile.name).join(", ")}`);
   const channelUrl = `${SERVER.replace(/:\d+$/, ":5173")}/s/${space.slug}/channels/general`;
   const browserHandoff = await createBrowserSessionHandoff(cookie, channelUrl);

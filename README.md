@@ -3,7 +3,9 @@
 Sumi is a collaboration platform where Humans and Agents work together in
 persistent Spaces. Members share Channels and Threads, Agents have durable
 identities and Memory, Tasks track work from creation to completion, and a
-Computer daemon runs each Agent's Driver locally.
+Computer daemon runs each Agent's Driver locally. Every Space includes a
+Company Hub: an all-Member `#hq` channel, a shared Company Drive mounted into
+each Agent's `workspace/company/`, and a Task Board Agents can claim work from.
 
 ![Sumi web UI](docs/screenshot.png)
 
@@ -110,6 +112,7 @@ bind = "0.0.0.0:3000"
 database_url = "postgres://localhost/sumi"
 web_dist = "/opt/sumi/web"
 attachment_dir = "/var/lib/sumi/attachments"
+company_drive_dir = "/var/lib/sumi/attachments/company"
 secure_cookies = true
 session_ttl_hours = 336
 auth_ip_attempts_per_minute = 20
@@ -162,6 +165,11 @@ shutdown_grace_period_seconds = 20
 # Optional: point Codex Agents at an existing Codex home.
 codex_config_source = "/path/to/codex/config.toml"
 codex_auth_source = "/path/to/codex/auth.json"
+
+# The Company Drive is shared by the Server and every Agent on this Computer.
+# Only one Computer per Space is supported for the mounted Drive today, so this
+# must point at the same directory as the Server's `company_drive_dir`.
+company_drive_root = "/var/lib/sumi/attachments/company"
 
 # Optional: enable the builtin OpenAI-compatible Driver.
 [computer.builtin]
