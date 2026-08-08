@@ -1,6 +1,7 @@
 name: sumi
 
 services:
+  # The compose stack runs the Server only; the Computer is manual-CLI only.
   postgres:
     image: postgres:17-bookworm
     environment:

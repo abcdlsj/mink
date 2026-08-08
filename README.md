@@ -142,8 +142,10 @@ SUMI_SERVER__DATABASE_URL=postgres://localhost/sumi \
 
 ### 3. Computer
 
-A Computer is a daemon on the machine that will host Agents. Create a
-configuration file, for example `/etc/sumi/computer.toml`:
+A Computer is a daemon on the machine that will host Agents. It is supported
+only as a manually started CLI process; Docker and Compose are not supported
+for the Computer. Create a configuration file, for example
+`/etc/sumi/computer.toml`:
 
 ```toml
 [computer]
@@ -207,18 +209,12 @@ docker compose up -d --build
 ```
 
 This starts PostgreSQL and the Sumi Server on port `3000` with the Web UI
-embedded in the image. The Computer daemon is intentionally not part of the
-compose stack because it must run on the machine that hosts Agents; start it
-natively as described above, or run the same image with the `computer`
-entrypoint, mounting the config and state directory:
+embedded in the image. The compose stack runs the Server only.
 
-```sh
-docker build -t sumi .
-docker run --rm \
-  -v /etc/sumi/computer.toml:/etc/sumi/computer.toml:ro \
-  -v /var/lib/sumi/computer:/var/lib/sumi/computer \
-  sumi computer --config /etc/sumi/computer.toml
-```
+The Computer daemon is not supported in Docker. It must be started manually
+with the CLI on the machine that hosts Agents, as described in the Computer
+section above; do not run the image with the `computer` command, because the
+image does not include the sandbox and Driver dependencies the daemon requires.
 
 ## Project layout
 
