@@ -542,6 +542,8 @@ pub(crate) enum Query {
     MemoryList(MemoryQuery),
     #[serde(rename = "memory.read")]
     MemoryRead(MemoryReadQuery),
+    #[serde(rename = "llm.usage")]
+    LlmUsage(LlmUsageQuery),
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -572,6 +574,13 @@ pub(crate) struct MemoryReadQuery {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct LlmUsageQuery {
+    /// How many hours of local usage the Computer should aggregate, counted back from now.
+    pub(crate) range_hours: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct QueryResultEnvelope {
     pub(crate) query_id: QueryId,
     pub(crate) result: QueryResult,
@@ -588,6 +597,8 @@ pub(crate) enum QueryResult {
     MemoryList(MemoryListResult),
     #[serde(rename = "memory.read")]
     MemoryRead(MemoryReadResult),
+    #[serde(rename = "llm.usage")]
+    LlmUsage(LlmUsageResult),
     #[serde(rename = "unavailable")]
     Unavailable { code: QueryErrorCode },
 }
@@ -666,6 +677,44 @@ pub(crate) struct MemoryFileProjection {
 pub(crate) struct MemoryReadResult {
     pub(crate) file: MemoryFileProjection,
     pub(crate) content: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LlmUsageResult {
+    pub(crate) requests: u64,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) cached_input_tokens: u64,
+    pub(crate) cache_write_tokens: u64,
+    pub(crate) cache_hit_rate_basis_points: u64,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub(crate) first_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub(crate) last_at: Option<OffsetDateTime>,
+    pub(crate) series: Vec<LlmUsageBucketResult>,
+    pub(crate) by_model: Vec<LlmUsageBreakdownResult>,
+    pub(crate) by_agent: Vec<LlmUsageBreakdownResult>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LlmUsageBucketResult {
+    pub(crate) bucket: String,
+    pub(crate) requests: u64,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) cached_input_tokens: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LlmUsageBreakdownResult {
+    pub(crate) key: String,
+    pub(crate) requests: u64,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) cached_input_tokens: u64,
 }
 
 impl fmt::Debug for MemoryReadResult {

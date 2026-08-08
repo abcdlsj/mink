@@ -44,10 +44,10 @@ use crate::{
     protocol::{
         capability,
         computer::{
-            ComputerFrame, ComputerHello, ItemDisposition, MemoryQuery, MemoryReadQuery,
-            Query as ComputerQuery, QueryErrorCode, QueryResult, RunResult, RunTerminalStatus,
-            RuntimeDiagnosticsQuery, ServerFrame, SessionContinuityQuery, SessionContinuityState,
-            SessionScope,
+            ComputerFrame, ComputerHello, ItemDisposition, LlmUsageQuery, MemoryQuery,
+            MemoryReadQuery, Query as ComputerQuery, QueryErrorCode, QueryResult, RunResult,
+            RunTerminalStatus, RuntimeDiagnosticsQuery, ServerFrame, SessionContinuityQuery,
+            SessionContinuityState, SessionScope,
         },
     },
     server::{
@@ -135,14 +135,14 @@ use super::{
         ComputerResponse, ComputerStatus, CreatedInvitationResponse, DirectMessageResponse,
         DriverKind as DriverKindCode, InboxActivityEventKind, InboxActivityEventResponse,
         InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
-        LoginResponse, MemberKind as MemberKindCode, MemberResponse, MemoryContentResponse,
-        MemoryFileResponse, MessageAuthor, MessageContentResponse, MessagePageResponse,
-        MessagePlacement, MessageResponse, MessageTaskRefResponse, MessageTaskSummary,
-        ProvisionStatus, RegisterResponse, RunOutcome, RunResponse, RunStatus,
-        RuntimeDiagnosticsResponse, RuntimeRunState, SessionContinuityResponse,
-        SessionContinuityState as ContinuityStateCode, SpaceResponse, TaskResponse, TaskStatus,
-        ThreadReadResponse, ThreadReferenceResponse, ThreadRelation, ThreadSubscriptionResponse,
-        UserResponse,
+        LlmUsageBreakdownResponse, LlmUsageBucketResponse, LlmUsageResponse, LoginResponse,
+        MemberKind as MemberKindCode, MemberResponse, MemoryContentResponse, MemoryFileResponse,
+        MessageAuthor, MessageContentResponse, MessagePageResponse, MessagePlacement,
+        MessageResponse, MessageTaskRefResponse, MessageTaskSummary, ProvisionStatus,
+        RegisterResponse, RunOutcome, RunResponse, RunStatus, RuntimeDiagnosticsResponse,
+        RuntimeRunState, SessionContinuityResponse, SessionContinuityState as ContinuityStateCode,
+        SpaceResponse, TaskResponse, TaskStatus, ThreadReadResponse, ThreadReferenceResponse,
+        ThreadRelation, ThreadSubscriptionResponse, UserResponse,
     },
     postgres::{ChannelLeaveReplayQuery, PostgresAdapter, PostgresQueries},
     query::QueryRegistry,
@@ -190,7 +190,7 @@ pub(super) fn api_router(state: RuntimeState, attachment_body_limit: usize) -> R
         .route("/health", get(|| async { "ok" }))
         .route("/auth/register", post(register)).route("/auth/login", post(login)).route("/auth/logout", post(logout)).route("/auth/me", get(current_user))
         .route("/computer-pairings", post(begin_pairing)).route("/computer-pairings/{pairing_id}", get(pairing_details)).route("/computer-pairings/{pairing_id}/confirm", post(confirm_pairing)).route("/computer-pairings/{pairing_id}/status", get(pairing_status))
-        .route("/computers/{computer_id}/connect", get(connect_computer)).route("/computers/{computer_id}/agents", get(computer_agents)).route("/computers/{computer_id}/runs/{run_id}/started", post(run_started)).route("/computers/{computer_id}/runs/{run_id}/delivery-receipts", post(delivery_receipt)).route("/computers/{computer_id}/runs/{run_id}/result", post(run_result)).route("/computers/{computer_id}/agent-actions", post(agent_action))
+        .route("/computers/{computer_id}/connect", get(connect_computer)).route("/computers/{computer_id}/agents", get(computer_agents)).route("/computers/{computer_id}/llm-usage", get(computer_llm_usage)).route("/computers/{computer_id}/runs/{run_id}/started", post(run_started)).route("/computers/{computer_id}/runs/{run_id}/delivery-receipts", post(delivery_receipt)).route("/computers/{computer_id}/runs/{run_id}/result", post(run_result)).route("/computers/{computer_id}/agent-actions", post(agent_action))
         .route("/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/uploads", post(agent_create_upload)).route("/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/content", axum::routing::put(agent_upload_content).layer(DefaultBodyLimit::max(attachment_body_limit))).route("/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/complete", post(agent_complete_upload)).route("/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/download", get(agent_download_attachment))
         .route("/spaces", get(list_spaces).post(create_space)).route("/spaces/by-slug/{slug}", get(space_by_slug)).route("/spaces/{space_id}/events", get(space_events)).route("/spaces/{space_id}/channels", get(list_channels).post(create_channel)).route("/spaces/{space_id}/members", get(list_members)).route("/spaces/{space_id}/members/{member_id}", axum::routing::patch(update_space_member)).route("/channels/{channel_id}/members/me", post(join_channel)).route("/channels/{channel_id}/archive", post(archive_channel)).route("/threads/{thread_id}/subscription", axum::routing::put(follow_thread).delete(unfollow_thread))
         .route("/spaces/{space_id}/agent-graph", get(agent_graph))

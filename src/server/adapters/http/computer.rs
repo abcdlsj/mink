@@ -502,6 +502,80 @@ pub(super) async fn agent_continuity(
     continuity_response(result)
 }
 
+#[derive(Deserialize)]
+pub(super) struct LlmUsageRangeQuery {
+    #[serde(default)]
+    pub(super) range: Option<String>,
+}
+
+pub(super) async fn computer_llm_usage(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(computer_id): Path<Uuid>,
+    Query(query): Query<LlmUsageRangeQuery>,
+) -> Result<Json<LlmUsageResponse>, ApiError> {
+    require_computer_governor(&state, &jar, computer_id).await?;
+    let range_hours = match query.range.as_deref() {
+        Some("7d") => 168,
+        Some("30d") => 720,
+        _ => 24,
+    };
+    let result = state
+        .queries
+        .ask(
+            computer_id,
+            ComputerQuery::LlmUsage(LlmUsageQuery { range_hours }),
+        )
+        .await;
+    match result {
+        QueryResult::LlmUsage(usage) => Ok(Json(LlmUsageResponse {
+            requests: usage.requests,
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cached_input_tokens: usage.cached_input_tokens,
+            cache_write_tokens: usage.cache_write_tokens,
+            cache_hit_rate: usage.cache_hit_rate_basis_points as f64 / 10_000.0,
+            first_at: usage.first_at.map(timestamp),
+            last_at: usage.last_at.map(timestamp),
+            series: usage
+                .series
+                .into_iter()
+                .map(|bucket| LlmUsageBucketResponse {
+                    bucket: bucket.bucket,
+                    requests: bucket.requests,
+                    input_tokens: bucket.input_tokens,
+                    output_tokens: bucket.output_tokens,
+                    cached_input_tokens: bucket.cached_input_tokens,
+                })
+                .collect(),
+            by_model: usage
+                .by_model
+                .into_iter()
+                .map(llm_usage_breakdown)
+                .collect(),
+            by_agent: usage
+                .by_agent
+                .into_iter()
+                .map(llm_usage_breakdown)
+                .collect(),
+        })),
+        QueryResult::Unavailable { .. } => Err(ApiError::computer_unreachable()),
+        _ => Err(ApiError::internal()),
+    }
+}
+
+fn llm_usage_breakdown(
+    breakdown: crate::protocol::computer::LlmUsageBreakdownResult,
+) -> LlmUsageBreakdownResponse {
+    LlmUsageBreakdownResponse {
+        key: breakdown.key,
+        requests: breakdown.requests,
+        input_tokens: breakdown.input_tokens,
+        output_tokens: breakdown.output_tokens,
+        cached_input_tokens: breakdown.cached_input_tokens,
+    }
+}
+
 pub(super) async fn agent_runtime_diagnostics(
     state: &RuntimeState,
     agent_id: Uuid,

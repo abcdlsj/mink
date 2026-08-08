@@ -23,6 +23,7 @@ use crate::{
                 DriverCompletion, DriverPort, DriverTurnOutcome, OpenSessionRequest, OpenedSession,
                 ProcessEvidence, SteerOutcome,
             },
+            usage::LlmUsageRecord,
         },
         core::{
             home::LocalAgent,
@@ -47,17 +48,18 @@ pub(in crate::computer) fn runtime(
     computer_home: &std::path::Path,
     config: &crate::config::ComputerConfig,
     driver_secret: [u8; 32],
+    usage_sink: Option<tokio::sync::mpsc::UnboundedSender<LlmUsageRecord>>,
 ) -> Result<impl DriverPort, ApplicationError> {
+    let mut builtin = BuiltinRuntimeClient::new(computer_home.to_owned(), config, driver_secret)?;
+    if let Some(sink) = usage_sink {
+        builtin.set_usage_sink(sink);
+    }
     Ok(DriverAdapter::new(
         codex::CodexAdapter::new(CodexRuntimeClient::new(
             computer_home.to_owned(),
             driver_secret,
         )),
-        builtin::BuiltinAdapter::new(BuiltinRuntimeClient::new(
-            computer_home.to_owned(),
-            config,
-            driver_secret,
-        )?),
+        builtin::BuiltinAdapter::new(builtin),
     ))
 }
 

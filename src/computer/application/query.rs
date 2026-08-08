@@ -1,3 +1,5 @@
+use time::OffsetDateTime;
+
 use crate::ids::{AgentId, RunId};
 
 use crate::computer::core::{
@@ -7,7 +9,8 @@ use crate::computer::core::{
 
 use super::{
     ApplicationError, Continuity, MemoryFile, SessionScope,
-    ports::{AgentHomePort, ComputerTransaction, TransactionPort},
+    ports::{AgentHomePort, ComputerTransaction, LlmUsageStore, TransactionPort},
+    usage::{self, LlmUsageSummary},
 };
 
 pub(in crate::computer) struct QueryService;
@@ -106,6 +109,17 @@ impl QueryService {
             .ok_or(ApplicationError::NotFound)?;
         let content = String::from_utf8(content).map_err(|_| ApplicationError::Conflict)?;
         Ok((file, content))
+    }
+
+    pub(in crate::computer) async fn llm_usage<P: LlmUsageStore>(
+        store: &mut P,
+        range_hours: i64,
+    ) -> Result<LlmUsageSummary, ApplicationError> {
+        let since = OffsetDateTime::now_utc()
+            .checked_sub(time::Duration::hours(range_hours))
+            .unwrap_or_else(OffsetDateTime::now_utc);
+        let records = store.llm_usage_since(since).await?;
+        Ok(usage::summarize(&records, range_hours))
     }
 }
 

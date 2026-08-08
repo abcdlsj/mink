@@ -386,6 +386,47 @@ export interface components {
             /** Format: uuid */
             thread_id: string;
         };
+        LlmUsageBreakdownResponse: {
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            input_tokens: number;
+            key: string;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            requests: number;
+        };
+        LlmUsageBucketResponse: {
+            bucket: string;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            requests: number;
+        };
+        LlmUsageResponse: {
+            by_agent: components["schemas"]["LlmUsageBreakdownResponse"][];
+            by_model: components["schemas"]["LlmUsageBreakdownResponse"][];
+            /** Format: double */
+            cache_hit_rate: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            first_at?: string | null;
+            /** Format: int64 */
+            input_tokens: number;
+            last_at?: string | null;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            requests: number;
+            series: components["schemas"]["LlmUsageBucketResponse"][];
+        };
         LoginRequest: {
             email: string;
             password: string;
@@ -713,6 +754,9 @@ export type Invitation = components["schemas"]["InvitationResponse"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationResponse"];
 export type LoginInput = components["schemas"]["LoginRequest"];
 export type LoginResponse = components["schemas"]["LoginResponse"];
+export type LlmUsage = components["schemas"]["LlmUsageResponse"];
+export type LlmUsageBucket = components["schemas"]["LlmUsageBucketResponse"];
+export type LlmUsageBreakdown = components["schemas"]["LlmUsageBreakdownResponse"];
 export type Member = components["schemas"]["MemberResponse"];
 export type Message = components["schemas"]["MessageResponse"];
 export type MessageAuthor = components["schemas"]["MessageAuthor"];

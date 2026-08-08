@@ -98,20 +98,20 @@ pub struct Attachment {
     pub url: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TokenUsage {
     #[serde(default)]
-    pub(super) input_tokens: i32,
+    pub input_tokens: i32,
     #[serde(default)]
-    pub(super) output_tokens: i32,
+    pub output_tokens: i32,
     #[serde(default)]
-    pub(super) total_tokens: i32,
+    pub total_tokens: i32,
     #[serde(default)]
-    pub(super) cached_input_tokens: i32,
+    pub cached_input_tokens: i32,
     #[serde(default)]
-    pub(super) cache_write_tokens: i32,
+    pub cache_write_tokens: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) source: String,
+    pub source: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

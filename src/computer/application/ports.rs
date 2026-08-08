@@ -1,5 +1,7 @@
 use std::fmt;
 
+use time::OffsetDateTime;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +15,7 @@ use crate::computer::core::{
 
 use super::ApplicationError;
 use super::command::Command;
+use super::usage::LlmUsageRecord;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::computer) enum CommandStatus {
@@ -141,6 +144,17 @@ pub(in crate::computer) trait TransactionPort {
         &mut self,
         operation: impl for<'a> AsyncFnOnce(&'a mut Self::Transaction) -> Result<T, ApplicationError>,
     ) -> Result<T, ApplicationError>;
+}
+
+/// Computer-local LLM usage reads. Kept separate from the state snapshot because usage is append-only
+/// telemetry: it never participates in a Run or command transaction and must not be uploaded to the
+/// Server.
+#[async_trait]
+pub(in crate::computer) trait LlmUsageStore: Send {
+    async fn llm_usage_since(
+        &mut self,
+        since: OffsetDateTime,
+    ) -> Result<Vec<LlmUsageRecord>, ApplicationError>;
 }
 
 #[derive(Clone, Eq, PartialEq)]

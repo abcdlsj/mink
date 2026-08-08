@@ -136,3 +136,10 @@ Driver：
 - 互动只使用结构化事实，不解析正文：DM channel 成员关系及其 text 消息、`message_mentions`、`reply_to_message_id` 指向的父消息作者；软删除消息不计入。
 - 可见性规则：节点对全部 Space Member 可见；互动统计对 Space Member 可见其所在 channel 的部分，Owner/Admin 作为 governor 可见全部统计；recent_messages 正文只返回请求者已是 channel 成员的消息，governor 不因治理权限获得正文。
 - 该接口不写库、不改变领域状态；聚合在查询层完成，不使用投影表。
+
+## LLM usage 本地遥测
+
+- Computer 在本地 daemon 数据库（`llm_usage` 表）记录每次 LLM 调用的 token 用量：run_id、agent_id、driver_kind、model、input/output/cached/cache_write tokens、耗时与时间；builtin Driver 在每次 turn 完成后按与上次记录的差值写入，Codex Driver 暂不暴露 token 用量。
+- 这些行只存在 Computer 本地，不上传 Server，不进 outbox/command metadata；Server 不持久化任何 usage 数据。
+- `GET /api/v1/computers/{computer_id}/llm-usage?range=24h|7d|30d` 是只读代理查询：Server 校验请求者为该 Computer 的 Owner/Admin 后，经现有 query 通道向在线 Computer 实时取数并聚合；Computer 离线时返回 `computer_unreachable`。
+- 聚合在 Computer 侧完成：总量、cache hit rate（cached / input）、按小时（≤48h）或按天的曲线 bucket、按 model 与按 agent 的分组。

@@ -7,9 +7,12 @@ use std::{
 use async_trait::async_trait;
 use sumi_agent_core::{
     AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
-    TurnRequest,
+    TokenUsage, TurnRequest,
 };
 use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
+use time::OffsetDateTime;
+use tokio::sync::mpsc::UnboundedSender;
+use uuid::Uuid;
 
 use crate::{
     computer::{
@@ -17,6 +20,7 @@ use crate::{
             ApplicationError,
             capability::CapabilityService,
             ports::{DriverCompletion, DriverTurnOutcome, ProcessEvidence, SteerOutcome},
+            usage::LlmUsageRecord,
         },
         core::{
             home::LocalAgent,
@@ -32,6 +36,9 @@ use super::{contract::StructuredProviderClient, prompt};
 pub(in crate::computer) struct BuiltinRuntimeClient {
     driver_secret: [u8; 32],
     runtime: Option<AgentRuntime>,
+    model: Option<String>,
+    usage_sink: Option<UnboundedSender<LlmUsageRecord>>,
+    usage_baselines: Arc<std::sync::Mutex<BTreeMap<RunId, TokenUsage>>>,
 }
 
 impl BuiltinRuntimeClient {
@@ -44,6 +51,9 @@ impl BuiltinRuntimeClient {
             return Ok(Self {
                 driver_secret,
                 runtime: None,
+                model: None,
+                usage_sink: None,
+                usage_baselines: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             });
         };
         let socket_path = daemon_socket_path(&computer_home);
@@ -70,7 +80,14 @@ impl BuiltinRuntimeClient {
         Ok(Self {
             driver_secret,
             runtime: Some(AgentRuntime::new(agent_config, Vec::new())),
+            model: Some(builtin.model.clone()),
+            usage_sink: None,
+            usage_baselines: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
         })
+    }
+
+    pub(in crate::computer) fn set_usage_sink(&mut self, sink: UnboundedSender<LlmUsageRecord>) {
+        self.usage_sink = Some(sink);
     }
 
     fn runtime(&self) -> Result<&AgentRuntime, ApplicationError> {
@@ -219,17 +236,55 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             return Ok(Vec::new());
         };
         let completions = runtime.poll_completions().await.map_err(Self::map_error)?;
-        Ok(completions
-            .into_iter()
-            .map(|Completion { run_id, outcome }| DriverCompletion {
+        let mut driver_completions = Vec::with_capacity(completions.len());
+        for Completion {
+            run_id,
+            agent_id,
+            outcome,
+            usage,
+        } in completions
+        {
+            if let Some(usage) = usage
+                && let Some(sink) = &self.usage_sink
+            {
+                let run_id = RunId::from_uuid(run_id);
+                let mut baselines = self.usage_baselines.lock().expect("usage baseline lock");
+                let previous = baselines.get(&run_id).cloned().unwrap_or_default();
+                let record = LlmUsageRecord {
+                    id: Uuid::now_v7(),
+                    run_id,
+                    agent_id: AgentId::from_uuid(agent_id),
+                    driver_kind: "builtin".to_owned(),
+                    model: self.model.clone(),
+                    input_tokens: i64::from(usage.input_tokens.saturating_sub(previous.input_tokens)),
+                    output_tokens: i64::from(
+                        usage.output_tokens.saturating_sub(previous.output_tokens),
+                    ),
+                    cached_input_tokens: i64::from(
+                        usage
+                            .cached_input_tokens
+                            .saturating_sub(previous.cached_input_tokens),
+                    ),
+                    cache_write_tokens: i64::from(
+                        usage.cache_write_tokens.saturating_sub(previous.cache_write_tokens),
+                    ),
+                    duration_ms: None,
+                    created_at: OffsetDateTime::now_utc(),
+                };
+                baselines.insert(run_id, usage);
+                drop(baselines);
+                let _ = sink.send(record);
+            }
+            driver_completions.push(DriverCompletion {
                 run_id: RunId::from_uuid(run_id),
                 outcome: match outcome {
                     TurnOutcome::Completed => DriverTurnOutcome::Completed,
                     TurnOutcome::Failed => DriverTurnOutcome::Failed,
                     TurnOutcome::Interrupted => DriverTurnOutcome::Interrupted,
                 },
-            })
-            .collect())
+            });
+        }
+        Ok(driver_completions)
     }
 }
 

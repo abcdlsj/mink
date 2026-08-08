@@ -10,8 +10,8 @@ use crate::{
         SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
-            AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LocalErrorCode,
-            LocalEvent, TransactionPort,
+            AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LlmUsageStore,
+            LocalErrorCode, LocalEvent, TransactionPort,
         },
         query::QueryService,
     },
@@ -100,7 +100,10 @@ impl ServerConnectionAdapter {
         ])
     }
 
-    pub(in crate::computer) async fn answer_query<P: TransactionPort, H: AgentHomePort>(
+    pub(in crate::computer) async fn answer_query<
+        P: TransactionPort + LlmUsageStore,
+        H: AgentHomePort,
+    >(
         store: &mut P,
         homes: &mut H,
         envelope: wire::QueryEnvelope,
@@ -162,6 +165,35 @@ impl ServerConnectionAdapter {
                         content,
                     }),
                     Err(error) => unavailable(&error, wire::QueryErrorCode::UnknownPath),
+                }
+            }
+            wire::Query::LlmUsage(query) => {
+                match QueryService::llm_usage(store, query.range_hours).await {
+                    Ok(summary) => wire::QueryResult::LlmUsage(wire::LlmUsageResult {
+                        requests: summary.requests,
+                        input_tokens: summary.input_tokens,
+                        output_tokens: summary.output_tokens,
+                        cached_input_tokens: summary.cached_input_tokens,
+                        cache_write_tokens: summary.cache_write_tokens,
+                        cache_hit_rate_basis_points: (summary.cache_hit_rate * 10_000.0).round()
+                            as u64,
+                        first_at: summary.first_at,
+                        last_at: summary.last_at,
+                        series: summary
+                            .series
+                            .into_iter()
+                            .map(|bucket| wire::LlmUsageBucketResult {
+                                bucket: bucket.bucket,
+                                requests: bucket.requests,
+                                input_tokens: bucket.input_tokens,
+                                output_tokens: bucket.output_tokens,
+                                cached_input_tokens: bucket.cached_input_tokens,
+                            })
+                            .collect(),
+                        by_model: summary.by_model.into_iter().map(usage_breakdown).collect(),
+                        by_agent: summary.by_agent.into_iter().map(usage_breakdown).collect(),
+                    }),
+                    Err(error) => unavailable(&error, wire::QueryErrorCode::Internal),
                 }
             }
         };
@@ -393,6 +425,18 @@ impl ServerConnectionAdapter {
                 },
             },
         }
+    }
+}
+
+fn usage_breakdown(
+    breakdown: crate::computer::application::usage::LlmUsageBreakdown,
+) -> wire::LlmUsageBreakdownResult {
+    wire::LlmUsageBreakdownResult {
+        key: breakdown.key,
+        requests: breakdown.requests,
+        input_tokens: breakdown.input_tokens,
+        output_tokens: breakdown.output_tokens,
+        cached_input_tokens: breakdown.cached_input_tokens,
     }
 }
 

@@ -7,7 +7,7 @@ CREATE TABLE schema_meta (
 ) STRICT;
 
 INSERT INTO schema_meta (version, applied_at)
-VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 CREATE TABLE local_commands (
     command_id TEXT PRIMARY KEY,
@@ -70,3 +70,19 @@ CREATE TABLE result_outbox (
     kind TEXT NOT NULL CHECK (kind IN ('run_started', 'delivery', 'run_result')),
     payload_json TEXT NOT NULL
 ) STRICT;
+
+CREATE TABLE llm_usage (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    driver_kind TEXT NOT NULL CHECK (driver_kind IN ('codex', 'builtin')),
+    model TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+    output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+    cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0),
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX llm_usage_created_at ON llm_usage (created_at);

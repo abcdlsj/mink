@@ -52,6 +52,10 @@ name = "agent_graph"
 path = "tests/normal/agent_graph.rs"
 
 [[test]]
+name = "computer_llm_usage"
+path = "tests/normal/computer_llm_usage.rs"
+
+[[test]]
 name = "inbox_direct_message"
 path = "tests/normal/inbox_direct_message.rs"
 

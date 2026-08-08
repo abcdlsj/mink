@@ -71,10 +71,12 @@ pub struct TurnRequest {
     pub sandbox_environment: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Completion {
     pub run_id: Uuid,
+    pub agent_id: Uuid,
     pub outcome: TurnOutcome,
+    pub usage: Option<TokenUsage>,
 }
 
 pub struct AgentRuntime {
@@ -87,7 +89,8 @@ pub struct AgentRuntime {
 
 struct BuiltinTurn {
     locator: String,
-    task: JoinHandle<TurnOutcome>,
+    agent_id: Uuid,
+    task: JoinHandle<(TurnOutcome, TokenUsage)>,
 }
 
 impl AgentRuntime {
@@ -301,7 +304,7 @@ impl AgentRuntime {
                     tool_definitions(&plugins),
                     context,
                 ),
-                Err(_) => return TurnOutcome::Failed,
+                Err(_) => return (TurnOutcome::Failed, TokenUsage::default()),
             };
             let turn = Turn {
                 input: request_owned.user_message.clone(),
@@ -364,14 +367,15 @@ impl AgentRuntime {
                     failure_code = "session_persist_failed",
                     "Builtin turn failed"
                 );
-                return TurnOutcome::Failed;
+                return (TurnOutcome::Failed, usage.clone());
             }
-            outcome
+            (outcome, usage)
         });
         self.turns.insert(
             run_id,
             BuiltinTurn {
                 locator: locator.to_owned(),
+                agent_id,
                 task,
             },
         );
@@ -399,7 +403,9 @@ impl AgentRuntime {
             let _ = turn.task.await;
             self.completions.push_back(Completion {
                 run_id,
+                agent_id: turn.agent_id,
                 outcome: TurnOutcome::Interrupted,
+                usage: None,
             });
         }
         Ok(())
@@ -465,8 +471,16 @@ impl AgentRuntime {
             .collect::<Vec<_>>();
         for run_id in finished {
             let turn = self.turns.remove(&run_id).ok_or(AgentError::Internal)?;
-            let outcome = turn.task.await.unwrap_or(TurnOutcome::Failed);
-            self.completions.push_back(Completion { run_id, outcome });
+            let (outcome, usage) = turn
+                .task
+                .await
+                .unwrap_or((TurnOutcome::Failed, TokenUsage::default()));
+            self.completions.push_back(Completion {
+                run_id,
+                agent_id: turn.agent_id,
+                outcome,
+                usage: Some(usage),
+            });
         }
         Ok(self.completions.drain(..).collect())
     }
@@ -747,13 +761,15 @@ mod tests {
             }
             tokio::task::yield_now().await;
         };
-        assert_eq!(
+        assert!(matches!(
             completion,
             Completion {
                 run_id,
+                agent_id,
                 outcome: TurnOutcome::Completed,
+                usage: Some(_),
             }
-        );
+        ));
         assert_eq!(
             runtime.latest_reply(&locator).await.unwrap().as_deref(),
             Some("completed")
@@ -804,7 +820,9 @@ mod tests {
             runtime.poll_completions().await.unwrap(),
             vec![Completion {
                 run_id,
+                agent_id,
                 outcome: TurnOutcome::Interrupted,
+                usage: None,
             }]
         );
     }

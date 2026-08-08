@@ -27,6 +27,7 @@ import type {
   ChannelMembers,
   DirectMessage,
   CreateChannelInput,
+  LlmUsage,
   Message,
   MessagePage,
   CreateMessageInput,
@@ -43,7 +44,7 @@ import type {
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentGraph, AgentGraphNode, AgentGraphEdge, AgentGraphMessage, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentGraph, AgentGraphNode, AgentGraphEdge, AgentGraphMessage, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, LlmUsage, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;
@@ -141,6 +142,15 @@ export function confirmPairing(
 
 export function listComputers(spaceId: string): Promise<Computer[]> {
   return apiRequest<Computer[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/computers`);
+}
+
+export function getComputerLlmUsage(
+  computerId: string,
+  range: "24h" | "7d" | "30d" = "24h",
+): Promise<LlmUsage> {
+  return apiRequest<LlmUsage>(
+    `/api/v1/computers/${encodeURIComponent(computerId)}/llm-usage?range=${range}`,
+  );
 }
 
 export function deleteComputer(computerId: string): Promise<Computer> {

@@ -1,0 +1,193 @@
+.llm-usage-panel {
+  margin-top: 14px;
+}
+
+.llm-usage-range {
+  display: flex;
+  gap: 4px;
+}
+
+.llm-usage-range button {
+  min-width: 38px;
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.llm-usage-range button:hover,
+.llm-usage-range button:focus-visible {
+  background: var(--surface-strong);
+}
+
+.llm-usage-range .llm-usage-range--active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.llm-usage-state {
+  margin: 0;
+  padding: 18px 0 4px;
+  color: var(--muted);
+  font-size: var(--text-system);
+}
+
+.llm-usage-body {
+  display: grid;
+  gap: 18px;
+  padding-top: 12px;
+}
+
+.llm-usage-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.llm-usage-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  border-top: 2px solid var(--ink);
+  padding-top: 8px;
+}
+
+.llm-usage-card svg {
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+}
+
+.llm-usage-card span {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.llm-usage-card strong {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.llm-usage-card small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+}
+
+.llm-usage-chart {
+  margin: 0;
+}
+
+.llm-usage-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.llm-usage-area {
+  fill: var(--accent-soft);
+  opacity: 0.7;
+}
+
+.llm-usage-line {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.llm-usage-line--input {
+  stroke: var(--accent);
+}
+
+.llm-usage-line--cached {
+  stroke: var(--green);
+}
+
+.llm-usage-line--output {
+  stroke: var(--indigo);
+}
+
+.llm-usage-chart figcaption {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: var(--text-meta);
+}
+
+.llm-usage-legend::before {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  content: "";
+}
+
+.llm-usage-legend--input::before {
+  background: var(--accent);
+}
+
+.llm-usage-legend--cached::before {
+  background: var(--green);
+}
+
+.llm-usage-legend--output::before {
+  background: var(--indigo);
+}
+
+.llm-usage-breakdown h4 {
+  margin: 0 0 6px;
+  font-size: var(--text-section-title);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.llm-usage-breakdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-system);
+}
+
+.llm-usage-breakdown th,
+.llm-usage-breakdown td {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.llm-usage-breakdown th[scope="col"] {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.llm-usage-breakdown th[scope="row"],
+.llm-usage-breakdown td:first-child {
+  text-align: left;
+}
+
+.llm-usage-breakdown th[scope="row"] {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+@media (max-width: 699px) {
+  .llm-usage-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

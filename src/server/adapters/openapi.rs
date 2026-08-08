@@ -71,6 +71,9 @@ use uuid::Uuid;
         AgentGraphNodeResponse,
         AgentGraphEdgeResponse,
         AgentGraphMessageResponse,
+        LlmUsageResponse,
+        LlmUsageBucketResponse,
+        LlmUsageBreakdownResponse,
         CreateThreadMessageRequest,
         ThreadReadResponse,
         ThreadSubscriptionResponse
@@ -808,6 +811,39 @@ pub(super) struct AgentGraphMessageResponse {
     pub(super) target_member_id: Uuid,
     pub(super) created_at: String,
     pub(super) body_markdown: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct LlmUsageResponse {
+    pub(super) requests: u64,
+    pub(super) input_tokens: u64,
+    pub(super) output_tokens: u64,
+    pub(super) cached_input_tokens: u64,
+    pub(super) cache_write_tokens: u64,
+    pub(super) cache_hit_rate: f64,
+    pub(super) first_at: Option<String>,
+    pub(super) last_at: Option<String>,
+    pub(super) series: Vec<LlmUsageBucketResponse>,
+    pub(super) by_model: Vec<LlmUsageBreakdownResponse>,
+    pub(super) by_agent: Vec<LlmUsageBreakdownResponse>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct LlmUsageBucketResponse {
+    pub(super) bucket: String,
+    pub(super) requests: u64,
+    pub(super) input_tokens: u64,
+    pub(super) output_tokens: u64,
+    pub(super) cached_input_tokens: u64,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct LlmUsageBreakdownResponse {
+    pub(super) key: String,
+    pub(super) requests: u64,
+    pub(super) input_tokens: u64,
+    pub(super) output_tokens: u64,
+    pub(super) cached_input_tokens: u64,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

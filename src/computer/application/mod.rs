@@ -6,6 +6,7 @@ pub(in crate::computer) mod query;
 pub(in crate::computer) mod recovery;
 pub(in crate::computer) mod run;
 pub(in crate::computer) mod scheduler;
+pub(in crate::computer) mod usage;
 
 pub(in crate::computer) use crate::computer::core::{
     home::{LocalAgent, LocalAgentState, MemoryFile},
