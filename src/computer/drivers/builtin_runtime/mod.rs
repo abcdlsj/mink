@@ -428,22 +428,22 @@ fn tool_definitions() -> Vec<ToolDef> {
     vec![
         tool_definition(
             "read",
-            "Read a UTF-8 file from workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>` (for example `memory/MEMORY.md`).",
+            "Read a UTF-8 file. Paths: `workspace/<path>` or `memory/<path>`; bare Memory paths like `MEMORY.md` and `notes/<topic>.md` default to memory/.",
             &["path"],
         ),
         tool_definition(
             "write",
-            "Write a UTF-8 file inside workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>` (for example `memory/notes/<topic>.md`).",
+            "Write a UTF-8 file. Paths: `workspace/<path>` or `memory/<path>`; bare Memory paths like `MEMORY.md` and `notes/<topic>.md` default to memory/.",
             &["path", "content"],
         ),
         tool_definition(
             "edit",
-            "Replace one exact text occurrence inside workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>`.",
+            "Replace one exact text occurrence. Paths: `workspace/<path>` or `memory/<path>`; bare Memory paths like `MEMORY.md` and `notes/<topic>.md` default to memory/.",
             &["path", "old_text", "new_text"],
         ),
         tool_definition(
             "bash",
-            "Run a sandboxed shell command from the Agent Home root. Paths are `workspace/<path>` or `memory/<path>`; shell writes are allowed only under workspace/ and $TMPDIR (runs/), never /tmp.",
+            "Run a sandboxed shell command from the Agent Home root. Paths are `workspace/<path>` or `memory/<path>`; shell writes are allowed under workspace/, runs/ ($TMPDIR), and /tmp.",
             &["command"],
         ),
     ]
@@ -451,9 +451,10 @@ fn tool_definitions() -> Vec<ToolDef> {
 
 fn builtin_tool_contract() -> String {
     concat!(
-        "Builtin `read`, `write`, and `edit` paths start with `workspace/` or `memory/`: for example `memory/MEMORY.md`, `memory/notes/<topic>.md`, or `workspace/role.md`.\n",
+        "Builtin `read`, `write`, and `edit` paths are relative: `workspace/<path>` and `memory/<path>` are explicit, and bare paths (`MEMORY.md`, `notes/<topic>.md`) default to the Memory root.\n",
+        "Absolute paths are accepted only when they stay inside `workspace/` or `memory/`; `/tmp` is shell scratch, not a file-tool path.\n",
         "The bash shell starts at the Agent Home root, so the same `workspace/...` and `memory/...` paths work in shell commands and CLI file arguments such as `--role-file workspace/role.md`.\n",
-        "Shell writes are allowed only under `workspace/` and `$TMPDIR` (the `runs/` directory); `/tmp` and other absolute paths are denied. Write Memory through `sumi agent memory write`, not shell redirection.\n",
+        "Shell writes are allowed under `workspace/`, `runs/` (`$TMPDIR`), and `/tmp`; persistent files belong in `workspace/`, and `/tmp` is scratch only. Write Memory through `sumi agent memory write`, not shell redirection.\n",
         "When a Sumi CLI error includes `details.next_action`, follow that action once; do not retry `invalid_argument`, `permission_denied`, or non-retryable `conflict` by guessing new arguments.\n",
     )
     .into()

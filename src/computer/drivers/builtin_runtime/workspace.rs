@@ -57,25 +57,54 @@ pub(super) async fn edit_utf8(
 }
 
 pub(super) fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathBuf, PathBuf)> {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        return absolute_rooted_path(agent_home, path);
+    }
     let relative = validated_relative(value)?;
     let mut components = relative.components();
-    let Some(Component::Normal(scope)) = components.next() else {
-        bail!("path must start with workspace/ or memory/ (for example memory/MEMORY.md)");
+    let Some(Component::Normal(first)) = components.next() else {
+        bail!("path has no file name");
     };
-    ensure!(
-        scope == "workspace" || scope == "memory",
-        "path must start with workspace/ or memory/ (for example memory/MEMORY.md)"
-    );
-    let remainder = components.collect::<PathBuf>();
-    ensure!(!remainder.as_os_str().is_empty(), "path has no file name");
+    let (scope, remainder) = if first == "workspace" || first == "memory" {
+        let remainder = components.collect::<PathBuf>();
+        ensure!(!remainder.as_os_str().is_empty(), "path has no file name");
+        (PathBuf::from(first), remainder)
+    } else {
+        // Bare paths default to the Memory root so the contract's `MEMORY.md` and
+        // `notes/<topic>.md` names work in the file tools as well as the Memory CLI.
+        let mut remainder = PathBuf::from(first);
+        remainder.extend(components);
+        (PathBuf::from("memory"), remainder)
+    };
     Ok((agent_home.join(scope), remainder))
+}
+
+fn absolute_rooted_path(agent_home: &Path, path: &Path) -> Result<(PathBuf, PathBuf)> {
+    ensure!(
+        path.components()
+            .all(|component| matches!(component, Component::RootDir | Component::Normal(_))),
+        "path cannot contain '.', '..', or a platform prefix"
+    );
+    for scope in ["workspace", "memory"] {
+        let root = agent_home.join(scope);
+        if path.starts_with(&root) {
+            let remainder = path
+                .strip_prefix(&root)
+                .expect("starts_with checked above")
+                .to_owned();
+            ensure!(!remainder.as_os_str().is_empty(), "path has no file name");
+            return Ok((root, remainder));
+        }
+    }
+    bail!("absolute path must be inside the Agent's workspace/ or memory/")
 }
 
 fn validated_relative(value: &str) -> Result<PathBuf> {
     let path = Path::new(value);
     ensure!(
         !value.is_empty() && !path.is_absolute(),
-        "path must be relative"
+        "path must be relative to the Agent Home (workspace/<path>, memory/<path>, or bare Memory paths like MEMORY.md)"
     );
     ensure!(
         path.components()
@@ -316,6 +345,38 @@ mod tests {
                 .unwrap(),
             "after"
         );
+    }
+
+    #[test]
+    fn agent_rooted_path_defaults_bare_paths_to_memory() {
+        let home = Path::new("/agent");
+        assert_eq!(
+            agent_rooted_path(home, "MEMORY.md").unwrap(),
+            (home.join("memory"), PathBuf::from("MEMORY.md"))
+        );
+        assert_eq!(
+            agent_rooted_path(home, "notes/deploy.md").unwrap(),
+            (home.join("memory"), PathBuf::from("notes/deploy.md"))
+        );
+        assert_eq!(
+            agent_rooted_path(home, "workspace/role.md").unwrap(),
+            (home.join("workspace"), PathBuf::from("role.md"))
+        );
+        assert_eq!(
+            agent_rooted_path(home, "memory/MEMORY.md").unwrap(),
+            (home.join("memory"), PathBuf::from("MEMORY.md"))
+        );
+        assert_eq!(
+            agent_rooted_path(home, "/agent/workspace/role.md").unwrap(),
+            (home.join("workspace"), PathBuf::from("role.md"))
+        );
+        assert_eq!(
+            agent_rooted_path(home, "/agent/memory/MEMORY.md").unwrap(),
+            (home.join("memory"), PathBuf::from("MEMORY.md"))
+        );
+        assert!(agent_rooted_path(home, "/tmp/scratch").is_err());
+        assert!(agent_rooted_path(home, "/agent/other/secret").is_err());
+        assert!(agent_rooted_path(home, "../secret").is_err());
     }
 
     #[tokio::test]

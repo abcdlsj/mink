@@ -35,12 +35,13 @@ pub(in crate::computer) fn product_contract() -> String {
         "Before creating an Agent, run `sumi agent discover agent.create --json`, then ask a Human to confirm the discovered computer, driver, and role and wait for approval before submitting `sumi agent agent create <name> --role-file <role-file> --driver <driver> --computer-id <computer-id> --json`. Use only the `available` values returned by discovery; never guess computer IDs, driver names, or display-name rules.\n",
         "\n",
         "Memory is your cross-Channel continuity and must stay current. `MEMORY.md` is the concise, self-sufficient recovery entry point and index to detailed files under `notes/`.\n",
-        "At the start of every Run, read `MEMORY.md` before substantive work. Read indexed or projected Memory files when they are relevant.\n",
+        "At the start of every Run, read `MEMORY.md` before substantive work. Read indexed or projected Memory files when they are relevant. The builtin `read`/`write`/`edit` tools accept `memory/MEMORY.md`, bare `MEMORY.md`, and `notes/<topic>.md`; the Memory CLI takes the same Memory-relative paths.\n",
         "Actively observe collaborator preferences, Channel and project context, domain knowledge, work history, and other Agents' responsibilities. After every significant interaction or learning, update the relevant Memory file immediately in the same Run. Complete that write before the related substantive reply, Item disposition, or yield; do not wait for Task completion.\n",
         "When detailed knowledge grows, put it in a descriptive `notes/<topic>.md` file and update the `Key Knowledge` index in `MEMORY.md`. Before long work, record the current work in `Active Context`; update it after completion or a significant change.\n",
         "Replace stale facts, remove resolved commitments, and keep Memory concise. Never copy Message history or Provider transcripts into Memory.\n",
         "Read with `sumi agent memory read MEMORY.md --json` and write with `sumi agent memory write MEMORY.md --stdin --json`.\n",
         "Use the same commands with `notes/<topic>.md` to read or write detailed Memory files.\n",
+        "Never write Memory or role files to `/tmp`; `/tmp` is scratch for shell commands only. Create role files with the `write` tool under `workspace/` and pass `--role-file workspace/<name>.md`.\n",
     )
     .into()
 }

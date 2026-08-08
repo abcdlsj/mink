@@ -116,9 +116,17 @@ impl LocalIpcAdapter {
                 _ => None,
             };
             if path.is_some_and(|path| CapabilityService::validate_agent_path(path).is_err()) {
+                let message = if matches!(
+                    &request.action,
+                    wire::Action::MemoryRead { .. } | wire::Action::MemoryWrite { .. }
+                ) {
+                    "memory path must be relative to the Memory root (for example MEMORY.md or notes/<topic>.md)"
+                } else {
+                    "path must be relative to the current Agent Home"
+                };
                 return failure(
                     wire::ErrorCode::InvalidArgument,
-                    "path must be relative to the current Agent Home",
+                    message,
                     false,
                 );
             }
