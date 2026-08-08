@@ -31,7 +31,7 @@
 
 ## 对话与 Task
 
-- Channel 主时间线发送成功后定位到新 Message；向上滚动超过一个可视屏高时显示 `To bottom`，点击后回到最新 Message。
+- Channel 与 Thread 收到新消息时，距底部不超过 3/4 可视屏高则自动定位到最新 Message；超过 3/4 屏时不自动定位，显示 `To bottom`，点击后回到最新 Message；发送成功后同样定位到新 Message。
 - 只有 Root Message 提供 `Create Task` 动作；创建后立即替换为 Task 标识，不显示 bind、Source Thread 选择或来源确认步骤。
 - Thread reply 不显示创建动作；reply 上的 Task 动作保持禁用并说明只能从 Root Message 创建。
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板：极淡、单 icon（Reply to thread 与 Task 动作），无边框无背景，贴齐 Message 行右上角；hover 消息才出现。

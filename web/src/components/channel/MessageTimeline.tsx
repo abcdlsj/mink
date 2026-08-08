@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowDown, Check, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
+import { Check, Hash, ListTodo, LoaderCircle, MessageSquareReply, Paperclip } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createTaskFromRootMessage, readThread, type Agent, type Attachment, type Member, type Message, type MessagePage, type MessageTaskRef, type MessageTaskSummary } from "../../api/client";
 import { formatBytes } from "../../format";
+import { useLatestMessageScroll } from "../../hooks/useLatestMessageScroll";
 import { PixelIdentity, PresenceIdentity } from "../SpaceShell";
 import { TaskStatusIcon } from "../taskStatusIcon";
+import { ToBottomButton } from "./ToBottomButton";
 
 export function MessageTimeline({
   timelineRef,
@@ -40,27 +42,9 @@ export function MessageTimeline({
   onOpenAgentDm?: (memberId: string) => void;
 }) {
   const [newMessageAnnouncement, setNewMessageAnnouncement] = useState("");
-  const [showToBottom, setShowToBottom] = useState(false);
   const announcedMessageRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const element = timelineRef.current;
-    if (!element) return;
-    const updateScrollState = () => {
-      const distanceFromBottom = element.scrollHeight - element.clientHeight - element.scrollTop;
-      setShowToBottom(distanceFromBottom > element.clientHeight);
-    };
-    updateScrollState();
-    element.addEventListener("scroll", updateScrollState, { passive: true });
-    return () => element.removeEventListener("scroll", updateScrollState);
-  }, [page?.messages.length, timelineRef]);
-
-  function scrollToBottom() {
-    const element = timelineRef.current;
-    if (!element) return;
-    element.scrollTop = element.scrollHeight;
-    setShowToBottom(false);
-  }
+  const latestMessageId = page?.messages.at(-1)?.id;
+  const { showToBottom, scrollToBottom } = useLatestMessageScroll(timelineRef, latestMessageId);
 
   // The timeline itself must not be a live region: a polite region on the
   // whole list makes screen readers re-read every message on each update.
@@ -185,16 +169,7 @@ export function MessageTimeline({
         })}
       </div>
       {showToBottom ? (
-        <button
-          className="to-bottom-button"
-          type="button"
-          aria-label="Go to latest message"
-          title="Go to latest message"
-          onClick={scrollToBottom}
-        >
-          <ArrowDown aria-hidden="true" />
-          <span>To bottom</span>
-        </button>
+        <ToBottomButton onClick={scrollToBottom} />
       ) : null}
     </div>
   );

@@ -149,6 +149,16 @@
   scrollbar-width: thin;
 }
 
+.thread-messages-shell {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+}
+
+.thread-messages-shell > .thread-messages {
+  height: 100%;
+}
+
 .thread-context-update {
   position: sticky;
   z-index: 2;

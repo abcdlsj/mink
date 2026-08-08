@@ -187,7 +187,7 @@ describe("agent avatar DM shortcut", () => {
 });
 
 describe("timeline position", () => {
-  it("shows a jump to the latest message after scrolling more than one screen up", () => {
+  it("shows a jump to the latest message after scrolling more than three quarters of a screen up", () => {
     const timelineRef = createRef<HTMLDivElement>();
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -218,6 +218,132 @@ describe("timeline position", () => {
     fireEvent.click(button);
     expect(timeline.scrollTop).toBe(350);
     expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
+  });
+
+  it("hides the jump button within three quarters of the latest message", () => {
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 350 });
+    timeline.scrollTop = 200;
+    fireEvent.scroll(timeline);
+
+    expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
+  });
+
+  it("auto-scrolls to the latest message when a new message arrives near the bottom", () => {
+    const timelineRef = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 250 });
+    timeline.scrollTop = 150;
+    fireEvent.scroll(timeline);
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 500 });
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(timeline.scrollTop).toBe(500);
+  });
+
+  it("keeps the scroll position and shows the jump button when a new message arrives far above the bottom", () => {
+    const timelineRef = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 250 });
+    timeline.scrollTop = 50;
+    fireEvent.scroll(timeline);
+    Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 500 });
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(timeline.scrollTop).toBe(50);
+    expect(screen.getByRole("button", { name: "Go to latest message" })).toBeVisible();
   });
 });
 

@@ -12,8 +12,10 @@ import {
   type Message,
   type ThreadRead,
 } from "../../api/client";
+import { useLatestMessageScroll } from "../../hooks/useLatestMessageScroll";
 import { MessageComposer, type ComposerInput } from "./MessageComposer";
 import { CompactMessage } from "./MessageTimeline";
+import { ToBottomButton } from "./ToBottomButton";
 
 export function ThreadPane({
   channelId,
@@ -54,11 +56,17 @@ export function ThreadPane({
 }) {
   const queryClient = useQueryClient();
   const closeButton = useRef<HTMLButtonElement>(null);
+  const threadMessagesRef = useRef<HTMLDivElement>(null);
   const channelHasNewMessages = latestMainMessageSeq > openedAtMainSeq;
   const thread = useQuery({
     queryKey: ["thread", threadId],
     queryFn: () => readThread(threadId),
   });
+  const latestThreadMessageId = thread.data?.replies.at(-1)?.id ?? thread.data?.root.id;
+  const { showToBottom, scrollToBottom } = useLatestMessageScroll(
+    threadMessagesRef,
+    latestThreadMessageId,
+  );
   const threadLabel = thread.data?.root.seq ?? threadId;
   const subscription = useMutation({
     mutationFn: (isFollowing: boolean) =>
@@ -137,23 +145,26 @@ export function ThreadPane({
           <span>Channel</span>
         </button>
       </header>
-      <div className="thread-messages">
-        {channelHasNewMessages ? (
-          <button className="thread-context-update" type="button" onClick={showLatestChannelMessages}>
-            <span>New messages in #{channelSlug}</span>
-            <strong>Return to latest</strong>
-          </button>
-        ) : null}
-        {thread.isPending ? <div className="timeline-status">Loading Thread...</div> : null}
-        {thread.error ? <div className="timeline-status timeline-status--error">{thread.error.message}</div> : null}
-        {thread.data ? (
-          <>
-            <p className="thread-section-label">ROOT</p>
-            <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />
-            <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
-            {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />)}
-          </>
-        ) : null}
+      <div className="thread-messages-shell">
+        <div ref={threadMessagesRef} className="thread-messages">
+          {channelHasNewMessages ? (
+            <button className="thread-context-update" type="button" onClick={showLatestChannelMessages}>
+              <span>New messages in #{channelSlug}</span>
+              <strong>Return to latest</strong>
+            </button>
+          ) : null}
+          {thread.isPending ? <div className="timeline-status">Loading Thread...</div> : null}
+          {thread.error ? <div className="timeline-status timeline-status--error">{thread.error.message}</div> : null}
+          {thread.data ? (
+            <>
+              <p className="thread-section-label">ROOT</p>
+              <CompactMessage message={thread.data.root} activityStatus={activityByMemberId.get(thread.data.root.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />
+              <p className="thread-section-label">{thread.data.replies.length} REPLIES</p>
+              {thread.data.replies.map((message) => <CompactMessage key={message.id} message={message} activityStatus={activityByMemberId.get(message.author.id)} spaceSlug={spaceSlug} members={members} direct={direct} onOpenAgentDm={onOpenAgentDm} />)}
+            </>
+          ) : null}
+        </div>
+        {showToBottom ? <ToBottomButton onClick={scrollToBottom} /> : null}
       </div>
       <MessageComposer
         className="thread-composer"
