@@ -322,13 +322,21 @@ pub fn write_server_config(
     Ok(())
 }
 
-pub fn write_computer_config(path: &Path, server: &Url, state_dir: &Path) -> Result<()> {
+pub fn write_computer_config(
+    path: &Path,
+    server: &Url,
+    state_dir: &Path,
+    company_drive_root: Option<&Path>,
+) -> Result<()> {
+    let company_drive = company_drive_root.map_or_else(String::new, |root| {
+        format!("company_drive_root = '{}'\n", root.display())
+    });
     std::fs::write(
         path,
         format!(
             "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nshutdown_grace_period_seconds = 1\n",
             state_dir.display()
-        ),
+        ) + &company_drive,
     )?;
     Ok(())
 }

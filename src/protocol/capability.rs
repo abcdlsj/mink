@@ -330,7 +330,9 @@ impl<T> Response<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, ErrorCode, MessageSend, MessageTarget, Request, SCHEMA_VERSION};
+    use super::{
+        Action, ErrorCode, MessageSend, MessageTarget, Request, SCHEMA_VERSION, TaskReference,
+    };
 
     #[test]
     fn error_code_has_stable_wire_value() {
@@ -358,5 +360,25 @@ mod tests {
         assert!(!debug.contains("secret-token"));
         assert!(!debug.contains("private body"));
         assert!(debug.contains("message.send"));
+    }
+
+    #[test]
+    fn task_open_and_start_round_trip_through_the_wire_shape() {
+        let open: Action =
+            serde_json::from_value(serde_json::json!({"type": "task_open"})).unwrap();
+        assert_eq!(open, Action::TaskOpen);
+        assert_eq!(
+            serde_json::to_value(&open).unwrap(),
+            serde_json::json!({"type": "task_open"})
+        );
+        let start: Action =
+            serde_json::from_value(serde_json::json!({"type": "task_start", "input": {"task": 7}}))
+                .unwrap();
+        assert_eq!(
+            start,
+            Action::TaskStart {
+                task: TaskReference::Seq(7)
+            }
+        );
     }
 }

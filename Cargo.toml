@@ -28,6 +28,10 @@ name = "cli"
 path = "tests/normal/cli.rs"
 
 [[test]]
+name = "company_hub"
+path = "tests/normal/company_hub.rs"
+
+[[test]]
 name = "dm_run_focus"
 path = "tests/normal/dm_run_focus.rs"
 

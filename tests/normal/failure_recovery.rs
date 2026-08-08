@@ -465,7 +465,7 @@ async fn workspace_loss_and_locator_corruption(database: &TestDatabase) -> Resul
     let state_dir = state_root.path().join("s");
     std::fs::create_dir(&state_dir)?;
     let computer_config = fixture.root.path().join("computer.toml");
-    support::write_computer_config(&computer_config, &fixture.server_url, &state_dir)?;
+    support::write_computer_config(&computer_config, &fixture.server_url, &state_dir, None)?;
     let mut daemon = support::spawn_computer(&computer_config)?;
     let pairing_url = support::pairing_url_from_daemon(&mut daemon)
         .await
