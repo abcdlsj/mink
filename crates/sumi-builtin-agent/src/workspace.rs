@@ -263,7 +263,7 @@ async fn resolve_write_file(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn validate_relative_path(path: &Path) -> Result<()> {
+pub(crate) fn validate_relative_path(path: &Path) -> Result<()> {
     ensure!(
         !path.as_os_str().is_empty()
             && !path.is_absolute()

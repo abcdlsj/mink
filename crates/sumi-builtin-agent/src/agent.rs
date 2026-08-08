@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     config::{AgentConfig, SandboxConfig},
     engine::{Engine, Turn, failure_code},
+    memory::{self, MemoryFile, PRIMARY_MEMORY_PATH},
     plugin::{AgentPlugin, PluginContext},
     prompt,
     provider::OpenAiProvider,
@@ -109,6 +110,67 @@ impl AgentRuntime {
 
     pub fn agent_home(&self, agent_id: Uuid) -> PathBuf {
         self.config.agent_home(agent_id)
+    }
+
+    pub fn memory_root(&self, agent_id: Uuid) -> PathBuf {
+        self.agent_home(agent_id).join("memory")
+    }
+
+    /// Provision the agent home layout and the initial primary memory document.
+    ///
+    /// Creates `workspace/`, `memory/`, `runs/`, and `drivers/builtin/`, then
+    /// writes `memory/MEMORY.md` when it does not exist yet.
+    pub async fn provision(
+        &self,
+        agent_id: Uuid,
+        identity: &str,
+        role: &str,
+    ) -> Result<(), AgentError> {
+        let home = self.agent_home(agent_id);
+        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
+            tokio::fs::create_dir_all(home.join(relative))
+                .await
+                .map_err(|_| AgentError::Internal)?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))
+                .await
+                .map_err(|_| AgentError::Internal)?;
+            tokio::fs::set_permissions(home.join("memory"), std::fs::Permissions::from_mode(0o700))
+                .await
+                .map_err(|_| AgentError::Internal)?;
+        }
+        if self
+            .read_memory(agent_id, PRIMARY_MEMORY_PATH)
+            .await
+            .is_err()
+        {
+            let document = format!(
+                "# {identity}\n\n## Role\n\n{role}\n\n## Key Knowledge\n\n- None recorded yet.\n\n## Active Context\n\n- Current focus: No active work recorded.\n"
+            );
+            self.write_memory(agent_id, PRIMARY_MEMORY_PATH, document.as_bytes())
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn list_memory(&self, agent_id: Uuid) -> Result<Vec<MemoryFile>, AgentError> {
+        memory::list_memory(&self.memory_root(agent_id)).await
+    }
+
+    pub async fn read_memory(&self, agent_id: Uuid, path: &str) -> Result<Vec<u8>, AgentError> {
+        memory::read_memory(&self.memory_root(agent_id), path).await
+    }
+
+    pub async fn write_memory(
+        &self,
+        agent_id: Uuid,
+        path: &str,
+        content: &[u8],
+    ) -> Result<(), AgentError> {
+        memory::write_memory(&self.memory_root(agent_id), path, content).await
     }
 
     fn session_path(&self, agent_id: Uuid, locator: &str) -> PathBuf {
@@ -774,6 +836,50 @@ mod tests {
                 run_id,
                 outcome: TurnOutcome::Interrupted,
             }]
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_creates_agent_home_and_primary_memory_without_overwriting() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = agent_config("http://127.0.0.1:9/v1");
+        config.computer_home = directory.path().join("computer");
+        let runtime = AgentRuntime::new(config, Vec::new());
+        let agent_id = Uuid::now_v7();
+
+        runtime
+            .provision(agent_id, "Telegram Agent", "Help the user")
+            .await
+            .unwrap();
+
+        let home = runtime.agent_home(agent_id);
+        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
+            assert!(home.join(relative).is_dir());
+        }
+        assert_eq!(
+            String::from_utf8(
+                runtime
+                    .read_memory(agent_id, PRIMARY_MEMORY_PATH)
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
+            "# Telegram Agent\n\n## Role\n\nHelp the user\n\n## Key Knowledge\n\n- None recorded yet.\n\n## Active Context\n\n- Current focus: No active work recorded.\n"
+        );
+        runtime
+            .write_memory(agent_id, PRIMARY_MEMORY_PATH, b"# agent-maintained")
+            .await
+            .unwrap();
+        runtime
+            .provision(agent_id, "Telegram Agent", "Help the user")
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime
+                .read_memory(agent_id, PRIMARY_MEMORY_PATH)
+                .await
+                .unwrap(),
+            b"# agent-maintained"
         );
     }
 

@@ -7,6 +7,7 @@
 mod agent;
 mod config;
 mod engine;
+mod memory;
 mod plugin;
 mod prompt;
 mod provider;
@@ -18,6 +19,7 @@ mod workspace;
 
 pub use agent::{AgentError, AgentRuntime, Completion, TurnOutcome, TurnRequest};
 pub use config::{AgentConfig, SandboxConfig};
+pub use memory::{MemoryFile, PRIMARY_MEMORY_PATH};
 pub use plugin::{AgentPlugin, PluginContext};
 pub use provider::ProviderConfig;
 pub use sandbox::SandboxAdapter;
