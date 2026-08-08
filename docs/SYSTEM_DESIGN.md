@@ -79,7 +79,7 @@ Driver：
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
 - `memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
-- Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>` 或 `memory/<path>`，bash 使用同一路径；bash 只允许写 `workspace/` 与 `runs/`（`TMPDIR`），不允许写 `/tmp`。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
+- Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>` 或 `memory/<path>`，bash 使用同一路径；bash 只允许写 `workspace/` 与 `runs/`（`TMPDIR`），不允许写 `/tmp`。macOS 系统 bash 3.2 的 here-doc/here-string 临时文件固定写 `/tmp` 且忽略 `TMPDIR`，因此 macOS 沙箱优先使用 Homebrew bash（`/opt/homebrew/bin/bash` 或 `/usr/local/bin/bash`）使临时文件落入 `runs/`；没有 Homebrew bash 时 heredoc 不可用，Agent 应改用 `write` 工具或 `printf` 管道。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
 - Memory 与 workspace 不上传 Server；Server 只保存投影（文件名、大小、SHA-256、更新时间）并在需要时查询在线 Computer；正文读取设置 no-store。
 - Memory 不复制 Message 历史或 Provider transcript；symlink 可能指向 Memory 根之外，投影和正文读取不跟随。
 - Agent 退役保留身份、Message、Task、Result；Memory 和 workspace 可能丢失，UI 必须说明该限制。

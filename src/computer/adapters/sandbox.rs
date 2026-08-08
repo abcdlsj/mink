@@ -8,6 +8,26 @@ use crate::computer::application::ApplicationError;
 pub(in crate::computer) struct SandboxAdapter;
 
 impl SandboxAdapter {
+    /// The shell used inside the sandbox. macOS ships bash 3.2 whose here-doc and here-string
+    /// temporary files ignore `TMPDIR` and always go to `/tmp`; a Homebrew bash honors `TMPDIR`,
+    /// so it is preferred on macOS and keeps heredoc scratch inside the Agent's `runs/` directory.
+    /// Without it the sandbox keeps denying `/tmp` writes and heredocs fail with EPERM.
+    #[cfg(target_os = "macos")]
+    pub(in crate::computer) fn shell() -> PathBuf {
+        for candidate in ["/opt/homebrew/bin/bash", "/usr/local/bin/bash"] {
+            let path = PathBuf::from(candidate);
+            if path.is_file() {
+                return path;
+            }
+        }
+        PathBuf::from("/bin/sh")
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(in crate::computer) fn shell() -> PathBuf {
+        PathBuf::from("/bin/sh")
+    }
+
     pub(in crate::computer) fn validate() -> Result<(), ApplicationError> {
         #[cfg(target_os = "macos")]
         if Path::new("/usr/bin/sandbox-exec").is_file() {
@@ -203,7 +223,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let socket = home.path().join("runtime/daemon.sock");
         let mut command = SandboxAdapter::command(
-            Path::new("/bin/sh"),
+            &SandboxAdapter::shell(),
             home.path(),
             &home.path().join("drivers/builtin"),
             &socket,
@@ -221,5 +241,42 @@ mod tests {
             String::from_utf8_lossy(&output.stdout).trim(),
             expected.to_str().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn shell_heredoc_writes_through_tmpdir() {
+        if SandboxAdapter::validate().is_err() {
+            return;
+        }
+        if cfg!(target_os = "macos") && SandboxAdapter::shell() == Path::new("/bin/sh") {
+            // Apple's system bash hardcodes /tmp for here-doc scratch and ignores TMPDIR;
+            // the sandbox denies /tmp writes, so heredocs cannot work without a modern bash.
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("runs")).unwrap();
+        std::fs::create_dir_all(home.path().join("workspace")).unwrap();
+        let socket = home.path().join("runtime/daemon.sock");
+        let mut command = SandboxAdapter::command(
+            &SandboxAdapter::shell(),
+            home.path(),
+            &home.path().join("drivers/builtin"),
+            &socket,
+            "test-token",
+        )
+        .unwrap();
+        let output = command
+            .arg("-c")
+            .arg("cat <<'EOF' > workspace/heredoc.txt\nhello\nEOF\ncat workspace/heredoc.txt")
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "heredoc failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
     }
 }

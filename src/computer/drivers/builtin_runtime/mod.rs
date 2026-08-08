@@ -129,7 +129,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         }
         SandboxAdapter::validate()?;
         let mut command = SandboxAdapter::command(
-            Path::new("/bin/sh"),
+            &SandboxAdapter::shell(),
             &home,
             &home.join("drivers/builtin"),
             &self.socket_path,
@@ -514,7 +514,7 @@ impl ToolRunner for BuiltinTools {
 impl BuiltinTools {
     async fn run_shell(&self, script: &str) -> anyhow::Result<String> {
         let mut command = SandboxAdapter::command(
-            Path::new("/bin/sh"),
+            &SandboxAdapter::shell(),
             &self.agent_home,
             &self.agent_home.join("drivers/builtin"),
             &self.socket_path,
