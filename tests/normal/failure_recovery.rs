@@ -2,6 +2,7 @@
 //! during a Run, a Computer offline until its lease expires, and a lost workspace with a corrupted
 //! Provider locator. Each asserts that Message, Task, Inbox and Run facts agree afterwards.
 
+#[path = "../support/mod.rs"]
 mod support;
 
 use std::{net::SocketAddr, path::Path, time::Duration};

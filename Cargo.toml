@@ -5,10 +5,55 @@ edition = "2024"
 rust-version = "1.97"
 description = "A shared collaboration space for humans and agents"
 license = "MIT"
+autotests = false
 
 [[bin]]
 name = "sumi"
 path = "src/main.rs"
+
+[[test]]
+name = "architecture_boundaries"
+path = "tests/normal/architecture_boundaries.rs"
+
+[[test]]
+name = "attachment_flow"
+path = "tests/normal/attachment_flow.rs"
+
+[[test]]
+name = "brain_in_vat"
+path = "tests/brain_in_vat.rs"
+
+[[test]]
+name = "cli"
+path = "tests/normal/cli.rs"
+
+[[test]]
+name = "dm_run_focus"
+path = "tests/normal/dm_run_focus.rs"
+
+[[test]]
+name = "failure_recovery"
+path = "tests/normal/failure_recovery.rs"
+
+[[test]]
+name = "governance_routes"
+path = "tests/normal/governance_routes.rs"
+
+[[test]]
+name = "inbox_direct_message"
+path = "tests/normal/inbox_direct_message.rs"
+
+[[test]]
+name = "registration_space"
+path = "tests/normal/registration_space.rs"
+
+[[test]]
+name = "space_invitation"
+path = "tests/normal/space_invitation.rs"
+
+[[test]]
+name = "werewolf_communication"
+path = "tests/werewolf_communication.rs"
 
 [dependencies]
 anyhow = "1.0"
