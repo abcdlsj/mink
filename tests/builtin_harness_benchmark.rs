@@ -112,6 +112,13 @@ struct CompactionReport {
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
+struct ProbeResult {
+    key: String,
+    expected: String,
+    matched: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
 struct DriverReport {
     driver: String,
     model: String,
@@ -133,6 +140,7 @@ struct DriverReport {
     probes_correct: usize,
     probes_total: usize,
     probe_accuracy: f64,
+    probe_results: Vec<ProbeResult>,
     ledger_lines: usize,
     ledger_duplicates: usize,
     ledger_missing: usize,
@@ -988,7 +996,7 @@ fn base_report(
     replies: &[String],
     ledger_path: &Path,
 ) -> Result<DriverReport> {
-    let (probes_correct, probes_total) = grade_probes(steps, replies);
+    let (probes_correct, probes_total, probe_results) = grade_probes(steps, replies);
     let (ledger_lines, ledger_duplicates, ledger_missing) = ledger_metrics(ledger_path)?;
     Ok(DriverReport {
         driver: driver.to_owned(),
@@ -998,6 +1006,7 @@ fn base_report(
         compaction_trigger_ratio: builtin.compaction_trigger_ratio,
         probes_correct,
         probes_total,
+        probe_results,
         probe_accuracy: if probes_total > 0 {
             probes_correct as f64 / probes_total as f64
         } else {
@@ -1010,9 +1019,10 @@ fn base_report(
     })
 }
 
-fn grade_probes(steps: &[ScenarioStep], replies: &[String]) -> (usize, usize) {
+fn grade_probes(steps: &[ScenarioStep], replies: &[String]) -> (usize, usize, Vec<ProbeResult>) {
     let mut correct = 0;
     let mut total = 0;
+    let mut results = Vec::new();
     for step in steps {
         let Some((key, expected)) = step.probe else {
             continue;
@@ -1035,8 +1045,13 @@ fn grade_probes(steps: &[ScenarioStep], replies: &[String]) -> (usize, usize) {
         if found {
             correct += 1;
         }
+        results.push(ProbeResult {
+            key: key.to_owned(),
+            expected: expected.to_owned(),
+            matched: found,
+        });
     }
-    (correct, total)
+    (correct, total, results)
 }
 
 fn normalize(value: &str) -> String {
