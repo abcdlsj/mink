@@ -60,6 +60,14 @@ impl Session {
         let start = target.max(compacted_through.saturating_add(1));
         (start..self.messages.len())
             .find(|&index| self.messages[index].role == "user")
+            .or_else(|| {
+                // A long tool loop can push the recent tail past every user message.
+                // Falling back to the last user boundary keeps compaction moving instead
+                // of stalling the whole mechanism; mid-turn history stays intact.
+                (compacted_through.saturating_add(1)..self.messages.len())
+                    .rev()
+                    .find(|&index| self.messages[index].role == "user")
+            })
             .unwrap_or(0)
     }
 
@@ -149,6 +157,7 @@ const IMAGE_UNSUPPORTED_NOTE: &str = "[System note: Image payloads were omitted 
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::ToolResult;
     use super::*;
 
     #[test]
@@ -214,6 +223,34 @@ mod tests {
         assert_eq!(session.compaction_boundary(12), 4);
         session.apply_compaction(4, "new summary".into(), "context_limit");
         assert_eq!(session.compaction_boundary(12), 6);
+    }
+
+    #[test]
+    fn compaction_boundary_falls_back_to_the_last_user_when_the_tail_has_none() {
+        let mut session = Session::default();
+        for index in 0..3 {
+            session.add(Message::user(format!("request {index}")));
+            session.add(Message {
+                role: "assistant".into(),
+                content: format!("response {index}"),
+                ..Default::default()
+            });
+        }
+        for index in 0..20 {
+            session.add(Message {
+                role: "tool".into(),
+                tool_results: vec![ToolResult {
+                    tool_call_id: format!("call_{index}"),
+                    content: "output".into(),
+                    error: String::new(),
+                }],
+                ..Default::default()
+            });
+        }
+
+        // The last 12 messages are tool results with no user message; the boundary must
+        // fall back to the last user message (request 2 at index 4) instead of returning 0.
+        assert_eq!(session.compaction_boundary(12), 4);
     }
 
     #[test]
