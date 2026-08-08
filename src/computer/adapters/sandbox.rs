@@ -164,7 +164,9 @@ fn configure_environment(
         .env("TMPDIR", agent_home.join("runs"))
         .env("SUMI_SOCKET", socket)
         .env("SUMI_DRIVER_TOKEN", driver_token)
-        .current_dir(agent_home.join("workspace"));
+        // Start at Agent Home so shell paths match the file-tool contract
+        // (`workspace/<path>`, `memory/<path>`) instead of duplicating the prefix.
+        .current_dir(agent_home);
 }
 
 #[cfg(target_os = "linux")]
@@ -181,4 +183,37 @@ fn escape(path: &Path) -> Result<String, ApplicationError> {
     path.to_str()
         .map(|value| value.replace('\\', "\\\\").replace('"', "\\\""))
         .ok_or(ApplicationError::Internal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn shell_starts_at_agent_home_root() {
+        if SandboxAdapter::validate().is_err() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let socket = home.path().join("runtime/daemon.sock");
+        let mut command = SandboxAdapter::command(
+            Path::new("/bin/sh"),
+            home.path(),
+            &home.path().join("drivers/builtin"),
+            &socket,
+            "test-token",
+        )
+        .unwrap();
+        let output = command.arg("-c").arg("pwd -P").output().await.unwrap();
+        assert!(output.status.success());
+        let expected = if cfg!(target_os = "linux") {
+            PathBuf::from("/agent")
+        } else {
+            std::fs::canonicalize(home.path()).unwrap()
+        };
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            expected.to_str().unwrap()
+        );
+    }
 }

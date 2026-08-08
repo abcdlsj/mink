@@ -417,32 +417,46 @@ fn system_messages(input: &RunInput) -> Vec<Message> {
         &input.agent.identity,
         &input.agent.role,
     );
-    vec![Message::cacheable_system(stable), Message::system(dynamic)]
+    vec![
+        Message::cacheable_system(stable),
+        Message::system(dynamic),
+        Message::system(builtin_tool_contract()),
+    ]
 }
 
 fn tool_definitions() -> Vec<ToolDef> {
     vec![
         tool_definition(
             "read",
-            "Read a UTF-8 file from workspace/ or memory/.",
+            "Read a UTF-8 file from workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>` (for example `memory/MEMORY.md`).",
             &["path"],
         ),
         tool_definition(
             "write",
-            "Write a UTF-8 file inside workspace/ or memory/.",
+            "Write a UTF-8 file inside workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>` (for example `memory/notes/<topic>.md`).",
             &["path", "content"],
         ),
         tool_definition(
             "edit",
-            "Replace one exact text occurrence inside workspace/ or memory/.",
+            "Replace one exact text occurrence inside workspace/ or memory/. Use paths like `workspace/<path>` or `memory/<path>`.",
             &["path", "old_text", "new_text"],
         ),
         tool_definition(
             "bash",
-            "Run a sandboxed shell command in the Agent workspace.",
+            "Run a sandboxed shell command from the Agent Home root. Paths are `workspace/<path>` or `memory/<path>`; shell writes are allowed only under workspace/ and $TMPDIR (runs/), never /tmp.",
             &["command"],
         ),
     ]
+}
+
+fn builtin_tool_contract() -> String {
+    concat!(
+        "Builtin `read`, `write`, and `edit` paths start with `workspace/` or `memory/`: for example `memory/MEMORY.md`, `memory/notes/<topic>.md`, or `workspace/role.md`.\n",
+        "The bash shell starts at the Agent Home root, so the same `workspace/...` and `memory/...` paths work in shell commands and CLI file arguments such as `--role-file workspace/role.md`.\n",
+        "Shell writes are allowed only under `workspace/` and `$TMPDIR` (the `runs/` directory); `/tmp` and other absolute paths are denied. Write Memory through `sumi agent memory write`, not shell redirection.\n",
+        "When a Sumi CLI error includes `details.next_action`, follow that action once; do not retry `invalid_argument`, `permission_denied`, or non-retryable `conflict` by guessing new arguments.\n",
+    )
+    .into()
 }
 
 fn tool_definition(name: &str, description: &str, required: &[&str]) -> ToolDef {

@@ -74,7 +74,7 @@ pub(crate) fn classify_error(
             message.to_owned(),
             "file_not_found",
             Some(
-                "the shell starts in `workspace/`: create the file there (for example `test-role.md`) with the `write` tool and pass its relative path",
+                "create the file with the `write` tool, then pass the path relative to the shell's current directory (run `pwd` if unsure); do not retry with guessed prefixes",
             ),
         )
     } else if normalized.contains("--driver must be codex or builtin") {

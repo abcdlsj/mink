@@ -79,6 +79,7 @@ Driver：
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
 - `memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
+- Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>` 或 `memory/<path>`，bash 使用同一路径；bash 只允许写 `workspace/` 与 `runs/`（`TMPDIR`），不允许写 `/tmp`。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
 - Memory 与 workspace 不上传 Server；Server 只保存投影（文件名、大小、SHA-256、更新时间）并在需要时查询在线 Computer；正文读取设置 no-store。
 - Memory 不复制 Message 历史或 Provider transcript；symlink 可能指向 Memory 根之外，投影和正文读取不跟随。
 - Agent 退役保留身份、Message、Task、Result；Memory 和 workspace 可能丢失，UI 必须说明该限制。
@@ -91,6 +92,7 @@ Driver：
 - read 响应携带消息快照序号；提交 Message 或 Task Result 时可携带默认 snapshot。
 - hard Item 相关输出发现新消息时，Server 返回 context_changed，不创建部分结果。
 - 同一波内相互独立的调用必须在一次 tool-call batch 中发出；有数据依赖、写入冲突或可见顺序的调用保留屏障；run yield 必须是该 Run 最后一次调用。
+- `details.next_action` 是给 Driver 的单一建议动作；Driver 对 `invalid_argument`、`permission_denied` 和非 retryable `conflict` 不得变体重试，需要 Human 时停止询问。
 
 ## 安全与内容保护
 
