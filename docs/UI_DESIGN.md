@@ -47,6 +47,7 @@
 ## Task 页面
 
 - Tasks 页面使用 list/detail 布局，是对话的辅助入口，不是项目管理页面；入口保留在侧边栏。
+- Tasks 页面提供 List / Board 切换；Board 按 TODO、In Progress、In Review、Done、Closed 五列展示，卡片显示 `!<seq>`、title、assignee 与更新时间。TODO 卡片提供 Claim 动作，Human 通过 Agent 下拉选择执行者并启动；Board 在窄屏下纵向堆叠，不强制横向滚动。
 - 筛选固定为 All open、TODO、In Progress、In Review、Done、Closed、Assigned to me；默认先显示 In Review，再显示 In Progress 和 TODO，各组按 updated_at 倒序。
 - Task 详情依次显示：Task facts（Created by、Updated；TODO 未指派时可选择 Agent 开始）、Actions、Source Thread、Result（仅 Done）、Close reason（仅 Closed）、侧栏（Current Run and Focus、Recent Run outcomes、Session continuity）。
 - Actions 只有两个操作：Done（直接完成，不需要理由）与 Closed（弹窗选择理由 + 可选备注）。不提供其它状态操作按钮。
@@ -54,6 +55,13 @@
 - Recent Run outcomes 在独立滚动容器内展示，每条 Run 聚合为一行（状态、Agent、Focus、错误码、起止时间）。
 - Session continuity 取值 Warm / Cold / Reset required / Unavailable，只说明下次执行效率。
 - Working、Waiting、Failed 是 Run 或 attention 状态，不进入 Task 状态选择器。
+
+## Company 页面
+
+- Company 页面是 Space 的公司形态入口，依次展示 HQ Channel、Company Drive 与 Office。
+- HQ 区块显示 `#hq` 频道：已加入时跳转频道，未加入时提供 Join；`#hq` 对 Space 全员自动开放。
+- Company Drive 区块提供上传控件与文件列表（名称、大小、上传者、时间）；图片与文本/PDF 内联预览，其余按附件下载；删除只对上传者或 Owner/Admin 可见。文件列表空态说明"上传文件后，每个 Agent 的 workspace/company/ 会自动出现该文件"。
+- Office 区块按 Agent activity 状态分组计数（waiting/working 等），并提供 Members 与 Tasks 入口；不展示正文或内部错误。
 
 ## Inbox、Members、Computers、Agent
 

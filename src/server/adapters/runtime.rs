@@ -1,6 +1,6 @@
 use super::{
     http,
-    object_storage::AttachmentObjectStore,
+    object_storage::{AttachmentObjectStore, CompanyFileObjectStore},
     postgres::{PostgresAdapter, PostgresQueries},
     query::QueryRegistry,
 };
@@ -28,6 +28,9 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&config.attachment_dir)
         .await
         .context("failed to create Attachment directory")?;
+    tokio::fs::create_dir_all(&config.company_drive_dir)
+        .await
+        .context("failed to create Company Drive directory")?;
     let object_store =
         object_store::local::LocalFileSystem::new_with_prefix(&config.attachment_dir)
             .context("failed to open Attachment directory")?;
@@ -38,6 +41,10 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
         read: PostgresQueries::new(pool.clone()),
         objects: std::sync::Arc::new(AttachmentObjectStore::new(std::sync::Arc::new(
             object_store,
+        ))),
+        company_objects: std::sync::Arc::new(CompanyFileObjectStore::new(std::sync::Arc::new(
+            object_store::local::LocalFileSystem::new_with_prefix(&config.company_drive_dir)
+                .context("failed to open Company Drive directory")?,
         ))),
         session_lifetime: SessionLifetime::from_hours(config.session_ttl_hours)
             .context("Server session TTL must be a positive number of hours")?,

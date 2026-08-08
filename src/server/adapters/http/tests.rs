@@ -15,6 +15,7 @@ struct CapabilityFixture {
     admin: PgConnection,
     database_name: String,
     _objects: TempDir,
+    _company_objects: TempDir,
     headers: HeaderMap,
     computer_id: Uuid,
     owner_id: Uuid,
@@ -91,11 +92,15 @@ impl CapabilityFixture {
 
         let objects = tempfile::tempdir().unwrap();
         let object_store = LocalFileSystem::new_with_prefix(objects.path()).unwrap();
+        let company_objects = tempfile::tempdir().unwrap();
+        let company_object_store =
+            LocalFileSystem::new_with_prefix(company_objects.path()).unwrap();
         let state = RuntimeState {
             pool: pool.clone(),
             storage,
             read: PostgresQueries::new(pool),
             objects: Arc::new(AttachmentObjectStore::new(Arc::new(object_store))),
+            company_objects: Arc::new(CompanyFileObjectStore::new(Arc::new(company_object_store))),
             session_lifetime: SessionLifetime::from_hours(1).unwrap(),
             attachment_max_bytes: 100 * 1024 * 1024,
             queries: QueryRegistry::default(),
@@ -110,6 +115,7 @@ impl CapabilityFixture {
             admin,
             database_name,
             _objects: objects,
+            _company_objects: company_objects,
             headers,
             computer_id,
             owner_id,

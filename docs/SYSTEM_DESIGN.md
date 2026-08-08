@@ -7,6 +7,7 @@
 Server：
 
 - 持有 Space、Member、权限、Channel、Message、Thread、Attachment、Task、Inbox Item、Run 状态。
+- 持有 Company Drive 文件元数据；blob 存 `company_drive_dir`，单 Computer 部署时该目录与 Computer 的 `company_drive_root` 指向同一位置。
 - 执行领域状态转换与事务；持久化 outbox；投递 Computer command；提供 Browser API、SSE 和 Computer WebSocket。
 - 不执行模型，不保存 Provider Session、Memory、workspace 或模型凭据。
 
@@ -32,6 +33,7 @@ Driver：
 - 业务写入与 outbox 属于同一事务；外部发送失败由 outbox 重试。
 - Computer 重连握手同步 daemon session ID、command watermark 和本地 Run 实况；上一连接会话的残留帧必须被丢弃。
 - 所有 HTTP 写操作使用 idempotency key；started、delivery、result、receipt 使用稳定 event ID 幂等。
+- Company File 的上传、删除与附件写操作同属一个幂等与审计入口；对象内容写入与元数据事务分离，重复请求不重复计数。
 
 ## Run
 
@@ -79,10 +81,11 @@ Driver：
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
 - `memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
-- Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>` 或 `memory/<path>`，bash 使用同一路径；bash 只允许写 `workspace/` 与 `runs/`（`TMPDIR`），不允许写 `/tmp`。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
+- Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>`、`memory/<path>` 或 `workspace/company/<path>`，bash 使用同一路径；bash 只允许写 `workspace/`、`runs/` 与 Company Drive（`TMPDIR`），不允许写 `/tmp`。`workspace/company/` 是唯一受控 symlink，指向该 Computer 上当前 Agent Space 的 Company Drive 目录；其余 symlink 在工具与投影中照旧拒绝。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
 - Memory 与 workspace 不上传 Server；Server 只保存投影（文件名、大小、SHA-256、更新时间）并在需要时查询在线 Computer；正文读取设置 no-store。
 - Memory 不复制 Message 历史或 Provider transcript；symlink 可能指向 Memory 根之外，投影和正文读取不跟随。
 - Agent 退役保留身份、Message、Task、Result；Memory 和 workspace 可能丢失，UI 必须说明该限制。
+- Company Drive 文件元数据由 Server 保存（文件名、大小、SHA-256、上传者、时间），正文只存在于 `company_drive_dir`；单 Computer 部署下 Computer 通过共享目录直接读写，不做分片或同步协议。
 
 ## Agent CLI
 
@@ -119,3 +122,4 @@ Driver：
 - 诊断必须能沿 message → inbox item → task → run → command → result event 串联。
 - 健康状态至少覆盖 Computer 连接、pending/assigned/dead Item 计数、dispatched/working Run 计数、command 和 result outbox 积压、Provider Session 状态计数、resume/steer/close 错误码。
 - 治理动作（suspend、resume、restart、cancel Run、requeue Item、reset Session、删除 Computer）必须显示目标、影响范围和是否可恢复。
+- Company Drive 只支持单 Computer：Server 的 `company_drive_dir` 与 Computer 的 `company_drive_root` 必须指向同一目录，否则 Agent 挂载点不可用；多 Computer 挂载与同步是后续工作。

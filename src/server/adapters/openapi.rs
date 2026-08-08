@@ -52,6 +52,7 @@ use uuid::Uuid;
         AttachmentResponse,
         CreateUploadRequest,
         CompleteUploadRequest,
+        CompanyFileResponse,
         InboxItemResponse,
         TaskStatus,
         RunStatus,
@@ -544,6 +545,20 @@ pub(super) struct CreateUploadRequest {
 pub(super) struct CompleteUploadRequest {
     size: u64,
     sha256: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub(super) struct CompanyFileResponse {
+    pub(super) id: Uuid,
+    pub(super) space_id: Uuid,
+    pub(super) name: String,
+    pub(super) media_type: String,
+    pub(super) size: u64,
+    pub(super) sha256: String,
+    pub(super) uploader_member_id: Uuid,
+    pub(super) uploader_name: String,
+    pub(super) download_path: String,
+    pub(super) created_at: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

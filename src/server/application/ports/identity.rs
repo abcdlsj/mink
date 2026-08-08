@@ -9,6 +9,7 @@ pub(in crate::server) trait IdentityTransaction {
         space_id: SpaceId,
         owner_id: MemberId,
         general_channel_id: ChannelId,
+        hq_channel_id: ChannelId,
         name: &str,
         slug: &str,
         accent: &str,

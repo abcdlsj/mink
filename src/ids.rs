@@ -47,6 +47,7 @@ define_id!(
     AgentId,
     ChannelId,
     CommandId,
+    CompanyFileId,
     ComputerId,
     EventId,
     IdempotencyKey,

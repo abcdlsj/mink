@@ -4,8 +4,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::ids::{
-    AttachmentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey, InboxItemId, MemberId,
-    MessageId, RunId, SpaceId, TaskId, ThreadId,
+    AttachmentId, ChannelId, CommandId, CompanyFileId, ComputerId, EventId, IdempotencyKey,
+    InboxItemId, MemberId, MessageId, RunId, SpaceId, TaskId, ThreadId,
 };
 use crate::server::domain::{
     DomainError,
@@ -14,6 +14,7 @@ use crate::server::domain::{
     attention::{
         InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
     },
+    company_file::CompanyFile,
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
     execution::{
         Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus, RunTrigger,
@@ -63,12 +64,12 @@ use super::{
     },
     ports::{
         ApplicationError, AttachmentObjectPort, AttachmentTransaction, AuthenticatedHuman,
-        CollaborationTransaction, ComputerRecord, DirectMessageView, DispatchCandidate, Effect,
-        EffectSink, ExecutionTransaction, HumanMemberRecord, IdentityTransaction, InboxItemView,
-        InboxScope, InvitationTokenPort, MemberKind, MessageDraft, PairedComputer, PairingCodePort,
-        PasswordPort, PublishedMessage, RawInvitationToken, RawPairingCode, RawSessionToken,
-        RunCapabilityProof, SessionTokenPort, SpaceHumanMember, SpaceMemberView, StoredObject,
-        TaskTransaction, TransactionPort,
+        CollaborationTransaction, CompanyFileTransaction, ComputerRecord, DirectMessageView,
+        DispatchCandidate, Effect, EffectSink, ExecutionTransaction, HumanMemberRecord,
+        IdentityTransaction, InboxItemView, InboxScope, InvitationTokenPort, MemberKind,
+        MessageDraft, PairedComputer, PairingCodePort, PasswordPort, PublishedMessage,
+        RawInvitationToken, RawPairingCode, RawSessionToken, RunCapabilityProof, SessionTokenPort,
+        SpaceHumanMember, SpaceMemberView, StoredObject, TaskTransaction, TransactionPort,
     },
     task::{
         CreateTaskFromRootMessage, CreateTaskInput, LinkThreadInput, LinkThreadToTask,
@@ -565,6 +566,7 @@ impl IdentityTransaction for MemoryTransaction {
         _space_id: SpaceId,
         _owner_id: MemberId,
         _general_channel_id: ChannelId,
+        _hq_channel_id: ChannelId,
         _name: &str,
         _slug: &str,
         _accent: &str,
@@ -1828,6 +1830,46 @@ impl AttachmentTransaction for MemoryTransaction {
             event_kind.to_owned(),
         ));
         Ok(())
+    }
+}
+
+impl CompanyFileTransaction for MemoryTransaction {
+    async fn company_file(
+        &mut self,
+        _id: CompanyFileId,
+    ) -> Result<Option<CompanyFile>, ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+    async fn list_company_files(
+        &mut self,
+        _space_id: SpaceId,
+    ) -> Result<Vec<(CompanyFile, String)>, ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+    async fn company_file_name_exists(
+        &mut self,
+        _space_id: SpaceId,
+        _name: &str,
+    ) -> Result<bool, ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+    async fn insert_company_file(&mut self, _file: &CompanyFile) -> Result<(), ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+    async fn save_company_file(&mut self, _file: &CompanyFile) -> Result<(), ApplicationError> {
+        Err(ApplicationError::Internal)
+    }
+    async fn record_company_file_write(
+        &mut self,
+        _space_id: SpaceId,
+        _actor: MemberId,
+        _action: &str,
+        _key: IdempotencyKey,
+        _file_id: CompanyFileId,
+        _event_kind: &str,
+        _now: OffsetDateTime,
+    ) -> Result<(), ApplicationError> {
+        Err(ApplicationError::Internal)
     }
 }
 

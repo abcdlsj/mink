@@ -1,6 +1,7 @@
 pub(in crate::server) mod access;
 pub(in crate::server) mod attachment;
 pub(in crate::server) mod attention;
+pub(in crate::server) mod company_file;
 pub(in crate::server) mod conversation;
 pub(in crate::server) mod execution;
 pub(in crate::server) mod identity;
@@ -72,6 +73,10 @@ pub(in crate::server) enum DomainError {
     AttachmentNotReady,
     #[error("attachment size or digest does not match the stored content")]
     AttachmentContentMismatch,
+    #[error("company file name or media type is missing")]
+    InvalidCompanyFile,
+    #[error("company file belongs to another uploader")]
+    CompanyFileNotOwned,
     #[error("space invitation is not well formed")]
     InvalidInvitation,
     #[error("space invitation is no longer pending")]

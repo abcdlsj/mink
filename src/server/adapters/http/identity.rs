@@ -360,6 +360,7 @@ pub(super) async fn create_space(
     let space_id = Uuid::now_v7();
     let owner_id = Uuid::now_v7();
     let general_id = Uuid::now_v7();
+    let hq_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
     let mut storage = state.storage.clone();
     let created = CreateSpace::execute(
@@ -369,6 +370,7 @@ pub(super) async fn create_space(
             space_id: SpaceId::from_uuid(space_id),
             owner_id: MemberId::from_uuid(owner_id),
             general_channel_id: ChannelId::from_uuid(general_id),
+            hq_channel_id: ChannelId::from_uuid(hq_id),
             name,
             slug: &slug,
             accent: &accent,

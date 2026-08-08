@@ -23,6 +23,7 @@ pub(crate) struct ServerConfig {
     pub(crate) database_url: String,
     pub(crate) web_dist: PathBuf,
     pub(crate) attachment_dir: PathBuf,
+    pub(crate) company_drive_dir: PathBuf,
     pub(crate) attachment_s3: Option<AttachmentS3Config>,
     pub(crate) attachment_max_bytes: u64,
     pub(crate) secure_cookies: bool,
@@ -115,6 +116,7 @@ impl Default for ServerConfig {
             database_url: "postgres://localhost/sumi_prod".to_owned(),
             web_dist: PathBuf::from("web/dist"),
             attachment_dir: default_sumi_dir().join("server/attachments"),
+            company_drive_dir: default_sumi_dir().join("server/attachments/company"),
             attachment_s3: None,
             attachment_max_bytes: 100 * 1024 * 1024,
             secure_cookies: false,
@@ -131,6 +133,7 @@ pub(crate) struct ComputerConfig {
     pub(crate) server_url: Url,
     pub(crate) state_dir: PathBuf,
     pub(crate) open_pairing_browser: bool,
+    pub(crate) company_drive_root: Option<PathBuf>,
     pub(crate) codex_config_source: Option<PathBuf>,
     pub(crate) codex_auth_source: Option<PathBuf>,
     pub(crate) builtin: Option<BuiltinOpenAiConfig>,
@@ -145,6 +148,7 @@ impl Default for ComputerConfig {
             server_url: Url::parse("http://127.0.0.1:3000").expect("valid default server URL"),
             state_dir: default_computer_state_dir(),
             open_pairing_browser: true,
+            company_drive_root: None,
             codex_config_source: None,
             codex_auth_source: None,
             builtin: None,
@@ -360,6 +364,10 @@ mod tests {
             assert_eq!(
                 config.server.attachment_dir,
                 home.join(".sumi/server/attachments")
+            );
+            assert_eq!(
+                config.server.company_drive_dir,
+                home.join(".sumi/server/attachments/company")
             );
             assert_eq!(
                 runtime_dir_for(&config.computer.state_dir),

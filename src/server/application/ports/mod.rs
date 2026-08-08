@@ -410,6 +410,7 @@ pub(in crate::server) struct RunCapabilityProof {
 
 mod attachment;
 mod collaboration;
+mod company;
 mod effects;
 mod execution;
 mod identity;
@@ -418,6 +419,7 @@ mod transaction;
 
 pub(in crate::server) use attachment::AttachmentTransaction;
 pub(in crate::server) use collaboration::CollaborationTransaction;
+pub(in crate::server) use company::{CompanyFileObjectPort, CompanyFileTransaction};
 pub(in crate::server) use effects::EffectSink;
 pub(in crate::server) use execution::ExecutionTransaction;
 pub(in crate::server) use identity::IdentityTransaction;
@@ -430,6 +432,7 @@ pub(in crate::server) trait ServerTransaction:
     + TaskTransaction
     + ExecutionTransaction
     + AttachmentTransaction
+    + CompanyFileTransaction
     + EffectSink
 {
 }
@@ -440,6 +443,7 @@ impl<T> ServerTransaction for T where
         + TaskTransaction
         + ExecutionTransaction
         + AttachmentTransaction
+        + CompanyFileTransaction
         + EffectSink
 {
 }

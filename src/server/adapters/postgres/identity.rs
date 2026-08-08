@@ -313,6 +313,28 @@ impl PostgresTransaction {
         .execute(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
+        let hq_channel: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) \
+             SELECT id,space_id,$2,$3,0 FROM channels \
+             WHERE space_id=$1 AND slug='hq' ON CONFLICT (channel_id,member_id) DO NOTHING \
+             RETURNING channel_id",
+        )
+        .bind(agent.space_id.into_uuid())
+        .bind(agent.member_id.into_uuid())
+        .bind(member.created_at)
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if let Some(channel_id) = hq_channel {
+            self.record_channel_member_joined(
+                ChannelId::from_uuid(channel_id),
+                agent.member_id,
+                agent.member_id,
+                &member.display_name,
+                member.created_at,
+            )
+            .await?;
+        }
         Ok(())
     }
 
@@ -360,6 +382,7 @@ impl PostgresTransaction {
         space_id: SpaceId,
         owner_id: MemberId,
         general_channel_id: ChannelId,
+        hq_channel_id: ChannelId,
         name: &str,
         slug: &str,
         accent: &str,
@@ -442,6 +465,22 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO channels(id,space_id,kind,slug,topic,created_at) VALUES($1,$2,'public','hq',$3,$4)")
+            .bind(hq_channel_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind("Company-wide announcements and shared files")
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) VALUES($1,$2,$3,$4)")
+            .bind(hq_channel_id.into_uuid())
+            .bind(space_id.into_uuid())
+            .bind(owner_id.into_uuid())
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
         let result_hash = Sha256::digest(space_id.into_uuid().as_bytes());
         sqlx::query("INSERT INTO idempotency_records(actor_member_id,action,idempotency_key,response_code,resource_id,result_hash,created_at) VALUES($1,'space.create',$2,'ok',$3,$4,$5)")
             .bind(owner_id.into_uuid())
@@ -464,6 +503,14 @@ impl PostgresTransaction {
             .bind(Uuid::now_v7())
             .bind(space_id.into_uuid())
             .bind(json!({"resource_id": general_channel_id.into_uuid()}))
+            .bind(now)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("INSERT INTO outbox_events(id,space_id,kind,payload_json,created_at) VALUES($1,$2,'channel.created',$3,$4)")
+            .bind(Uuid::now_v7())
+            .bind(space_id.into_uuid())
+            .bind(json!({"resource_id": hq_channel_id.into_uuid()}))
             .bind(now)
             .execute(&mut *self.connection)
             .await
@@ -644,18 +691,20 @@ impl PostgresTransaction {
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
-        let general_channel_id: Option<Uuid> = sqlx::query_scalar(
-            "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at) \
-             SELECT id,space_id,$2,$3 FROM channels WHERE space_id=$1 AND slug='general' \
+        let joined_channels: Vec<Uuid> = sqlx::query_scalar(
+            "INSERT INTO channel_members(channel_id,space_id,member_id,joined_at,last_read_seq) \
+             SELECT id,space_id,$2,$3,0 FROM channels \
+             WHERE space_id=$1 AND slug IN ('general','hq') \
+             ON CONFLICT (channel_id,member_id) DO NOTHING \
              RETURNING channel_id",
         )
         .bind(record.space_id.into_uuid())
         .bind(record.member_id.into_uuid())
         .bind(record.created_at)
-        .fetch_optional(&mut *self.connection)
+        .fetch_all(&mut *self.connection)
         .await
         .map_err(map_sqlx)?;
-        if let Some(channel_id) = general_channel_id {
+        for channel_id in joined_channels {
             self.record_channel_member_joined(
                 ChannelId::from_uuid(channel_id),
                 record.member_id,
@@ -1056,6 +1105,7 @@ impl IdentityTransaction for PostgresTransaction {
         space_id: SpaceId,
         owner_id: MemberId,
         general_channel_id: ChannelId,
+        hq_channel_id: ChannelId,
         name: &str,
         slug: &str,
         accent: &str,
@@ -1068,6 +1118,7 @@ impl IdentityTransaction for PostgresTransaction {
             space_id,
             owner_id,
             general_channel_id,
+            hq_channel_id,
             name,
             slug,
             accent,

@@ -9,8 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     ids::{
-        AgentId, AttachmentId, ChannelId, CommandId, ComputerId, EventId, IdempotencyKey,
-        InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId, TaskId, ThreadId,
+        AgentId, AttachmentId, ChannelId, CommandId, CompanyFileId, ComputerId, EventId,
+        IdempotencyKey, InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId, TaskId,
+        ThreadId,
     },
     protocol::computer::{
         ActionKind, ActionTarget, ActivityEventKind, ActivityEventSnapshot, AgentRetire,
@@ -24,11 +25,11 @@ use crate::{
     server::{
         application::ports::{
             ApplicationError, AttachmentTransaction, AuthenticatedHuman, CollaborationTransaction,
-            ComputerRecord, CreatedSpace, DirectMessageView, DispatchCandidate, Effect, EffectSink,
-            ExecutionTransaction, HumanMemberRecord, IdentityTransaction, InboxItemView,
-            InboxScope, MemberKind, MessageDraft, PairedComputer, PublishedMessage,
-            RunCapabilityProof, SpaceHumanMember, SpaceMemberView, TaskTransaction,
-            TransactionPort,
+            CompanyFileTransaction, ComputerRecord, CreatedSpace, DirectMessageView,
+            DispatchCandidate, Effect, EffectSink, ExecutionTransaction, HumanMemberRecord,
+            IdentityTransaction, InboxItemView, InboxScope, MemberKind, MessageDraft,
+            PairedComputer, PublishedMessage, RunCapabilityProof, SpaceHumanMember,
+            SpaceMemberView, TaskTransaction, TransactionPort,
         },
         domain::{
             access::{HumanRegistration, SpaceAccess},
@@ -37,6 +38,7 @@ use crate::{
                 AmbientAggregateSnapshot, AttentionStrength, InboxItem, InboxItemDisposition,
                 InboxItemKind, InboxItemSnapshot as DomainInboxItemSnapshot, InboxItemStatus,
             },
+            company_file::{CompanyFile, CompanyFileSnapshot},
             conversation::{
                 Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread,
             },
@@ -265,6 +267,52 @@ impl PostgresAdapter {
                  ALTER TABLE member_permissions DROP CONSTRAINT IF EXISTS member_permissions_action_code_check; \
                  ALTER TABLE member_permissions ADD CONSTRAINT member_permissions_action_code_check CHECK (action_code IN ('channel.create', 'channel.invite', 'channel.remove', 'agent.create')); \
                  INSERT INTO schema_meta (version, applied_at) VALUES (8, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 9 {
+            if version != 8 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "CREATE TABLE company_files ( \
+                    id UUID PRIMARY KEY, \
+                    space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT, \
+                    name TEXT NOT NULL, \
+                    media_type TEXT NOT NULL, \
+                    length BIGINT NOT NULL CHECK (length >= 0), \
+                    sha256 BYTEA NOT NULL CHECK (octet_length(sha256) = 32), \
+                    uploader_member_id UUID NOT NULL, \
+                    created_at TIMESTAMPTZ NOT NULL, \
+                    deleted_at TIMESTAMPTZ, \
+                    UNIQUE (id, space_id), \
+                    FOREIGN KEY (uploader_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT \
+                 ); \
+                 CREATE INDEX company_files_space_cursor \
+                    ON company_files(space_id, created_at DESC, id DESC); \
+                 CREATE UNIQUE INDEX company_files_space_name_unique \
+                    ON company_files(space_id, name) WHERE deleted_at IS NULL; \
+                 INSERT INTO channels (id,space_id,kind,slug,topic,next_seq,created_at) \
+                    SELECT gen_random_uuid(),s.id,'public','hq', \
+                           'Company-wide announcements and shared files',1,now() \
+                    FROM spaces s \
+                    WHERE NOT EXISTS ( \
+                        SELECT 1 FROM channels c WHERE c.space_id=s.id AND c.slug='hq' \
+                    ); \
+                 INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) \
+                    SELECT c.id,c.space_id,s.owner_member_id,now(),0 \
+                    FROM channels c JOIN spaces s ON s.id=c.space_id \
+                    WHERE c.slug='hq' AND NOT EXISTS ( \
+                        SELECT 1 FROM channel_members m \
+                        WHERE m.channel_id=c.id AND m.member_id=s.owner_member_id \
+                    ); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (9, now());",
             )
             .execute(&mut *transaction)
             .await?;
@@ -671,6 +719,7 @@ impl TransactionPort for PostgresAdapter {
 
 mod attachment;
 mod attention;
+mod company;
 mod conversation;
 mod execution;
 mod identity;

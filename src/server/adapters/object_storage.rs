@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use object_store::{ObjectStore, path::Path};
 use sha2::{Digest, Sha256};
 
-use crate::server::application::ports::{ApplicationError, AttachmentObjectPort, StoredObject};
+use crate::server::application::ports::{
+    ApplicationError, AttachmentObjectPort, CompanyFileObjectPort, StoredObject,
+};
 
 pub(super) struct AttachmentObjectStore {
     store: Arc<dyn ObjectStore>,
@@ -56,6 +58,67 @@ impl AttachmentObjectPort for AttachmentObjectStore {
             .await
             .map(|bytes| bytes.to_vec())
             .map_err(|_| ApplicationError::Unavailable)
+    }
+}
+
+pub(super) struct CompanyFileObjectStore {
+    store: Arc<dyn ObjectStore>,
+}
+
+impl CompanyFileObjectStore {
+    pub(super) fn new(store: Arc<dyn ObjectStore>) -> Self {
+        Self { store }
+    }
+
+    fn path(object_key: &str) -> Result<Path, ApplicationError> {
+        if object_key.is_empty()
+            || object_key.starts_with('/')
+            || object_key
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err(ApplicationError::Conflict);
+        }
+        Path::parse(object_key).map_err(|_| ApplicationError::Conflict)
+    }
+}
+
+#[async_trait]
+impl CompanyFileObjectPort for CompanyFileObjectStore {
+    async fn put(
+        &self,
+        object_key: &str,
+        content: Vec<u8>,
+    ) -> Result<StoredObject, ApplicationError> {
+        let path = Self::path(object_key)?;
+        let length = u64::try_from(content.len()).map_err(|_| ApplicationError::Conflict)?;
+        let sha256 = Sha256::digest(&content).into();
+        self.store
+            .put(&path, content.into())
+            .await
+            .map_err(|_| ApplicationError::Unavailable)?;
+        Ok(StoredObject { length, sha256 })
+    }
+
+    async fn get(&self, object_key: &str) -> Result<Vec<u8>, ApplicationError> {
+        let path = Self::path(object_key)?;
+        let result = self.store.get(&path).await.map_err(|error| match error {
+            object_store::Error::NotFound { .. } => ApplicationError::NotFound,
+            _ => ApplicationError::Unavailable,
+        })?;
+        result
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|_| ApplicationError::Unavailable)
+    }
+
+    async fn delete(&self, object_key: &str) -> Result<(), ApplicationError> {
+        let path = Self::path(object_key)?;
+        self.store.delete(&path).await.map_err(|error| match error {
+            object_store::Error::NotFound { .. } => ApplicationError::NotFound,
+            _ => ApplicationError::Unavailable,
+        })
     }
 }
 

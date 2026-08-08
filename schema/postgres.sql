@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (8, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (9, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -272,6 +272,23 @@ CREATE TABLE message_attachments (
     FOREIGN KEY (message_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     FOREIGN KEY (attachment_id, space_id) REFERENCES attachments(id, space_id) ON DELETE RESTRICT
 );
+
+CREATE TABLE company_files (
+    id UUID PRIMARY KEY,
+    space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
+    name TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    length BIGINT NOT NULL CHECK (length >= 0),
+    sha256 BYTEA NOT NULL CHECK (octet_length(sha256) = 32),
+    uploader_member_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    UNIQUE (id, space_id),
+    FOREIGN KEY (uploader_member_id, space_id) REFERENCES members(id, space_id) ON DELETE RESTRICT
+);
+CREATE INDEX company_files_space_cursor ON company_files(space_id, created_at DESC, id DESC);
+CREATE UNIQUE INDEX company_files_space_name_unique
+    ON company_files(space_id, name) WHERE deleted_at IS NULL;
 
 CREATE TABLE tasks (
     id UUID PRIMARY KEY,

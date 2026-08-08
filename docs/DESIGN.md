@@ -19,6 +19,7 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 | Space | Members、Channels、Computers 和治理共同归属的协作边界 | Team、Workspace |
 | Channel | Space 中一组 Members 共享的长期对话空间，DM 是特殊 Channel | Room、Group |
 | DM | 恰好由两个 Members 组成的直接对话 Channel | Private Chat |
+| HQ Channel | 每个 Space 自动创建的全体成员公共 Channel（slug 固定 `hq`），新成员加入 Space 时自动加入 | All-hands、Company Channel |
 | Message | Member 发布在 Channel 主时间线或 Thread 中的协作内容 | Prompt、Event |
 | Root Message | 发布在 Channel 主时间线的 Message，每条 Root Message 是一个 Thread 的根 | Top-level Message |
 | Thread | 一条 Root Message 及其 replies 组成的讨论支线，继承 Channel 可见范围 | Session、Conversation |
@@ -28,11 +29,14 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 | Task | 从一条 Root Message 原子创建的持续工作记录，可关联多个 Thread | Job、Workflow |
 | Task Reference | 以 `!<seq>` 写在 Message 正文中的 Task 引用，seq 是 Space 内自增短序号 | Task UUID、Task ID |
 | Task Status | Task 的工作流位置，只取 TODO、In Progress、In Review、Done、Closed | Run Status |
+| Claim | 从 TODO 认领 Task 并指派执行者、推进为 In Progress 的动作（task.start） | Assign |
 | Source Thread | 创建 Task 的 Root Message 所定义的 Thread，必备且不可更换 | Origin Conversation |
 | Linked Thread | 与 Task 中同一项工作直接相关的 Thread，Source Thread 是第一个 | Related Conversation |
 | Focus | 一个 Run 当前处理的唯一 Thread；Run 绑定 Task 时必须是 Linked Thread | Scope、Current Task |
 | Result | Task 对协作者公开的正式工作结论，是一条由 Task 指定的 Message | Run Output |
 | Computer | 与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机 | Node、Worker |
+| Company Hub | Space 的公司形态入口，包含 HQ Channel、Company Drive 与 Task Board | Company 页面 |
+| Company Drive | Space 级共享文件区，单 Computer 部署时挂载到该 Computer 上每个 Agent 的 `workspace/company/` | Shared Drive、网盘 |
 | Agent Home | 归属于一个 Agent，保存 Memory、workspace 和 Driver 私有状态的本地边界 | Workspace、Computer Home |
 | Driver | Agent 用于推理和行动的可替换执行能力 | Engine、Model |
 | Provider Session | Computer 为一个 Agent 处理一个 Thread 或 Task 时保存的 Driver 对话缓存 | Agent Session |
@@ -54,6 +58,8 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 ## 产品不变量
 
 - Human 与 Agent 使用同一套 Space、Channel、DM、Thread、Message、Attachment 模型。
+- 每个 Space 有且仅有一个 HQ Channel；Human 与 Agent 加入 Space 时自动加入 HQ Channel。
+- Company Drive 文件由 Server 持久化；单 Computer 部署时以共享目录形式挂载到所有 Agent 的 `workspace/company/`，Agent 写入即对全员可见。
 - Task 必须从 Root Message 原子创建，Source Thread 绑定后不可更换；Thread reply 不能成为 Source。
 - 一个 Task 可以关联多个 Thread；一个 Run 只处理一个 Focus；一个 Agent 同时最多有一个 active Run。
 - Task 创建后 title 与 assignee 不可修改；对 Task 的操作只有状态流转（TODO → In Progress → In Review → Done / Closed）与 Close（记录原因）。
@@ -70,6 +76,7 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 不做：
 
 - 子任务、Task 依赖、工时、截止时间、优先级、审批流。
+- 多 Computer 的 Company Drive 挂载、文件版本、文件夹、配额。
 - 旧数据迁移、旧 API 兼容、Windows 运行支持。
 
 ## 验收底线
