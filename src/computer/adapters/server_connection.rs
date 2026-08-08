@@ -20,12 +20,12 @@ use crate::{
 };
 
 pub(in crate::computer) struct ServerConnectionAdapter {
-    global_contract: String,
+    product_contract: String,
 }
 
 impl ServerConnectionAdapter {
-    pub(in crate::computer) fn new(global_contract: String) -> Self {
-        Self { global_contract }
+    pub(in crate::computer) fn new(product_contract: String) -> Self {
+        Self { product_contract }
     }
 
     pub(in crate::computer) async fn receive<
@@ -245,7 +245,7 @@ impl ServerConnectionAdapter {
                 };
                 let focus_thread_id = start.focus.thread_id;
                 let input = RunInput {
-                    global_contract: self.global_contract.clone(),
+                    product_contract: self.product_contract.clone(),
                     agent: AgentInput {
                         agent_id: agent.agent_id,
                         space_id: agent.space_id,

@@ -144,7 +144,7 @@ impl CodexRuntimeClient {
                     "threadId": locator,
                     "input": [{
                         "type": "text",
-                        "text": prompt::turn_instruction(&encoded)
+                        "text": prompt::codex_turn_instruction(&encoded)
                     }],
                     "sandboxPolicy": {
                         "type": "dangerFullAccess"
@@ -830,7 +830,7 @@ done
 
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
         let input = RunInput {
-            global_contract: "Use Sumi capabilities for collaboration facts".to_owned(),
+            product_contract: "Use Sumi capabilities for collaboration facts".to_owned(),
             agent: AgentInput {
                 agent_id,
                 space_id: agent.space_id,

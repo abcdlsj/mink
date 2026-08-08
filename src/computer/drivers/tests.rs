@@ -265,7 +265,7 @@ fn test_run(driver: DriverKind) -> LocalRun {
             has_task_continuity: false,
         },
         input: RunInput {
-            global_contract: "contract".to_owned(),
+            product_contract: "contract".to_owned(),
             agent: AgentInput {
                 agent_id,
                 space_id: SpaceId::from_uuid(Uuid::nil()),

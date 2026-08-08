@@ -517,7 +517,7 @@ where
     }
     let mut sent_events = HashSet::new();
     send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
-    let adapter = ServerConnectionAdapter::new(drivers::prompt::global_contract());
+    let adapter = ServerConnectionAdapter::new(drivers::prompt::product_contract());
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
     let mut driver_observation = tokio::time::interval(std::time::Duration::from_millis(250));
     let mut lost_driver_check = tokio::time::interval(std::time::Duration::from_secs(1));

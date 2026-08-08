@@ -11,7 +11,8 @@ use super::scheduler::WorkStrength;
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub(in crate::computer) struct RunInput {
-    pub(in crate::computer) global_contract: String,
+    #[serde(alias = "global_contract")]
+    pub(in crate::computer) product_contract: String,
     pub(in crate::computer) agent: AgentInput,
     pub(in crate::computer) work: WorkInput,
     pub(in crate::computer) context: RunContextInput,
@@ -173,7 +174,7 @@ impl fmt::Debug for DispatchedItemInput {
 impl RunInput {
     pub(in crate::computer) fn content_hash(&self) -> String {
         let mut digest = Sha256::new();
-        digest.update(self.global_contract.as_bytes());
+        digest.update(self.product_contract.as_bytes());
         digest.update(self.agent.agent_id.to_string().as_bytes());
         digest.update(self.agent.space_id.to_string().as_bytes());
         digest.update(self.agent.identity.as_bytes());
@@ -321,7 +322,6 @@ impl RunInput {
         );
 
         serde_json::json!({
-            "global_contract": self.global_contract.clone(),
             "agent": {
                 "identity": self.agent.identity.clone(),
                 "role": self.agent.role.clone(),
@@ -390,7 +390,7 @@ mod tests {
         dispatched_items: Vec<DispatchedItemInput>,
     ) -> RunInput {
         RunInput {
-            global_contract: "contract".to_owned(),
+            product_contract: "contract".to_owned(),
             agent: AgentInput {
                 agent_id: AgentId::from_uuid(Uuid::from_u128(1)),
                 space_id: SpaceId::from_uuid(Uuid::from_u128(2)),
@@ -418,7 +418,7 @@ mod tests {
     fn model_view_drops_internal_and_empty_fields() {
         let view = run_input(vec![message(1, "root")], Vec::new()).model_view();
 
-        assert_eq!(view["global_contract"], "contract");
+        assert!(view.get("global_contract").is_none());
         assert_eq!(view["agent"]["identity"], "agent");
         assert_eq!(view["agent"]["role"], "role");
         assert_eq!(

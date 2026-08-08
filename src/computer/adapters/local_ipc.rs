@@ -349,7 +349,7 @@ mod tests {
                 has_task_continuity: true,
             },
             input: RunInput {
-                global_contract: "contract".to_owned(),
+                product_contract: "contract".to_owned(),
                 agent: AgentInput {
                     agent_id,
                     space_id,

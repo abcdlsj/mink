@@ -201,7 +201,11 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             .clone()
             .ok_or(ApplicationError::DriverUnavailable)?
             .into_provider_config()
-            .with_prompt_cache_key(input.content_hash());
+            .with_prompt_cache_key(format!(
+                "{}-{}",
+                input.content_hash(),
+                prompt::driver_contract_hash()
+            ));
         let session = self.load_session(agent_id, locator).await?;
         let agent_home = self.agent_home(agent_id);
         let socket_path = self.socket_path.clone();
@@ -408,7 +412,8 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
 
 fn system_messages(input: &RunInput) -> Vec<Message> {
     let (stable, dynamic) = prompt::system_prompt(
-        &input.global_contract,
+        &input.product_contract,
+        &prompt::driver_contract(),
         &input.agent.identity,
         &input.agent.role,
     );
@@ -710,7 +715,7 @@ mod tests {
     fn run_input(agent_id: AgentId) -> RunInput {
         let thread_id = ThreadId::from_uuid(Uuid::now_v7());
         RunInput {
-            global_contract: "Use Sumi capabilities for collaboration facts".to_owned(),
+            product_contract: "Use Sumi capabilities for collaboration facts".to_owned(),
             agent: AgentInput {
                 agent_id,
                 space_id: SpaceId::from_uuid(Uuid::now_v7()),
