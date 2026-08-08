@@ -1684,6 +1684,13 @@ impl ExecutionTransaction for MemoryTransaction {
             .map(|run| run.view().id)
             .collect())
     }
+    async fn settle_run_commands(
+        &mut self,
+        _run_id: RunId,
+        _computer_id: ComputerId,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.state.runs.insert(run.view().id, run);
         Ok(())

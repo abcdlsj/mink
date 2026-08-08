@@ -302,6 +302,32 @@ impl PostgresAdapter {
             .collect()
     }
 
+    /// Settles pending Run commands whose target Run is already terminal. A command can be queued
+    /// in the same instant the Run result commits (the attention router and the result writer do
+    /// not share one transaction), so replay must not deliver it to the Computer.
+    pub(super) async fn settle_stale_run_commands(
+        &self,
+        computer_id: ComputerId,
+        watermark: CommandSequence,
+    ) -> Result<(), ApplicationError> {
+        let watermark = i64::try_from(watermark.0).map_err(|_| ApplicationError::Conflict)?;
+        sqlx::query(
+            "UPDATE computer_commands SET acked_at=COALESCE(acked_at,now()) \
+             WHERE computer_id=$1 AND computer_seq>$2 AND acked_at IS NULL \
+               AND kind IN ('run.start','run.attach_item','run.notice','run.task_bound','run.stop') \
+               AND EXISTS ( \
+                 SELECT 1 FROM agent_runs r \
+                 WHERE r.id=(computer_commands.payload_json #>> '{payload,run_id}')::uuid \
+                   AND r.status IN ('completed','yielded','failed','canceled'))",
+        )
+        .bind(computer_id.into_uuid())
+        .bind(watermark)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     pub(super) async fn acknowledge_command(
         &self,
         computer_id: ComputerId,

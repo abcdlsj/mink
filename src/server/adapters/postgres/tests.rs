@@ -9,7 +9,8 @@ use url::Url;
 use crate::server::application::attention::{RequeueDeadItem, RequeueDeadItemInput};
 use crate::server::application::conversation::{CreateAgentAction, CreateAgentActionInput};
 use crate::server::application::execution::{
-    DispatchRun, DispatchRunInput, SyncComputerRuns, SyncComputerRunsInput,
+    CompleteRun, CompleteRunInput, DispatchRun, DispatchRunInput, ItemDispositionInput,
+    SyncComputerRuns, SyncComputerRunsInput,
 };
 use crate::server::application::identity::{AgentLifecycleAction, UpdateAgent, UpdateAgentInput};
 use crate::server::application::ports::{InboxActivityEventKind, InboxScope};
@@ -520,13 +521,15 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
             let stale_item = Uuid::now_v7();
             let pending_run = Uuid::now_v7();
             let pending_start_command = Uuid::now_v7();
+            let stale_notice_command = Uuid::now_v7();
+            let stale_notice_id = Uuid::now_v7();
             sqlx::raw_sql(&format!(
                 "BEGIN;
                  INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#F0602F','{owner}',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','member',now());
                  INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{subscriber}','{space}','agent','Ada','member',now());
-                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',2,now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',3,now());
                  INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
                  INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{subscriber}','{space}','{computer_id}','Watch',1,'active','codex',now());
                  INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
@@ -538,6 +541,7 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
                  INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{stale_run}','{stale_item}',1,now());
                  INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at) VALUES ('{pending_run}','{space}','{subscriber}','{root}','dispatched','mention',now());
                  INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{pending_start_command}','{computer_id}',1,'run.start',jsonb_build_object('kind','run.start','payload',jsonb_build_object('run_id','{pending_run}')),now());
+                 INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{stale_notice_command}','{computer_id}',2,'run.notice',jsonb_build_object('kind','run.notice','payload',jsonb_build_object('run_id','{stale_run}','notice',jsonb_build_object('notice_id','{stale_notice_id}'))),now());
                  COMMIT;"
             ))
             .execute(&pool)
@@ -558,6 +562,25 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
             .unwrap();
             assert_eq!(reclaimed.runs_failed, 1);
             assert_eq!(reclaimed.items_released, 1);
+
+            // Commands targeting the failed orphaned Run are settled; the pending Run's start
+            // command stays queued for the reconnecting Computer.
+            let stale_notice_acked: bool = sqlx::query_scalar(
+                "SELECT acked_at IS NOT NULL FROM computer_commands WHERE id=$1",
+            )
+            .bind(stale_notice_command)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(stale_notice_acked);
+            let pending_start_acked: bool = sqlx::query_scalar(
+                "SELECT acked_at IS NOT NULL FROM computer_commands WHERE id=$1",
+            )
+            .bind(pending_start_command)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(!pending_start_acked);
 
             let recovered: (String, String, String, i32) = sqlx::query_as(
                 "SELECT r.status,r.outcome_code,i.status,i.retry_count \
@@ -701,6 +724,222 @@ async fn failing_an_orphaned_run_unblocks_the_agent_and_subscription_raises_thre
             .await
             .unwrap();
             assert_eq!(audited, 1, "only the accepted requeue is audited");
+
+            pool.close().await;
+        }
+        .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+/// Terminal Run results settle queued commands targeting that Run, so a reconnect or a later
+/// attention router cannot replay an obsolete start/attach/notice/stop to the Computer.
+#[tokio::test]
+async fn completing_a_run_settles_its_pending_commands() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_complete_settles_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let result = async {
+            let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+            let mut adapter = PostgresAdapter::new(pool.clone());
+            adapter.initialize_schema().await.unwrap();
+            let space = Uuid::now_v7();
+            let owner = Uuid::now_v7();
+            let agent = Uuid::now_v7();
+            let computer_id = Uuid::now_v7();
+            let channel = Uuid::now_v7();
+            let root = Uuid::now_v7();
+            let run_id = Uuid::now_v7();
+            let item = Uuid::now_v7();
+            let attach_command = Uuid::now_v7();
+            let notice_command = Uuid::now_v7();
+            let stop_command = Uuid::now_v7();
+            let notice_id = Uuid::now_v7();
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#F0602F','{owner}',now());
+                 INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now());
+                 INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','member',now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','online',4,now());
+                 INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
+                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+                 INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0);
+                 INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at,started_at) VALUES ('{run_id}','{space}','{agent}','{root}','working','mention',now(),now());
+                 INSERT INTO inbox_items (id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,assigned_run_id,retry_count,created_at) VALUES ('{item}','{space}','{agent}','{root}','{root}','mention','hard','assigned',now(),'{run_id}',0,now());
+                 INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at) VALUES ('{run_id}','{item}',1,now());
+                 INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{attach_command}','{computer_id}',1,'run.attach_item',jsonb_build_object('kind','run.attach_item','payload',jsonb_build_object('run_id','{run_id}','delivery_sequence',2)),now());
+                 INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{notice_command}','{computer_id}',2,'run.notice',jsonb_build_object('kind','run.notice','payload',jsonb_build_object('run_id','{run_id}','notice',jsonb_build_object('notice_id','{notice_id}'))),now());
+                 INSERT INTO computer_commands (id,computer_id,computer_seq,kind,payload_json,created_at) VALUES ('{stop_command}','{computer_id}',3,'run.stop',jsonb_build_object('kind','run.stop','payload',jsonb_build_object('run_id','{run_id}')),now());
+                 COMMIT;"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            CompleteRun::execute(
+                &mut adapter,
+                CompleteRunInput {
+                    event_id: EventId::from_uuid(Uuid::now_v7()),
+                    run_id: RunId::from_uuid(run_id),
+                    computer_id: ComputerId::from_uuid(computer_id),
+                    outcome: RunOutcome::Completed,
+                    error_code: None,
+                    item_dispositions: vec![ItemDispositionInput {
+                        item_id: InboxItemId::from_uuid(item),
+                        disposition: InboxItemDisposition::Handled,
+                    }],
+                    continuation_note: None,
+                    max_retry_count: 5,
+                    now: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+            .unwrap();
+
+            let unacked: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM computer_commands \
+                 WHERE computer_id=$1 AND kind IN ('run.start','run.attach_item','run.notice','run.task_bound','run.stop') \
+                   AND acked_at IS NULL",
+            )
+            .bind(computer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(unacked, 0, "terminal Run must not leave replayable commands");
+
+            pool.close().await;
+        }
+        .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+/// Replay drops and settles commands queued for a Run that is already terminal. This closes the
+/// race where the attention router queues a notice just as the Run result commits.
+#[tokio::test]
+async fn replay_skips_commands_for_terminal_runs() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_replay_stale_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+
+    let result = async {
+            let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+            let mut adapter = PostgresAdapter::new(pool.clone());
+            adapter.initialize_schema().await.unwrap();
+            let space = Uuid::now_v7();
+            let owner = Uuid::now_v7();
+            let agent = Uuid::now_v7();
+            let computer_id = Uuid::now_v7();
+            let channel = Uuid::now_v7();
+            let root = Uuid::now_v7();
+            let terminal_run = Uuid::now_v7();
+            let live_run = Uuid::now_v7();
+            sqlx::raw_sql(&format!(
+                "BEGIN;
+                 INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','space','Space','#F0602F','{owner}',now());
+                 INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now());
+                 INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{agent}','{space}','agent','Lin','member',now());
+                 INSERT INTO computers (id,space_id,name,hostname,os,token_hash,connection_status,next_command_seq,created_at) VALUES ('{computer_id}','{space}','Computer','localhost','linux','hash','offline',3,now());
+                 INSERT INTO agents (member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at) VALUES ('{agent}','{space}','{computer_id}','Act',1,'active','codex',now());
+                 INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','general',2,now());
+                 INSERT INTO channel_members (channel_id,space_id,member_id,joined_at,last_read_seq) VALUES ('{channel}','{space}','{owner}',now(),0),('{channel}','{space}','{agent}',now(),0);
+                 INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at) VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{owner}','source',now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,outcome_code,created_at,started_at,finished_at) VALUES ('{terminal_run}','{space}','{agent}','{root}','completed','mention','completed',now(),now(),now());
+                 INSERT INTO agent_runs (id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at) VALUES ('{live_run}','{space}','{agent}','{root}','dispatched','mention',now());
+                 COMMIT;"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            adapter
+                .transact(async |transaction| {
+                    transaction
+                        .queue_command(
+                            ComputerId::from_uuid(computer_id),
+                            Command::RunNotice(RunNotice {
+                                run_id: RunId::from_uuid(terminal_run),
+                                notice: AttentionNotice {
+                                    notice_id: NoticeId::from_uuid(Uuid::now_v7()),
+                                    source_kind: InboxSourceKind::Mention,
+                                    strength: WireAttentionStrength::Hard,
+                                    location: NoticeLocation::Visible {
+                                        task_id: None,
+                                        thread_id: ThreadId::from_uuid(root),
+                                    },
+                                    explicit_human_redirect: false,
+                                    arrived_at: OffsetDateTime::now_utc(),
+                                },
+                            }),
+                        )
+                        .await?;
+                    transaction
+                        .queue_command(
+                            ComputerId::from_uuid(computer_id),
+                            Command::RunStop(RunStop {
+                                run_id: RunId::from_uuid(live_run),
+                                reason: StopReason::Suspend,
+                            }),
+                        )
+                        .await?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+
+            let replayed = crate::server::adapters::websocket::replay_commands(
+                &adapter,
+                ComputerId::from_uuid(computer_id),
+                CommandSequence(0),
+            )
+            .await
+            .unwrap();
+            assert_eq!(replayed.len(), 1);
+            let Command::RunStop(stop) = &replayed[0].command else {
+                panic!("expected run.stop command")
+            };
+            assert_eq!(stop.run_id, RunId::from_uuid(live_run));
+            assert_eq!(stop.reason, StopReason::Suspend);
+            let pending: Vec<(String, Uuid)> = sqlx::query_as(
+                "SELECT kind,(payload_json #>> '{payload,run_id}')::uuid \
+                 FROM computer_commands WHERE computer_id=$1 AND acked_at IS NULL",
+            )
+            .bind(computer_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                pending,
+                vec![("run.stop".to_owned(), live_run)],
+                "the terminal Run's notice is settled; only the live Run's command replays"
+            );
 
             pool.close().await;
         }

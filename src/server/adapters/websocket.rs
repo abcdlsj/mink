@@ -18,6 +18,9 @@ pub(super) async fn replay_commands(
     computer_id: ComputerId,
     watermark: CommandSequence,
 ) -> Result<Vec<CommandEnvelope>, ApplicationError> {
+    storage
+        .settle_stale_run_commands(computer_id, watermark)
+        .await?;
     storage.pending_commands(computer_id, watermark).await
 }
 

@@ -539,6 +539,9 @@ impl SyncComputerRuns {
                         input.now,
                     )?;
                     transaction.save_run(run.clone()).await?;
+                    transaction
+                        .settle_run_commands(run_id, input.computer_id)
+                        .await?;
                     transaction.emit(Effect::RunCompleted(run_id));
                     Ok(Some((released, dead)))
                 })
@@ -676,6 +679,9 @@ impl CompleteRun {
             transaction.save_run(run.clone()).await?;
             transaction
                 .record_completed_run_event(input.event_id, run_id)
+                .await?;
+            transaction
+                .settle_run_commands(run_id, input.computer_id)
                 .await?;
             transaction.emit(Effect::RunCompleted(run_id));
             Ok(run)

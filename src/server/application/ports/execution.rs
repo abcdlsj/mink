@@ -15,6 +15,14 @@ pub(in crate::server) trait ExecutionTransaction {
         &mut self,
         computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError>;
+    /// Marks pending Computer commands that target a Run as settled without delivering them.
+    /// Called when the Run reaches a terminal state: commands queued before the terminal
+    /// transition (start, attach, notice, stop) are obsolete and must not be replayed.
+    async fn settle_run_commands(
+        &mut self,
+        run_id: RunId,
+        computer_id: ComputerId,
+    ) -> Result<(), ApplicationError>;
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError>;
     async fn observed_thread_sequence(
         &mut self,

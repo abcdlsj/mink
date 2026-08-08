@@ -206,6 +206,25 @@ impl PostgresTransaction {
         .map(|rows| rows.into_iter().map(RunId::from_uuid).collect())
     }
 
+    pub(super) async fn settle_run_commands(
+        &mut self,
+        run_id: RunId,
+        computer_id: ComputerId,
+    ) -> Result<(), ApplicationError> {
+        sqlx::query(
+            "UPDATE computer_commands SET acked_at=COALESCE(acked_at,now()) \
+             WHERE computer_id=$1 AND acked_at IS NULL \
+               AND kind IN ('run.start','run.attach_item','run.notice','run.task_bound','run.stop') \
+               AND payload_json #>> '{payload,run_id}' = $2::text",
+        )
+        .bind(computer_id.into_uuid())
+        .bind(run_id.into_uuid())
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     pub(super) async fn record_completed_run_event(
         &mut self,
         event_id: EventId,
@@ -555,6 +574,13 @@ impl ExecutionTransaction for PostgresTransaction {
         computer_id: ComputerId,
     ) -> Result<Vec<RunId>, ApplicationError> {
         self.nonterminal_runs_for_computer(computer_id).await
+    }
+    async fn settle_run_commands(
+        &mut self,
+        run_id: RunId,
+        computer_id: ComputerId,
+    ) -> Result<(), ApplicationError> {
+        self.settle_run_commands(run_id, computer_id).await
     }
     async fn save_run(&mut self, run: Run) -> Result<(), ApplicationError> {
         self.save_run(run).await
