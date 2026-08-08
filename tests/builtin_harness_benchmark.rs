@@ -103,6 +103,26 @@ struct ScenarioStep {
     probe: Option<(&'static str, &'static str)>,
 }
 
+struct ScenarioPaths {
+    ledger: &'static str,
+    notes: &'static str,
+}
+
+fn scenario_paths(driver: &str) -> ScenarioPaths {
+    match driver {
+        // The codex driver runs with cwd already set to the agent workspace.
+        "codex" => ScenarioPaths {
+            ledger: "ledger.md",
+            notes: "notes/",
+        },
+        // The builtin shell starts at the agent home root.
+        _ => ScenarioPaths {
+            ledger: "workspace/ledger.md",
+            notes: "workspace/notes/",
+        },
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 struct CompactionReport {
     reason: String,
@@ -236,7 +256,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
         .join(space.id.to_string())
         .join(paired.id.to_string());
     let pool = PgPool::connect(&database.url).await?;
-    let steps = scenario();
+    let steps = scenario(profiles.first().context("no selected drivers")?.driver);
     let mut report = HarnessReport {
         model: builtin.model.clone(),
         provider_base: builtin.api_base.clone(),
@@ -288,7 +308,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
             .join("agents")
             .join(agent_id.to_string())
             .join("workspace")
-            .join("ledger.md");
+            .join(scenario_paths(profile.driver).ledger);
         let driver_report = match profile.driver {
             "builtin" => {
                 let agent_home = computer_home.join("agents").join(agent_id.to_string());
@@ -403,19 +423,22 @@ fn env_parse<T: std::str::FromStr>(name: &str, default: T) -> Result<T> {
     }
 }
 
-fn scenario() -> Vec<ScenarioStep> {
+fn scenario(driver: &str) -> Vec<ScenarioStep> {
+    let paths = scenario_paths(driver);
     let brief = concat!(
         "你是项目「北辰」(Northstar) 的项目助理，从今天开始维护项目台账和资料。规则：\n",
         "1. 事实性查询的回复第一行必须是 `RESULT <key>=<value>`。\n",
-        "2. 台账文件是 workspace/ledger.md；每完成一个任务就追加一行 `<n> <task> done`，n 从 1 递增，禁止重复追加。\n",
-        "3. 资料写入 workspace/notes/，禁止写 /tmp，禁止使用绝对路径。\n",
+        "2. 台账文件是 {ledger}；每完成一个任务就追加一行 `<n> <task> done`，n 从 1 递增，禁止重复追加。\n",
+        "3. 资料写入 {notes}，禁止写 /tmp，禁止使用绝对路径。\n",
         "项目事实：代号 northstar；P1 原型 2026-09-01；P2 内测 2026-11-15；P3 公测 2027-02-28；",
         "预算上限 480000 RMB；成员 林一(owner)、周舟(frontend)、郑远(backend)、苏晴(design)、何川(ops)。\n",
         "先回复「收到」，不要创建任何文件。\n",
     )
-    .to_owned();
+    .replace("{ledger}", paths.ledger)
+    .replace("{notes}", paths.notes);
     let meeting01 = format!(
-        "把下面的会议纪要原样保存为 workspace/notes/meeting-01.md，然后给台账追加 `2 meeting01 done`。\n{}",
+        "把下面的会议纪要原样保存为 {}meeting-01.md，然后给台账追加 `2 meeting01 done`。\n{}",
+        paths.notes,
         meeting_doc(
             "Meeting 01",
             &[
@@ -426,7 +449,8 @@ fn scenario() -> Vec<ScenarioStep> {
         )
     );
     let reference01 = format!(
-        "把下面的参考资料原样保存为 workspace/notes/reference-01.md，然后给台账追加 `3 reference01 done`。\n{}",
+        "把下面的参考资料原样保存为 {}reference-01.md，然后给台账追加 `3 reference01 done`。\n{}",
+        paths.notes,
         reference_doc(
             "Reference 01",
             &[
@@ -439,7 +463,8 @@ fn scenario() -> Vec<ScenarioStep> {
         )
     );
     let meeting02 = format!(
-        "把下面的会议纪要原样保存为 workspace/notes/meeting-02.md，然后给台账追加 `4 meeting02 done`。\n{}",
+        "把下面的会议纪要原样保存为 {}meeting-02.md，然后给台账追加 `4 meeting02 done`。\n{}",
+        paths.notes,
         meeting_doc(
             "Meeting 02",
             &[("D2", "cache TTL 300s"), ("Retry policy", "3 attempts")],
@@ -447,7 +472,8 @@ fn scenario() -> Vec<ScenarioStep> {
         )
     );
     let reference02 = format!(
-        "把下面的参考资料原样保存为 workspace/notes/reference-02.md，然后给台账追加 `5 reference02 done`。\n{}",
+        "把下面的参考资料原样保存为 {}reference-02.md，然后给台账追加 `5 reference02 done`。\n{}",
+        paths.notes,
         reference_doc(
             "Reference 02",
             &[
@@ -459,7 +485,8 @@ fn scenario() -> Vec<ScenarioStep> {
         )
     );
     let meeting03 = format!(
-        "把下面的会议纪要原样保存为 workspace/notes/meeting-03.md，然后给台账追加 `6 meeting03 done`。\n{}",
+        "把下面的会议纪要原样保存为 {}meeting-03.md，然后给台账追加 `6 meeting03 done`。\n{}",
+        paths.notes,
         meeting_doc(
             "Meeting 03",
             &[("D3", "use Postgres 17"), ("Migration", "forward only")],
@@ -474,7 +501,8 @@ fn scenario() -> Vec<ScenarioStep> {
         },
         ScenarioStep {
             text: format!(
-                "现在初始化台账：创建 workspace/ledger.md，第一行写 `{LEDGER_HEADER}`，然后追加 `1 setup done`。直接执行，不需要确认。"
+                "现在初始化台账：创建 {ledger}，第一行写 `{LEDGER_HEADER}`，然后追加 `1 setup done`。直接执行，不需要确认。",
+                ledger = paths.ledger,
             ),
             probe: None,
         },
@@ -515,7 +543,10 @@ fn scenario() -> Vec<ScenarioStep> {
             probe: Some(("budget_cap", "480000")),
         },
         ScenarioStep {
-            text: "给台账追加 `7 wrapup done`。如果这一行已经存在，就不要再追加，也不要重复其他行；然后只回复「ledger ready」。".to_owned(),
+            text: format!(
+                "给台账 {ledger} 追加 `7 wrapup done`。如果这一行已经存在，就不要再追加，也不要重复其他行；然后只回复「ledger ready」。",
+                ledger = paths.ledger,
+            ),
             probe: None,
         },
         ScenarioStep {
@@ -589,9 +620,10 @@ async fn create_agent(
 }
 
 fn role_text(profile: DriverProfile) -> String {
+    let paths = scenario_paths(profile.driver);
     format!(
         concat!(
-            "你是项目「北辰」的项目助理{}，负责维护台账 workspace/ledger.md 和 workspace/notes/ 下的资料。",
+            "你是项目「北辰」的项目助理{}，负责维护台账 {} 和 {} 下的资料。",
             "事实性查询第一行必须按 `RESULT <key>=<value>` 回答；完成任务后按 `<n> <task> done` 追加台账；",
             "禁止写 /tmp；不要重复追加同一行。",
         ),
@@ -599,7 +631,9 @@ fn role_text(profile: DriverProfile) -> String {
             "（Builtin）"
         } else {
             "（Codex）"
-        }
+        },
+        paths.ledger,
+        paths.notes.trim_end_matches('/'),
     )
 }
 
