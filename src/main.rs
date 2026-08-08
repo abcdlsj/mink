@@ -70,12 +70,17 @@ fn handle_parse_error(error: clap::Error) -> ExitCode {
     let agent_json = std::env::args_os().nth(1).is_some_and(|arg| arg == "agent")
         && std::env::args_os().any(|arg| arg == "--json");
     if agent_json {
+        let (message, details) = agent_cli::classify_error(
+            &error.to_string(),
+            protocol::capability::ErrorCode::InvalidArgument,
+            false,
+        );
         let response = protocol::capability::Response::<serde_json::Value>::failure(
             protocol::capability::Error {
                 code: protocol::capability::ErrorCode::InvalidArgument,
-                message: agent_cli::hint_for_error(&error.to_string(), false),
+                message,
                 retryable: false,
-                details: Default::default(),
+                details,
             },
         );
         if let Ok(response) = serde_json::to_string(&response) {
