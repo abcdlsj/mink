@@ -5,8 +5,11 @@
 //! - `codex`: the installed codex CLI (app-server mode) driven through Sumi's codex driver.
 //!
 //! Both legs use the same provider endpoint and the same model (`deepseek-v4-flash` by
-//! default), the same Sumi product flow, and the same scripted conversation. The test then
-//! measures three harness qualities from durable artifacts:
+//! default), the same Sumi product flow, and the same scripted conversation. The first
+//! message is a Channel root message and every later message is posted as a reply in the
+//! same Thread, because Sumi scopes Provider Sessions per Thread and the benchmark must
+//! exercise one continuous provider conversation. The test then measures three harness
+//! qualities from durable artifacts:
 //! - prompt cache rate: `cached_input_tokens / input_tokens` per inference call;
 //! - context compression: compaction count, reason, and source/summary token estimates;
 //! - long-conversation focus: probe accuracy, ledger completeness/duplicates, and forbidden
@@ -242,8 +245,24 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
                 .await?;
 
         let mut last_run_id = None;
-        for step in &steps {
-            post_message(&client, &server_url, &owner, channel_id, agent_id, step).await?;
+        let mut thread_id = None;
+        for (index, step) in steps.iter().enumerate() {
+            let message_id = if index == 0 {
+                post_message(&client, &server_url, &owner, channel_id, agent_id, step).await?
+            } else {
+                post_thread_message(
+                    &client,
+                    &server_url,
+                    &owner,
+                    thread_id.context("scenario Thread is missing")?,
+                    agent_id,
+                    step,
+                )
+                .await?
+            };
+            if index == 0 {
+                thread_id = Some(message_thread_id(&pool, message_id).await?);
+            }
             last_run_id = Some(
                 wait_for_run(
                     &pool,
@@ -673,6 +692,43 @@ async fn post_message(
     uuid_field(&body, "id")
 }
 
+async fn post_thread_message(
+    client: &Client,
+    server: &Url,
+    owner: &str,
+    thread_id: Uuid,
+    agent_id: Uuid,
+    step: &ScenarioStep,
+) -> Result<Uuid> {
+    let response = client
+        .post(server.join(&format!("/api/v1/threads/{thread_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, owner)
+        .json(&serde_json::json!({
+            "body_markdown": step.text,
+            "mentions": [agent_id],
+            "mention_all": false,
+            "attachment_ids": [],
+        }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::CREATED,
+        "post harness Thread message returned {}",
+        response.status()
+    );
+    let body: Value = response.json().await?;
+    uuid_field(&body, "id")
+}
+
+async fn message_thread_id(pool: &PgPool, message_id: Uuid) -> Result<Uuid> {
+    sqlx::query_scalar("SELECT thread_id FROM messages WHERE id=$1")
+        .bind(message_id)
+        .fetch_one(pool)
+        .await
+        .context("read scenario message Thread")
+}
+
 async fn wait_for_run(
     pool: &PgPool,
     agent_id: Uuid,
@@ -746,10 +802,34 @@ async fn builtin_metrics(
     ledger_path: &Path,
     computer: &SumiProcess,
 ) -> Result<DriverReport> {
-    let session = find_file(agent_home.join("drivers/builtin/sessions"), "json")?;
-    let value: Value =
-        serde_json::from_str(&std::fs::read_to_string(session).context("read builtin session")?)
-            .context("parse builtin session")?;
+    let session_files = find_files(agent_home.join("drivers/builtin/sessions"), "json")?;
+    ensure!(
+        !session_files.is_empty(),
+        "no builtin session artifact found"
+    );
+    let mut best = None;
+    for session_file in &session_files {
+        let Ok(value) = serde_json::from_str::<Value>(
+            &std::fs::read_to_string(session_file).unwrap_or_default(),
+        ) else {
+            continue;
+        };
+        let message_count = value["messages"]
+            .as_array()
+            .map_or(0, |messages| messages.len());
+        if best
+            .as_ref()
+            .is_none_or(|(_, best_count)| message_count > *best_count)
+        {
+            best = Some((session_file.clone(), message_count));
+        }
+    }
+    let (session, _) = best.context("no parseable builtin session artifact")?;
+    let value: Value = serde_json::from_str(
+        &std::fs::read_to_string(&session)
+            .with_context(|| format!("read builtin session {}", session.display()))?,
+    )
+    .context("parse builtin session")?;
     let messages = value["messages"].as_array().context("builtin messages")?;
     let mut report = base_report(driver, builtin, steps, replies, ledger_path)?;
 
@@ -1001,13 +1081,6 @@ fn estimate_messages(messages: &[Value]) -> usize {
         .map(|message| serde_json::to_string(message).map_or(0, |value| value.len()))
         .sum::<usize>()
         .div_ceil(4)
-}
-
-fn find_file(directory: PathBuf, extension: &str) -> Result<PathBuf> {
-    let mut files = find_files(directory, extension)?;
-    ensure!(!files.is_empty(), "no {extension} artifact found");
-    files.sort();
-    Ok(files.remove(0))
 }
 
 fn find_files(directory: PathBuf, extension: &str) -> Result<Vec<PathBuf>> {
