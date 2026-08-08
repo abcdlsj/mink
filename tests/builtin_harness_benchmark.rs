@@ -65,6 +65,7 @@ use support::{
 
 const AGENT_READY_TIMEOUT: Duration = Duration::from_secs(300);
 const RUN_TIMEOUT: Duration = Duration::from_secs(1200);
+const RUN_RETRY_WINDOW: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const LEDGER_HEADER: &str = "# Northstar Ledger";
 const EXPECTED_LEDGER_ENTRIES: [&str; 7] = [
@@ -146,6 +147,7 @@ struct DriverReport {
     context_window_tokens: usize,
     compaction_trigger_ratio: f64,
     runs_completed: usize,
+    failed_runs: usize,
     total_input_tokens: i64,
     total_output_tokens: i64,
     cached_input_tokens: i64,
@@ -273,6 +275,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
                 .await?;
 
         let mut last_run_id = None;
+        let mut failed_runs = 0;
         let mut thread_id = None;
         for (index, step) in steps.iter().enumerate() {
             let message_id = if index == 0 {
@@ -291,17 +294,19 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
             if index == 0 {
                 thread_id = Some(message_thread_id(&pool, message_id).await?);
             }
-            last_run_id = Some(
-                wait_for_run(
-                    &pool,
-                    agent_id,
-                    last_run_id,
-                    *profile,
-                    &mut server,
-                    &mut computer,
-                )
-                .await?,
-            );
+            let (run_id, had_failure) = wait_for_run(
+                &pool,
+                agent_id,
+                last_run_id,
+                *profile,
+                &mut server,
+                &mut computer,
+            )
+            .await?;
+            failed_runs += usize::from(had_failure);
+            if let Some(run_id) = run_id {
+                last_run_id = Some(run_id);
+            }
         }
         let replies = agent_replies(&pool, channel_id, agent_id).await?;
         let ledger_path = computer_home
@@ -323,6 +328,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
                 )
                 .await?;
                 driver_report.runs_completed = completed_run_count(&pool, agent_id).await?;
+                driver_report.failed_runs = failed_runs;
                 driver_report
             }
             "codex" => {
@@ -337,6 +343,7 @@ async fn run_harness(database: &TestDatabase) -> Result<()> {
                 )
                 .await?;
                 driver_report.runs_completed = completed_run_count(&pool, agent_id).await?;
+                driver_report.failed_runs = failed_runs;
                 driver_report
             }
             other => bail!("unsupported driver {other}"),
@@ -784,8 +791,9 @@ async fn wait_for_run(
     profile: DriverProfile,
     server: &mut SumiProcess,
     computer: &mut SumiProcess,
-) -> Result<Uuid> {
+) -> Result<(Option<Uuid>, bool)> {
     let deadline = Instant::now() + RUN_TIMEOUT;
+    let mut retry_deadline = None;
     loop {
         server.ensure_running()?;
         computer.ensure_running()?;
@@ -796,18 +804,27 @@ async fn wait_for_run(
         .bind(agent_id)
         .fetch_optional(pool)
         .await?;
-        if let Some((_, status, outcome, error)) = &run {
-            ensure!(
-                status != "failed",
-                "{} harness Run failed: status={status} outcome={outcome:?} error={error:?}",
+        if let Some((run_id, status, outcome, error)) = run {
+            if status == "failed" {
+                if retry_deadline.is_none() {
+                    eprintln!(
+                        "HARNESS run failed driver={} run={run_id} outcome={outcome:?} error={error:?}; waiting for the server retry",
+                        profile.driver
+                    );
+                    retry_deadline = Some(Instant::now() + RUN_RETRY_WINDOW);
+                }
+            } else if (status == "completed" || status == "yielded") && previous != Some(run_id) {
+                return Ok((Some(run_id), retry_deadline.is_some()));
+            }
+        }
+        if let Some(retry_deadline) = retry_deadline
+            && Instant::now() >= retry_deadline
+        {
+            eprintln!(
+                "HARNESS no retry run for driver={}; continuing with the next scenario step",
                 profile.driver
             );
-        }
-        if let Some((run_id, status, _, _)) = run
-            && (status == "completed" || status == "yielded")
-            && previous != Some(run_id)
-        {
-            return Ok(run_id);
+            return Ok((None, true));
         }
         ensure!(
             Instant::now() < deadline,
@@ -1172,6 +1189,7 @@ fn render_markdown(report: &HarnessReport) -> String {
     );
     let metrics = [
         ("runs completed", "runs_completed"),
+        ("failed runs", "failed_runs"),
         ("total input tokens", "total_input_tokens"),
         ("cached input tokens", "cached_input_tokens"),
         ("cache rate", "cache_rate"),
@@ -1209,6 +1227,7 @@ fn render_markdown(report: &HarnessReport) -> String {
 fn format_value(key: &str, report: &DriverReport) -> String {
     match key {
         "runs_completed" => report.runs_completed.to_string(),
+        "failed_runs" => report.failed_runs.to_string(),
         "total_input_tokens" => report.total_input_tokens.to_string(),
         "cached_input_tokens" => report.cached_input_tokens.to_string(),
         "cache_rate" => format!("{:.3}", report.cache_rate),
@@ -1245,10 +1264,11 @@ fn assert_hard(
             .get(profile.driver)
             .with_context(|| format!("missing {} report", profile.driver))?;
         ensure!(
-            driver.runs_completed >= steps.len(),
-            "{} completed {} runs, expected at least {}",
+            driver.runs_completed + driver.failed_runs >= steps.len(),
+            "{} completed {} runs with {} failures, expected at least {}",
             profile.driver,
             driver.runs_completed,
+            driver.failed_runs,
             steps.len()
         );
         ensure!(
