@@ -10,11 +10,16 @@ pub(super) struct BuiltinProviderConfig {
     model: String,
     api_base: String,
     token: SecretString,
+    compaction_trigger_tokens: usize,
 }
 
 impl BuiltinProviderConfig {
     pub(super) fn into_provider_config(self) -> ProviderConfig {
         ProviderConfig::openai(self.token, self.model).with_base_url(self.api_base)
+    }
+
+    pub(super) fn compaction_trigger_tokens(&self) -> usize {
+        self.compaction_trigger_tokens
     }
 }
 
@@ -51,6 +56,7 @@ pub(super) fn load(config: &ComputerConfig) -> Result<Option<BuiltinProviderConf
             .trim_end_matches('/')
             .to_owned(),
         token: builtin.token.clone_secret(),
+        compaction_trigger_tokens: builtin.compaction_trigger_tokens(),
     }))
 }
 
@@ -67,6 +73,8 @@ mod tests {
                 api_base: Url::parse(api_base).unwrap(),
                 token: ConfigSecret::from(token),
                 model: model.to_owned(),
+                context_window_tokens: 128_000,
+                compaction_trigger_ratio: 0.75,
             }),
             ..ComputerConfig::default()
         }
@@ -84,6 +92,19 @@ mod tests {
 
         assert_eq!(loaded.model, "test-model");
         assert_eq!(loaded.api_base, "http://127.0.0.1:9/v1");
+        assert_eq!(loaded.compaction_trigger_tokens(), 96_000);
         assert!(!format!("{:?}", loaded.token).contains("not-for-logs"));
+    }
+
+    #[test]
+    fn loads_model_window_based_compaction_trigger() {
+        let mut config = builtin("http://127.0.0.1:9/v1/", "not-for-logs", "test-model");
+        let builtin = config.builtin.as_mut().unwrap();
+        builtin.context_window_tokens = 16_000;
+        builtin.compaction_trigger_ratio = 0.75;
+
+        let loaded = load(&config).unwrap().unwrap();
+
+        assert_eq!(loaded.compaction_trigger_tokens(), 12_000);
     }
 }

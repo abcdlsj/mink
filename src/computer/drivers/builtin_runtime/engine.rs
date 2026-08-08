@@ -11,7 +11,6 @@ use super::{
     types::{Chunk, Message, Response, ToolCall, ToolDef},
 };
 
-const COMPACTION_TRIGGER_TOKENS: usize = 32_000;
 const COMPACTION_RECENT_MESSAGES: usize = 12;
 const MAX_TURN_ATTEMPTS: usize = 3;
 
@@ -28,6 +27,7 @@ pub(super) struct Engine {
     tool_executor: ToolExecutor,
     system_messages: Vec<Message>,
     tool_defs: Vec<ToolDef>,
+    compaction_trigger_tokens: usize,
 }
 
 pub(super) struct StreamSink {
@@ -36,17 +36,29 @@ pub(super) struct StreamSink {
 }
 
 impl Engine {
+    #[cfg(test)]
     pub(super) fn new(
         provider: Arc<dyn Provider>,
         tool_executor: ToolExecutor,
         system_messages: Vec<Message>,
         tool_defs: Vec<ToolDef>,
     ) -> Self {
+        Self::new_with_trigger(provider, tool_executor, system_messages, tool_defs, 32_000)
+    }
+
+    pub(super) fn new_with_trigger(
+        provider: Arc<dyn Provider>,
+        tool_executor: ToolExecutor,
+        system_messages: Vec<Message>,
+        tool_defs: Vec<ToolDef>,
+        compaction_trigger_tokens: usize,
+    ) -> Self {
         Self {
             provider,
             tool_executor,
             system_messages,
             tool_defs,
+            compaction_trigger_tokens,
         }
     }
 
@@ -103,7 +115,7 @@ impl Engine {
         append_input: bool,
     ) -> Result<()> {
         if self.should_compact(session) {
-            self.compact(session).await?;
+            self.compact(session, "preemptive").await?;
         }
         if append_input {
             session.add(Message::user(turn.input.clone()));
@@ -131,7 +143,7 @@ impl Engine {
                     }
                     if !retried_after_compaction
                         && is_context_limit_error(&e)
-                        && self.compact(session).await?
+                        && self.compact(session, "context_limit").await?
                     {
                         retried_after_compaction = true;
                         continue;
@@ -242,10 +254,10 @@ impl Engine {
     }
 
     fn should_compact(&self, session: &Session) -> bool {
-        session.estimated_model_tokens() >= COMPACTION_TRIGGER_TOKENS
+        session.estimated_model_tokens() >= self.compaction_trigger_tokens
     }
 
-    async fn compact(&self, session: &mut Session) -> Result<bool> {
+    async fn compact(&self, session: &mut Session, reason: &str) -> Result<bool> {
         let through = session.compaction_boundary(COMPACTION_RECENT_MESSAGES);
         if through == 0 {
             return Ok(false);
@@ -267,7 +279,7 @@ impl Engine {
             .collect_summary(&input)
             .await
             .context("context compaction failed")?;
-        session.apply_compaction(through, summary);
+        session.apply_compaction(through, summary, reason);
         Ok(true)
     }
 
@@ -700,6 +712,97 @@ mod tests {
                 .content
                 .contains("summary of prior work")
         );
+        assert_eq!(session.compactions.len(), 1);
+        assert_eq!(session.compactions[0].reason, "preemptive");
+        assert!(session.compactions[0].source_tokens > session.compactions[0].summary_tokens);
+    }
+
+    #[tokio::test]
+    async fn preemptive_compaction_uses_the_configured_trigger() {
+        let low_trigger_provider = Arc::new(FakeProvider {
+            responses: vec![
+                Response {
+                    content: "summary".into(),
+                    reasoning: String::new(),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+                Response {
+                    content: "completed".into(),
+                    reasoning: String::new(),
+                    tool_calls: vec![],
+                    usage: None,
+                },
+            ],
+            call_count: std::sync::Mutex::new(0),
+        });
+        let low_trigger_engine = Engine::new_with_trigger(
+            low_trigger_provider.clone(),
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+            1,
+        );
+        let default_trigger_provider = Arc::new(FakeProvider {
+            responses: vec![Response {
+                content: "completed".into(),
+                reasoning: String::new(),
+                tool_calls: vec![],
+                usage: None,
+            }],
+            call_count: std::sync::Mutex::new(0),
+        });
+        let default_trigger_engine = Engine::new(
+            default_trigger_provider.clone(),
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+        );
+
+        let mut low_trigger_session = Session::default();
+        let mut default_trigger_session = Session::default();
+        for index in 0..7 {
+            for session in [&mut low_trigger_session, &mut default_trigger_session] {
+                session.add(Message::user(format!("request {index}")));
+                session.add(Message {
+                    role: "assistant".into(),
+                    content: format!("response {index}"),
+                    ..Default::default()
+                });
+            }
+        }
+        let (events, _event_rx) = mpsc::channel(8);
+
+        low_trigger_engine
+            .run(
+                &Turn {
+                    input: "continue".into(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut low_trigger_session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap();
+        default_trigger_engine
+            .run(
+                &Turn {
+                    input: "continue".into(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut default_trigger_session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(low_trigger_session.compactions.len(), 1);
+        assert_eq!(low_trigger_session.compactions[0].reason, "preemptive");
+        assert!(default_trigger_session.compactions.is_empty());
+        assert_eq!(*low_trigger_provider.call_count.lock().unwrap(), 2);
+        assert_eq!(*default_trigger_provider.call_count.lock().unwrap(), 1);
     }
 
     #[tokio::test]
@@ -747,6 +850,8 @@ mod tests {
                 .content
                 .contains("compacted history")
         );
+        assert_eq!(session.compactions.len(), 1);
+        assert_eq!(session.compactions[0].reason, "context_limit");
     }
 
     #[tokio::test]

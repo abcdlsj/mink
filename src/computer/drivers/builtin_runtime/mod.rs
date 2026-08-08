@@ -196,10 +196,11 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         if input.agent.agent_id != agent_id || self.turns.contains_key(&run_id) {
             return Err(ApplicationError::Conflict);
         }
-        let provider = self
-            .provider
-            .clone()
-            .ok_or(ApplicationError::DriverUnavailable)?
+        let Some(builtin_provider) = self.provider.clone() else {
+            return Err(ApplicationError::DriverUnavailable);
+        };
+        let compaction_trigger_tokens = builtin_provider.compaction_trigger_tokens();
+        let provider = builtin_provider
             .into_provider_config()
             .with_prompt_cache_key(format!(
                 "{}-{}",
@@ -220,11 +221,12 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 driver_token,
             });
             let engine = match OpenAiProvider::new(provider) {
-                Ok(provider) => Engine::new(
+                Ok(provider) => Engine::new_with_trigger(
                     Arc::new(provider),
                     ToolExecutor::new(tools),
                     system_messages(&input_owned),
                     tool_definitions(),
+                    compaction_trigger_tokens,
                 ),
                 Err(_) => return DriverTurnOutcome::Failed,
             };
@@ -721,6 +723,8 @@ mod tests {
                 api_base: url::Url::parse(api_base).unwrap(),
                 token: ConfigSecret::from("provider-secret"),
                 model: "test-model".to_owned(),
+                context_window_tokens: 128_000,
+                compaction_trigger_ratio: 0.75,
             }),
             ..ComputerConfig::default()
         }

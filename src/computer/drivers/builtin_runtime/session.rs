@@ -5,8 +5,18 @@ use super::types::{Message, TokenUsage};
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(super) struct Session {
     pub(super) messages: Vec<Message>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) compactions: Vec<CompactionRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     compaction: Option<Compaction>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct CompactionRecord {
+    pub(super) reason: String,
+    pub(super) through: usize,
+    pub(super) source_tokens: usize,
+    pub(super) summary_tokens: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -73,11 +83,18 @@ impl Session {
         source
     }
 
-    pub(super) fn apply_compaction(&mut self, through: usize, summary: String) {
-        self.compaction = Some(Compaction {
-            through: through.min(self.messages.len()),
-            summary,
+    pub(super) fn apply_compaction(&mut self, through: usize, summary: String, reason: &str) {
+        let source_tokens = self.estimated_model_tokens();
+        let summary_tokens = summary.len().div_ceil(4);
+        let previous_through = self.compactions.last().map_or(0, |record| record.through);
+        let through = through.min(self.messages.len()).max(previous_through);
+        self.compactions.push(CompactionRecord {
+            reason: reason.to_owned(),
+            through,
+            source_tokens,
+            summary_tokens,
         });
+        self.compaction = Some(Compaction { through, summary });
     }
 
     pub(super) fn compacted_through(&self) -> usize {
@@ -169,7 +186,7 @@ mod tests {
             ..Default::default()
         });
         session.add(Message::user("recent request"));
-        session.apply_compaction(2, "The old work is complete.".into());
+        session.apply_compaction(2, "The old work is complete.".into(), "preemptive");
 
         let encoded = serde_json::to_vec(&session).unwrap();
         let session: Session = serde_json::from_slice(&encoded).unwrap();
@@ -192,10 +209,45 @@ mod tests {
                 ..Default::default()
             });
         }
-        session.apply_compaction(2, "summary".into());
+        session.apply_compaction(2, "summary".into(), "preemptive");
 
         assert_eq!(session.compaction_boundary(12), 4);
-        session.apply_compaction(4, "new summary".into());
+        session.apply_compaction(4, "new summary".into(), "context_limit");
         assert_eq!(session.compaction_boundary(12), 6);
+    }
+
+    #[test]
+    fn old_session_without_compaction_records_loads() {
+        let session: Session = serde_json::from_str(r#"{"messages":[]}"#).unwrap();
+        assert!(session.compactions.is_empty());
+    }
+
+    #[test]
+    fn compaction_records_are_append_only_monotonic_and_compressive() {
+        let mut session = Session::default();
+        session.add(Message::user("old request"));
+        session.add(Message {
+            role: "assistant".into(),
+            content: "old response".into(),
+            ..Default::default()
+        });
+        session.apply_compaction(1, "first summary".into(), "preemptive");
+        session.add(Message::user("new request"));
+        session.add(Message {
+            role: "assistant".into(),
+            content: "new response".into(),
+            ..Default::default()
+        });
+        session.apply_compaction(3, "second summary".into(), "context_limit");
+
+        let encoded = serde_json::to_vec(&session).unwrap();
+        let session: Session = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(session.compactions.len(), 2);
+        assert_eq!(session.compactions[0].reason, "preemptive");
+        assert_eq!(session.compactions[1].reason, "context_limit");
+        assert!(session.compactions[1].through >= session.compactions[0].through);
+        for record in &session.compactions {
+            assert!(record.source_tokens > record.summary_tokens);
+        }
     }
 }

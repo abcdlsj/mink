@@ -44,6 +44,26 @@ pub(crate) struct BuiltinOpenAiConfig {
     pub(crate) api_base: Url,
     pub(crate) token: ConfigSecret,
     pub(crate) model: String,
+    #[serde(default = "default_context_window_tokens")]
+    pub(crate) context_window_tokens: usize,
+    #[serde(default = "default_compaction_trigger_ratio")]
+    pub(crate) compaction_trigger_ratio: f64,
+}
+
+fn default_context_window_tokens() -> usize {
+    128_000
+}
+
+fn default_compaction_trigger_ratio() -> f64 {
+    0.75
+}
+
+impl BuiltinOpenAiConfig {
+    pub(crate) fn compaction_trigger_tokens(&self) -> usize {
+        ((self.context_window_tokens as f64) * self.compaction_trigger_ratio)
+            .round()
+            .max(1.0) as usize
+    }
 }
 
 #[derive(Clone)]
@@ -234,6 +254,15 @@ fn validate(config: &SumiConfig) -> Result<()> {
             !builtin.model.trim().is_empty(),
             "computer.builtin.model must not be empty"
         );
+        ensure!(
+            builtin.context_window_tokens > 0,
+            "computer.builtin.context_window_tokens must be positive"
+        );
+        ensure!(
+            (0.0..=1.0).contains(&builtin.compaction_trigger_ratio)
+                && builtin.compaction_trigger_ratio > 0.0,
+            "computer.builtin.compaction_trigger_ratio must be in (0, 1]"
+        );
     }
     Ok(())
 }
@@ -345,7 +374,37 @@ mod tests {
         let builtin = config.computer.builtin.as_ref().unwrap();
         assert_eq!(builtin.api_base.as_str(), "https://api.example.test/v1");
         assert_eq!(builtin.model, "test-model");
+        assert_eq!(builtin.context_window_tokens, 128_000);
+        assert_eq!(builtin.compaction_trigger_ratio, 0.75);
+        assert_eq!(builtin.compaction_trigger_tokens(), 96_000);
         assert!(!format!("{:?}", config.computer).contains("provider-secret"));
+    }
+
+    #[test]
+    fn builtin_compaction_config_rejects_invalid_windows_and_ratios() {
+        let directory = tempdir().unwrap();
+        for contents in [
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncontext_window_tokens = 0\n",
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncompaction_trigger_ratio = 0\n",
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncompaction_trigger_ratio = 1.5\n",
+        ] {
+            let path = directory.path().join(format!(
+                "sumi-{}.toml",
+                contents.lines().filter(|line| line.contains('=')).count()
+            ));
+            fs::write(&path, contents).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let error = load(Some(&path)).unwrap_err();
+            assert!(
+                error.to_string().contains("compaction_trigger")
+                    || error.to_string().contains("context_window_tokens"),
+                "unexpected validation error: {error}"
+            );
+        }
     }
 
     #[test]
