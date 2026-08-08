@@ -6,7 +6,10 @@ use reqwest::{
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 
-use crate::types::{ApiResponse, File, GetFileParams, GetUpdatesParams, SendMessageParams, Update};
+use crate::types::{
+    ApiResponse, File, GetFileParams, GetUpdatesParams, SendMessageParams, SendPhotoUrlParams,
+    SetMessageReactionParams, Update,
+};
 
 const MAX_GET_UPDATES_TIMEOUT_SECONDS: i64 = 50;
 
@@ -109,10 +112,34 @@ impl TelegramClient {
             .to_vec())
     }
 
-    pub async fn send_message(&self, chat_id: i64, text: &str) -> anyhow::Result<()> {
-        self.call("sendMessage", &SendMessageParams { chat_id, text })
+    pub async fn send_message(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to_message_id: Option<i64>,
+        parse_mode: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.call(
+            "sendMessage",
+            &SendMessageParams {
+                chat_id,
+                text,
+                parse_mode,
+                reply_to_message_id,
+            },
+        )
+        .await
+        .map(|_: serde_json::Value| ())
+    }
+
+    pub async fn send_message_html(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to_message_id: Option<i64>,
+    ) -> anyhow::Result<()> {
+        self.send_message(chat_id, text, reply_to_message_id, Some("HTML"))
             .await
-            .map(|_: serde_json::Value| ())
     }
 
     pub async fn send_photo(
@@ -121,18 +148,44 @@ impl TelegramClient {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
+        parse_mode: Option<&str>,
     ) -> anyhow::Result<()> {
         let mime = guess_mime(file_name);
         let part = Part::bytes(bytes)
             .file_name(file_name.to_owned())
             .mime_str(mime)?;
-        let mut form = Form::new()
-            .text("chat_id", chat_id.to_string())
-            .part("photo", part);
-        if !caption.is_empty() {
-            form = form.text("caption", caption.to_owned());
-        }
+        let form = send_form_fields(
+            Form::new(),
+            chat_id,
+            caption,
+            reply_to_message_id,
+            parse_mode,
+        )
+        .part("photo", part);
         self.send_form("sendPhoto", form).await
+    }
+
+    pub async fn send_photo_url(
+        &self,
+        chat_id: i64,
+        url: &str,
+        caption: &str,
+        reply_to_message_id: Option<i64>,
+        parse_mode: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.call(
+            "sendPhoto",
+            &SendPhotoUrlParams {
+                chat_id,
+                photo: url,
+                caption: (!caption.is_empty()).then_some(caption),
+                parse_mode,
+                reply_to_message_id,
+            },
+        )
+        .await
+        .map(|_: serde_json::Value| ())
     }
 
     pub async fn send_document(
@@ -141,18 +194,43 @@ impl TelegramClient {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
+        parse_mode: Option<&str>,
     ) -> anyhow::Result<()> {
         let mime = guess_mime(file_name);
         let part = Part::bytes(bytes)
             .file_name(file_name.to_owned())
             .mime_str(mime)?;
-        let mut form = Form::new()
-            .text("chat_id", chat_id.to_string())
-            .part("document", part);
-        if !caption.is_empty() {
-            form = form.text("caption", caption.to_owned());
-        }
+        let form = send_form_fields(
+            Form::new(),
+            chat_id,
+            caption,
+            reply_to_message_id,
+            parse_mode,
+        )
+        .part("document", part);
         self.send_form("sendDocument", form).await
+    }
+
+    pub async fn set_message_reaction(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        emoji: &str,
+    ) -> anyhow::Result<()> {
+        self.call(
+            "setMessageReaction",
+            &SetMessageReactionParams {
+                chat_id,
+                message_id,
+                reaction: vec![crate::types::Reaction {
+                    kind: "emoji",
+                    emoji,
+                }],
+            },
+        )
+        .await
+        .map(|_: serde_json::Value| ())
     }
 
     pub async fn send_chat_action(&self, chat_id: i64, action: &str) -> anyhow::Result<()> {
@@ -185,6 +263,29 @@ impl TelegramClient {
                 api_response.description.unwrap_or_default()
             )
         }
+    }
+}
+
+fn send_form_fields(
+    form: Form,
+    chat_id: i64,
+    caption: &str,
+    reply_to_message_id: Option<i64>,
+    parse_mode: Option<&str>,
+) -> Form {
+    let form = form.text("chat_id", chat_id.to_string());
+    let form = if caption.is_empty() {
+        form
+    } else {
+        form.text("caption", caption.to_owned())
+    };
+    let form = match reply_to_message_id {
+        Some(message_id) => form.text("reply_to_message_id", message_id.to_string()),
+        None => form,
+    };
+    match parse_mode {
+        Some(mode) => form.text("parse_mode", mode.to_owned()),
+        None => form,
     }
 }
 

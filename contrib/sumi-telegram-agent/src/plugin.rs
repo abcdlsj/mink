@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -15,6 +17,7 @@ pub trait FileSender: Send + Sync {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
     ) -> Result<()>;
 
     async fn send_document(
@@ -23,6 +26,7 @@ pub trait FileSender: Send + Sync {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
     ) -> Result<()>;
 }
 
@@ -34,8 +38,17 @@ impl FileSender for TelegramClient {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
     ) -> Result<()> {
-        self.send_photo(chat_id, file_name, bytes, caption).await
+        self.send_photo(
+            chat_id,
+            file_name,
+            bytes,
+            caption,
+            reply_to_message_id,
+            None,
+        )
+        .await
     }
 
     async fn send_document(
@@ -44,8 +57,17 @@ impl FileSender for TelegramClient {
         file_name: &str,
         bytes: Vec<u8>,
         caption: &str,
+        reply_to_message_id: Option<i64>,
     ) -> Result<()> {
-        self.send_document(chat_id, file_name, bytes, caption).await
+        self.send_document(
+            chat_id,
+            file_name,
+            bytes,
+            caption,
+            reply_to_message_id,
+            None,
+        )
+        .await
     }
 }
 
@@ -53,6 +75,7 @@ pub struct TelegramPlugin<C: FileSender> {
     chat_id: i64,
     sender: C,
     max_send_bytes: usize,
+    reply_to: Mutex<Option<i64>>,
 }
 
 impl<C: FileSender> TelegramPlugin<C> {
@@ -61,7 +84,15 @@ impl<C: FileSender> TelegramPlugin<C> {
             chat_id,
             sender,
             max_send_bytes: DEFAULT_MAX_SEND_BYTES,
+            reply_to: Mutex::new(None),
         }
+    }
+
+    pub fn set_reply_target(&self, message_id: Option<i64>) {
+        *self
+            .reply_to
+            .lock()
+            .expect("reply target lock is not poisoned") = message_id;
     }
 
     #[allow(dead_code)]
@@ -80,7 +111,10 @@ impl<C: FileSender> AgentPlugin for TelegramPlugin<C> {
     fn contract(&self) -> String {
         concat!(
             "Telegram channel: your final reply text is delivered automatically to the current ",
-            "chat, so do not summarize that you are replying. Use telegram.send_file or ",
+            "chat, so do not summarize that you are replying. Reply text supports CommonMark ",
+            "rendering: bold, italic, inline code, fenced code blocks, links, lists, headings, ",
+            "and images. For an image, write `![alt](workspace/path.png)` or a public https URL; ",
+            "the image is delivered as a separate photo after the text. Use telegram.send_file or ",
             "telegram.send_image with a workspace/... or memory/... path to deliver a file to the ",
             "user. Paths are relative to the Agent Home root. Sent files are returned to the user ",
             "as a Telegram document or photo with an optional short caption.",
@@ -136,15 +170,31 @@ impl<C: FileSender> AgentPlugin for TelegramPlugin<C> {
                 .and_then(|name| name.to_str())
                 .unwrap_or("attachment"),
         );
+        let reply_to_message_id = *self
+            .reply_to
+            .lock()
+            .expect("reply target lock is not poisoned");
         match name {
             "telegram.send_image" => {
                 self.sender
-                    .send_photo(self.chat_id, &file_name, bytes, caption)
+                    .send_photo(
+                        self.chat_id,
+                        &file_name,
+                        bytes,
+                        caption,
+                        reply_to_message_id,
+                    )
                     .await?;
             }
             "telegram.send_file" => {
                 self.sender
-                    .send_document(self.chat_id, &file_name, bytes, caption)
+                    .send_document(
+                        self.chat_id,
+                        &file_name,
+                        bytes,
+                        caption,
+                        reply_to_message_id,
+                    )
                     .await?;
             }
             _ => bail!("unknown telegram tool {name}"),
@@ -161,11 +211,9 @@ fn required_string<'a>(args: &'a Value, name: &str) -> Result<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
 
-    type SentFile = (i64, String, Vec<u8>, String);
+    type SentFile = (i64, String, Vec<u8>, String, Option<i64>);
 
     struct FakeSender {
         sent: Mutex<Vec<SentFile>>,
@@ -179,12 +227,14 @@ mod tests {
             file_name: &str,
             bytes: Vec<u8>,
             caption: &str,
+            reply_to_message_id: Option<i64>,
         ) -> Result<()> {
             self.sent.lock().unwrap().push((
                 chat_id,
                 file_name.to_owned(),
                 bytes,
                 caption.to_owned(),
+                reply_to_message_id,
             ));
             Ok(())
         }
@@ -195,12 +245,14 @@ mod tests {
             file_name: &str,
             bytes: Vec<u8>,
             caption: &str,
+            reply_to_message_id: Option<i64>,
         ) -> Result<()> {
             self.sent.lock().unwrap().push((
                 chat_id,
                 file_name.to_owned(),
                 bytes,
                 caption.to_owned(),
+                reply_to_message_id,
             ));
             Ok(())
         }
@@ -218,6 +270,7 @@ mod tests {
             sent: Mutex::new(Vec::new()),
         };
         let plugin = TelegramPlugin::new(7, sender);
+        plugin.set_reply_target(Some(42));
 
         let output = plugin
             .run_tool(
@@ -238,6 +291,7 @@ mod tests {
         assert_eq!(sent[0].1, "report_ final.pdf");
         assert_eq!(sent[0].2, b"pdf-bytes");
         assert_eq!(sent[0].3, "the report");
+        assert_eq!(sent[0].4, Some(42));
     }
 
     #[tokio::test]

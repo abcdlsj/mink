@@ -36,6 +36,20 @@ Environment:
 
 Send `/reset` in any chat to start a fresh conversation.
 
+## Replies, reactions and markdown
+
+- Every bot message replies to the user's original message, including follow-up
+  chunks and delivered images.
+- While a request is being processed the original message gets a 👀 reaction;
+  it becomes ✅ on success, ❌ on failure, and ⏰ on timeout.
+- Agent replies are rendered as Telegram HTML from a CommonMark subset: bold,
+  italic, strikethrough, inline code, fenced code blocks, links, headings,
+  blockquotes, bullet/numbered/task lists, and horizontal rules.
+- Inline images render as `[alt]` placeholders in the text and are delivered as
+  separate photos: public `https://` URLs are sent by URL, and local paths such
+  as `![diagram](workspace/diagram.png)` are read from the agent home and sent
+  as photo bytes.
+
 ## Files and images
 
 - Incoming `photo` messages are downloaded and stored under

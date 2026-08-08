@@ -1,5 +1,6 @@
 mod config;
 mod conversation;
+mod markdown;
 mod plugin;
 mod state;
 mod telegram;

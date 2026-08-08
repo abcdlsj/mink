@@ -10,21 +10,26 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sumi_builtin_agent::{
     AgentConfig, AgentRuntime, Attachment, ProviderConfig, SandboxConfig, TurnOutcome, TurnRequest,
+    agent_rooted_path,
 };
 use uuid::Uuid;
 
 use crate::{
     config::Settings,
+    markdown::{ReplyImage, render_markdown},
     plugin::TelegramPlugin,
     state::{ConversationEntry, ConversationState},
     telegram::{TelegramClient, guess_mime},
-    text::{sanitize_file_name, split_reply},
+    text::sanitize_file_name,
     types::Message,
 };
 
 const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
-const MAX_REPLY_CHARS: usize = 4000;
 const CONVERSATION_NAMESPACE: Uuid = Uuid::from_u128(0x6f4d_7a2c_9b1e_4d0f_8c3a_2b5e_7d1f_9a04);
+const REACTION_WORKING: &str = "👀";
+const REACTION_DONE: &str = "✅";
+const REACTION_FAILED: &str = "❌";
+const REACTION_TIMED_OUT: &str = "⏰";
 
 struct TelegramFile {
     file_id: String,
@@ -41,6 +46,7 @@ pub struct Conversation {
     runtime: AgentRuntime,
     locator: String,
     last_message_id: i64,
+    plugin: Arc<TelegramPlugin<TelegramClient>>,
     client: TelegramClient,
     chat_id: i64,
     identity: String,
@@ -93,6 +99,7 @@ impl Conversation {
             runtime,
             locator,
             last_message_id: entry.last_message_id,
+            plugin,
             client,
             chat_id,
             identity: settings.identity.clone(),
@@ -110,13 +117,32 @@ impl Conversation {
         }
         self.last_message_id = message.message_id;
         let text = message.text_content();
+        self.plugin.set_reply_target(Some(message.message_id));
+        self.react(REACTION_WORKING).await;
         if text.trim() == "/reset" {
-            self.reset().await?;
+            self.reset(message.message_id).await?;
+            self.react(REACTION_DONE).await;
             self.persist().await?;
             return Ok(());
         }
         self.client.send_chat_action(self.chat_id, "typing").await?;
-        let (attachments, descriptors) = self.ingest(message).await?;
+        let (attachments, descriptors) = match self.ingest(message).await {
+            Ok(ingested) => ingested,
+            Err(error) => {
+                tracing::warn!(%error, "failed to ingest Telegram attachment");
+                self.react(REACTION_FAILED).await;
+                self.client
+                    .send_message(
+                        self.chat_id,
+                        "Sorry, I could not process the attachment.",
+                        Some(message.message_id),
+                        None,
+                    )
+                    .await?;
+                self.persist().await?;
+                return Ok(());
+            }
+        };
         let run_id = Uuid::now_v7();
         let request = TurnRequest {
             product_contract: self.product_contract.clone(),
@@ -129,35 +155,152 @@ impl Conversation {
             blocked_tools: Default::default(),
             sandbox_environment: Default::default(),
         };
-        self.runtime
+        if let Err(error) = self
+            .runtime
             .start_turn(run_id, &self.locator, request)
-            .await?;
+            .await
+        {
+            tracing::warn!(%error, "failed to start agent turn");
+            self.react(REACTION_FAILED).await;
+            self.client
+                .send_message(
+                    self.chat_id,
+                    "Sorry, an error occurred while starting the request.",
+                    Some(message.message_id),
+                    None,
+                )
+                .await?;
+            self.persist().await?;
+            return Ok(());
+        }
         let outcome = self.wait_for_outcome(run_id).await?;
         match outcome {
             TurnOutcome::Completed => {
+                self.react(REACTION_DONE).await;
                 if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
-                    for part in split_reply(&reply, MAX_REPLY_CHARS) {
-                        if !part.trim().is_empty() {
-                            self.client.send_message(self.chat_id, &part).await?;
-                        }
-                    }
+                    self.send_reply(&reply, message.message_id).await?;
                 }
             }
             TurnOutcome::Failed => {
+                self.react(REACTION_FAILED).await;
                 self.client
                     .send_message(
                         self.chat_id,
                         "Sorry, an error occurred while processing your request.",
+                        Some(message.message_id),
+                        None,
                     )
                     .await?;
             }
             TurnOutcome::Interrupted => {
+                self.react(REACTION_TIMED_OUT).await;
                 self.client
-                    .send_message(self.chat_id, "The request timed out.")
+                    .send_message(
+                        self.chat_id,
+                        "The request timed out.",
+                        Some(message.message_id),
+                        None,
+                    )
                     .await?;
             }
         }
         self.persist().await
+    }
+
+    async fn react(&self, emoji: &str) {
+        if let Err(error) = self
+            .client
+            .set_message_reaction(self.chat_id, self.last_message_id, emoji)
+            .await
+        {
+            tracing::warn!(%error, "failed to set Telegram reaction");
+        }
+    }
+
+    async fn send_reply(&self, reply: &str, reply_to_message_id: i64) -> Result<()> {
+        let rendered = render_markdown(reply);
+        for part in rendered.messages {
+            if part.trim().is_empty() {
+                continue;
+            }
+            match self
+                .client
+                .send_message_html(self.chat_id, &part, Some(reply_to_message_id))
+                .await
+            {
+                Ok(()) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "HTML reply rejected; falling back to plain text");
+                    self.client
+                        .send_message(self.chat_id, &part, Some(reply_to_message_id), None)
+                        .await?;
+                }
+            }
+        }
+        self.send_reply_images(&rendered.images, reply_to_message_id)
+            .await
+    }
+
+    async fn send_reply_images(
+        &self,
+        images: &[ReplyImage],
+        reply_to_message_id: i64,
+    ) -> Result<()> {
+        for image in images {
+            if image.url.starts_with("http://") || image.url.starts_with("https://") {
+                if let Err(error) = self
+                    .client
+                    .send_photo_url(
+                        self.chat_id,
+                        &image.url,
+                        &image.alt,
+                        Some(reply_to_message_id),
+                        Some("HTML"),
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, url = %image.url, "failed to send remote inline image");
+                }
+                continue;
+            }
+            let (root, relative) = match agent_rooted_path(
+                &self.runtime.agent_home(self.agent_id),
+                &image.url,
+            ) {
+                Ok(path) => path,
+                Err(error) => {
+                    tracing::warn!(%error, path = %image.url, "failed to resolve inline image path");
+                    continue;
+                }
+            };
+            let path = root.join(&relative);
+            let bytes = match tokio::fs::read(&path).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    tracing::warn!(%error, path = %image.url, "failed to read inline image");
+                    continue;
+                }
+            };
+            let file_name = relative
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("image");
+            if let Err(error) = self
+                .client
+                .send_photo(
+                    self.chat_id,
+                    file_name,
+                    bytes,
+                    &image.alt,
+                    Some(reply_to_message_id),
+                    Some("HTML"),
+                )
+                .await
+            {
+                tracing::warn!(%error, path = %image.url, "failed to send inline image");
+            }
+        }
+        Ok(())
     }
 
     async fn ingest(&self, message: &Message) -> Result<(Vec<Attachment>, Vec<Value>)> {
@@ -307,11 +450,16 @@ impl Conversation {
         }
     }
 
-    async fn reset(&mut self) -> Result<()> {
+    async fn reset(&mut self, reply_to_message_id: i64) -> Result<()> {
         let _ = self.runtime.delete_session(&self.locator).await;
         self.locator = self.runtime.create_session(self.agent_id).await?;
         self.client
-            .send_message(self.chat_id, "Conversation reset. Starting fresh.")
+            .send_message(
+                self.chat_id,
+                "Conversation reset. Starting fresh.",
+                Some(reply_to_message_id),
+                None,
+            )
             .await
     }
 

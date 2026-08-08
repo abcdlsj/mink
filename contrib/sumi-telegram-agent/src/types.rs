@@ -113,9 +113,39 @@ pub struct GetUpdatesParams {
 pub struct SendMessageParams<'a> {
     pub chat_id: i64,
     pub text: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_mode: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to_message_id: Option<i64>,
 }
 
 #[derive(Serialize)]
 pub struct GetFileParams<'a> {
     pub file_id: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct SendPhotoUrlParams<'a> {
+    pub chat_id: i64,
+    pub photo: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_mode: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to_message_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct SetMessageReactionParams<'a> {
+    pub chat_id: i64,
+    pub message_id: i64,
+    pub reaction: Vec<Reaction<'a>>,
+}
+
+#[derive(Serialize)]
+pub struct Reaction<'a> {
+    #[serde(rename = "type")]
+    pub kind: &'a str,
+    pub emoji: &'a str,
 }
