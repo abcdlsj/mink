@@ -73,7 +73,7 @@ fn handle_parse_error(error: clap::Error) -> ExitCode {
         let response = protocol::capability::Response::<serde_json::Value>::failure(
             protocol::capability::Error {
                 code: protocol::capability::ErrorCode::InvalidArgument,
-                message: error.to_string(),
+                message: agent_cli::hint_for_error(&error.to_string(), false),
                 retryable: false,
                 details: Default::default(),
             },

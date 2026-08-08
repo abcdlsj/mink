@@ -297,6 +297,15 @@ impl AgentCli {
         )
     }
 
+    pub(crate) fn is_agent_create(&self) -> bool {
+        matches!(
+            &self.command,
+            Command::Agent(AgentArgs {
+                command: AgentCommand::Create { .. }
+            })
+        )
+    }
+
     pub(crate) async fn action(
         self,
         stdin: Option<String>,
