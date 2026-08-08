@@ -199,7 +199,7 @@ pub(crate) async fn dispatch_available_work(
     state: &RuntimeState,
     now: OffsetDateTime,
     limit: u32,
-) -> Result<DispatchOutcome, crate::server::application::ports::ApplicationError> {
+) -> Result<DispatchOutcome, ApplicationError> {
     let mut storage = state.storage.clone();
     let candidates = FindDispatchableWork::candidates(&mut storage, now, limit).await?;
     let mut outcome = DispatchOutcome::default();
@@ -268,10 +268,7 @@ pub(super) async fn cancel_run(
     Ok(StatusCode::ACCEPTED)
 }
 
-pub(super) fn run_dispatch_error_code(
-    error: &crate::server::application::ports::ApplicationError,
-) -> &'static str {
-    use crate::server::application::ports::ApplicationError;
+pub(super) fn run_dispatch_error_code(error: &ApplicationError) -> &'static str {
     match error {
         ApplicationError::NotFound => "run_dispatch_not_found",
         ApplicationError::Unauthenticated => "run_dispatch_unauthenticated",
@@ -1743,15 +1740,9 @@ pub(super) fn api_to_capability(error: ApiError) -> capability::Error {
     capability_error(code, error.message, false)
 }
 
-pub(super) fn app_to_capability(
-    error: crate::server::application::ports::ApplicationError,
-) -> capability::Error {
+pub(super) fn app_to_capability(error: ApplicationError) -> capability::Error {
     let mut details = std::collections::BTreeMap::new();
-    if let crate::server::application::ports::ApplicationError::StaleMessageContext {
-        expected,
-        actual,
-    } = &error
-    {
+    if let ApplicationError::StaleMessageContext { expected, actual } = &error {
         details.insert("expected_snapshot".to_owned(), serde_json::json!(expected));
         details.insert("actual_snapshot".to_owned(), serde_json::json!(actual));
     }

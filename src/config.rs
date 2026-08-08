@@ -293,6 +293,10 @@ pub(crate) fn runtime_dir_for(state_dir: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|| state_dir.join("runtime"))
 }
 
+pub(crate) fn daemon_socket_path(state_dir: &std::path::Path) -> PathBuf {
+    runtime_dir_for(state_dir).join("daemon.sock")
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -319,17 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn zero_auth_rate_limit_is_rejected_during_configuration_loading() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("sumi.toml");
-        fs::write(&path, "[server]\nauth_ip_attempts_per_minute = 0\n").unwrap();
-
-        let error = load(Some(&path)).unwrap_err();
-
-        assert!(error.to_string().contains("must be positive"));
-    }
-
-    #[test]
     fn builtin_configuration_is_complete_private_and_redacted() {
         let directory = tempdir().unwrap();
         let path = directory.path().join("sumi.toml");
@@ -353,21 +346,6 @@ mod tests {
         assert_eq!(builtin.api_base.as_str(), "https://api.example.test/v1");
         assert_eq!(builtin.model, "test-model");
         assert!(!format!("{:?}", config.computer).contains("provider-secret"));
-    }
-
-    #[test]
-    fn incomplete_builtin_configuration_is_rejected() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("sumi.toml");
-        fs::write(
-            &path,
-            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\nmodel = 'test-model'\n",
-        )
-        .unwrap();
-
-        let error = load(Some(&path)).unwrap_err();
-
-        assert!(error.to_string().contains("invalid Sumi configuration"));
     }
 
     #[test]

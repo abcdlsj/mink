@@ -5,11 +5,12 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::ids::{
-    AgentId, CommandId, EventId, InboxItemId, MemberId, MessageId, NoticeId, RunId, SpaceId,
-    TaskId, ThreadId,
+    AgentId, ChannelId, CommandId, EventId, InboxItemId, MemberId, MessageId, NoticeId, RunId,
+    SpaceId, TaskId, ThreadId,
 };
 
 use crate::computer::core::{
+    CoreError,
     home::{LocalAgent, LocalAgentState},
     input::{
         AgentInput, AttentionNoticeInput, ContextMessageInput, DispatchedItemInput,
@@ -216,7 +217,7 @@ impl AgentHomePort for MemoryHome {
             .agents
             .get_mut(&agent_id)
             .ok_or(ApplicationError::NotFound)?;
-        agent.state = crate::computer::core::home::LocalAgentState::Suspended;
+        agent.state = LocalAgentState::Suspended;
         Ok(())
     }
 
@@ -225,10 +226,10 @@ impl AgentHomePort for MemoryHome {
             .agents
             .get_mut(&agent_id)
             .ok_or(ApplicationError::NotFound)?;
-        if agent.state == crate::computer::core::home::LocalAgentState::Retired {
+        if agent.state == LocalAgentState::Retired {
             return Err(ApplicationError::Conflict);
         }
-        agent.state = crate::computer::core::home::LocalAgentState::Active;
+        agent.state = LocalAgentState::Active;
         Ok(())
     }
 
@@ -488,7 +489,7 @@ fn supervisor_freezes_deliveries_at_finalizing_and_deduplicates_sequence() {
 
     assert_eq!(
         run.attach(2, claimed_item(item_id(), None, thread_id)),
-        Err(crate::computer::core::CoreError::RunNotAcceptingDeliveries)
+        Err(CoreError::RunNotAcceptingDeliveries)
     );
 }
 
@@ -1331,9 +1332,7 @@ async fn repeated_delivery_steers_once_and_preserves_too_late_result() {
             None,
         )
         .await,
-        Err(ApplicationError::Core(
-            crate::computer::core::CoreError::IncompleteItemDisposition
-        ))
+        Err(ApplicationError::Core(CoreError::IncompleteItemDisposition))
     );
     RunService::finish(
         &mut store,
@@ -2094,7 +2093,7 @@ fn claimed_item(
         source_kind: "mention".to_owned(),
         strength: WorkStrength::Hard,
         task_id,
-        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+        channel_id: ChannelId::from_uuid(Uuid::nil()),
         thread_id,
         message_id: None,
         content: Some("steering body".to_owned()),
@@ -2158,7 +2157,7 @@ fn local_agent(driver: DriverKind, role_revision: u64) -> LocalAgent {
         role_revision,
         role: "role".to_owned(),
         driver,
-        state: crate::computer::core::home::LocalAgentState::Active,
+        state: LocalAgentState::Active,
     }
 }
 

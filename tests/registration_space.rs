@@ -11,7 +11,8 @@ use url::Url;
 use uuid::Uuid;
 
 use support::{
-    TestDatabase, reserve_local_port, spawn_server, wait_for_health, write_server_config,
+    TestDatabase, reserve_local_port, session_cookie, spawn_server, wait_for_health,
+    write_server_config,
 };
 
 #[derive(Deserialize)]
@@ -514,16 +515,4 @@ async fn register_second_human(client: &Client, server: &Url) -> Result<String> 
         .await?;
     ensure!(response.status() == StatusCode::CREATED);
     session_cookie(&response)
-}
-
-fn session_cookie(response: &reqwest::Response) -> Result<String> {
-    Ok(response
-        .headers()
-        .get(header::SET_COOKIE)
-        .context("registration did not set a Session cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .context("Session cookie is empty")?
-        .to_owned())
 }

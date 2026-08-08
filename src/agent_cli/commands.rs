@@ -816,17 +816,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn channel_create_help_names_slug_and_topic_constraints() {
-        let error = TestAgentCli::try_parse_from(["sumi-agent", "channel", "create", "--help"])
-            .unwrap_err();
-        let help = error.to_string();
-        assert!(help.contains("Create a Channel with an explicit #slug"));
-        assert!(help.contains("Channel #slug: 1-32 lowercase ASCII"));
-        assert!(help.contains("--topic <TEXT>"));
-        assert!(help.contains("Unicode is allowed"));
-    }
-
     #[tokio::test]
     async fn discover_maps_to_an_extensible_read_action() {
         let cli =

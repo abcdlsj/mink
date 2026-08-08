@@ -24,10 +24,11 @@ use crate::{
             input::{DispatchedItemInput, RunInput},
         },
     },
+    config::daemon_socket_path,
     ids::{AgentId, RunId},
 };
 
-use super::{contract::StructuredProviderClient, prompt};
+use super::{agent_home, contract::StructuredProviderClient, prompt};
 use crate::computer::application::capability::CapabilityService;
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -75,7 +76,7 @@ impl CodexRuntimeClient {
     }
 
     fn agent_home(&self, agent_id: AgentId) -> PathBuf {
-        self.computer_home.join("agents").join(agent_id.to_string())
+        agent_home(&self.computer_home, agent_id)
     }
 
     async fn process(&mut self, agent_id: AgentId) -> Result<&mut CodexProcess, ApplicationError> {
@@ -110,7 +111,7 @@ impl CodexRuntimeClient {
         }
         self.processes.remove(&agent_id);
         let agent_home = self.agent_home(agent_id);
-        let socket_path = crate::config::runtime_dir_for(&self.computer_home).join("daemon.sock");
+        let socket_path = daemon_socket_path(&self.computer_home);
         let driver_token = CapabilityService::driver_token(&self.driver_secret, agent_id);
         let process = CodexProcess::spawn(
             self.executable.clone(),
@@ -731,9 +732,10 @@ mod tests {
         computer::core::{
             home::LocalAgentState,
             input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
+            scheduler::WorkStrength,
             session::DriverKind,
         },
-        ids::{InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
+        ids::{ChannelId, InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
 
     #[tokio::test]
@@ -765,7 +767,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let computer_home = directory.path().join("computer");
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
-        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        let agent_home = agent_home(&computer_home, agent_id);
         std::fs::create_dir_all(agent_home.join("drivers/codex")).unwrap();
         std::fs::create_dir_all(agent_home.join("workspace")).unwrap();
         let executable = directory.path().join("fake-codex");
@@ -863,9 +865,9 @@ done
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         source_kind: "mention".to_owned(),
-                        strength: crate::computer::core::scheduler::WorkStrength::Hard,
+                        strength: WorkStrength::Hard,
                         task_id: None,
-                        channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+                        channel_id: ChannelId::from_uuid(Uuid::nil()),
                         thread_id,
                         message_id: None,
                         content: Some("new item".to_owned()),

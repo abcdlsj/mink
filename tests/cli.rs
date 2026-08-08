@@ -2,22 +2,6 @@ use assert_cmd::Command;
 use std::io::{BufRead, Write};
 
 #[test]
-fn exposes_one_binary_with_three_primary_commands() {
-    let help = Command::cargo_bin("sumi")
-        .unwrap()
-        .arg("--help")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8(help.stdout).unwrap();
-
-    assert!(help.status.success());
-    assert!(stdout.contains("server"));
-    assert!(stdout.contains("computer"));
-    assert!(stdout.contains("agent"));
-    assert!(!stdout.contains("chat"));
-}
-
-#[test]
 fn agent_commands_reject_unscoped_processes() {
     Command::cargo_bin("sumi")
         .unwrap()

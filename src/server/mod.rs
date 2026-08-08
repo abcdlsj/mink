@@ -2,8 +2,10 @@ mod adapters;
 mod application;
 mod domain;
 
-pub(crate) async fn run(args: crate::cli::ServerArgs) -> anyhow::Result<()> {
-    let config = crate::config::load(args.config.as_ref())?;
+use crate::{cli::ServerArgs, config::load};
+
+pub(crate) async fn run(args: ServerArgs) -> anyhow::Result<()> {
+    let config = load(args.config.as_ref())?;
     adapters::runtime::run(config.server).await
 }
 

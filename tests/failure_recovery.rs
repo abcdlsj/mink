@@ -15,7 +15,7 @@ use url::Url;
 use uuid::Uuid;
 
 use support::{
-    SumiProcess, TestDatabase, reserve_local_port, spawn_server, wait_for_health,
+    SumiProcess, TestDatabase, reserve_local_port, short_temp_root, spawn_server, wait_for_health,
     write_server_config,
 };
 
@@ -633,17 +633,6 @@ fn codex_executable_available() -> bool {
             candidate.is_file() || candidate.is_symlink()
         })
     })
-}
-
-/// A short writable directory for Computer state. `std::env::temp_dir()` is long on macOS, which would
-/// push the daemon's Unix socket past the `sun_path` limit once the Computer Home's UUID segments are
-/// appended.
-fn short_temp_root() -> Result<std::path::PathBuf> {
-    let candidate = std::path::PathBuf::from("/tmp");
-    if candidate.is_dir() {
-        return Ok(candidate);
-    }
-    Ok(std::env::temp_dir())
 }
 
 /// Waits for one specific Computer to report online. The Space also holds the Fixture's stand-in

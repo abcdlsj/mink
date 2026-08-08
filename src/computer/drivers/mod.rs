@@ -8,7 +8,10 @@ mod runtime;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use async_trait::async_trait;
 
@@ -27,7 +30,7 @@ use crate::{
             supervisor::LocalRun,
         },
     },
-    ids::RunId,
+    ids::{AgentId, RunId},
 };
 
 use self::{
@@ -35,6 +38,10 @@ use self::{
     contract::{ProviderBackend, ProviderOpen},
     runtime::CodexRuntimeClient,
 };
+
+pub(in crate::computer) fn agent_home(computer_home: &Path, agent_id: AgentId) -> PathBuf {
+    computer_home.join("agents").join(agent_id.to_string())
+}
 
 pub(in crate::computer) fn runtime(
     computer_home: &std::path::Path,
