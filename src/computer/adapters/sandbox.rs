@@ -161,7 +161,13 @@ fn configure_environment(
         .env("PATH", path)
         .env("HOME", agent_home)
         .env("CODEX_HOME", driver_home)
-        .env("TMPDIR", agent_home.join("runs"))
+        // Heredocs and mktemp write through TMPDIR; on macOS the sandbox profile
+        // grants writes to the canonical path, so the env var must be canonical too.
+        .env(
+            "TMPDIR",
+            std::fs::canonicalize(agent_home.join("runs"))
+                .unwrap_or_else(|_| agent_home.join("runs")),
+        )
         .env("SUMI_SOCKET", socket)
         .env("SUMI_DRIVER_TOKEN", driver_token)
         // Start at Agent Home so shell paths match the file-tool contract
