@@ -13,6 +13,10 @@ const check = process.argv.includes("--check");
 const exportedTypes = {
   AddChannelAgentsInput: "AddChannelAgentsRequest",
   Agent: "AgentResponse",
+  AgentGraph: "AgentGraphResponse",
+  AgentGraphNode: "AgentGraphNodeResponse",
+  AgentGraphEdge: "AgentGraphEdgeResponse",
+  AgentGraphMessage: "AgentGraphMessageResponse",
   AgentRuntime: "AgentRuntimeResponse",
   AgentMemoryContent: "MemoryContentResponse",
   AgentMemoryFile: "MemoryFileResponse",

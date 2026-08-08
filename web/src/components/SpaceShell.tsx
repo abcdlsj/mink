@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   MessageCircle,
   Monitor,
+  Network,
   Palette,
   Plus,
   Users,
@@ -67,7 +68,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "graph" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -338,6 +339,12 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
+          <RailItem
+            icon={Network}
+            label="Agent graph"
+            active={active === "graph"}
+            href={`/s/${space.data.slug}/graph`}
+          />
           {designLabEnabled() ? (
             <RailItem
               icon={Palette}
@@ -422,6 +429,12 @@ export function SpaceShell({
               label="Computers"
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
+            />
+            <NavigationItem
+              icon={Network}
+              label="Agent graph"
+              active={active === "graph"}
+              href={`/s/${space.data.slug}/graph`}
             />
           </div>
           {active === "members" || active === "agents" ? (

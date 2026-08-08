@@ -67,6 +67,10 @@ use uuid::Uuid;
         CompleteTaskRequest,
         CloseTaskRequest,
         AgentRuntimeResponse,
+        AgentGraphResponse,
+        AgentGraphNodeResponse,
+        AgentGraphEdgeResponse,
+        AgentGraphMessageResponse,
         CreateThreadMessageRequest,
         ThreadReadResponse,
         ThreadSubscriptionResponse
@@ -766,6 +770,44 @@ pub(super) struct AgentRuntimeResponse {
     pub(super) another_item_waiting: bool,
     pub(super) session_continuity: SessionContinuityResponse,
     pub(super) diagnostics: Option<RuntimeDiagnosticsResponse>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct AgentGraphResponse {
+    pub(super) nodes: Vec<AgentGraphNodeResponse>,
+    pub(super) edges: Vec<AgentGraphEdgeResponse>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct AgentGraphNodeResponse {
+    pub(super) member_id: Uuid,
+    pub(super) display_name: String,
+    pub(super) role_text: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct AgentGraphEdgeResponse {
+    pub(super) member_a_id: Uuid,
+    pub(super) member_b_id: Uuid,
+    pub(super) dm_message_count: i64,
+    pub(super) mention_a_to_b: i64,
+    pub(super) mention_b_to_a: i64,
+    pub(super) reply_a_to_b: i64,
+    pub(super) reply_b_to_a: i64,
+    pub(super) total_interactions: i64,
+    pub(super) last_message_at: Option<String>,
+    pub(super) recent_messages: Vec<AgentGraphMessageResponse>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct AgentGraphMessageResponse {
+    pub(super) id: Uuid,
+    pub(super) channel_id: Uuid,
+    pub(super) kind: String,
+    pub(super) author_member_id: Uuid,
+    pub(super) target_member_id: Uuid,
+    pub(super) created_at: String,
+    pub(super) body_markdown: String,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

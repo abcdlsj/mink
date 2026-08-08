@@ -35,6 +35,49 @@ export interface components {
          * @enum {string}
          */
         AgentActivityStatus: "idle" | "dispatched" | "working" | "suspended" | "error";
+        AgentGraphEdgeResponse: {
+            /** Format: int64 */
+            dm_message_count: number;
+            last_message_at?: string | null;
+            /** Format: uuid */
+            member_a_id: string;
+            /** Format: uuid */
+            member_b_id: string;
+            /** Format: int64 */
+            mention_a_to_b: number;
+            /** Format: int64 */
+            mention_b_to_a: number;
+            recent_messages: components["schemas"]["AgentGraphMessageResponse"][];
+            /** Format: int64 */
+            reply_a_to_b: number;
+            /** Format: int64 */
+            reply_b_to_a: number;
+            /** Format: int64 */
+            total_interactions: number;
+        };
+        AgentGraphMessageResponse: {
+            /** Format: uuid */
+            author_member_id: string;
+            body_markdown: string;
+            /** Format: uuid */
+            channel_id: string;
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /** Format: uuid */
+            target_member_id: string;
+        };
+        AgentGraphNodeResponse: {
+            display_name: string;
+            /** Format: uuid */
+            member_id: string;
+            role_text: string;
+        };
+        AgentGraphResponse: {
+            edges: components["schemas"]["AgentGraphEdgeResponse"][];
+            nodes: components["schemas"]["AgentGraphNodeResponse"][];
+        };
         /** @enum {string} */
         AgentLifecycle: "active" | "suspended" | "retired";
         AgentResponse: {
@@ -639,6 +682,10 @@ export type operations = Record<string, never>;
 
 export type AddChannelAgentsInput = components["schemas"]["AddChannelAgentsRequest"];
 export type Agent = components["schemas"]["AgentResponse"];
+export type AgentGraph = components["schemas"]["AgentGraphResponse"];
+export type AgentGraphNode = components["schemas"]["AgentGraphNodeResponse"];
+export type AgentGraphEdge = components["schemas"]["AgentGraphEdgeResponse"];
+export type AgentGraphMessage = components["schemas"]["AgentGraphMessageResponse"];
 export type AgentRuntime = components["schemas"]["AgentRuntimeResponse"];
 export type AgentMemoryContent = components["schemas"]["MemoryContentResponse"];
 export type AgentMemoryFile = components["schemas"]["MemoryFileResponse"];
