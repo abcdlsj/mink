@@ -36,6 +36,20 @@ pub enum AgentError {
     Internal,
 }
 
+impl std::fmt::Display for AgentError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "builtin agent is unavailable",
+            Self::SessionLost => "builtin agent session is lost",
+            Self::Conflict => "builtin agent operation conflicts with the current state",
+            Self::NotFound => "builtin agent resource was not found",
+            Self::Internal => "builtin agent internal error",
+        })
+    }
+}
+
+impl std::error::Error for AgentError {}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TurnOutcome {
     Completed,

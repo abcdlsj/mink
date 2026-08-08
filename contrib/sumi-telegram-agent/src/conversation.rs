@@ -1,0 +1,497 @@
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use anyhow::{Context, Result, ensure};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use sumi_builtin_agent::{
+    AgentConfig, AgentRuntime, Attachment, ProviderConfig, SandboxConfig, TurnOutcome, TurnRequest,
+};
+use uuid::Uuid;
+
+use crate::{
+    config::Settings,
+    plugin::TelegramPlugin,
+    state::{ConversationEntry, ConversationState},
+    telegram::{TelegramClient, guess_mime},
+    text::{sanitize_file_name, split_reply},
+    types::Message,
+};
+
+const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
+const MAX_REPLY_CHARS: usize = 4000;
+const CONVERSATION_NAMESPACE: Uuid = Uuid::from_u128(0x6f4d_7a2c_9b1e_4d0f_8c3a_2b5e_7d1f_9a04);
+
+struct TelegramFile {
+    file_id: String,
+    file_unique_id: String,
+    declared_size: usize,
+    file_name: Option<String>,
+    mime_type: Option<String>,
+    image: bool,
+    fallback_kind: &'static str,
+}
+
+pub struct Conversation {
+    agent_id: Uuid,
+    runtime: AgentRuntime,
+    locator: String,
+    last_message_id: i64,
+    client: TelegramClient,
+    chat_id: i64,
+    identity: String,
+    role: String,
+    product_contract: String,
+    driver_contract: String,
+    turn_timeout: Duration,
+    state_path: PathBuf,
+}
+
+impl Conversation {
+    pub async fn open(
+        settings: &Settings,
+        chat_id: i64,
+        client: TelegramClient,
+        state_path: PathBuf,
+    ) -> Result<Self> {
+        let agent_id = Uuid::new_v5(&CONVERSATION_NAMESPACE, &chat_id.to_le_bytes());
+        let config = AgentConfig {
+            computer_home: settings.agent_home.clone(),
+            provider: ProviderConfig::openai(settings.api_key.clone(), settings.model.clone())
+                .with_base_url(settings.api_base.clone()),
+            sandbox: SandboxConfig::default(),
+        };
+        let agent_home = config.agent_home(agent_id);
+        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
+            tokio::fs::create_dir_all(agent_home.join(relative))
+                .await
+                .with_context(|| {
+                    format!("failed to create {}", agent_home.join(relative).display())
+                })?;
+        }
+        ensure_private_directory(&agent_home).await?;
+        provision_initial_memory(&agent_home, &settings.identity, &settings.role).await?;
+
+        let plugin = Arc::new(TelegramPlugin::new(chat_id, client.clone()));
+        let mut runtime = AgentRuntime::new(config, vec![plugin.clone()]);
+        let state = ConversationState::load(&state_path).await?;
+        let entry = state
+            .conversations
+            .get(&chat_id.to_string())
+            .cloned()
+            .unwrap_or_default();
+        let locator = match resume_locator(&mut runtime, agent_id, &entry.locator).await? {
+            Some(locator) => locator,
+            None => runtime.create_session(agent_id).await?,
+        };
+        Ok(Self {
+            agent_id,
+            runtime,
+            locator,
+            last_message_id: entry.last_message_id,
+            client,
+            chat_id,
+            identity: settings.identity.clone(),
+            role: settings.role.clone(),
+            product_contract: settings.product_contract.clone(),
+            driver_contract: settings.driver_contract.clone(),
+            turn_timeout: settings.turn_timeout,
+            state_path,
+        })
+    }
+
+    pub async fn handle_message(&mut self, message: &Message) -> Result<()> {
+        if message.message_id <= self.last_message_id {
+            return Ok(());
+        }
+        self.last_message_id = message.message_id;
+        let text = message.text_content();
+        if text.trim() == "/reset" {
+            self.reset().await?;
+            self.persist().await?;
+            return Ok(());
+        }
+        self.client.send_chat_action(self.chat_id, "typing").await?;
+        let (attachments, descriptors) = self.ingest(message).await?;
+        let run_id = Uuid::now_v7();
+        let request = TurnRequest {
+            product_contract: self.product_contract.clone(),
+            driver_contract: self.driver_contract.clone(),
+            identity: self.identity.clone(),
+            role: self.role.clone(),
+            input: build_turn_input(message, &descriptors),
+            content_hash: content_hash(&text, &descriptors),
+            attachments,
+            blocked_tools: Default::default(),
+            sandbox_environment: Default::default(),
+        };
+        self.runtime
+            .start_turn(run_id, &self.locator, request)
+            .await?;
+        let outcome = self.wait_for_outcome(run_id).await?;
+        match outcome {
+            TurnOutcome::Completed => {
+                if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
+                    for part in split_reply(&reply, MAX_REPLY_CHARS) {
+                        if !part.trim().is_empty() {
+                            self.client.send_message(self.chat_id, &part).await?;
+                        }
+                    }
+                }
+            }
+            TurnOutcome::Failed => {
+                self.client
+                    .send_message(
+                        self.chat_id,
+                        "Sorry, an error occurred while processing your request.",
+                    )
+                    .await?;
+            }
+            TurnOutcome::Interrupted => {
+                self.client
+                    .send_message(self.chat_id, "The request timed out.")
+                    .await?;
+            }
+        }
+        self.persist().await
+    }
+
+    async fn ingest(&self, message: &Message) -> Result<(Vec<Attachment>, Vec<Value>)> {
+        let mut attachments = Vec::new();
+        let mut descriptors = Vec::new();
+        if let Some(photo) = message
+            .photo
+            .iter()
+            .max_by_key(|photo| photo.file_size.unwrap_or(0))
+        {
+            let (attachment, descriptor) = self
+                .download_attachment(
+                    message.message_id,
+                    TelegramFile {
+                        file_id: photo.file_id.clone(),
+                        file_unique_id: photo.file_unique_id.clone(),
+                        declared_size: photo.file_size.unwrap_or(0) as usize,
+                        file_name: None,
+                        mime_type: None,
+                        image: true,
+                        fallback_kind: "photo",
+                    },
+                )
+                .await?;
+            attachments.push(attachment);
+            descriptors.push(descriptor);
+        }
+        if let Some(document) = &message.document {
+            let (attachment, descriptor) = self
+                .download_attachment(
+                    message.message_id,
+                    TelegramFile {
+                        file_id: document.file_id.clone(),
+                        file_unique_id: document.file_unique_id.clone(),
+                        declared_size: document.file_size.unwrap_or(0) as usize,
+                        file_name: document.file_name.clone(),
+                        mime_type: document.mime_type.clone(),
+                        image: false,
+                        fallback_kind: "document",
+                    },
+                )
+                .await?;
+            attachments.push(attachment);
+            descriptors.push(descriptor);
+        }
+        Ok((attachments, descriptors))
+    }
+
+    async fn download_attachment(
+        &self,
+        message_id: i64,
+        file: TelegramFile,
+    ) -> Result<(Attachment, Value)> {
+        ensure!(
+            file.declared_size <= MAX_FILE_BYTES,
+            "file exceeds the 20 MiB download limit"
+        );
+        let remote = self.client.get_file(&file.file_id).await?;
+        ensure!(
+            remote.file_size.unwrap_or(file.declared_size as i64) as usize <= MAX_FILE_BYTES,
+            "file exceeds the 20 MiB download limit"
+        );
+        let file_path = remote
+            .file_path
+            .as_deref()
+            .context("Telegram returned no file path")?;
+        let bytes = self.client.download_file(file_path).await?;
+        ensure!(
+            bytes.len() <= MAX_FILE_BYTES,
+            "file exceeds the 20 MiB download limit"
+        );
+        let fallback = format!("{}_{}", file.fallback_kind, file.file_unique_id);
+        let name = sanitize_file_name(
+            file.file_name
+                .as_deref()
+                .or_else(|| {
+                    Path::new(file_path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                })
+                .unwrap_or(&fallback),
+        );
+        let name = if name.contains('.') || !file.image {
+            name
+        } else {
+            format!("{name}.jpg")
+        };
+        let relative = format!("workspace/attachments/{message_id}/{name}");
+        let target = self
+            .runtime
+            .agent_home(self.agent_id)
+            .join("workspace/attachments")
+            .join(message_id.to_string())
+            .join(&name);
+        tokio::fs::create_dir_all(target.parent().unwrap()).await?;
+        tokio::fs::write(&target, &bytes).await?;
+        let mime = file
+            .mime_type
+            .filter(|mime| !mime.is_empty())
+            .unwrap_or_else(|| guess_mime(&name).to_owned());
+        let attachment = Attachment {
+            kind: if file.image { "image" } else { "file" }.into(),
+            label: if file.image { "photo" } else { "document" }.into(),
+            name: name.clone(),
+            mime: mime.to_owned(),
+            data: if file.image {
+                BASE64.encode(&bytes)
+            } else {
+                String::new()
+            },
+            url: String::new(),
+        };
+        let descriptor = json!({
+            "kind": if file.image { "image" } else { "file" },
+            "name": name,
+            "mime": mime,
+            "path": relative,
+            "size": bytes.len(),
+        });
+        Ok((attachment, descriptor))
+    }
+
+    async fn wait_for_outcome(&mut self, run_id: Uuid) -> Result<TurnOutcome> {
+        let deadline = Instant::now() + self.turn_timeout;
+        loop {
+            let completions = self.runtime.poll_completions().await?;
+            if let Some(completion) = completions
+                .into_iter()
+                .find(|completion| completion.run_id == run_id)
+            {
+                return Ok(completion.outcome);
+            }
+            if Instant::now() >= deadline {
+                self.runtime.interrupt(&self.locator).await?;
+                loop {
+                    let completions = self.runtime.poll_completions().await?;
+                    if let Some(completion) = completions
+                        .into_iter()
+                        .find(|completion| completion.run_id == run_id)
+                    {
+                        return Ok(completion.outcome);
+                    }
+                    tokio::task::yield_now().await;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    async fn reset(&mut self) -> Result<()> {
+        let _ = self.runtime.delete_session(&self.locator).await;
+        self.locator = self.runtime.create_session(self.agent_id).await?;
+        self.client
+            .send_message(self.chat_id, "Conversation reset. Starting fresh.")
+            .await
+    }
+
+    async fn persist(&self) -> Result<()> {
+        let mut state = ConversationState::load(&self.state_path).await?;
+        state.conversations.insert(
+            self.chat_id.to_string(),
+            ConversationEntry {
+                locator: self.locator.clone(),
+                last_message_id: self.last_message_id,
+            },
+        );
+        state.save(&self.state_path).await
+    }
+}
+
+async fn resume_locator(
+    runtime: &mut AgentRuntime,
+    agent_id: Uuid,
+    locator: &str,
+) -> Result<Option<String>> {
+    if locator.is_empty() {
+        return Ok(None);
+    }
+    match runtime.resume_session(agent_id, locator).await {
+        Ok(true) => Ok(Some(locator.to_owned())),
+        Ok(false) | Err(_) => Ok(None),
+    }
+}
+
+fn build_turn_input(message: &Message, descriptors: &[Value]) -> Value {
+    let from = message.from.as_ref();
+    let first_name = from
+        .and_then(|user| user.first_name.clone())
+        .or_else(|| message.chat.first_name.clone());
+    let username = from
+        .and_then(|user| user.username.clone())
+        .or_else(|| message.chat.username.clone());
+    let sender = json!({
+        "id": from.map(|user| user.id).unwrap_or(message.chat.id),
+        "first_name": first_name,
+        "username": username,
+    });
+    json!({
+        "conversation": {
+            "platform": "telegram",
+            "chat_id": message.chat.id,
+            "message_id": message.message_id,
+            "sender": sender,
+            "text": message.text_content(),
+            "date": message.date,
+        },
+        "attachments": descriptors,
+    })
+}
+
+fn content_hash(text: &str, descriptors: &[Value]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(text.as_bytes());
+    for descriptor in descriptors {
+        digest.update(serde_json::to_vec(descriptor).unwrap_or_default());
+    }
+    hex::encode(digest.finalize())
+}
+
+async fn ensure_private_directory(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
+    }
+    Ok(())
+}
+
+async fn provision_initial_memory(agent_home: &Path, identity: &str, role: &str) -> Result<()> {
+    let memory_path = agent_home.join("memory/MEMORY.md");
+    if memory_path.exists() {
+        return Ok(());
+    }
+    let document = format!(
+        "# {identity}\n\n## Role\n\n{role}\n\n## Key Knowledge\n\n- None recorded yet.\n\n## Active Context\n\n- Current focus: No active work recorded.\n"
+    );
+    tokio::fs::write(&memory_path, document).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&memory_path, std::fs::Permissions::from_mode(0o600)).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turn_input_carries_platform_sender_and_attachment_descriptors() {
+        let message = Message {
+            message_id: 7,
+            chat: crate::types::Chat {
+                id: 42,
+                first_name: Some("Alice".into()),
+                username: None,
+            },
+            from: Some(crate::types::User {
+                id: 42,
+                first_name: Some("Alice".into()),
+                username: Some("alice".into()),
+            }),
+            text: Some("hello".into()),
+            caption: None,
+            photo: Vec::new(),
+            document: None,
+            date: 123,
+        };
+        let input = build_turn_input(
+            &message,
+            &[
+                json!({"kind":"file","name":"a.pdf","mime":"application/pdf","path":"workspace/attachments/7/a.pdf","size":3}),
+            ],
+        );
+        assert_eq!(input["conversation"]["platform"], "telegram");
+        assert_eq!(input["conversation"]["chat_id"], 42);
+        assert_eq!(input["conversation"]["sender"]["username"], "alice");
+        assert_eq!(input["conversation"]["text"], "hello");
+        assert_eq!(
+            input["attachments"][0]["path"],
+            "workspace/attachments/7/a.pdf"
+        );
+    }
+
+    #[test]
+    fn content_hash_changes_with_text_or_descriptors() {
+        let descriptor = json!({"kind":"file","path":"workspace/attachments/1/a.txt"});
+        let base = content_hash("hello", std::slice::from_ref(&descriptor));
+        assert_ne!(
+            base,
+            content_hash("hello!", std::slice::from_ref(&descriptor))
+        );
+        assert_ne!(base, content_hash("hello", &[]));
+        assert_eq!(
+            base,
+            content_hash("hello", std::slice::from_ref(&descriptor))
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_resume_locator_starts_a_fresh_session() {
+        let directory = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            telegram_token: secrecy::SecretString::from("token"),
+            api_base: "https://api.openai.com/v1".into(),
+            model: "test-model".into(),
+            api_key: secrecy::SecretString::from("key"),
+            agent_home: directory.path().join("data"),
+            identity: "Telegram Agent".into(),
+            role: "Role".into(),
+            product_contract: "p".into(),
+            driver_contract: "d".into(),
+            turn_timeout: Duration::from_secs(1),
+        };
+        let conversation = Conversation::open(
+            &settings,
+            42,
+            TelegramClient::new(secrecy::SecretString::from("bot-token")),
+            settings.agent_home.join("conversations.json"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            conversation.agent_id,
+            Uuid::new_v5(&CONVERSATION_NAMESPACE, &42_i64.to_le_bytes())
+        );
+        assert!(!conversation.locator.is_empty());
+        assert!(
+            conversation
+                .runtime
+                .agent_home(conversation.agent_id)
+                .join("memory/MEMORY.md")
+                .is_file()
+        );
+    }
+}
