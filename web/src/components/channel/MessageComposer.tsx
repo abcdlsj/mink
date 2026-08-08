@@ -12,8 +12,32 @@ export interface ComposerInput {
   attachment_ids: string[];
 }
 
+const DRAFT_STORAGE_PREFIX = "sumi:composer-draft:";
+
+function readDraft(draftKey: string): string {
+  try {
+    return window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${draftKey}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(draftKey: string, body: string) {
+  try {
+    const key = `${DRAFT_STORAGE_PREFIX}${draftKey}`;
+    if (body) {
+      window.localStorage.setItem(key, body);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Draft persistence is best-effort; the composer still works without it.
+  }
+}
+
 export function MessageComposer({
   spaceId,
+  draftKey,
   members,
   direct = false,
   placeholder,
@@ -27,6 +51,7 @@ export function MessageComposer({
   onSent,
 }: {
   spaceId: string;
+  draftKey: string;
   members: Member[];
   direct?: boolean;
   placeholder: string;
@@ -39,7 +64,16 @@ export function MessageComposer({
   send: (input: ComposerInput) => Promise<Message>;
   onSent: (message: Message) => void;
 }) {
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(() => readDraft(draftKey));
+  const lastDraftKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastDraftKeyRef.current !== draftKey) {
+      lastDraftKeyRef.current = draftKey;
+      setBody(readDraft(draftKey));
+      return;
+    }
+    writeDraft(draftKey, body);
+  }, [body, draftKey]);
   const [attachments, setAttachments] = useState<Awaited<ReturnType<typeof uploadAttachment>>[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const submission = useMutation({

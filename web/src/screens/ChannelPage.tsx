@@ -320,7 +320,9 @@ export function MessageWorkspace({
         onOpenAgentDm={direct ? undefined : (memberId) => openAgentDm.mutate(memberId)}
       />
       <MessageComposer
+        key={`channel:${channel.id}`}
         spaceId={spaceId}
+        draftKey={`channel:${channel.id}`}
         members={channelMembers.data?.members ?? []}
         direct={direct}
         placeholder={placeholder}

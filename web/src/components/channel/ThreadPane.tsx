@@ -167,8 +167,10 @@ export function ThreadPane({
         {showToBottom ? <ToBottomButton onClick={scrollToBottom} /> : null}
       </div>
       <MessageComposer
+        key={threadId}
         className="thread-composer"
         spaceId={spaceId}
+        draftKey={threadId}
         members={members}
         placeholder={`Reply to #${channelSlug}`}
         ariaLabel="Thread reply"
