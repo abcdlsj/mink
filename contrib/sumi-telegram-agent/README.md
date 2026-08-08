@@ -50,6 +50,28 @@ Send `/reset` in any chat to start a fresh conversation.
   as `![diagram](workspace/diagram.png)` are read from the agent home and sent
   as photo bytes.
 
+## Memory
+
+Each chat has a persistent agent home with a `memory/` directory. On first use
+the runtime provisions `memory/MEMORY.md` with the agent identity and role; the
+agent maintains it with the `read`/`write`/`edit` tools and `memory/...` paths.
+Every turn includes a memory projection (path, size, sha256, modified time) in
+the run context so the agent knows what is stored. `sumi-builtin-agent` exposes
+`AgentRuntime::list_memory/read_memory/write_memory` for host applications.
+
+## Reminders
+
+The builtin `reminder` plugin is injected into every conversation and persists
+reminders in `<agent-home>/reminders.json`:
+
+- `reminder.set` with `text` and `in_minutes` (1-43200) schedules a one-shot
+  reminder; the bot delivers `⏰ Reminder: <text>` when it is due.
+- `reminder.list` returns the scheduled reminders as JSON.
+- `reminder.cancel` removes one by id.
+
+Reminders survive restarts and are checked every 5 seconds. Due reminders reply
+to the message that created them when available.
+
 ## Files and images
 
 - Incoming `photo` messages are downloaded and stored under

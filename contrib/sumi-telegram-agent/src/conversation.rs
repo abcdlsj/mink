@@ -9,8 +9,8 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sumi_builtin_agent::{
-    AgentConfig, AgentRuntime, Attachment, ProviderConfig, SandboxConfig, TurnOutcome, TurnRequest,
-    agent_rooted_path,
+    AgentConfig, AgentRuntime, Attachment, MemoryFile, ProviderConfig, SandboxConfig, TurnOutcome,
+    TurnRequest, agent_rooted_path,
 };
 use uuid::Uuid;
 
@@ -18,6 +18,7 @@ use crate::{
     config::Settings,
     markdown::{ReplyImage, render_markdown},
     plugin::TelegramPlugin,
+    reminder::{ReminderPlugin, spawn_delivery_loop},
     state::{ConversationEntry, ConversationState},
     telegram::{TelegramClient, guess_mime},
     text::sanitize_file_name,
@@ -47,6 +48,7 @@ pub struct Conversation {
     locator: String,
     last_message_id: i64,
     plugin: Arc<TelegramPlugin<TelegramClient>>,
+    reminder_plugin: Arc<ReminderPlugin<TelegramClient>>,
     client: TelegramClient,
     chat_id: i64,
     identity: String,
@@ -72,18 +74,17 @@ impl Conversation {
             sandbox: SandboxConfig::default(),
         };
         let agent_home = config.agent_home(agent_id);
-        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
-            tokio::fs::create_dir_all(agent_home.join(relative))
-                .await
-                .with_context(|| {
-                    format!("failed to create {}", agent_home.join(relative).display())
-                })?;
-        }
-        ensure_private_directory(&agent_home).await?;
-        provision_initial_memory(&agent_home, &settings.identity, &settings.role).await?;
-
         let plugin = Arc::new(TelegramPlugin::new(chat_id, client.clone()));
-        let mut runtime = AgentRuntime::new(config, vec![plugin.clone()]);
+        let reminder_plugin = Arc::new(ReminderPlugin::new(
+            chat_id,
+            client.clone(),
+            agent_home.join("reminders.json"),
+        ));
+        let mut runtime = AgentRuntime::new(config, vec![plugin.clone(), reminder_plugin.clone()]);
+        runtime
+            .provision(agent_id, &settings.identity, &settings.role)
+            .await?;
+        spawn_delivery_loop(reminder_plugin.clone());
         let state = ConversationState::load(&state_path).await?;
         let entry = state
             .conversations
@@ -100,6 +101,7 @@ impl Conversation {
             locator,
             last_message_id: entry.last_message_id,
             plugin,
+            reminder_plugin,
             client,
             chat_id,
             identity: settings.identity.clone(),
@@ -118,6 +120,8 @@ impl Conversation {
         self.last_message_id = message.message_id;
         let text = message.text_content();
         self.plugin.set_reply_target(Some(message.message_id));
+        self.reminder_plugin
+            .set_reply_target(Some(message.message_id));
         self.react(REACTION_WORKING).await;
         if text.trim() == "/reset" {
             self.reset(message.message_id).await?;
@@ -144,12 +148,13 @@ impl Conversation {
             }
         };
         let run_id = Uuid::now_v7();
+        let memory = self.runtime.list_memory(self.agent_id).await?;
         let request = TurnRequest {
             product_contract: self.product_contract.clone(),
             driver_contract: self.driver_contract.clone(),
             identity: self.identity.clone(),
             role: self.role.clone(),
-            input: build_turn_input(message, &descriptors),
+            input: build_turn_input(message, &descriptors, &memory),
             content_hash: content_hash(&text, &descriptors),
             attachments,
             blocked_tools: Default::default(),
@@ -490,7 +495,7 @@ async fn resume_locator(
     }
 }
 
-fn build_turn_input(message: &Message, descriptors: &[Value]) -> Value {
+fn build_turn_input(message: &Message, descriptors: &[Value], memory: &[MemoryFile]) -> Value {
     let from = message.from.as_ref();
     let first_name = from
         .and_then(|user| user.first_name.clone())
@@ -513,6 +518,7 @@ fn build_turn_input(message: &Message, descriptors: &[Value]) -> Value {
             "date": message.date,
         },
         "attachments": descriptors,
+        "memory": memory,
     })
 }
 
@@ -523,32 +529,6 @@ fn content_hash(text: &str, descriptors: &[Value]) -> String {
         digest.update(serde_json::to_vec(descriptor).unwrap_or_default());
     }
     hex::encode(digest.finalize())
-}
-
-async fn ensure_private_directory(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
-    }
-    Ok(())
-}
-
-async fn provision_initial_memory(agent_home: &Path, identity: &str, role: &str) -> Result<()> {
-    let memory_path = agent_home.join("memory/MEMORY.md");
-    if memory_path.exists() {
-        return Ok(());
-    }
-    let document = format!(
-        "# {identity}\n\n## Role\n\n{role}\n\n## Key Knowledge\n\n- None recorded yet.\n\n## Active Context\n\n- Current focus: No active work recorded.\n"
-    );
-    tokio::fs::write(&memory_path, document).await?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&memory_path, std::fs::Permissions::from_mode(0o600)).await?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -580,6 +560,7 @@ mod tests {
             &[
                 json!({"kind":"file","name":"a.pdf","mime":"application/pdf","path":"workspace/attachments/7/a.pdf","size":3}),
             ],
+            &[],
         );
         assert_eq!(input["conversation"]["platform"], "telegram");
         assert_eq!(input["conversation"]["chat_id"], 42);
@@ -589,6 +570,7 @@ mod tests {
             input["attachments"][0]["path"],
             "workspace/attachments/7/a.pdf"
         );
+        assert_eq!(input["memory"], json!([]));
     }
 
     #[test]

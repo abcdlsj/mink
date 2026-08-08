@@ -2,6 +2,7 @@ mod config;
 mod conversation;
 mod markdown;
 mod plugin;
+mod reminder;
 mod state;
 mod telegram;
 mod text;
