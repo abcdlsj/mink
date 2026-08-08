@@ -2971,6 +2971,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "sumi-builtin-agent",
  "tempfile",
  "thiserror",
  "time",
@@ -2983,6 +2984,27 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "sumi-builtin-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-openai",
+ "async-trait",
+ "futures-util",
+ "hex",
+ "libc",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
  "uuid",
 ]
 

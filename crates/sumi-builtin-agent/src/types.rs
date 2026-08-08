@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
-pub(super) struct Message {
+pub struct Message {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(super) id: String,
     pub(super) role: String,
@@ -26,6 +26,18 @@ impl Message {
         Self {
             role: "user".into(),
             content: content.into(),
+            ..Default::default()
+        }
+    }
+
+    pub(super) fn user_with_attachments(
+        content: impl Into<String>,
+        attachments: Vec<Attachment>,
+    ) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            attachments,
             ..Default::default()
         }
     }
@@ -74,19 +86,19 @@ pub(super) struct ToolResult {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(super) struct Attachment {
+pub struct Attachment {
     #[serde(default)]
-    pub(super) kind: String,
+    pub kind: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) label: String,
+    pub label: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) name: String,
+    pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) mime: String,
+    pub mime: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) data: String,
+    pub data: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) url: String,
+    pub url: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -106,10 +118,10 @@ pub(super) struct TokenUsage {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(super) struct ToolDef {
-    pub(super) name: String,
-    pub(super) description: String,
-    pub(super) parameters: serde_json::Value,
+pub struct ToolDef {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]

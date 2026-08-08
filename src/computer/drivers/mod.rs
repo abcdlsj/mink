@@ -1,5 +1,5 @@
 mod builtin;
-mod builtin_runtime;
+mod builtin_agent;
 mod codex;
 mod contract;
 pub(in crate::computer) mod prompt;
@@ -34,7 +34,7 @@ use crate::{
 };
 
 use self::{
-    builtin_runtime::BuiltinRuntimeClient,
+    builtin_agent::BuiltinRuntimeClient,
     contract::{ProviderBackend, ProviderOpen},
     runtime::CodexRuntimeClient,
 };
