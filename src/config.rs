@@ -23,7 +23,7 @@ pub(crate) struct ServerConfig {
     pub(crate) database_url: String,
     pub(crate) web_dist: PathBuf,
     pub(crate) attachment_dir: PathBuf,
-    pub(crate) company_drive_dir: PathBuf,
+    pub(crate) company_drive_dir: Option<PathBuf>,
     pub(crate) attachment_s3: Option<AttachmentS3Config>,
     pub(crate) attachment_max_bytes: u64,
     pub(crate) secure_cookies: bool,
@@ -116,7 +116,7 @@ impl Default for ServerConfig {
             database_url: "postgres://localhost/sumi_prod".to_owned(),
             web_dist: PathBuf::from("web/dist"),
             attachment_dir: default_sumi_dir().join("server/attachments"),
-            company_drive_dir: default_sumi_dir().join("server/attachments/company"),
+            company_drive_dir: None,
             attachment_s3: None,
             attachment_max_bytes: 100 * 1024 * 1024,
             secure_cookies: false,
@@ -365,10 +365,7 @@ mod tests {
                 config.server.attachment_dir,
                 home.join(".sumi/server/attachments")
             );
-            assert_eq!(
-                config.server.company_drive_dir,
-                home.join(".sumi/server/attachments/company")
-            );
+            assert_eq!(config.server.company_drive_dir, None);
             assert_eq!(
                 runtime_dir_for(&config.computer.state_dir),
                 home.join(".sumi/runtime")

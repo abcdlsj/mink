@@ -328,6 +328,27 @@ pub(super) fn attachment_from_row(
     .map_err(Into::into)
 }
 
+pub(super) fn company_file_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<CompanyFile, ApplicationError> {
+    CompanyFile::rehydrate(CompanyFileSnapshot {
+        id: CompanyFileId::from_uuid(row.get("id")),
+        space_id: SpaceId::from_uuid(row.get("space_id")),
+        name: row.get("name"),
+        media_type: row.get("media_type"),
+        length: u64::try_from(row.get::<i64, _>("length"))
+            .map_err(|_| ApplicationError::Internal)?,
+        sha256: row
+            .get::<Vec<u8>, _>("sha256")
+            .try_into()
+            .map_err(|_| ApplicationError::Internal)?,
+        uploader_member_id: MemberId::from_uuid(row.get("uploader_member_id")),
+        created_at: row.get("created_at"),
+        deleted_at: row.get("deleted_at"),
+    })
+    .map_err(ApplicationError::from)
+}
+
 pub(super) fn paired_computer_from_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<PairedComputer, ApplicationError> {

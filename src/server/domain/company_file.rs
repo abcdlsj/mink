@@ -31,6 +31,7 @@ pub(in crate::server) struct CompanyFileSnapshot {
 }
 
 impl CompanyFile {
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::server) fn create(
         id: CompanyFileId,
         space_id: SpaceId,

@@ -28,7 +28,11 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&config.attachment_dir)
         .await
         .context("failed to create Attachment directory")?;
-    tokio::fs::create_dir_all(&config.company_drive_dir)
+    let company_drive_dir = config
+        .company_drive_dir
+        .clone()
+        .unwrap_or_else(|| config.attachment_dir.join("company"));
+    tokio::fs::create_dir_all(&company_drive_dir)
         .await
         .context("failed to create Company Drive directory")?;
     let object_store =
@@ -43,7 +47,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             object_store,
         ))),
         company_objects: std::sync::Arc::new(CompanyFileObjectStore::new(std::sync::Arc::new(
-            object_store::local::LocalFileSystem::new_with_prefix(&config.company_drive_dir)
+            object_store::local::LocalFileSystem::new_with_prefix(&company_drive_dir)
                 .context("failed to open Company Drive directory")?,
         ))),
         session_lifetime: SessionLifetime::from_hours(config.session_ttl_hours)

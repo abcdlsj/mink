@@ -63,7 +63,17 @@ pub(super) async fn upload_company_file(
     )
     .await
     .map_err(application_error)?;
-    Ok((StatusCode::CREATED, Json(company_file_response(&file, ""))))
+    let uploader_name = state
+        .read
+        .member_name(member)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    Ok((
+        StatusCode::CREATED,
+        Json(company_file_response(&file, &uploader_name)),
+    ))
 }
 
 pub(super) async fn download_company_file(
