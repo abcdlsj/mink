@@ -82,8 +82,10 @@
 
 ## Settings
 
-- Space rail 左下角提供 Settings 入口（齿轮图标），路由为 `/s/$spaceSlug/settings`；移动端 Space tools 导航提供同入口。
-- Experimental features 开关默认关闭，状态持久化在浏览器 localStorage；开启后左 rail 才显示实验功能入口。
+- Space rail 最底部提供 Settings 入口（齿轮图标），路由为 `/s/$spaceSlug/settings`；移动端 Space tools 导航提供同入口。
+- Settings 使用列表/详情布局：中栏是已注册 feature 的名称列表（含类型与 On/Off 状态），点击后在右侧展开该 feature 的详情；未选中时右侧显示占位说明。
+- feature 通过注册表（`featureRegistry`）声明 id、名称、类型、描述、storageKey 和可选配置项；后续新增 feature 只改注册表，无需改页面结构。
+- 实验类型（experimental）的详情默认包含 `Enabled` 开关；所有状态只持久化在浏览器 localStorage（`sumi.feature.<id>`），不上传 Server。开启后左 rail 才显示对应实验入口（当前为 Agent graph）。
 
 ## Computers 的 LLM usage 面板
 

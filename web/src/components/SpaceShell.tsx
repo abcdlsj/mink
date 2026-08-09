@@ -43,11 +43,13 @@ import {
   type User,
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
-import { designLabEnabled, useExperimentalFeatures } from "../featureFlags";
+import { designLabEnabled } from "../featureFlags";
+import { AGENT_GRAPH_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { PixelIdentity } from "./PixelIdentity";
 import { PixelWord } from "./PixelWord";
+import { SettingsNavigation } from "./SettingsNavigation";
 import { SumiMark } from "./SumiMark";
 
 export { PixelIdentity } from "./PixelIdentity";
@@ -81,7 +83,7 @@ export function SpaceShell({
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
-  const experimentalEnabled = useExperimentalFeatures();
+  const agentGraphEnabled = useFeatureEnabled(AGENT_GRAPH_FEATURE_ID);
   const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
@@ -341,7 +343,7 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
-          {experimentalEnabled ? (
+          {agentGraphEnabled ? (
             <RailItem
               icon={Network}
               label="Agent graph"
@@ -358,12 +360,6 @@ export function SpaceShell({
             />
           ) : null}
         </nav>
-        <RailItem
-          icon={Settings}
-          label="Settings"
-          active={active === "settings"}
-          href={`/s/${space.data.slug}/settings`}
-        />
         <button
           ref={railNavigationTrigger}
           className="rail-spacer"
@@ -371,6 +367,12 @@ export function SpaceShell({
           aria-label="Open navigation"
           title="Open navigation"
           onClick={openNavigation}
+        />
+        <RailItem
+          icon={Settings}
+          label="Settings"
+          active={active === "settings"}
+          href={`/s/${space.data.slug}/settings`}
         />
       </aside>
 
@@ -440,7 +442,7 @@ export function SpaceShell({
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
             />
-            {experimentalEnabled ? (
+            {agentGraphEnabled ? (
               <NavigationItem
                 icon={Network}
                 label="Agent graph"
@@ -473,6 +475,8 @@ export function SpaceShell({
               spaceSlug={space.data.slug}
               locationPath={location.pathname}
             />
+          ) : active === "settings" ? (
+            <SettingsNavigation spaceSlug={space.data.slug} />
           ) : (
             <>
           <div className="nav-section-heading">

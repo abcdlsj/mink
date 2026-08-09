@@ -19,7 +19,7 @@ import {
 import { PixelIdentity } from "../components/PixelIdentity";
 import { buildAgentIdenticon, identityPalette } from "../components/agentIdenticon";
 import { SpaceShell } from "../components/SpaceShell";
-import { useExperimentalFeatures } from "../featureFlags";
+import { AGENT_GRAPH_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
 import { layoutGraph, type GraphLayoutNode } from "./agentGraphLayout";
 import "./agentGraph.css";
 
@@ -38,8 +38,8 @@ export const INITIAL_GRAPH_VIEW: GraphView = { x: 0, y: 0, k: 1 };
 
 export function AgentGraphPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/graph" });
-  const experimentalEnabled = useExperimentalFeatures();
-  if (!experimentalEnabled) {
+  const agentGraphEnabled = useFeatureEnabled(AGENT_GRAPH_FEATURE_ID);
+  if (!agentGraphEnabled) {
     return (
       <SpaceShell spaceSlug={spaceSlug} active="graph">
         {() => (

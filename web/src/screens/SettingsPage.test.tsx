@@ -1,14 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { setExperimentalFeaturesEnabled } from "../featureFlags";
+import { setFeatureEnabled } from "../featureRegistry";
 import { SettingsWorkspace } from "./SettingsPage";
-
-const toggleName = "Enable experimental features";
 
 beforeEach(() => {
   window.localStorage.clear();
-  setExperimentalFeaturesEnabled(false);
+  setFeatureEnabled("agent-graph", false);
 });
 
 afterEach(() => {
@@ -16,18 +14,28 @@ afterEach(() => {
 });
 
 describe("SettingsWorkspace", () => {
-  it("shows experimental features disabled by default", () => {
+  it("shows a placeholder when no feature is selected", () => {
     render(<SettingsWorkspace />);
 
-    expect(screen.getByRole("checkbox", { name: toggleName })).not.toBeChecked();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(screen.getByText(/Choose a feature from the list/)).toBeVisible();
   });
 
-  it("persists the toggle when enabled", () => {
-    render(<SettingsWorkspace />);
+  it("shows the experimental enable toggle and persists it per feature", () => {
+    render(<SettingsWorkspace selectedFeatureId="agent-graph" />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: toggleName }));
+    const toggle = screen.getByRole("checkbox", { name: "Enabled" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
 
-    expect(screen.getByRole("checkbox", { name: toggleName })).toBeChecked();
-    expect(window.localStorage.getItem("sumi.experimental_features")).toBe("1");
+    expect(screen.getByRole("checkbox", { name: "Enabled" })).toBeChecked();
+    expect(window.localStorage.getItem("sumi.feature.agent-graph")).toBe("1");
+  });
+
+  it("labels the feature kind", () => {
+    render(<SettingsWorkspace selectedFeatureId="agent-graph" />);
+
+    expect(screen.getByText("experimental")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Agent graph" })).toBeVisible();
   });
 });
