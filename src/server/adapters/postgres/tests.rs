@@ -239,6 +239,87 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
 }
 
 #[tokio::test]
+async fn channel_activity_query_rejects_another_computer_impersonating_an_agent() {
+    let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());
+    let database_name = format!("sumi_channel_query_auth_{}", Uuid::now_v7().simple());
+    let mut admin = PgConnection::connect_with(&PgConnectOptions::from_str(&admin_url).unwrap())
+        .await
+        .unwrap();
+    sqlx::query(&format!("CREATE DATABASE \"{database_name}\""))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut database_url = Url::parse(&admin_url).unwrap();
+    database_url.set_path(&format!("/{database_name}"));
+    let result = async {
+        let pool = PgPool::connect(database_url.as_str()).await.unwrap();
+        let adapter = PostgresAdapter::new(pool.clone());
+        adapter.initialize_schema().await.unwrap();
+        let space = Uuid::now_v7();
+        let owner = Uuid::now_v7();
+        let agent = Uuid::now_v7();
+        let assigned_computer = Uuid::now_v7();
+        let other_computer = Uuid::now_v7();
+        let channel = Uuid::now_v7();
+        let root = Uuid::now_v7();
+        let run = Uuid::now_v7();
+        let inbox_item = Uuid::now_v7();
+        sqlx::raw_sql(&format!(
+            "BEGIN;
+             INSERT INTO spaces(id,slug,name,accent,owner_member_id,created_at)
+                 VALUES ('{space}','query-auth','Query Auth','#F0602F','{owner}',now());
+             INSERT INTO members(id,space_id,kind,display_name,access_level,created_at) VALUES
+                 ('{owner}','{space}','human','Owner','owner',now()),
+                 ('{agent}','{space}','agent','Agent','member',now());
+             INSERT INTO computers(id,space_id,name,hostname,os,token_hash,connection_status,created_at)
+                 VALUES ('{assigned_computer}','{space}','Assigned','localhost','linux','assigned-hash','offline',now()),
+                        ('{other_computer}','{space}','Other','localhost','linux','other-hash','offline',now());
+             INSERT INTO agents(member_id,space_id,computer_id,role_text,role_revision,lifecycle,driver_kind,created_at)
+                 VALUES ('{agent}','{space}','{assigned_computer}','Act',1,'active','builtin',now());
+             INSERT INTO channels(id,space_id,kind,slug,next_seq,created_at)
+                 VALUES ('{channel}','{space}','public','general',2,now());
+             INSERT INTO channel_members(channel_id,space_id,member_id,joined_at)
+                 VALUES ('{channel}','{space}','{agent}',now());
+             INSERT INTO messages(id,space_id,channel_id,thread_id,channel_seq,placement,content_kind,author_member_id,body_markdown,created_at)
+                 VALUES ('{root}','{space}','{channel}','{root}',1,'root','text','{agent}','safe body',now());
+             INSERT INTO agent_runs(id,space_id,agent_id,focus_thread_id,status,trigger_kind,created_at)
+                 VALUES ('{run}','{space}','{agent}','{root}','dispatched','mention',now());
+             INSERT INTO inbox_items(id,space_id,member_id,message_id,thread_id,kind,strength,status,available_at,assigned_run_id,created_at)
+                 VALUES ('{inbox_item}','{space}','{agent}','{root}','{root}','mention','hard','assigned',now(),'{run}',now());
+             INSERT INTO run_items(run_id,inbox_item_id,delivery_seq,attached_at)
+                 VALUES ('{run}','{inbox_item}',1,now());
+             COMMIT;"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let result = adapter
+            .channel_activity_snapshot(
+                ComputerId::from_uuid(other_computer),
+                RunId::from_uuid(run),
+                MemberId::from_uuid(agent),
+                ChannelId::from_uuid(channel),
+                0,
+                1,
+                10,
+            )
+            .await;
+        let error = result.err().expect("foreign computer must be rejected");
+        assert_eq!(error, ApplicationError::PermissionDenied);
+        pool.close().await;
+    }
+    .await;
+
+    sqlx::query(&format!("DROP DATABASE \"{database_name}\" WITH (FORCE)"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    result
+}
+
+#[tokio::test]
 async fn mention_all_expands_active_channel_members_and_deduplicates_agents() {
     let admin_url = std::env::var("SUMI_TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://localhost/postgres".to_owned());

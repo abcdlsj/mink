@@ -580,12 +580,42 @@ impl PostgresTransaction {
     /// incremental cursor; this query only freezes and serves the requested sequence range.
     pub(super) async fn channel_activity_snapshot(
         &mut self,
+        computer_id: ComputerId,
+        run_id: RunId,
         agent_id: MemberId,
         channel_id: ChannelId,
         after_sequence: u64,
         through_sequence: u64,
         limit: u32,
     ) -> Result<ChannelActivitySnapshot, ApplicationError> {
+        if !self.can_operate_agent(computer_id, agent_id).await? {
+            return Err(ApplicationError::PermissionDenied);
+        }
+        if after_sequence > through_sequence {
+            return Err(ApplicationError::Conflict);
+        }
+        let Some((run_agent_id, run_channel_id, current_sequence)) =
+            sqlx::query_as::<_, (Uuid, Uuid, i64)>(
+                "SELECT r.agent_id,m.channel_id,c.next_seq - 1 \
+                 FROM agent_runs r \
+                 JOIN messages m ON m.id=r.focus_thread_id \
+                 JOIN channels c ON c.id=m.channel_id \
+                 WHERE r.id=$1 AND m.placement='root'",
+            )
+            .bind(run_id.into_uuid())
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_sqlx)?
+        else {
+            return Err(ApplicationError::NotFound);
+        };
+        if run_agent_id != agent_id.into_uuid()
+            || run_channel_id != channel_id.into_uuid()
+            || through_sequence
+                > u64::try_from(current_sequence).map_err(|_| ApplicationError::Internal)?
+        {
+            return Err(ApplicationError::Conflict);
+        }
         let after = i64::try_from(after_sequence).map_err(|_| ApplicationError::Conflict)?;
         let through = i64::try_from(through_sequence).map_err(|_| ApplicationError::Conflict)?;
         let limit = i64::from(limit.clamp(1, 1_000));

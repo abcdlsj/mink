@@ -619,6 +619,7 @@ where
                                 &mut pending_activity_results,
                                 storage,
                                 ChannelActivityRequest {
+                                    run_id: start.run_id,
                                     agent_id: start.agent_id,
                                     channel_id: start.focus.channel_id,
                                     through_sequence: start.channel_snapshot_sequence,
@@ -679,6 +680,7 @@ where
 }
 
 struct ChannelActivityRequest {
+    run_id: crate::ids::RunId,
     agent_id: crate::ids::AgentId,
     channel_id: crate::ids::ChannelId,
     through_sequence: u64,
@@ -720,6 +722,7 @@ where
                 serde_json::to_string(&ComputerFrame::ChannelActivityQuery {
                     query: ChannelActivityQuery {
                         query_id,
+                        run_id: request.run_id,
                         agent_id: request.agent_id,
                         channel_id: request.channel_id,
                         after_sequence: next_after,
@@ -771,22 +774,29 @@ where
             }
         };
         pending.extend(deferred);
-        let Some(last) = result
-            .result
-            .messages
-            .last()
-            .map(|entry| entry.message.sequence)
-        else {
+        let result = channel_activity_snapshot_from_result(result)?;
+        let Some(last) = result.messages.last().map(|entry| entry.message.sequence) else {
             break;
         };
         next_after = last;
-        messages.extend(result.result.messages);
+        messages.extend(result.messages);
     }
     Ok(ChannelActivitySnapshot {
         channel_id: request.channel_id,
         snapshot_sequence: request.through_sequence,
         messages,
     })
+}
+
+fn channel_activity_snapshot_from_result(
+    envelope: crate::protocol::computer::ChannelActivityResultEnvelope,
+) -> anyhow::Result<crate::protocol::computer::ChannelActivitySnapshot> {
+    match envelope.result {
+        crate::protocol::computer::ChannelActivityQueryResult::Snapshot(snapshot) => Ok(snapshot),
+        crate::protocol::computer::ChannelActivityQueryResult::Unavailable { code } => {
+            Err(anyhow::anyhow!("Channel activity query failed: {code:?}"))
+        }
+    }
 }
 
 fn route_activity_frame(
@@ -1003,11 +1013,13 @@ mod tests {
         let other = crate::ids::QueryId::from_uuid(Uuid::now_v7());
         let snapshot = |query_id| ChannelActivityResultEnvelope {
             query_id,
-            result: ChannelActivitySnapshot {
-                channel_id: crate::ids::ChannelId::from_uuid(Uuid::now_v7()),
-                snapshot_sequence: 1,
-                messages: Vec::new(),
-            },
+            result: crate::protocol::computer::ChannelActivityQueryResult::Snapshot(
+                ChannelActivitySnapshot {
+                    channel_id: crate::ids::ChannelId::from_uuid(Uuid::now_v7()),
+                    snapshot_sequence: 1,
+                    messages: Vec::new(),
+                },
+            ),
         };
         let mut deferred = VecDeque::new();
         let mut pending = BTreeMap::new();
@@ -1055,6 +1067,29 @@ mod tests {
             })
         ));
         assert!(pending.contains_key(&other));
+    }
+
+    #[test]
+    fn failed_activity_query_does_not_produce_a_snapshot() {
+        use crate::protocol::computer::{
+            ChannelActivityQueryErrorCode, ChannelActivityQueryResult,
+            ChannelActivityResultEnvelope,
+        };
+
+        let result = channel_activity_snapshot_from_result(ChannelActivityResultEnvelope {
+            query_id: crate::ids::QueryId::from_uuid(Uuid::now_v7()),
+            result: ChannelActivityQueryResult::Unavailable {
+                code: ChannelActivityQueryErrorCode::Unavailable,
+            },
+        });
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .expect("query error should be returned")
+                .to_string()
+                .contains("Channel activity query failed")
+        );
     }
 
     fn usage_record(id: Uuid, created_at: OffsetDateTime) -> LlmUsageRecord {

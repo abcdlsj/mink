@@ -118,6 +118,8 @@ impl PostgresAdapter {
 
     pub(super) async fn channel_activity_snapshot(
         &self,
+        computer_id: ComputerId,
+        run_id: RunId,
         agent_id: MemberId,
         channel_id: ChannelId,
         after_sequence: u64,
@@ -132,6 +134,8 @@ impl PostgresAdapter {
         };
         transaction
             .channel_activity_snapshot(
+                computer_id,
+                run_id,
                 agent_id,
                 channel_id,
                 after_sequence,

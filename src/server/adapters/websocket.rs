@@ -1,8 +1,9 @@
 use crate::protocol::{
     computer::{
-        ChannelActivityResultEnvelope, CommandAck, CommandEnvelope, CommandOutcome, CommandResult,
-        CommandSequence, ComputerFrame, ComputerHello, DeliveryOutcome, HandshakeErrorCode,
-        Receipt, ReceiptKind, RunTerminalStatus, ServerFrame, ServerHandshake,
+        ChannelActivityQueryErrorCode, ChannelActivityQueryResult, ChannelActivityResultEnvelope,
+        CommandAck, CommandEnvelope, CommandOutcome, CommandResult, CommandSequence, ComputerFrame,
+        ComputerHello, DeliveryOutcome, HandshakeErrorCode, Receipt, ReceiptKind,
+        RunTerminalStatus, ServerFrame, ServerHandshake,
     },
     version::SUPPORTED,
 };
@@ -30,6 +31,35 @@ pub(super) async fn acknowledge_command(
     ack: &CommandAck,
 ) -> Result<(), ApplicationError> {
     storage.acknowledge_command(computer_id, ack).await
+}
+
+fn channel_activity_result(
+    query_id: crate::ids::QueryId,
+    result: Result<crate::protocol::computer::ChannelActivitySnapshot, ApplicationError>,
+) -> ChannelActivityResultEnvelope {
+    let result = match result {
+        Ok(snapshot) => ChannelActivityQueryResult::Snapshot(snapshot),
+        Err(error) => ChannelActivityQueryResult::Unavailable {
+            code: channel_activity_error_code(&error),
+        },
+    };
+    ChannelActivityResultEnvelope { query_id, result }
+}
+
+fn channel_activity_error_code(error: &ApplicationError) -> ChannelActivityQueryErrorCode {
+    match error {
+        ApplicationError::PermissionDenied => ChannelActivityQueryErrorCode::PermissionDenied,
+        ApplicationError::Unavailable => ChannelActivityQueryErrorCode::Unavailable,
+        ApplicationError::Conflict | ApplicationError::NotFound => {
+            ChannelActivityQueryErrorCode::InvalidRequest
+        }
+        ApplicationError::Domain(_)
+        | ApplicationError::Unauthenticated
+        | ApplicationError::PayloadTooLarge
+        | ApplicationError::ContextChanged
+        | ApplicationError::StaleMessageContext { .. }
+        | ApplicationError::Internal => ChannelActivityQueryErrorCode::Internal,
+    }
 }
 
 pub(super) fn negotiate(
@@ -182,6 +212,8 @@ pub(super) async fn computer_socket(
                 let application = storage.clone();
                 let result = application
                     .channel_activity_snapshot(
+                        ComputerId::from_uuid(computer_id),
+                        query.run_id,
                         MemberId::from_uuid(query.agent_id.into_uuid()),
                         query.channel_id,
                         query.after_sequence,
@@ -189,22 +221,9 @@ pub(super) async fn computer_socket(
                         query.limit,
                     )
                     .await;
-                let result =
-                    result.unwrap_or_else(|_| crate::protocol::computer::ChannelActivitySnapshot {
-                        channel_id: query.channel_id,
-                        snapshot_sequence: query.through_sequence,
-                        messages: Vec::new(),
-                    });
-                let _ = send_json(
-                    &mut socket,
-                    &ServerFrame::ChannelActivityResult {
-                        result: ChannelActivityResultEnvelope {
-                            query_id: query.query_id,
-                            result,
-                        },
-                    },
-                )
-                .await;
+                let result = channel_activity_result(query.query_id, result);
+                let _ =
+                    send_json(&mut socket, &ServerFrame::ChannelActivityResult { result }).await;
             }
             ComputerFrame::QueryResult { result } => queries.resolve(result),
             ComputerFrame::Heartbeat { heartbeat } => {
@@ -616,5 +635,20 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn channel_activity_query_failure_is_explicit_and_content_free() {
+        let query_id = crate::ids::QueryId::from_uuid(Uuid::now_v7());
+        let frame = channel_activity_result(query_id, Err(ApplicationError::Unavailable));
+        assert_eq!(frame.query_id, query_id);
+        assert!(matches!(
+            frame.result,
+            ChannelActivityQueryResult::Unavailable {
+                code: ChannelActivityQueryErrorCode::Unavailable,
+            }
+        ));
+        let encoded = serde_json::to_string(&frame).unwrap();
+        assert!(!encoded.contains("Message body"));
     }
 }

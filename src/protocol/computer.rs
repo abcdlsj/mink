@@ -566,6 +566,7 @@ pub(crate) struct QueryEnvelope {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ChannelActivityQuery {
     pub(crate) query_id: QueryId,
+    pub(crate) run_id: RunId,
     pub(crate) agent_id: AgentId,
     pub(crate) channel_id: ChannelId,
     pub(crate) after_sequence: u64,
@@ -577,7 +578,25 @@ pub(crate) struct ChannelActivityQuery {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ChannelActivityResultEnvelope {
     pub(crate) query_id: QueryId,
-    pub(crate) result: ChannelActivitySnapshot,
+    pub(crate) result: ChannelActivityQueryResult,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "payload", deny_unknown_fields)]
+pub(crate) enum ChannelActivityQueryResult {
+    #[serde(rename = "snapshot")]
+    Snapshot(ChannelActivitySnapshot),
+    #[serde(rename = "unavailable")]
+    Unavailable { code: ChannelActivityQueryErrorCode },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ChannelActivityQueryErrorCode {
+    InvalidRequest,
+    PermissionDenied,
+    Unavailable,
+    Internal,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -938,12 +957,14 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        AttentionNotice, AttentionStrength, Command, CommandEnvelope, CommandSequence,
-        ComputerFrame, ComputerHello, DaemonCapability, FocusSnapshot, InboxSourceKind,
-        MemoryFileProjection, MemoryReadResult, MessageContent, MessageSnapshot, NoticeLocation,
-        Query, QueryEnvelope, QueryErrorCode, QueryResult, QueryResultEnvelope, RunStart, RunStop,
-        RuntimeDiagnosticsQuery, RuntimeDiagnosticsResult, RuntimeRunState, ServerFrame,
-        SessionContinuityQuery, SessionScope, StopReason, TaskSnapshot, TaskStatus,
+        AttentionNotice, AttentionStrength, ChannelActivityQueryErrorCode,
+        ChannelActivityQueryResult, ChannelActivityResultEnvelope, ChannelActivitySnapshot,
+        Command, CommandEnvelope, CommandSequence, ComputerFrame, ComputerHello, DaemonCapability,
+        FocusSnapshot, InboxSourceKind, MemoryFileProjection, MemoryReadResult, MessageContent,
+        MessageSnapshot, NoticeLocation, Query, QueryEnvelope, QueryErrorCode, QueryResult,
+        QueryResultEnvelope, RunStart, RunStop, RuntimeDiagnosticsQuery, RuntimeDiagnosticsResult,
+        RuntimeRunState, ServerFrame, SessionContinuityQuery, SessionScope, StopReason,
+        TaskSnapshot, TaskStatus,
     };
     use crate::{
         ids::{
@@ -1063,6 +1084,41 @@ mod tests {
         assert_eq!(value["result"]["result"]["kind"], "unavailable");
         assert_eq!(value["result"]["result"]["payload"]["code"], "unreachable");
         assert!(serde_json::from_value::<ComputerFrame>(value).unwrap() == result);
+    }
+
+    #[test]
+    fn channel_activity_query_errors_are_explicit_and_content_free() {
+        let query_id = QueryId::from_uuid(Uuid::now_v7());
+        let unavailable = ServerFrame::ChannelActivityResult {
+            result: ChannelActivityResultEnvelope {
+                query_id,
+                result: ChannelActivityQueryResult::Unavailable {
+                    code: ChannelActivityQueryErrorCode::PermissionDenied,
+                },
+            },
+        };
+        let encoded = serde_json::to_value(&unavailable).unwrap();
+        assert_eq!(encoded["result"]["result"]["kind"], "unavailable");
+        assert_eq!(
+            encoded["result"]["result"]["payload"]["code"],
+            "permission_denied"
+        );
+        assert!(serde_json::from_value::<ServerFrame>(encoded.clone()).unwrap() == unavailable);
+        assert!(!encoded.to_string().contains("Message body"));
+
+        let snapshot = ServerFrame::ChannelActivityResult {
+            result: ChannelActivityResultEnvelope {
+                query_id,
+                result: ChannelActivityQueryResult::Snapshot(ChannelActivitySnapshot {
+                    channel_id: ChannelId::from_uuid(Uuid::now_v7()),
+                    snapshot_sequence: 12,
+                    messages: Vec::new(),
+                }),
+            },
+        };
+        assert!(
+            serde_json::from_value::<ServerFrame>(serde_json::to_value(snapshot).unwrap()).is_ok()
+        );
     }
 
     #[test]
