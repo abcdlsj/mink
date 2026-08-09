@@ -1,7 +1,7 @@
 # sumi-telegram-agent
 
 Telegram bot conversation plugin for
-[`sumi-builtin-agent`](../../crates/sumi-builtin-agent). It long-polls the
+[`sumi-agent-core`](../../crates/sumi-agent-core). It long-polls the
 Telegram Bot API, runs one persistent builtin agent session per chat, and
 supports receiving and sending files and images.
 
@@ -61,7 +61,7 @@ Each chat has a persistent agent home with a `memory/` directory. On first use
 the runtime provisions `memory/MEMORY.md` with the agent identity and role; the
 agent maintains it with the `read`/`write`/`edit` tools and `memory/...` paths.
 Every turn includes a memory projection (path, size, sha256, modified time) in
-the run context so the agent knows what is stored. `sumi-builtin-agent` exposes
+the run context so the agent knows what is stored. `sumi-agent-core` exposes
 `AgentRuntime::list_memory/read_memory/write_memory` for host applications.
 
 ## Scheduled tasks

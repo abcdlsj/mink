@@ -1,9 +1,9 @@
 [package]
-name = "sumi-builtin-agent"
+name = "sumi-agent-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
-description = "Portable builtin LLM agent runtime extracted from Sumi"
+description = "Portable core agent runtime for Sumi"
 license = "MIT"
 
 [dependencies]

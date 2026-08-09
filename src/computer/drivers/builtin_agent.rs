@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use sumi_builtin_agent::{
+use sumi_agent_core::{
     AgentConfig, AgentError, AgentRuntime, CompactionConfig, Completion, ProviderConfig,
     SandboxConfig, TurnOutcome, TurnRequest,
 };

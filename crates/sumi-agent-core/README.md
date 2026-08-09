@@ -1,6 +1,6 @@
-# sumi-builtin-agent
+# sumi-agent-core
 
-Portable builtin LLM agent runtime extracted from Sumi. It runs an
+Portable core agent runtime extracted from Sumi. It runs an
 OpenAI-compatible chat stream through an agent loop with sandboxed `read`,
 `write`, `edit`, and `bash` tools, persists provider sessions on disk, and
 exposes a plugin API for external conversation channels.
@@ -17,7 +17,7 @@ model. It only needs:
 
 ```rust
 use std::sync::Arc;
-use sumi_builtin_agent::{
+use sumi_agent_core::{
     AgentConfig, AgentRuntime, ProviderConfig, SandboxConfig, TurnRequest,
 };
 

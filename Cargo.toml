@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/sumi-builtin-agent"]
+members = ["crates/sumi-agent-core"]
 resolver = "2"
 
 [package]
@@ -87,7 +87,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 subtle = "2.6"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "time"] }
-sumi-builtin-agent = { path = "crates/sumi-builtin-agent" }
+sumi-agent-core = { path = "crates/sumi-agent-core" }
 thiserror = "2.0"
 time = { version = "0.3", features = ["serde", "serde-well-known"] }
 tokio = { version = "1.0", features = ["fs", "io-std", "io-util", "macros", "rt-multi-thread", "signal", "net", "process", "sync", "time"] }

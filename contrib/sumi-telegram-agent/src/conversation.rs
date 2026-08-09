@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sumi_builtin_agent::{
+use sumi_agent_core::{
     AgentConfig, AgentRuntime, Attachment, MemoryFile, ProviderConfig, SandboxConfig, TurnOutcome,
     TurnRequest, agent_rooted_path,
 };
@@ -139,7 +139,7 @@ impl Conversation {
             provider: ProviderConfig::openai(settings.api_key.clone(), settings.model.clone())
                 .with_base_url(settings.api_base.clone()),
             sandbox: SandboxConfig::default(),
-            compaction: sumi_builtin_agent::CompactionConfig::default(),
+            compaction: sumi_agent_core::CompactionConfig::default(),
         };
         let agent_home = config.agent_home(agent_id);
         let plugin = Arc::new(TelegramPlugin::new(chat_id, client.clone()));

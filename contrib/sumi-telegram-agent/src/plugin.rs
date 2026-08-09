@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use serde_json::Value;
-use sumi_builtin_agent::{AgentPlugin, PluginContext, ToolDef, agent_rooted_path};
+use sumi_agent_core::{AgentPlugin, PluginContext, ToolDef, agent_rooted_path};
 
 use crate::{telegram::TelegramClient, text::sanitize_file_name};
 
