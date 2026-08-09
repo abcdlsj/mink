@@ -399,17 +399,10 @@ export function CompanyOfficeView({
   });
 
   useEffect(() => {
-    if (reduced) {
-      const activeIds = new Set(activeAgents.map((agent) => agent.member_id));
-      setWanderByMember((current) => (current.size ? new Map() : current));
-      setSettled((current) => {
-        if (current && current.size === activeIds.size && [...activeIds].every((id) => current.has(id))) {
-          return current;
-        }
-        return activeIds;
-      });
-      return;
-    }
+    // Reduced mode ignores retained wander state while rendering and does not
+    // start the autoplay timer. Keeping that state dormant also avoids an
+    // effect-driven state cascade when the media query changes.
+    if (reduced) return;
 
     const timer = window.setInterval(() => {
       const now = Date.now();
