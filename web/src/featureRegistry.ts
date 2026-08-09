@@ -21,6 +21,7 @@ export interface RegisteredFeature {
 }
 
 export const AGENT_INSIGHTS_FEATURE_ID = "agent-insights";
+export const COMPANY_OFFICE_FEATURE_ID = "company-office";
 
 export const REGISTERED_FEATURES: readonly RegisteredFeature[] = [
   {
@@ -30,6 +31,14 @@ export const REGISTERED_FEATURES: readonly RegisteredFeature[] = [
     description:
       "Agent-level usage statistics and the Agent-to-Agent coordination graph, shown in the left rail.",
     storageKey: "sumi.feature.agent-insights",
+    fields: [],
+  },
+  {
+    id: COMPANY_OFFICE_FEATURE_ID,
+    name: "Company office",
+    kind: "experimental",
+    description: "Kairosoft-style company office shown in the left rail.",
+    storageKey: "sumi.feature.company-office",
     fields: [],
   },
 ];

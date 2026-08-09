@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   AGENT_INSIGHTS_FEATURE_ID,
+  COMPANY_OFFICE_FEATURE_ID,
   REGISTERED_FEATURES,
   featureEnabled,
   registeredFeature,
@@ -16,6 +17,12 @@ describe("feature registry", () => {
   it("registers the Agent graph as an experimental feature", () => {
     expect(REGISTERED_FEATURES.map((feature) => feature.id)).toContain(AGENT_INSIGHTS_FEATURE_ID);
     expect(registeredFeature(AGENT_INSIGHTS_FEATURE_ID)?.kind).toBe("experimental");
+  });
+
+  it("registers Company office as an experimental feature", () => {
+    expect(REGISTERED_FEATURES.map((feature) => feature.id)).toContain(COMPANY_OFFICE_FEATURE_ID);
+    expect(registeredFeature(COMPANY_OFFICE_FEATURE_ID)?.kind).toBe("experimental");
+    expect(featureEnabled(COMPANY_OFFICE_FEATURE_ID)).toBe(false);
   });
 
   it("is off by default", () => {

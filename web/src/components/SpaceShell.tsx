@@ -44,7 +44,11 @@ import {
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { designLabEnabled } from "../featureFlags";
-import { AGENT_INSIGHTS_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
+import {
+  AGENT_INSIGHTS_FEATURE_ID,
+  COMPANY_OFFICE_FEATURE_ID,
+  useFeatureEnabled,
+} from "../featureRegistry";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { InsightsNavigation } from "./InsightsNavigation";
@@ -85,6 +89,7 @@ export function SpaceShell({
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
   const agentInsightsEnabled = useFeatureEnabled(AGENT_INSIGHTS_FEATURE_ID);
+  const companyOfficeEnabled = useFeatureEnabled(COMPANY_OFFICE_FEATURE_ID);
   const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
@@ -314,12 +319,14 @@ export function SpaceShell({
             active={active === "channel" || active === "dm"}
             href={`/s/${space.data.slug}/channels/general`}
           />
-          <RailItem
-            icon={Building2}
-            label="Company"
-            active={active === "company"}
-            href={`/s/${space.data.slug}/company`}
-          />
+          {companyOfficeEnabled ? (
+            <RailItem
+              icon={Building2}
+              label="Company"
+              active={active === "company"}
+              href={`/s/${space.data.slug}/company`}
+            />
+          ) : null}
           <RailItem
             icon={Inbox}
             label="Inbox"
@@ -413,12 +420,14 @@ export function SpaceShell({
               active={active === "channel" || active === "dm"}
               href={`/s/${space.data.slug}/channels/general`}
             />
-            <NavigationItem
-              icon={Building2}
-              label="Company"
-              active={active === "company"}
-              href={`/s/${space.data.slug}/company`}
-            />
+            {companyOfficeEnabled ? (
+              <NavigationItem
+                icon={Building2}
+                label="Company"
+                active={active === "company"}
+                href={`/s/${space.data.slug}/company`}
+              />
+            ) : null}
             <NavigationItem
               icon={Inbox}
               label="Inbox"
