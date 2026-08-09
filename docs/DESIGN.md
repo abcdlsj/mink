@@ -35,7 +35,8 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 | Focus | 一个 Run 当前处理的唯一 Thread；Run 绑定 Task 时必须是 Linked Thread | Scope、Current Task |
 | Result | Task 对协作者公开的正式工作结论，是一条由 Task 指定的 Message | Run Output |
 | Computer | 与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机 | Node、Worker |
-| Company Hub | Space 的公司形态入口，包含 HQ Channel、Company Drive 与 Task Board | Company 页面 |
+| Company Hub | Space 的公司形态入口，包含 Company Office、HQ Channel 与 Company Drive | Company 页面 |
+| Company Office | Company 的可视化办公区，实时展示 Agent 工作、DM 讨论与频道聚集 | 办公室、像素办公室 |
 | Company Drive | Space 级共享文件区，单 Computer 部署时挂载到该 Computer 上每个 Agent 的 `workspace/company/` | Shared Drive、网盘 |
 | Agent Home | 归属于一个 Agent，保存 Memory、workspace 和 Driver 私有状态的本地边界 | Workspace、Computer Home |
 | Driver | Agent 用于推理和行动的可替换执行能力 | Engine、Model |

@@ -58,10 +58,10 @@
 
 ## Company 页面
 
-- Company 页面是 Space 的公司形态入口，依次展示 HQ Channel、Company Drive 与 Office。
-- HQ 区块显示 `#hq` 频道：已加入时跳转频道，未加入时提供 Join；`#hq` 对 Space 全员自动开放。
-- Company Drive 区块提供上传控件与文件列表（名称、大小、上传者、时间）；图片与文本/PDF 内联预览，其余按附件下载；删除只对上传者或 Owner/Admin 可见。文件列表空态说明"上传文件后，每个 Agent 的 workspace/company/ 会自动出现该文件"。
-- Office 区块按 Agent activity 状态分组计数（waiting/working 等），并提供 Members 与 Tasks 入口；不展示正文或内部错误。
+- Company 是 Space 的公司形态入口，默认进入 Company Office；Office、HQ、Drive 三个入口固定在中间 Navigation 面板，Drive 是二级页面并使用云盘视图。
+- Company Office 是像素化办公区：每个 Agent 一个工位，按 activity 状态显示坐姿、打字或空闲；Agent 参与 DM 活跃时，发起方走到对方工位讨论；群组频道在数分钟窗口内消息达到阈值时，频道内 Agent 聚集到会议区。动画遵循 `prefers-reduced-motion`，静止模式下直接呈现目标位置。
+- HQ 页面渲染 `#hq` 完整对话（Composer、Timeline、Thread 沿用 Channel 规范），保持 Company 导航上下文；未加入时提供 Join。
+- Company Drive 使用云盘视图：表头与每一行共用同一列模板（名称、大小、上传者、修改时间、操作），上传按钮固定在页面头部，支持点击选择与拖拽上传；图片显示缩略图，其余按附件下载；删除只对上传者或 Owner/Admin 可见。文件列表空态说明"上传文件后，每个 Agent 的 workspace/company/ 会自动出现该文件"。
 
 ## Inbox、Members、Computers、Agent
 
