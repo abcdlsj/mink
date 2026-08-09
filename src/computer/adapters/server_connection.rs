@@ -204,6 +204,18 @@ impl ServerConnectionAdapter {
                                 series: entry.series.into_iter().map(usage_bucket).collect(),
                             })
                             .collect(),
+                        by_agent_model: summary
+                            .by_agent_model
+                            .into_iter()
+                            .map(|entry| wire::LlmUsageAgentModelResult {
+                                agent_id: entry.agent_id,
+                                model: entry.model,
+                                requests: entry.requests,
+                                input_tokens: entry.input_tokens,
+                                output_tokens: entry.output_tokens,
+                                cached_input_tokens: entry.cached_input_tokens,
+                            })
+                            .collect(),
                     }),
                     Err(error) => {
                         tracing::warn!(%error, "LLM usage query failed on Computer");

@@ -6,8 +6,8 @@ use std::{
 
 use async_trait::async_trait;
 use sumi_agent_core::{
-    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TokenUsage,
-    TurnOutcome, TurnRequest,
+    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
+    TurnRequest,
 };
 use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
 use time::OffsetDateTime;
@@ -38,7 +38,6 @@ pub(in crate::computer) struct BuiltinRuntimeClient {
     runtime: Option<AgentRuntime>,
     model: Option<String>,
     usage_sink: Option<UnboundedSender<LlmUsageRecord>>,
-    usage_baselines: Arc<std::sync::Mutex<BTreeMap<RunId, TokenUsage>>>,
 }
 
 impl BuiltinRuntimeClient {
@@ -53,7 +52,6 @@ impl BuiltinRuntimeClient {
                 runtime: None,
                 model: None,
                 usage_sink: None,
-                usage_baselines: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
             });
         };
         let socket_path = daemon_socket_path(&computer_home);
@@ -82,7 +80,6 @@ impl BuiltinRuntimeClient {
             runtime: Some(AgentRuntime::new(agent_config, Vec::new())),
             model: Some(builtin.model.clone()),
             usage_sink: None,
-            usage_baselines: Arc::new(std::sync::Mutex::new(BTreeMap::new())),
         })
     }
 
@@ -241,43 +238,27 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             run_id,
             agent_id,
             outcome,
-            usage,
+            usages,
         } in completions
         {
-            if let Some(usage) = usage
-                && let Some(sink) = &self.usage_sink
-            {
+            if let Some(sink) = &self.usage_sink {
                 let run_id = RunId::from_uuid(run_id);
-                let mut baselines = self.usage_baselines.lock().expect("usage baseline lock");
-                let previous = baselines.get(&run_id).cloned().unwrap_or_default();
-                let record = LlmUsageRecord {
-                    id: Uuid::now_v7(),
-                    run_id,
-                    agent_id: AgentId::from_uuid(agent_id),
-                    driver_kind: "builtin".to_owned(),
-                    model: self.model.clone(),
-                    input_tokens: i64::from(
-                        usage.input_tokens.saturating_sub(previous.input_tokens),
-                    ),
-                    output_tokens: i64::from(
-                        usage.output_tokens.saturating_sub(previous.output_tokens),
-                    ),
-                    cached_input_tokens: i64::from(
-                        usage
-                            .cached_input_tokens
-                            .saturating_sub(previous.cached_input_tokens),
-                    ),
-                    cache_write_tokens: i64::from(
-                        usage
-                            .cache_write_tokens
-                            .saturating_sub(previous.cache_write_tokens),
-                    ),
-                    duration_ms: None,
-                    created_at: OffsetDateTime::now_utc(),
-                };
-                baselines.insert(run_id, usage);
-                drop(baselines);
-                let _ = sink.send(record);
+                for usage in usages {
+                    let record = LlmUsageRecord {
+                        id: Uuid::now_v7(),
+                        run_id,
+                        agent_id: AgentId::from_uuid(agent_id),
+                        driver_kind: "builtin".to_owned(),
+                        model: self.model.clone(),
+                        input_tokens: i64::from(usage.input_tokens.max(0)),
+                        output_tokens: i64::from(usage.output_tokens.max(0)),
+                        cached_input_tokens: i64::from(usage.cached_input_tokens.max(0)),
+                        cache_write_tokens: i64::from(usage.cache_write_tokens.max(0)),
+                        duration_ms: None,
+                        created_at: OffsetDateTime::now_utc(),
+                    };
+                    let _ = sink.send(record);
+                }
             }
             driver_completions.push(DriverCompletion {
                 run_id: RunId::from_uuid(run_id),

@@ -76,7 +76,10 @@ pub struct Completion {
     pub run_id: Uuid,
     pub agent_id: Uuid,
     pub outcome: TurnOutcome,
-    pub usage: Option<TokenUsage>,
+    /// Usage reported by each provider call made during this Run.
+    /// It is scoped to the Run and remains correct when a Provider Session is reused across Runs
+    /// or resumed after a process restart.
+    pub usages: Vec<TokenUsage>,
 }
 
 pub struct AgentRuntime {
@@ -90,7 +93,7 @@ pub struct AgentRuntime {
 struct BuiltinTurn {
     locator: String,
     agent_id: Uuid,
-    task: JoinHandle<(TurnOutcome, TokenUsage)>,
+    task: JoinHandle<(TurnOutcome, Vec<TokenUsage>)>,
 }
 
 impl AgentRuntime {
@@ -304,7 +307,7 @@ impl AgentRuntime {
                     tool_definitions(&plugins),
                     context,
                 ),
-                Err(_) => return (TurnOutcome::Failed, TokenUsage::default()),
+                Err(_) => return (TurnOutcome::Failed, Vec::new()),
             };
             let turn = Turn {
                 input: request_owned.user_message.clone(),
@@ -353,7 +356,17 @@ impl AgentRuntime {
                     TurnOutcome::Failed
                 }
             };
-            let usage = session.token_usage();
+            let usages = engine.take_usage_records();
+            let usage = usages
+                .iter()
+                .fold(TokenUsage::default(), |mut total, usage| {
+                    total.input_tokens += usage.input_tokens;
+                    total.output_tokens += usage.output_tokens;
+                    total.total_tokens += usage.total_tokens;
+                    total.cached_input_tokens += usage.cached_input_tokens;
+                    total.cache_write_tokens += usage.cache_write_tokens;
+                    total
+                });
             tracing::info!(
                 %run_id,
                 input_tokens = usage.input_tokens,
@@ -367,9 +380,9 @@ impl AgentRuntime {
                     failure_code = "session_persist_failed",
                     "Builtin turn failed"
                 );
-                return (TurnOutcome::Failed, usage.clone());
+                return (TurnOutcome::Failed, usages);
             }
-            (outcome, usage)
+            (outcome, usages)
         });
         self.turns.insert(
             run_id,
@@ -405,7 +418,7 @@ impl AgentRuntime {
                 run_id,
                 agent_id: turn.agent_id,
                 outcome: TurnOutcome::Interrupted,
-                usage: None,
+                usages: Vec::new(),
             });
         }
         Ok(())
@@ -471,15 +484,12 @@ impl AgentRuntime {
             .collect::<Vec<_>>();
         for run_id in finished {
             let turn = self.turns.remove(&run_id).ok_or(AgentError::Internal)?;
-            let (outcome, usage) = turn
-                .task
-                .await
-                .unwrap_or((TurnOutcome::Failed, TokenUsage::default()));
+            let (outcome, usages) = turn.task.await.unwrap_or((TurnOutcome::Failed, Vec::new()));
             self.completions.push_back(Completion {
                 run_id,
                 agent_id: turn.agent_id,
                 outcome,
-                usage: Some(usage),
+                usages,
             });
         }
         Ok(self.completions.drain(..).collect())
@@ -764,10 +774,10 @@ mod tests {
         assert!(matches!(
             completion,
             Completion {
-                run_id,
-                agent_id,
+                run_id: _,
+                agent_id: _,
                 outcome: TurnOutcome::Completed,
-                usage: Some(_),
+                usages: _,
             }
         ));
         assert_eq!(
@@ -793,6 +803,60 @@ mod tests {
         assert!(resumed.resume_session(agent_id, &locator).await.unwrap());
         resumed.delete_session(&locator).await.unwrap();
         assert!(!session_path.exists());
+    }
+
+    #[tokio::test]
+    async fn consecutive_runs_on_one_locator_report_only_their_own_usage() {
+        let api_base = serve_scripted(vec![
+            concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"first\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12}}\n\n",
+                "data: [DONE]\n\n"
+            ),
+            concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"second\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}\n\n",
+                "data: [DONE]\n\n"
+            ),
+        ])
+        .await;
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let agent_id = Uuid::now_v7();
+        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
+            fs::create_dir_all(agent_home.join(relative)).unwrap();
+        }
+        let mut config = agent_config(&api_base);
+        config.computer_home = computer_home;
+        let mut runtime = AgentRuntime::new(config, Vec::new());
+        let locator = runtime.create_session(agent_id).await.unwrap();
+
+        let first_run = Uuid::now_v7();
+        runtime
+            .start_turn(first_run, &locator, run_request(agent_id))
+            .await
+            .unwrap();
+        let first = loop {
+            if let Some(completion) = runtime.poll_completions().await.unwrap().into_iter().next() {
+                break completion;
+            }
+            tokio::task::yield_now().await;
+        };
+        assert_eq!(first.usages.len(), 1);
+        assert_eq!(first.usages[0].input_tokens, 10);
+
+        let second_run = Uuid::now_v7();
+        runtime
+            .start_turn(second_run, &locator, run_request(agent_id))
+            .await
+            .unwrap();
+        let second = loop {
+            if let Some(completion) = runtime.poll_completions().await.unwrap().into_iter().next() {
+                break completion;
+            }
+            tokio::task::yield_now().await;
+        };
+        assert_eq!(second.usages.len(), 1);
+        assert_eq!(second.usages[0].input_tokens, 20);
     }
 
     #[tokio::test]
@@ -822,7 +886,7 @@ mod tests {
                 run_id,
                 agent_id,
                 outcome: TurnOutcome::Interrupted,
-                usage: None,
+                usages: Vec::new(),
             }]
         );
     }

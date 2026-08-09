@@ -25,6 +25,9 @@ const usage: LlmUsage = {
   by_model: [
     { key: "deepseek-v4-pro", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000 },
   ],
+  by_agent_model: [
+    { agent_id: "019c0000-0000-7000-8000-000000000010", model: "deepseek-v4-pro", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000 },
+  ],
   by_agent: [
     { key: "019c0000-0000-7000-8000-000000000010", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000 },
   ],

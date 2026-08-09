@@ -147,7 +147,7 @@ impl SqliteAdapter {
         let rows = sqlx::query_as(
             "SELECT id, run_id, agent_id, driver_kind, model, input_tokens, output_tokens, \
              cached_input_tokens, cache_write_tokens, duration_ms, created_at \
-             FROM llm_usage WHERE created_at >= ? ORDER BY created_at ASC LIMIT 10000",
+             FROM llm_usage WHERE created_at >= ? ORDER BY created_at ASC, id ASC",
         )
         .bind(since)
         .fetch_all(&mut self.connection)
@@ -1177,6 +1177,34 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_empty());
+    }
+
+    #[tokio::test]
+    async fn llm_usage_reads_all_rows_without_silent_truncation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        let now = OffsetDateTime::now_utc();
+        let created_at = now.format(&Rfc3339).unwrap();
+        sqlx::query(
+            "WITH RECURSIVE sequence(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM sequence WHERE n < 10005) \
+             INSERT INTO llm_usage (id, run_id, agent_id, driver_kind, model, input_tokens, \
+             output_tokens, cached_input_tokens, cache_write_tokens, duration_ms, created_at) \
+             SELECT printf('00000000-0000-7000-8000-%012x', n), \
+                    '00000000-0000-7000-8000-000000000001', \
+                    '00000000-0000-7000-8000-000000000002', 'builtin', 'test-model', 1, 0, 0, 0, NULL, ? \
+             FROM sequence",
+        )
+        .bind(created_at)
+        .execute(&mut adapter.connection)
+        .await
+        .unwrap();
+
+        let rows = adapter
+            .llm_usage_since(now.checked_sub(time::Duration::hours(1)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 10005);
     }
 
     #[tokio::test]

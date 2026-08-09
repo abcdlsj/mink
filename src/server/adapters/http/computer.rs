@@ -560,6 +560,18 @@ pub(super) async fn computer_llm_usage(
                     series: entry.series.into_iter().map(llm_usage_bucket).collect(),
                 })
                 .collect(),
+            by_agent_model: usage
+                .by_agent_model
+                .into_iter()
+                .map(|entry| LlmUsageAgentModelResponse {
+                    agent_id: entry.agent_id.into_uuid(),
+                    model: entry.model,
+                    requests: entry.requests,
+                    input_tokens: entry.input_tokens,
+                    output_tokens: entry.output_tokens,
+                    cached_input_tokens: entry.cached_input_tokens,
+                })
+                .collect(),
         })),
         QueryResult::Unavailable { .. } => Err(ApiError::computer_unreachable()),
         _ => Err(ApiError::internal()),

@@ -33,6 +33,12 @@
   font-size: var(--text-system);
 }
 
+.agent-statistics-partial {
+  margin: 0;
+  color: var(--orange);
+  font-size: var(--text-system);
+}
+
 .agent-statistics-layout {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);

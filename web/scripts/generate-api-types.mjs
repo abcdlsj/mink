@@ -48,6 +48,7 @@ const exportedTypes = {
   LlmUsageBucket: "LlmUsageBucketResponse",
   LlmUsageBreakdown: "LlmUsageBreakdownResponse",
   LlmUsageAgentSeries: "LlmUsageAgentSeriesResponse",
+  LlmUsageAgentModel: "LlmUsageAgentModelResponse",
   Member: "MemberResponse",
   Message: "MessageResponse",
   MessageAuthor: "MessageAuthor",

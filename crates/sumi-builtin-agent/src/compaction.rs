@@ -81,7 +81,10 @@ impl ContextStrategy for BuiltinContext {
         reason: &str,
         summarizer: &dyn Summarizer,
     ) -> Result<()> {
-        if session.estimate_tokens() < self.config.trigger_tokens {
+        // A provider context-limit error is evidence that the estimate was too low. Force the
+        // cut-point path in that case; returning without changing the session would make the
+        // runtime retry the exact same over-limit request.
+        if reason != "context_limit" && session.estimate_tokens() < self.config.trigger_tokens {
             return Ok(());
         }
         let compacted_through = session.metadata()["compaction"]["through"]
@@ -165,7 +168,7 @@ impl ContextStrategy for BuiltinContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sumi_agent_core::{IdentityContext, Session};
+    use sumi_agent_core::{IdentityContext, Session, TokenUsage};
 
     struct FakeSummarizer;
 
@@ -233,5 +236,43 @@ mod tests {
         assert_eq!(context.project(&session).len(), session.messages().len());
         // IdentityContext stays usable as the default no-op strategy.
         let _ = IdentityContext;
+    }
+
+    #[tokio::test]
+    async fn context_limit_forces_compaction_when_provider_estimate_is_too_low() {
+        let context = BuiltinContext::new(CompactionConfig {
+            trigger_tokens: 10_000,
+            keep_recent_tokens: 16,
+        });
+        let mut session = Session::default();
+        for index in 0..8 {
+            session.add(Message::user(format!("request {index} {}", "x".repeat(80))));
+            session.add(Message {
+                role: "assistant".into(),
+                content: format!("response {index} {}", "y".repeat(80)),
+                ..Default::default()
+            });
+        }
+        // The provider's latest input count can be lower than the serialized transcript. The
+        // context-limit path must still compact instead of retrying the unchanged transcript.
+        session.messages.last_mut().unwrap().usage = Some(TokenUsage {
+            input_tokens: 1,
+            output_tokens: 1,
+            total_tokens: 2,
+            ..Default::default()
+        });
+
+        context
+            .prepare_turn(&mut session, "context_limit", &FakeSummarizer)
+            .await
+            .unwrap();
+
+        assert!(session.metadata()["compactions"].as_array().is_some());
+        assert!(
+            session.metadata()["compaction"]["through"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
     }
 }

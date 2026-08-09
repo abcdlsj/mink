@@ -696,6 +696,7 @@ pub(crate) struct LlmUsageResult {
     pub(crate) by_model: Vec<LlmUsageBreakdownResult>,
     pub(crate) by_agent: Vec<LlmUsageBreakdownResult>,
     pub(crate) by_agent_series: Vec<LlmUsageAgentSeriesResult>,
+    pub(crate) by_agent_model: Vec<LlmUsageAgentModelResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -727,6 +728,17 @@ pub(crate) struct LlmUsageAgentSeriesResult {
     pub(crate) output_tokens: u64,
     pub(crate) cached_input_tokens: u64,
     pub(crate) series: Vec<LlmUsageBucketResult>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LlmUsageAgentModelResult {
+    pub(crate) agent_id: AgentId,
+    pub(crate) model: String,
+    pub(crate) requests: u64,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) cached_input_tokens: u64,
 }
 
 impl fmt::Debug for MemoryReadResult {

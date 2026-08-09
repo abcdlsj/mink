@@ -109,19 +109,8 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
     let usage_database_path = database_path.clone();
-    let (usage_tx, mut usage_rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        let Ok(usage_writer) = LlmUsageWriter::open(&usage_database_path).await else {
-            tracing::error!("LLM usage writer could not open the local daemon database");
-            return;
-        };
-        while let Some(record) = usage_rx.recv().await {
-            if let Err(error) = usage_writer.record(&record).await {
-                tracing::warn!(%error, "LLM usage record could not be stored locally");
-                return;
-            }
-        }
-    });
+    let (usage_tx, usage_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(run_usage_writer(usage_database_path, usage_rx));
     let ipc = LocalIpcAdapter::bind(&daemon_socket_path(&computer_home))
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
@@ -255,6 +244,24 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
                 tracing::warn!(%error, ?delay, "Computer connection lost; retrying");
                 tokio::time::sleep(delay).await;
             }
+        }
+    }
+}
+
+async fn run_usage_writer(
+    database_path: PathBuf,
+    mut usage_rx: tokio::sync::mpsc::UnboundedReceiver<application::usage::LlmUsageRecord>,
+) {
+    let Ok(usage_writer) = LlmUsageWriter::open(&database_path).await else {
+        tracing::error!("LLM usage writer could not open the local daemon database");
+        return;
+    };
+    while let Some(record) = usage_rx.recv().await {
+        if let Err(error) = usage_writer.record(&record).await {
+            tracing::warn!(%error, "LLM usage record could not be stored locally");
+            // A malformed or transient row must not tear down the long-lived writer. Keep
+            // consuming subsequent completions so one failure cannot suppress all telemetry.
+            continue;
         }
     }
 }
@@ -803,4 +810,58 @@ async fn write_secrets(path: &Path, secrets: &ComputerSecrets) -> anyhow::Result
     file.write_all(&encoded).await?;
     file.sync_all().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::{ports::LlmUsageStore, usage::LlmUsageRecord};
+    use time::{Duration, OffsetDateTime};
+
+    fn usage_record(id: Uuid, created_at: OffsetDateTime) -> LlmUsageRecord {
+        LlmUsageRecord {
+            id,
+            run_id: RunId::from_uuid(Uuid::now_v7()),
+            agent_id: crate::ids::AgentId::from_uuid(Uuid::now_v7()),
+            driver_kind: "builtin".to_owned(),
+            model: Some("test-model".to_owned()),
+            input_tokens: 1,
+            output_tokens: 2,
+            cached_input_tokens: 0,
+            cache_write_tokens: 0,
+            duration_ms: Some(1),
+            created_at,
+        }
+    }
+
+    #[tokio::test]
+    async fn usage_writer_continues_after_one_insert_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join("daemon.db");
+        // The daemon opens the state adapter before starting the usage worker, which initializes
+        // the local schema. Mirror that ordering in the regression test.
+        let adapter = SqliteAdapter::open(&database_path).await.unwrap();
+        drop(adapter);
+
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let worker = tokio::spawn(run_usage_writer(database_path.clone(), receiver));
+        let now = OffsetDateTime::now_utc();
+        let first = usage_record(Uuid::now_v7(), now);
+        let duplicate = first.clone();
+        let second = usage_record(Uuid::now_v7(), now);
+        sender.send(first.clone()).unwrap();
+        sender.send(duplicate).unwrap();
+        sender.send(second.clone()).unwrap();
+        drop(sender);
+        worker.await.unwrap();
+
+        let mut adapter = SqliteAdapter::open(&database_path).await.unwrap();
+        let rows = adapter
+            .llm_usage_since(now.checked_sub(Duration::hours(1)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().any(|row| row.id == first.id));
+        assert!(rows.iter().any(|row| row.id == second.id));
+    }
 }

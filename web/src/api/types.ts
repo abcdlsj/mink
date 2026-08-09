@@ -386,6 +386,19 @@ export interface components {
             /** Format: uuid */
             thread_id: string;
         };
+        LlmUsageAgentModelResponse: {
+            /** Format: uuid */
+            agent_id: string;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            input_tokens: number;
+            model: string;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            requests: number;
+        };
         LlmUsageAgentSeriesResponse: {
             /** Format: uuid */
             agent_id: string;
@@ -423,6 +436,7 @@ export interface components {
         };
         LlmUsageResponse: {
             by_agent: components["schemas"]["LlmUsageBreakdownResponse"][];
+            by_agent_model: components["schemas"]["LlmUsageAgentModelResponse"][];
             by_agent_series: components["schemas"]["LlmUsageAgentSeriesResponse"][];
             by_model: components["schemas"]["LlmUsageBreakdownResponse"][];
             /** Format: double */
@@ -772,6 +786,7 @@ export type LlmUsage = components["schemas"]["LlmUsageResponse"];
 export type LlmUsageBucket = components["schemas"]["LlmUsageBucketResponse"];
 export type LlmUsageBreakdown = components["schemas"]["LlmUsageBreakdownResponse"];
 export type LlmUsageAgentSeries = components["schemas"]["LlmUsageAgentSeriesResponse"];
+export type LlmUsageAgentModel = components["schemas"]["LlmUsageAgentModelResponse"];
 export type Member = components["schemas"]["MemberResponse"];
 export type Message = components["schemas"]["MessageResponse"];
 export type MessageAuthor = components["schemas"]["MessageAuthor"];

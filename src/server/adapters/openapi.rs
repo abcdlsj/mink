@@ -75,6 +75,7 @@ use uuid::Uuid;
         LlmUsageBucketResponse,
         LlmUsageBreakdownResponse,
         LlmUsageAgentSeriesResponse,
+        LlmUsageAgentModelResponse,
         CreateThreadMessageRequest,
         ThreadReadResponse,
         ThreadSubscriptionResponse
@@ -828,6 +829,7 @@ pub(super) struct LlmUsageResponse {
     pub(super) by_model: Vec<LlmUsageBreakdownResponse>,
     pub(super) by_agent: Vec<LlmUsageBreakdownResponse>,
     pub(super) by_agent_series: Vec<LlmUsageAgentSeriesResponse>,
+    pub(super) by_agent_model: Vec<LlmUsageAgentModelResponse>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -856,6 +858,16 @@ pub(super) struct LlmUsageAgentSeriesResponse {
     pub(super) output_tokens: u64,
     pub(super) cached_input_tokens: u64,
     pub(super) series: Vec<LlmUsageBucketResponse>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct LlmUsageAgentModelResponse {
+    pub(super) agent_id: Uuid,
+    pub(super) model: String,
+    pub(super) requests: u64,
+    pub(super) input_tokens: u64,
+    pub(super) output_tokens: u64,
+    pub(super) cached_input_tokens: u64,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

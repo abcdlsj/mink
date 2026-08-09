@@ -30,6 +30,7 @@ pub(super) struct Engine {
     system_messages: Vec<Message>,
     tool_defs: Vec<ToolDef>,
     context: Arc<dyn ContextStrategy>,
+    usage_records: std::sync::Mutex<Vec<crate::types::TokenUsage>>,
 }
 
 pub(super) struct StreamSink {
@@ -51,6 +52,27 @@ impl Engine {
             system_messages,
             tool_defs,
             context,
+            usage_records: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn take_usage_records(&self) -> Vec<crate::types::TokenUsage> {
+        std::mem::take(&mut *self.usage_records.lock().expect("usage record lock"))
+    }
+
+    fn clear_usage_records(&self) {
+        self.usage_records
+            .lock()
+            .expect("usage record lock")
+            .clear();
+    }
+
+    fn record_usage(&self, usage: Option<crate::types::TokenUsage>) {
+        if let Some(usage) = usage {
+            self.usage_records
+                .lock()
+                .expect("usage record lock")
+                .push(usage);
         }
     }
 
@@ -76,6 +98,7 @@ impl Engine {
         events: &mpsc::Sender<ToolEvent>,
         sink: Option<&StreamSink>,
     ) -> Result<()> {
+        self.clear_usage_records();
         let mut append_input = true;
         for attempt in 1..=MAX_TURN_ATTEMPTS {
             match self
@@ -141,9 +164,20 @@ impl Engine {
                         continue;
                     }
                     if !retried_after_compaction && is_context_limit_error(&e) {
+                        // A provider context error is authoritative. Only retry after the
+                        // strategy actually changes the projected session; an under-estimated
+                        // context must never receive the same request twice. Compaction errors
+                        // remain visible to the caller instead of being retried.
+                        let before = serde_json::to_vec(&self.build_messages(turn, session))
+                            .unwrap_or_default();
                         self.context
                             .prepare_turn(session, "context_limit", self)
                             .await?;
+                        let after = serde_json::to_vec(&self.build_messages(turn, session))
+                            .unwrap_or_default();
+                        if after == before {
+                            return Err(e);
+                        }
                         retried_after_compaction = true;
                         continue;
                     }
@@ -162,8 +196,13 @@ impl Engine {
         sink: Option<&StreamSink>,
     ) -> Result<Response> {
         let resp = self.stream(turn, session, sink).await?;
-        let has_content =
-            !resp.content.is_empty() || !resp.reasoning.is_empty() || !resp.tool_calls.is_empty();
+        // Persist an assistant message whenever the provider reports usage, even if the
+        // response contains no visible content. This keeps one usage-bearing transcript entry
+        // per provider call so harnesses can emit per-call telemetry without session baselines.
+        let has_content = !resp.content.is_empty()
+            || !resp.reasoning.is_empty()
+            || !resp.tool_calls.is_empty()
+            || resp.usage.is_some();
 
         if has_content {
             session.add(Message {
@@ -224,6 +263,7 @@ impl Engine {
                     tool_calls.push(call);
                 }
                 Chunk::Done { usage: u } => {
+                    self.record_usage(u.clone());
                     usage = u;
                     completed = true;
                     break;
@@ -259,7 +299,8 @@ impl Engine {
         while let Some(chunk) = chunks.recv().await {
             match chunk {
                 Chunk::Text { delta } => summary.push_str(&delta),
-                Chunk::Done { .. } => {
+                Chunk::Done { usage } => {
+                    self.record_usage(usage);
                     completed = true;
                     break;
                 }
@@ -388,7 +429,7 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::context::IdentityContext;
+    use super::super::context::{ContextStrategy, IdentityContext, Summarizer};
     use super::super::{tool_executor::ToolRunner, types::ToolDef};
     use super::*;
     use async_trait::async_trait;
@@ -406,6 +447,92 @@ mod tests {
             system_messages,
             tool_defs,
             Arc::new(IdentityContext),
+        )
+    }
+
+    #[derive(Debug)]
+    struct TestCompactingContext;
+
+    #[derive(Debug)]
+    struct MetadataOnlyContext;
+
+    #[derive(Debug)]
+    struct SummaryContext;
+
+    #[async_trait]
+    impl ContextStrategy for SummaryContext {
+        fn project(&self, session: &Session) -> Vec<Message> {
+            session.messages().to_vec()
+        }
+
+        async fn prepare_turn(
+            &self,
+            session: &mut Session,
+            reason: &str,
+            summarizer: &dyn Summarizer,
+        ) -> Result<()> {
+            if reason == "preemptive" {
+                let _ = summarizer.summarize(&[Message::user("history")]).await?;
+                session.metadata_mut()["summary_called"] = Value::Bool(true);
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ContextStrategy for MetadataOnlyContext {
+        fn project(&self, session: &Session) -> Vec<Message> {
+            session.messages().to_vec()
+        }
+
+        async fn prepare_turn(
+            &self,
+            session: &mut Session,
+            reason: &str,
+            _summarizer: &dyn Summarizer,
+        ) -> Result<()> {
+            if reason == "context_limit" {
+                session.metadata_mut()["test_compacted"] = Value::Bool(true);
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ContextStrategy for TestCompactingContext {
+        fn project(&self, session: &Session) -> Vec<Message> {
+            if session.metadata()["test_compacted"].as_bool() == Some(true) {
+                let mut projected = vec![Message::system("compacted")];
+                projected.extend(session.messages().iter().cloned());
+                projected
+            } else {
+                session.messages().to_vec()
+            }
+        }
+
+        async fn prepare_turn(
+            &self,
+            session: &mut Session,
+            reason: &str,
+            _summarizer: &dyn Summarizer,
+        ) -> Result<()> {
+            if reason == "context_limit" {
+                session.metadata_mut()["test_compacted"] = Value::Bool(true);
+            }
+            Ok(())
+        }
+    }
+
+    fn test_engine_with_context(
+        provider: Arc<dyn Provider>,
+        context: Arc<dyn ContextStrategy>,
+    ) -> Engine {
+        Engine::new(
+            provider,
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![],
+            context,
         )
     }
 
@@ -439,7 +566,11 @@ mod tests {
                     for tc in &resp.tool_calls {
                         let _ = tx.send(Chunk::ToolCall { call: tc.clone() }).await;
                     }
-                    let _ = tx.send(Chunk::Done { usage: None }).await;
+                    let _ = tx
+                        .send(Chunk::Done {
+                            usage: resp.usage.clone(),
+                        })
+                        .await;
                 });
             }
             Ok(rx)
@@ -647,16 +778,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn engine_records_usage_for_each_provider_call() {
+        let provider = Arc::new(FakeProvider {
+            responses: vec![
+                Response {
+                    content: "summary".into(),
+                    reasoning: String::new(),
+                    tool_calls: vec![],
+                    usage: Some(crate::types::TokenUsage {
+                        input_tokens: 50,
+                        output_tokens: 5,
+                        total_tokens: 55,
+                        ..Default::default()
+                    }),
+                },
+                Response {
+                    content: String::new(),
+                    reasoning: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "echo".into(),
+                        args: serde_json::json!({"msg": "test"}),
+                    }],
+                    usage: Some(crate::types::TokenUsage {
+                        input_tokens: 100,
+                        output_tokens: 10,
+                        total_tokens: 110,
+                        ..Default::default()
+                    }),
+                },
+                Response {
+                    content: "done".into(),
+                    reasoning: String::new(),
+                    tool_calls: vec![],
+                    usage: Some(crate::types::TokenUsage {
+                        input_tokens: 140,
+                        output_tokens: 20,
+                        total_tokens: 160,
+                        ..Default::default()
+                    }),
+                },
+            ],
+            call_count: std::sync::Mutex::new(0),
+        });
+        let engine = Engine::new(
+            provider,
+            ToolExecutor::new(Arc::new(FakeTools)),
+            vec![Message::system("test system")],
+            vec![ToolDef {
+                name: "echo".into(),
+                description: "Echo".into(),
+                parameters: serde_json::json!({}),
+            }],
+            Arc::new(SummaryContext),
+        );
+        let mut session = Session::default();
+        let (events, _event_rx) = mpsc::channel(8);
+
+        engine
+            .run_with_retries(
+                &Turn {
+                    input: "test".into(),
+                    attachments: Vec::new(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let usages = engine.take_usage_records();
+        assert_eq!(usages.len(), 3);
+        assert_eq!(usages[0].input_tokens, 50);
+        assert_eq!(usages[1].input_tokens, 100);
+        assert_eq!(usages[2].input_tokens, 140);
+    }
+
+    #[tokio::test]
     async fn context_limit_error_prepares_and_retries_the_same_turn_once() {
         let provider = Arc::new(ContextLimitProvider {
             call_count: std::sync::Mutex::new(0),
         });
-        let engine = test_engine(
-            provider.clone(),
-            ToolExecutor::new(Arc::new(FakeTools)),
-            vec![Message::system("test system")],
-            vec![],
-        );
+        let engine = test_engine_with_context(provider.clone(), Arc::new(TestCompactingContext));
         let mut session = Session::default();
         for index in 0..7 {
             session.add(Message::user(format!("request {index}")));
@@ -687,6 +892,33 @@ mod tests {
             session.messages.last().unwrap().content,
             "compacted history"
         );
+    }
+
+    #[tokio::test]
+    async fn context_limit_error_is_not_retried_when_compaction_does_not_change_context() {
+        let provider = Arc::new(ContextLimitProvider {
+            call_count: std::sync::Mutex::new(0),
+        });
+        let engine = test_engine_with_context(provider.clone(), Arc::new(MetadataOnlyContext));
+        let mut session = Session::default();
+        let (events, _event_rx) = mpsc::channel(8);
+
+        let error = engine
+            .run(
+                &Turn {
+                    input: "continue".into(),
+                    attachments: Vec::new(),
+                    blocked_tools: HashMap::new(),
+                },
+                &mut session,
+                &events,
+                None,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(is_context_limit_error(&error));
+        assert_eq!(*provider.call_count.lock().unwrap(), 1);
     }
 
     #[tokio::test]
