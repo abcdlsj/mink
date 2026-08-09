@@ -26,7 +26,7 @@ Driver：
 
 ## 协议与投递
 
-- 当前 Computer 协议 schema 为 v3，Server 与 Computer 只宣告当前版本；wire required field 变更时提升版本，不在同一版本中兼容两套 schema。
+- 当前 Computer 协议 schema 为 v4，Server 与 Computer 只宣告当前版本；wire required field 变更时提升版本，不在同一版本中兼容两套 schema。
 - 双方无共同版本时拒绝连接。
 - 写命令先持久化（稳定 command ID + 每 Computer 递增序号）再投递；Computer 先落本地再 ACK；重复命令按 ID 幂等。
 - query 是独立请求-响应通道：不持久化、不重放、不进 command 序号。
@@ -37,7 +37,7 @@ Driver：
 ## Run
 
 - 状态为 dispatched → working → completed / yielded / failed / canceled。不设置 queued、starting、finalizing、stopping。
-- 失败错误码固定为 driver_error、driver_lost、computer_restarted、session_unavailable、agent_unavailable、invalid_command、internal。
+- 失败错误码固定为 driver_error、driver_lost、computer_restarted、session_unavailable、agent_unavailable、invalid_command、unhandled_items、internal；Failed Run 必须带 error_code，其他终态不得带 error_code。
 - Driver 临时错误在 Computer 内最多自动重试 3 次；最终失败才上报，Server 只对该 Run 计一次 Item retry。
 - Computer 离线是可达性问题，不是 Run 失败；离线期间 Run 保持原状态。
 - `computer.max_concurrent_runs` 只是内存保护阈值，不是调度器；超过上限的 Run 排队等待，不因等待失败。
@@ -57,6 +57,7 @@ Driver：
 - 终端结果中的默认 Released 不覆盖同一 Run 已由 Server 记录的显式处置（handled/deferred）；冲突时以 Server 记录为准。
 - dead Item 可由治理者 requeue 回 pending 并重置 retry_count；同一事务递增 requeue_count 并写 audit。
 - Computer 拒绝 attach 或 start 时，Server 先完成补偿事务（释放 Item 或终结 Run），补偿成功后才 ACK command；重复回执不重复释放或计数。
+- delivery receipt 持久化 delivery outcome、稳定 event ID 和 receipt 时间。Accepted Item 最终没有 disposition 时 Run 以 `unhandled_items` 失败；TooLate 或 Unsupported 记录为 released，不污染原 Run 失败状态。诊断可沿 message → inbox item → run item → delivery outcome → disposition → run result 查询。
 
 ## Task 与协作事务
 
@@ -73,6 +74,7 @@ Driver：
 - Channel 成员加入或离开与 System Notice 在同一事务写入。
 - Agent CLI 的 `channel invite` 与 `channel remove` 分别执行 `channel.invite` 与 `channel.remove`；目标必须是同一 Space 中仍有效的 Member，成员关系变更、System Notice、Inbox Activity 和审计记录在同一事务写入。
 - Run 默认只注入当前 Focus 所属 Channel 的 active Members；Space Members 与 Agent 所属的任意 Channel Members 通过 `space members` 和 `channel members` 只读命令按需查询。
+- RunStart 携带 Focus 所属 Channel 的带 `channel_seq` 快照。Computer 为每个 Agent + Channel 保存 `through_seq` 和单一可替换的活动投影，只向当前 Run 注入快照之后的增量；失败或取消不推进，成功或 Yielded 才推进。主动 `channel read` 仍可用于历史检索，不是正常协作的前置动作。
 - 所有写操作只有 Server 一个事务入口；Agent CLI 与 Browser 不得各自实现一套终态事务。
 
 ## Provider Session 与 Memory

@@ -66,6 +66,9 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - 每个事实只有一个写入入口，一个领域命令只在一个事务中完成。
 - Agent 不负责补写可由系统从请求上下文推导的关系。
 - Agent 对需要跨 Run 长时间跟踪状态的工作必须创建 Task，并持续用 Source Thread、Linked Threads 和状态流转记录流程与进展；单次回复或同一 Run 内完成的工作不创建 Task。
+- Channel 的 `channel_seq` 是该 Channel 内所有 Message（Root、reply、Action Message 和 System Notice）共用的唯一递增坐标。Thread 保持独立的 `thread_id`，由 Root Message 建立并包含该 Root 及其 replies；Channel 主时间线只展示 Root，Thread 视图展示该 Thread 的完整内容。`channel_seq` 是引用坐标，不是当前列表行号。
+- Agent Run 的动态 Channel Activity 按 Agent + Channel 以 `through_seq` 做增量摄入；当前 Focus Thread 和 claimed Hard Item 保留原文，已摄入的普通活动不得在后续 Run 中重复追加。只有 Completed 或 Yielded Run 推进 `through_seq`；Failed 或 Canceled Run 保留待摄入活动。
+- 运行中到达的 Hard Item 必须获得明确 delivery outcome。Builtin Driver 在模型调用、工具批次和最终完成屏障之间通过有序 mailbox 接收新 Item；返回 Accepted 后该 Item 必须进入当前 Run，否则返回 TooLate。TooLate 或 Unsupported 不使原 Run Failed，并自动释放该 Item。
 
 ## 范围边界
 
