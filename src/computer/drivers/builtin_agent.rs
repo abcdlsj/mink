@@ -6,8 +6,8 @@ use std::{
 
 use async_trait::async_trait;
 use sumi_agent_core::{
-    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
-    TokenUsage, TurnRequest,
+    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TokenUsage,
+    TurnOutcome, TurnRequest,
 };
 use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
 use time::OffsetDateTime;
@@ -256,7 +256,9 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                     agent_id: AgentId::from_uuid(agent_id),
                     driver_kind: "builtin".to_owned(),
                     model: self.model.clone(),
-                    input_tokens: i64::from(usage.input_tokens.saturating_sub(previous.input_tokens)),
+                    input_tokens: i64::from(
+                        usage.input_tokens.saturating_sub(previous.input_tokens),
+                    ),
                     output_tokens: i64::from(
                         usage.output_tokens.saturating_sub(previous.output_tokens),
                     ),
@@ -266,7 +268,9 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                             .saturating_sub(previous.cached_input_tokens),
                     ),
                     cache_write_tokens: i64::from(
-                        usage.cache_write_tokens.saturating_sub(previous.cache_write_tokens),
+                        usage
+                            .cache_write_tokens
+                            .saturating_sub(previous.cache_write_tokens),
                     ),
                     duration_ms: None,
                     created_at: OffsetDateTime::now_utc(),

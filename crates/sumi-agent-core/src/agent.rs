@@ -21,7 +21,7 @@ use crate::{
     sandbox::SandboxAdapter,
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor, ToolRunner},
-    types::{Attachment, Message, ToolDef},
+    types::{Attachment, Message, TokenUsage, ToolDef},
     workspace::{agent_rooted_path, collect_shell_output, edit_utf8, read_utf8, write_utf8},
 };
 
