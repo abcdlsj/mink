@@ -229,6 +229,7 @@ impl Conversation {
 
     async fn run_scheduled_task(&mut self, task: &ScheduledTask) -> Result<()> {
         let run_id = Uuid::now_v7();
+        let memory = self.runtime.list_memory(self.agent_id).await?;
         let request = TurnRequest {
             product_contract: self.product_contract.clone(),
             driver_contract: self.driver_contract.clone(),
@@ -244,6 +245,7 @@ impl Conversation {
                     "platform": "telegram",
                     "chat_id": self.chat_id,
                 },
+                "memory": memory,
                 "now": self.local_now().to_rfc3339(),
             }),
             content_hash: format!("scheduled-{}-{}", task.id, task.next_at_unix),
