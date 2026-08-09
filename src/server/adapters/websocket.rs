@@ -1,8 +1,8 @@
 use crate::protocol::{
     computer::{
-        CommandAck, CommandEnvelope, CommandOutcome, CommandResult, CommandSequence, ComputerFrame,
-        ComputerHello, DeliveryOutcome, HandshakeErrorCode, Receipt, ReceiptKind,
-        RunTerminalStatus, ServerFrame, ServerHandshake,
+        ChannelActivityResultEnvelope, CommandAck, CommandEnvelope, CommandOutcome, CommandResult,
+        CommandSequence, ComputerFrame, ComputerHello, DeliveryOutcome, HandshakeErrorCode,
+        Receipt, ReceiptKind, RunTerminalStatus, ServerFrame, ServerHandshake,
     },
     version::SUPPORTED,
 };
@@ -69,7 +69,7 @@ use crate::server::application::execution::{
     CompleteRunInput, StartRun, StartRunInput, SyncComputerRuns, SyncComputerRunsInput,
 };
 use crate::server::domain::attention::AttentionPolicy;
-use crate::server::domain::execution::RunOutcome;
+use crate::server::domain::execution::{DeliveryOutcome as ServerDeliveryOutcome, RunOutcome};
 use axum::extract::ws::{Message as WebSocketMessage, WebSocket};
 use futures_util::StreamExt;
 use sqlx::{PgPool, Row};
@@ -178,6 +178,34 @@ pub(super) async fn computer_socket(
             continue;
         };
         match frame {
+            ComputerFrame::ChannelActivityQuery { query } => {
+                let application = storage.clone();
+                let result = application
+                    .channel_activity_snapshot(
+                        MemberId::from_uuid(query.agent_id.into_uuid()),
+                        query.channel_id,
+                        query.after_sequence,
+                        query.through_sequence,
+                        query.limit,
+                    )
+                    .await;
+                let result =
+                    result.unwrap_or_else(|_| crate::protocol::computer::ChannelActivitySnapshot {
+                        channel_id: query.channel_id,
+                        snapshot_sequence: query.through_sequence,
+                        messages: Vec::new(),
+                    });
+                let _ = send_json(
+                    &mut socket,
+                    &ServerFrame::ChannelActivityResult {
+                        result: ChannelActivityResultEnvelope {
+                            query_id: query.query_id,
+                            result,
+                        },
+                    },
+                )
+                .await;
+            }
             ComputerFrame::QueryResult { result } => queries.resolve(result),
             ComputerFrame::Heartbeat { heartbeat } => {
                 let _ = sqlx::query("UPDATE computers SET last_seen_at=$2 WHERE id=$1")
@@ -292,10 +320,15 @@ pub(super) async fn computer_socket(
                 let applied = AcknowledgeDelivery::execute(
                     &mut application,
                     AcknowledgeDeliveryInput {
+                        event_id: receipt.event_id,
                         run_id: receipt.run_id,
                         computer_id: ComputerId::from_uuid(computer_id),
                         delivery_sequence: receipt.delivery_sequence.0,
-                        accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
+                        outcome: match receipt.outcome {
+                            DeliveryOutcome::Accepted => ServerDeliveryOutcome::Accepted,
+                            DeliveryOutcome::TooLate => ServerDeliveryOutcome::TooLate,
+                            DeliveryOutcome::Unsupported => ServerDeliveryOutcome::Unsupported,
+                        },
                         now: OffsetDateTime::now_utc(),
                     },
                 )
@@ -455,10 +488,11 @@ async fn apply_rejected_command(
         AcknowledgeDelivery::execute(
             &mut application,
             crate::server::application::execution::AcknowledgeDeliveryInput {
+                event_id: EventId::from_uuid(result.command_id.into_uuid()),
                 run_id,
                 computer_id: ComputerId::from_uuid(computer_id),
                 delivery_sequence,
-                accepted: false,
+                outcome: ServerDeliveryOutcome::Unsupported,
                 now: OffsetDateTime::now_utc(),
             },
         )
@@ -574,7 +608,7 @@ mod tests {
                 ..
             }
         ));
-        let future = ProtocolVersionRange::new(ProtocolVersion::new(4), ProtocolVersion::new(4));
+        let future = ProtocolVersionRange::new(ProtocolVersion::new(5), ProtocolVersion::new(5));
         assert!(matches!(
             negotiate(&hello(future), false, true),
             ServerHandshake::Rejected {

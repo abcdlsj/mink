@@ -2,7 +2,7 @@ CREATE TABLE schema_meta (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     applied_at TIMESTAMPTZ NOT NULL
 );
-INSERT INTO schema_meta (version, applied_at) VALUES (8, now());
+INSERT INTO schema_meta (version, applied_at) VALUES (9, now());
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
@@ -334,6 +334,7 @@ CREATE TABLE agent_runs (
             'session_unavailable',
             'agent_unavailable',
             'invalid_command',
+            'unhandled_items',
             'internal'
         )
     ),
@@ -346,7 +347,10 @@ CREATE TABLE agent_runs (
     FOREIGN KEY (focus_thread_id, space_id) REFERENCES messages(id, space_id) ON DELETE RESTRICT,
     CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (finished_at IS NOT NULL)),
     CHECK ((status IN ('completed', 'yielded', 'failed', 'canceled')) = (outcome_code IS NOT NULL)),
-    CHECK (error_code IS NULL OR outcome_code = 'failed')
+    CHECK (
+        (outcome_code = 'failed' AND error_code IS NOT NULL)
+        OR (outcome_code IS DISTINCT FROM 'failed' AND error_code IS NULL)
+    )
 );
 CREATE UNIQUE INDEX agent_runs_one_active_per_agent
     ON agent_runs(agent_id) WHERE status NOT IN ('completed', 'yielded', 'failed', 'canceled');
@@ -422,11 +426,19 @@ CREATE TABLE run_items (
     inbox_item_id UUID NOT NULL,
     delivery_seq BIGINT NOT NULL CHECK (delivery_seq > 0),
     attached_at TIMESTAMPTZ NOT NULL,
+    delivery_outcome TEXT CHECK (delivery_outcome IN ('accepted', 'too_late', 'unsupported')),
+    delivery_event_id UUID UNIQUE,
+    delivery_receipt_at TIMESTAMPTZ,
     disposition TEXT CHECK (disposition IN ('handled', 'deferred', 'released')),
+    disposition_at TIMESTAMPTZ,
     PRIMARY KEY (run_id, inbox_item_id),
     UNIQUE (run_id, delivery_seq),
     FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE RESTRICT,
-    FOREIGN KEY (inbox_item_id) REFERENCES inbox_items(id) ON DELETE RESTRICT
+    FOREIGN KEY (inbox_item_id) REFERENCES inbox_items(id) ON DELETE RESTRICT,
+    CONSTRAINT run_items_delivery_receipt_check
+        CHECK ((delivery_outcome IS NULL) = (delivery_event_id IS NULL AND delivery_receipt_at IS NULL)),
+    CONSTRAINT run_items_disposition_at_check
+        CHECK (disposition IS NULL OR disposition_at IS NOT NULL)
 );
 
 CREATE TABLE run_result_events (

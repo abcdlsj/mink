@@ -191,7 +191,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         assert!(!legacy_session_table);
         assert!(slug_constraint);
         assert!(observed_thread_seq);
-        assert_eq!(schema_version, 8);
+        assert_eq!(schema_version, 9);
 
         sqlx::raw_sql(
             "ALTER TABLE channels DROP CONSTRAINT channels_slug_form_check; \
@@ -200,7 +200,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
              DROP INDEX inbox_items_open_thread_ambient_aggregate; \
              ALTER TABLE inbox_items DROP COLUMN ambient_channel_id; \
              ALTER TABLE agent_runs DROP COLUMN observed_thread_seq; \
-             UPDATE schema_meta SET version=5 WHERE version=8;",
+             UPDATE schema_meta SET version=5 WHERE version=9;",
         )
         .execute(&pool)
         .await
@@ -224,7 +224,7 @@ async fn empty_database_builds_final_schema_with_concurrency_constraints() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(migrated_version, 8);
+        assert_eq!(migrated_version, 9);
         assert!(migrated_constraint);
         assert!(migrated_observed_thread_seq);
         pool.close().await;
@@ -1377,7 +1377,7 @@ async fn v6_to_v7_migration_merges_channel_aggregates_across_threads() {
              ALTER TABLE inbox_items DROP COLUMN ambient_channel_id;
              ALTER TABLE agent_runs DROP COLUMN observed_thread_seq;
              CREATE UNIQUE INDEX inbox_items_open_ambient_aggregate ON inbox_items(member_id,thread_id) WHERE strength='ambient' AND status='pending' AND retry_count=0;
-             UPDATE schema_meta SET version=6 WHERE version=8;
+             UPDATE schema_meta SET version=6 WHERE version=9;
              INSERT INTO spaces (id,slug,name,accent,owner_member_id,created_at) VALUES ('{space}','migration-space','Migration Space','#F0602F','{owner}',now());
              INSERT INTO members (id,space_id,kind,display_name,access_level,created_at) VALUES ('{owner}','{space}','human','Owner','owner',now()),('{agent}','{space}','agent','Migrator','member',now());
              INSERT INTO channels (id,space_id,kind,slug,next_seq,created_at) VALUES ('{channel}','{space}','public','migration',5,now());
@@ -1406,7 +1406,7 @@ async fn v6_to_v7_migration_merges_channel_aggregates_across_threads() {
                 .fetch_one(&pool)
                 .await
                 .unwrap(),
-            8
+            9
         );
         pool.close().await;
     }

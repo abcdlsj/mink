@@ -919,11 +919,12 @@ impl PostgresTransaction {
         }
         if let Some((run_id, item_id)) = draft.handled_item {
             let changed = sqlx::query(
-                "UPDATE run_items SET disposition='handled' WHERE run_id=$1 AND inbox_item_id=$2 \
+                "UPDATE run_items SET disposition='handled',disposition_at=$3 WHERE run_id=$1 AND inbox_item_id=$2 \
                  AND (disposition IS NULL OR disposition='handled')",
             )
             .bind(run_id.into_uuid())
             .bind(item_id.into_uuid())
+            .bind(draft.now)
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;

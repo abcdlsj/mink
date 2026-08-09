@@ -2,7 +2,7 @@ use super::*;
 use crate::protocol::computer::{ComputerErrorCode, DeliveryOutcome, DeliveryReceipt, RunStarted};
 use crate::server::domain::{
     attention::InboxItemDisposition,
-    execution::{RunErrorCode, RunOutcome},
+    execution::{DeliveryOutcome as ServerDeliveryOutcome, RunErrorCode, RunOutcome},
     identity::valid_display_name,
 };
 
@@ -97,10 +97,15 @@ pub(super) async fn delivery_receipt(
     AcknowledgeDelivery::execute(
         &mut storage,
         AcknowledgeDeliveryInput {
+            event_id: receipt.event_id,
             run_id: receipt.run_id,
             computer_id: ComputerId::from_uuid(computer_id),
             delivery_sequence: receipt.delivery_sequence.0,
-            accepted: matches!(receipt.outcome, DeliveryOutcome::Accepted),
+            outcome: match receipt.outcome {
+                DeliveryOutcome::Accepted => ServerDeliveryOutcome::Accepted,
+                DeliveryOutcome::TooLate => ServerDeliveryOutcome::TooLate,
+                DeliveryOutcome::Unsupported => ServerDeliveryOutcome::Unsupported,
+            },
             now: OffsetDateTime::now_utc(),
         },
     )
@@ -455,7 +460,7 @@ pub(super) async fn execute_agent_action(
             };
             let continuity = agent_continuity(state, context.agent_id.into_uuid(), scope).await;
             Ok(
-                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at)})).collect::<Vec<_>>(),"session_continuity":continuity}),
+                json!({"agent":{"id":context.agent_id,"space_id":context.space_id},"task":task,"focus_thread_id":context.focus_thread_id,"run":{"id":context.run_id,"message_snapshot_sequence":context.message_snapshot_sequence},"dispatched_items":items.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at),"delivery_outcome":row.delivery_outcome,"delivery_event_id":row.delivery_event_id,"delivery_receipt_at":row.delivery_receipt_at.map(timestamp),"disposition":row.disposition,"disposition_at":row.disposition_at.map(timestamp)})).collect::<Vec<_>>(),"session_continuity":continuity}),
             )
         }
         capability::Action::SpaceMembers => {
@@ -1246,7 +1251,7 @@ pub(super) async fn execute_agent_action(
                     )
                 })?;
             Ok(
-                json!({"run_id":context.run_id,"items":rows.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at),"disposition":row.disposition})).collect::<Vec<_>>(),"notices":[]}),
+                json!({"run_id":context.run_id,"items":rows.iter().map(|row|json!({"id":row.id,"kind":row.kind,"strength":row.strength,"status":row.status,"available_at":timestamp(row.available_at),"delivery_outcome":row.delivery_outcome,"delivery_event_id":row.delivery_event_id,"delivery_receipt_at":row.delivery_receipt_at.map(timestamp),"disposition":row.disposition,"disposition_at":row.disposition_at.map(timestamp)})).collect::<Vec<_>>(),"notices":[]}),
             )
         }
         capability::Action::InboxAck { item_id, reason } => {
@@ -2140,6 +2145,7 @@ pub(in crate::server::adapters) fn run_error_code(code: ComputerErrorCode) -> Ru
         ComputerErrorCode::SessionUnavailable => RunErrorCode::SessionUnavailable,
         ComputerErrorCode::AgentUnavailable => RunErrorCode::AgentUnavailable,
         ComputerErrorCode::InvalidCommand => RunErrorCode::InvalidCommand,
+        ComputerErrorCode::UnhandledItems => RunErrorCode::UnhandledItems,
         ComputerErrorCode::Internal => RunErrorCode::Internal,
     }
 }

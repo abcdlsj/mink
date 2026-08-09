@@ -338,7 +338,7 @@ impl RecordTaskOutcome {
                     let disposition = run_item
                         .disposition
                         .unwrap_or(InboxItemDisposition::Handled);
-                    run.set_item_disposition(item_id, disposition)?;
+                    run.set_item_disposition_at(item_id, disposition, input.now)?;
                     let mut item = transaction.inbox_item(item_id).await?;
                     item.apply_disposition(run_id, disposition, input.now)?;
                     transaction.save_inbox_item(item).await?;

@@ -8,7 +8,7 @@ use crate::ids::{
 use crate::server::domain::{
     DomainError,
     attention::{InboxItemDisposition, InboxItemStatus},
-    execution::{Run, RunErrorCode, RunOutcome, RunStatus, RunTrigger},
+    execution::{DeliveryOutcome, Run, RunErrorCode, RunOutcome, RunStatus, RunTrigger},
     task::TaskStatus,
 };
 
@@ -346,7 +346,7 @@ impl RecordRunItemDisposition {
             if run_view.status != RunStatus::Working {
                 return Err(ApplicationError::ContextChanged);
             }
-            run.set_item_disposition(input.item_id, input.disposition)?;
+            run.set_item_disposition_at(input.item_id, input.disposition, input.now)?;
             if let Some(until) = input.defer_until {
                 let mut item = transaction.inbox_item(input.item_id).await?;
                 item.prepare_defer(run_id, until, input.now)?;
@@ -360,10 +360,11 @@ impl RecordRunItemDisposition {
 }
 
 pub(in crate::server) struct AcknowledgeDeliveryInput {
+    pub(in crate::server) event_id: EventId,
     pub(in crate::server) run_id: RunId,
     pub(in crate::server) computer_id: ComputerId,
     pub(in crate::server) delivery_sequence: u64,
-    pub(in crate::server) accepted: bool,
+    pub(in crate::server) outcome: DeliveryOutcome,
     pub(in crate::server) now: OffsetDateTime,
 }
 
@@ -387,13 +388,25 @@ impl AcknowledgeDelivery {
             let item = run
                 .item_for_delivery(input.delivery_sequence)
                 .ok_or(ApplicationError::NotFound)?;
-            if input.accepted || item.disposition == Some(InboxItemDisposition::Released) {
+            let recorded = run.record_delivery_receipt(
+                input.delivery_sequence,
+                input.event_id,
+                input.outcome,
+                input.now,
+            )?;
+            if !recorded {
                 return Ok(run);
             }
-            run.set_item_disposition(item.inbox_item_id, InboxItemDisposition::Released)?;
-            let mut inbox_item = transaction.inbox_item(item.inbox_item_id).await?;
-            inbox_item.apply_disposition(run_id, InboxItemDisposition::Released, input.now)?;
-            transaction.save_inbox_item(inbox_item).await?;
+            if input.outcome != DeliveryOutcome::Accepted && item.disposition.is_none() {
+                run.set_item_disposition_at(
+                    item.inbox_item_id,
+                    InboxItemDisposition::Released,
+                    input.now,
+                )?;
+                let mut inbox_item = transaction.inbox_item(item.inbox_item_id).await?;
+                inbox_item.apply_disposition(run_id, InboxItemDisposition::Released, input.now)?;
+                transaction.save_inbox_item(inbox_item).await?;
+            }
             transaction.save_run(run.clone()).await?;
             Ok(run)
         })
@@ -495,9 +508,10 @@ impl SyncComputerRuns {
                             run_item.disposition,
                             None | Some(InboxItemDisposition::Released)
                         ) {
-                            run.set_item_disposition(
+                            run.set_item_disposition_at(
                                 run_item.inbox_item_id,
                                 InboxItemDisposition::Released,
+                                input.now,
                             )?;
                             let mut item = transaction.inbox_item(run_item.inbox_item_id).await?;
                             let item_view = item.view();
@@ -633,7 +647,7 @@ impl CompleteRun {
                     }
                     (_, disposition) => disposition,
                 };
-                run.set_item_disposition(item_input.item_id, effective_disposition)?;
+                run.set_item_disposition_at(item_input.item_id, effective_disposition, input.now)?;
                 let mut item = transaction.inbox_item(item_input.item_id).await?;
                 let item_view = item.view();
                 if item_view.status == InboxItemStatus::Assigned {
@@ -663,9 +677,10 @@ impl CompleteRun {
                     if item_view.status != InboxItemStatus::Assigned
                         || item_view.assigned_run_id != Some(run_id)
                     {
-                        run.set_item_disposition(
+                        run.set_item_disposition_at(
                             run_item.inbox_item_id,
                             InboxItemDisposition::Released,
+                            input.now,
                         )?;
                         continue;
                     }
@@ -688,9 +703,10 @@ impl CompleteRun {
                             .await?;
                     }
                     transaction.emit(Effect::InboxChanged(agent_id));
-                    run.set_item_disposition(
+                    run.set_item_disposition_at(
                         run_item.inbox_item_id,
                         InboxItemDisposition::Released,
+                        input.now,
                     )?;
                 }
             }

@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::ids::{InboxItemId, MemberId, RunId, SpaceId, TaskId, ThreadId};
+use crate::ids::{EventId, InboxItemId, MemberId, RunId, SpaceId, TaskId, ThreadId};
 
 use super::{
     DomainError,
@@ -50,28 +50,48 @@ pub(in crate::server) enum RunErrorCode {
     SessionUnavailable,
     AgentUnavailable,
     InvalidCommand,
+    UnhandledItems,
     Internal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::server) enum DeliveryOutcome {
+    Accepted,
+    TooLate,
+    Unsupported,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::server) struct RunItem {
     inbox_item_id: InboxItemId,
     delivery_sequence: u64,
+    delivery_outcome: Option<DeliveryOutcome>,
+    delivery_event_id: Option<EventId>,
+    delivery_receipt_at: Option<OffsetDateTime>,
     disposition: Option<InboxItemDisposition>,
+    disposition_at: Option<OffsetDateTime>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct RunItemView {
     pub(in crate::server) inbox_item_id: InboxItemId,
     pub(in crate::server) delivery_sequence: u64,
+    pub(in crate::server) delivery_outcome: Option<DeliveryOutcome>,
+    pub(in crate::server) delivery_event_id: Option<EventId>,
+    pub(in crate::server) delivery_receipt_at: Option<OffsetDateTime>,
     pub(in crate::server) disposition: Option<InboxItemDisposition>,
+    pub(in crate::server) disposition_at: Option<OffsetDateTime>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::server) struct RunItemSnapshot {
     pub(in crate::server) inbox_item_id: InboxItemId,
     pub(in crate::server) delivery_sequence: u64,
+    pub(in crate::server) delivery_outcome: Option<DeliveryOutcome>,
+    pub(in crate::server) delivery_event_id: Option<EventId>,
+    pub(in crate::server) delivery_receipt_at: Option<OffsetDateTime>,
     pub(in crate::server) disposition: Option<InboxItemDisposition>,
+    pub(in crate::server) disposition_at: Option<OffsetDateTime>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -188,7 +208,11 @@ impl Run {
         self.items.iter().map(|item| RunItemView {
             inbox_item_id: item.inbox_item_id,
             delivery_sequence: item.delivery_sequence,
+            delivery_outcome: item.delivery_outcome,
+            delivery_event_id: item.delivery_event_id,
+            delivery_receipt_at: item.delivery_receipt_at,
             disposition: item.disposition,
+            disposition_at: item.disposition_at,
         })
     }
 
@@ -215,7 +239,11 @@ impl Run {
         self.items.push(RunItem {
             inbox_item_id,
             delivery_sequence,
+            delivery_outcome: None,
+            delivery_event_id: None,
+            delivery_receipt_at: None,
             disposition: None,
+            disposition_at: None,
         });
         Ok(())
     }
@@ -236,7 +264,11 @@ impl Run {
                 .map(|item| RunItemSnapshot {
                     inbox_item_id: item.inbox_item_id,
                     delivery_sequence: item.delivery_sequence,
+                    delivery_outcome: item.delivery_outcome,
+                    delivery_event_id: item.delivery_event_id,
+                    delivery_receipt_at: item.delivery_receipt_at,
                     disposition: item.disposition,
+                    disposition_at: item.disposition_at,
                 })
                 .collect(),
             outcome: view.outcome,
@@ -258,8 +290,13 @@ impl Run {
         if snapshot.outcome != expected_outcome
             || snapshot.finished_at.is_some() != expected_outcome.is_some()
             || (snapshot.error_code.is_some() && snapshot.outcome != Some(RunOutcome::Failed))
+            || (snapshot.outcome == Some(RunOutcome::Failed) && snapshot.error_code.is_none())
             || (expected_outcome.is_some()
                 && snapshot.items.iter().any(|item| item.disposition.is_none()))
+            || snapshot
+                .items
+                .iter()
+                .any(|item| item.disposition.is_some() != item.disposition_at.is_some())
         {
             return Err(DomainError::InvalidPersistedState);
         }
@@ -269,6 +306,8 @@ impl Run {
             item.delivery_sequence == 0
                 || !item_ids.insert(item.inbox_item_id)
                 || !sequences.insert(item.delivery_sequence)
+                || (item.delivery_outcome.is_some()
+                    != (item.delivery_event_id.is_some() && item.delivery_receipt_at.is_some()))
         }) {
             return Err(DomainError::InvalidPersistedState);
         }
@@ -287,7 +326,11 @@ impl Run {
                 .map(|item| RunItem {
                     inbox_item_id: item.inbox_item_id,
                     delivery_sequence: item.delivery_sequence,
+                    delivery_outcome: item.delivery_outcome,
+                    delivery_event_id: item.delivery_event_id,
+                    delivery_receipt_at: item.delivery_receipt_at,
                     disposition: item.disposition,
+                    disposition_at: item.disposition_at,
                 })
                 .collect(),
             outcome: snapshot.outcome,
@@ -358,8 +401,10 @@ impl Run {
 
     pub(in crate::server) fn cancel_for_agent_retirement(&mut self, now: OffsetDateTime) {
         for item in &mut self.items {
-            item.disposition
-                .get_or_insert(InboxItemDisposition::Released);
+            if item.disposition.is_none() {
+                item.disposition = Some(InboxItemDisposition::Released);
+                item.disposition_at = Some(now);
+            }
         }
         self.status = RunStatus::Canceled;
         self.outcome = Some(RunOutcome::Canceled);
@@ -374,10 +419,11 @@ impl Run {
         )
     }
 
-    pub(in crate::server) fn set_item_disposition(
+    pub(in crate::server) fn set_item_disposition_at(
         &mut self,
         item_id: InboxItemId,
         disposition: InboxItemDisposition,
+        at: OffsetDateTime,
     ) -> Result<(), DomainError> {
         let item = self
             .items
@@ -391,7 +437,44 @@ impl Run {
             return Err(DomainError::IncompleteItemDisposition);
         }
         item.disposition = Some(disposition);
+        item.disposition_at.get_or_insert(at);
         Ok(())
+    }
+
+    pub(in crate::server) fn record_delivery_receipt(
+        &mut self,
+        delivery_sequence: u64,
+        event_id: EventId,
+        outcome: DeliveryOutcome,
+        at: OffsetDateTime,
+    ) -> Result<bool, DomainError> {
+        let item_index = self
+            .items
+            .iter()
+            .position(|item| item.delivery_sequence == delivery_sequence)
+            .ok_or(DomainError::ItemScopeMismatch)?;
+        if self
+            .items
+            .iter()
+            .enumerate()
+            .any(|(index, item)| index != item_index && item.delivery_event_id == Some(event_id))
+        {
+            return Err(DomainError::InvalidTransition);
+        }
+        let item = &mut self.items[item_index];
+        if let Some(existing_event_id) = item.delivery_event_id {
+            if existing_event_id == event_id
+                && item.delivery_outcome == Some(outcome)
+                && item.delivery_receipt_at.is_some()
+            {
+                return Ok(false);
+            }
+            return Err(DomainError::InvalidTransition);
+        }
+        item.delivery_outcome = Some(outcome);
+        item.delivery_event_id = Some(event_id);
+        item.delivery_receipt_at = Some(at);
+        Ok(true)
     }
 
     /// Applies the Computer's terminal report. Accepted from `dispatched` too: a Computer that fails
@@ -410,7 +493,9 @@ impl Run {
             return Err(DomainError::IncompleteItemDisposition);
         }
         // The database permits an error code only for a failed outcome.
-        if error_code.is_some() && outcome != RunOutcome::Failed {
+        if (error_code.is_some() && outcome != RunOutcome::Failed)
+            || (outcome == RunOutcome::Failed && error_code.is_none())
+        {
             return Err(DomainError::InvalidTransition);
         }
         self.status = match outcome {
@@ -450,9 +535,10 @@ mod tests {
         let mut run = working_run();
         run.add_dispatched_item(InboxItemId::from_uuid(uuid::Uuid::from_u128(5)), 1)
             .expect("item is unique");
-        run.set_item_disposition(
+        run.set_item_disposition_at(
             InboxItemId::from_uuid(uuid::Uuid::from_u128(5)),
             InboxItemDisposition::Handled,
+            OffsetDateTime::UNIX_EPOCH,
         )
         .expect("item can be resolved");
         run.finish(
@@ -503,6 +589,44 @@ mod tests {
         .expect("a failed run accepts an error code");
         assert_eq!(run.status, RunStatus::Failed);
         assert_eq!(run.error_code, Some(RunErrorCode::DriverError));
+    }
+
+    #[test]
+    fn a_failed_run_requires_an_error_code() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let mut run = working_run();
+        assert_eq!(
+            run.finish(RunOutcome::Failed, None, None, now),
+            Err(DomainError::InvalidTransition)
+        );
+        assert_eq!(run.status, RunStatus::Working);
+    }
+
+    #[test]
+    fn a_delivery_receipt_is_recorded_once_and_replays_idempotently() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let item_id = InboxItemId::from_uuid(uuid::Uuid::from_u128(5));
+        let event_id = EventId::from_uuid(uuid::Uuid::from_u128(6));
+        let mut run = working_run();
+        run.add_dispatched_item(item_id, 1).expect("item is unique");
+
+        assert!(
+            run.record_delivery_receipt(1, event_id, DeliveryOutcome::Unsupported, now)
+                .expect("first receipt applies")
+        );
+        assert!(
+            !run.record_delivery_receipt(1, event_id, DeliveryOutcome::Unsupported, now)
+                .expect("same receipt replays idempotently")
+        );
+        assert_eq!(
+            run.record_delivery_receipt(
+                1,
+                EventId::from_uuid(uuid::Uuid::from_u128(7)),
+                DeliveryOutcome::TooLate,
+                now,
+            ),
+            Err(DomainError::InvalidTransition)
+        );
     }
 
     #[test]

@@ -756,7 +756,9 @@ impl PostgresQueries {
         run_id: Uuid,
     ) -> Result<Vec<RunItemRow>, ApplicationError> {
         sqlx::query_as(
-            "SELECT i.id,i.kind,i.strength,i.status,i.available_at,ri.disposition
+            "SELECT i.id,i.kind,i.strength,i.status,i.available_at,
+                    ri.delivery_outcome,ri.delivery_event_id,ri.delivery_receipt_at,
+                    ri.disposition,ri.disposition_at
              FROM run_items ri JOIN inbox_items i ON i.id=ri.inbox_item_id
              WHERE ri.run_id=$1 ORDER BY ri.delivery_seq",
         )
@@ -1210,7 +1212,11 @@ pub(in crate::server::adapters) struct RunItemRow {
     pub(in crate::server::adapters) strength: String,
     pub(in crate::server::adapters) status: String,
     pub(in crate::server::adapters) available_at: OffsetDateTime,
+    pub(in crate::server::adapters) delivery_outcome: Option<String>,
+    pub(in crate::server::adapters) delivery_event_id: Option<Uuid>,
+    pub(in crate::server::adapters) delivery_receipt_at: Option<OffsetDateTime>,
     pub(in crate::server::adapters) disposition: Option<String>,
+    pub(in crate::server::adapters) disposition_at: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, FromRow)]

@@ -232,7 +232,10 @@ text_enum!(run_outcome_str, run_outcome_from_str, RunOutcome, {
     RunOutcome::Completed => "completed", RunOutcome::Yielded => "yielded", RunOutcome::Failed => "failed", RunOutcome::Canceled => "canceled"
 });
 text_enum!(run_error_code_str, run_error_code_from_str, RunErrorCode, {
-    RunErrorCode::DriverError => "driver_error", RunErrorCode::DriverLost => "driver_lost", RunErrorCode::ComputerRestarted => "computer_restarted", RunErrorCode::SessionUnavailable => "session_unavailable", RunErrorCode::AgentUnavailable => "agent_unavailable", RunErrorCode::InvalidCommand => "invalid_command", RunErrorCode::Internal => "internal"
+    RunErrorCode::DriverError => "driver_error", RunErrorCode::DriverLost => "driver_lost", RunErrorCode::ComputerRestarted => "computer_restarted", RunErrorCode::SessionUnavailable => "session_unavailable", RunErrorCode::AgentUnavailable => "agent_unavailable", RunErrorCode::InvalidCommand => "invalid_command", RunErrorCode::UnhandledItems => "unhandled_items", RunErrorCode::Internal => "internal"
+});
+text_enum!(delivery_outcome_str, delivery_outcome_from_str, DeliveryOutcome, {
+    DeliveryOutcome::Accepted => "accepted", DeliveryOutcome::TooLate => "too_late", DeliveryOutcome::Unsupported => "unsupported"
 });
 text_enum!(disposition_str, disposition_from_str, InboxItemDisposition, {
     InboxItemDisposition::Handled => "handled", InboxItemDisposition::Deferred => "deferred", InboxItemDisposition::Released => "released"

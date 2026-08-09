@@ -17,7 +17,8 @@ use crate::server::domain::{
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
     execution::{
-        Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus, RunTrigger,
+        DeliveryOutcome, Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot, RunStatus,
+        RunTrigger,
     },
     identity::{
         AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind, Member,
@@ -2946,7 +2947,9 @@ async fn syncing_a_reconnected_computer_applies_existing_item_dispositions() {
     );
     update_test_run(&mut current, |snapshot| {
         snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+        snapshot.items[0].disposition_at = Some(now);
         snapshot.items[2].disposition = Some(InboxItemDisposition::Released);
+        snapshot.items[2].disposition_at = Some(now);
     });
     port.state.runs.insert(lost_run, current);
     for item_id in [handled, unresolved, released] {
@@ -3410,7 +3413,8 @@ async fn agent_task_done_atomically_finishes_run_items_and_replays() {
         vec![handled_item, deferred_item],
     );
     update_test_run(&mut current_run, |snapshot| {
-        snapshot.items[1].disposition = Some(InboxItemDisposition::Deferred)
+        snapshot.items[1].disposition = Some(InboxItemDisposition::Deferred);
+        snapshot.items[1].disposition_at = Some(now);
     });
     port.state.runs.insert(run_id, current_run);
 
@@ -3868,10 +3872,11 @@ async fn rejected_delivery_releases_the_item_once() {
         .computer_assignments
         .insert((computer(999), agent_id));
     let input = || AcknowledgeDeliveryInput {
+        event_id: event(1624),
         run_id,
         computer_id: computer(999),
         delivery_sequence: 1,
-        accepted: false,
+        outcome: DeliveryOutcome::Unsupported,
         now: OffsetDateTime::UNIX_EPOCH,
     };
     AcknowledgeDelivery::execute(&mut port, input())
@@ -3888,6 +3893,17 @@ async fn rejected_delivery_releases_the_item_once() {
         port.state.runs[&run_id].items().next().unwrap().disposition,
         Some(InboxItemDisposition::Released)
     );
+    let delivery = port.state.runs[&run_id].items().next().unwrap();
+    assert_eq!(
+        delivery.delivery_outcome,
+        Some(DeliveryOutcome::Unsupported)
+    );
+    assert_eq!(delivery.delivery_event_id, Some(event(1624)));
+    assert_eq!(
+        delivery.delivery_receipt_at,
+        Some(OffsetDateTime::UNIX_EPOCH)
+    );
+    assert_eq!(delivery.disposition_at, Some(OffsetDateTime::UNIX_EPOCH));
     CompleteRun::execute(
         &mut port,
         CompleteRunInput {
@@ -3923,6 +3939,7 @@ async fn run_result_accepts_a_matching_disposition_already_applied_during_recove
     let mut current = running_run(run_id, agent_id, focus, None, vec![item_id]);
     update_test_run(&mut current, |snapshot| {
         snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+        snapshot.items[0].disposition_at = Some(OffsetDateTime::UNIX_EPOCH);
     });
     port.state.runs.insert(run_id, current);
     let mut handled = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
@@ -3976,6 +3993,7 @@ async fn terminal_released_result_keeps_server_recorded_explicit_disposition() {
     let mut current = running_run(run_id, agent_id, focus, None, vec![item_id]);
     update_test_run(&mut current, |snapshot| {
         snapshot.items[0].disposition = Some(InboxItemDisposition::Handled);
+        snapshot.items[0].disposition_at = Some(OffsetDateTime::UNIX_EPOCH);
     });
     port.state.runs.insert(run_id, current);
     let mut assigned = inbox(item_id, agent_id, focus, None, InboxItemStatus::Assigned);
@@ -4249,7 +4267,11 @@ fn running_run(
             .map(|(index, item_id)| RunItemSnapshot {
                 inbox_item_id: item_id,
                 delivery_sequence: index as u64 + 1,
+                delivery_outcome: None,
+                delivery_event_id: None,
+                delivery_receipt_at: None,
                 disposition: None,
+                disposition_at: None,
             })
             .collect(),
         outcome: None,

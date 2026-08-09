@@ -270,14 +270,20 @@ impl PostgresTransaction {
         .map_err(map_sqlx)?;
         for item in &run.items {
             sqlx::query(
-                "INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at,disposition) \
-                 VALUES ($1,$2,$3,now(),$4) ON CONFLICT (run_id,inbox_item_id) DO UPDATE \
-                 SET disposition=EXCLUDED.disposition",
+                "INSERT INTO run_items (run_id,inbox_item_id,delivery_seq,attached_at,delivery_outcome,delivery_event_id,delivery_receipt_at,disposition,disposition_at) \
+                 VALUES ($1,$2,$3,now(),$4,$5,$6,$7,$8) ON CONFLICT (run_id,inbox_item_id) DO UPDATE \
+                 SET delivery_outcome=EXCLUDED.delivery_outcome,delivery_event_id=EXCLUDED.delivery_event_id,\
+                     delivery_receipt_at=EXCLUDED.delivery_receipt_at,disposition=EXCLUDED.disposition,\
+                     disposition_at=EXCLUDED.disposition_at",
             )
             .bind(run.id.into_uuid())
             .bind(item.inbox_item_id.into_uuid())
             .bind(i64::try_from(item.delivery_sequence).map_err(|_| ApplicationError::Conflict)?)
+            .bind(item.delivery_outcome.map(delivery_outcome_str))
+            .bind(item.delivery_event_id.map(EventId::into_uuid))
+            .bind(item.delivery_receipt_at)
             .bind(item.disposition.map(disposition_str))
+            .bind(item.disposition_at)
             .execute(&mut *self.connection)
             .await
             .map_err(map_sqlx)?;
@@ -353,7 +359,7 @@ impl PostgresTransaction {
             .await
             .map_err(map_sqlx)?;
         let item_rows = sqlx::query(
-            "SELECT inbox_item_id, delivery_seq, disposition FROM run_items \
+            "SELECT inbox_item_id, delivery_seq, delivery_outcome, delivery_event_id, delivery_receipt_at, disposition, disposition_at FROM run_items \
              WHERE run_id = $1 ORDER BY delivery_seq",
         )
         .bind(id.into_uuid())
@@ -367,10 +373,19 @@ impl PostgresTransaction {
                     inbox_item_id: InboxItemId::from_uuid(item.get("inbox_item_id")),
                     delivery_sequence: u64::try_from(item.get::<i64, _>("delivery_seq"))
                         .map_err(|_| ApplicationError::Internal)?,
+                    delivery_outcome: item
+                        .get::<Option<String>, _>("delivery_outcome")
+                        .map(|value| delivery_outcome_from_str(&value))
+                        .transpose()?,
+                    delivery_event_id: item
+                        .get::<Option<Uuid>, _>("delivery_event_id")
+                        .map(EventId::from_uuid),
+                    delivery_receipt_at: item.get("delivery_receipt_at"),
                     disposition: item
                         .get::<Option<String>, _>("disposition")
                         .map(|value| disposition_from_str(&value))
                         .transpose()?,
+                    disposition_at: item.get("disposition_at"),
                 })
             })
             .collect::<Result<Vec<_>, ApplicationError>>()?;
@@ -463,6 +478,13 @@ impl PostgresTransaction {
         let agent_id = MemberId::from_uuid(row.get("agent_id"));
         let task_id = row.get::<Option<Uuid>, _>("task_id").map(TaskId::from_uuid);
         let focus_thread_id = ThreadId::from_uuid(row.get("focus_thread_id"));
+        let channel_snapshot_sequence = sqlx::query_scalar::<_, i64>(
+            "SELECT c.next_seq - 1 FROM messages m JOIN channels c ON c.id=m.channel_id WHERE m.id=$1",
+        )
+        .bind(focus_thread_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
         let channel_members = sqlx::query_as::<_, (Uuid, String)>(
             "SELECT members.id,members.display_name FROM messages \
              JOIN channel_members ON channel_members.channel_id=messages.channel_id \
@@ -500,6 +522,8 @@ impl PostgresTransaction {
                 None => None,
             },
             focus: self.focus_snapshot(focus_thread_id).await?,
+            channel_snapshot_sequence: u64::try_from(channel_snapshot_sequence)
+                .map_err(|_| ApplicationError::Internal)?,
             dispatched_items,
             channel_members,
         })
@@ -549,6 +573,60 @@ impl PostgresTransaction {
             root: root.ok_or(ApplicationError::Internal)?,
             replies,
             message_sequence,
+        })
+    }
+
+    /// Returns one permission-filtered page of Channel activity. The Computer owns the
+    /// incremental cursor; this query only freezes and serves the requested sequence range.
+    pub(super) async fn channel_activity_snapshot(
+        &mut self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        after_sequence: u64,
+        through_sequence: u64,
+        limit: u32,
+    ) -> Result<ChannelActivitySnapshot, ApplicationError> {
+        let after = i64::try_from(after_sequence).map_err(|_| ApplicationError::Conflict)?;
+        let through = i64::try_from(through_sequence).map_err(|_| ApplicationError::Conflict)?;
+        let limit = i64::from(limit.clamp(1, 1_000));
+        let member = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id=$1 AND member_id=$2)",
+        )
+        .bind(channel_id.into_uuid())
+        .bind(agent_id.into_uuid())
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        if !member {
+            return Err(ApplicationError::PermissionDenied);
+        }
+        let rows = sqlx::query(
+            "SELECT id,thread_id,author_member_id,channel_seq,content_kind,body_markdown,\
+                    action_channel_id,action_agent_member_id,created_at,placement \
+             FROM messages WHERE channel_id=$1 AND deleted_at IS NULL \
+               AND channel_seq>$2 AND channel_seq<=$3 \
+             ORDER BY channel_seq LIMIT $4",
+        )
+        .bind(channel_id.into_uuid())
+        .bind(after)
+        .bind(through)
+        .bind(limit)
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        let messages = rows
+            .iter()
+            .map(|row| {
+                Ok(ChannelActivityMessageSnapshot {
+                    thread_id: ThreadId::from_uuid(row.get("thread_id")),
+                    message: wire_message(row)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ApplicationError>>()?;
+        Ok(ChannelActivitySnapshot {
+            channel_id,
+            snapshot_sequence: through_sequence,
+            messages,
         })
     }
 }

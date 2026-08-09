@@ -14,7 +14,8 @@ use crate::{
     },
     protocol::computer::{
         ActionKind, ActionTarget, ActivityEventKind, ActivityEventSnapshot, AgentRetire,
-        AttentionNotice, AttentionStrength as WireAttentionStrength, Command, CommandAck,
+        AttentionNotice, AttentionStrength as WireAttentionStrength,
+        ChannelActivityMessageSnapshot, ChannelActivitySnapshot, Command, CommandAck,
         CommandDiagnostic, CommandEnvelope, CommandSequence, DeliverySequence, FocusSnapshot,
         InboxItemSnapshot, InboxSourceKind, MessageContent as WireMessageContent, MessageSnapshot,
         NoticeLocation, RunAttachItem, RunNotice, RunStart, RunStop, RunTaskBound,
@@ -41,8 +42,8 @@ use crate::{
                 Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread,
             },
             execution::{
-                Run, RunErrorCode, RunItemSnapshot, RunOutcome, RunSnapshot as DomainRunSnapshot,
-                RunStatus, RunTrigger,
+                DeliveryOutcome, Run, RunErrorCode, RunItemSnapshot, RunOutcome,
+                RunSnapshot as DomainRunSnapshot, RunStatus, RunTrigger,
             },
             identity::{
                 AccessLevel, Agent, AgentLifecycle, Computer, ComputerLifecycle, DriverKind,
@@ -113,6 +114,31 @@ impl PostgresAdapter {
 
     pub(super) fn commands(&self) -> super::command::CommandRegistry {
         self.commands.clone()
+    }
+
+    pub(super) async fn channel_activity_snapshot(
+        &self,
+        agent_id: MemberId,
+        channel_id: ChannelId,
+        after_sequence: u64,
+        through_sequence: u64,
+        limit: u32,
+    ) -> Result<ChannelActivitySnapshot, ApplicationError> {
+        let connection = self.pool.acquire().await.map_err(map_sqlx)?;
+        let mut transaction = PostgresTransaction {
+            connection,
+            effects: Vec::new(),
+            notified_computers: BTreeSet::new(),
+        };
+        transaction
+            .channel_activity_snapshot(
+                agent_id,
+                channel_id,
+                after_sequence,
+                through_sequence,
+                limit,
+            )
+            .await
     }
 
     pub(super) async fn initialize_schema(&self) -> Result<(), sqlx::Error> {
@@ -265,6 +291,49 @@ impl PostgresAdapter {
                  ALTER TABLE member_permissions DROP CONSTRAINT IF EXISTS member_permissions_action_code_check; \
                  ALTER TABLE member_permissions ADD CONSTRAINT member_permissions_action_code_check CHECK (action_code IN ('channel.create', 'channel.invite', 'channel.remove', 'agent.create')); \
                  INSERT INTO schema_meta (version, applied_at) VALUES (8, now());",
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
+        let version: i32 = sqlx::query_scalar("SELECT max(version) FROM schema_meta")
+            .fetch_one(&mut *transaction)
+            .await?;
+        if version < 9 {
+            if version != 8 {
+                return Err(sqlx::Error::Protocol(format!(
+                    "unsupported schema baseline version {version}"
+                )));
+            }
+            sqlx::raw_sql(
+                "ALTER TABLE agent_runs DROP CONSTRAINT IF EXISTS agent_runs_error_code_check; \
+                 UPDATE agent_runs SET error_code='internal' \
+                    WHERE outcome_code='failed' AND error_code IS NULL; \
+                 ALTER TABLE agent_runs ADD CONSTRAINT agent_runs_error_code_check CHECK ( \
+                    (outcome_code = 'failed' AND error_code IS NOT NULL) \
+                    OR (outcome_code IS DISTINCT FROM 'failed' AND error_code IS NULL) \
+                 ); \
+                 ALTER TABLE run_items ADD COLUMN IF NOT EXISTS delivery_outcome TEXT; \
+                 ALTER TABLE run_items ADD COLUMN IF NOT EXISTS delivery_event_id UUID; \
+                 ALTER TABLE run_items ADD COLUMN IF NOT EXISTS delivery_receipt_at TIMESTAMPTZ; \
+                 ALTER TABLE run_items ADD COLUMN IF NOT EXISTS disposition_at TIMESTAMPTZ; \
+                 ALTER TABLE run_items DROP CONSTRAINT IF EXISTS run_items_delivery_outcome_check; \
+                 ALTER TABLE run_items ADD CONSTRAINT run_items_delivery_outcome_check CHECK ( \
+                    delivery_outcome IN ('accepted', 'too_late', 'unsupported') \
+                    OR delivery_outcome IS NULL \
+                 ); \
+                 ALTER TABLE run_items DROP CONSTRAINT IF EXISTS run_items_delivery_receipt_check; \
+                 ALTER TABLE run_items ADD CONSTRAINT run_items_delivery_receipt_check CHECK ( \
+                    (delivery_outcome IS NULL) = (delivery_event_id IS NULL AND delivery_receipt_at IS NULL) \
+                 ); \
+                 UPDATE run_items SET disposition_at=attached_at \
+                    WHERE disposition IS NOT NULL AND disposition_at IS NULL; \
+                 ALTER TABLE run_items DROP CONSTRAINT IF EXISTS run_items_disposition_at_check; \
+                 ALTER TABLE run_items ADD CONSTRAINT run_items_disposition_at_check CHECK ( \
+                    disposition IS NULL OR disposition_at IS NOT NULL \
+                 ); \
+                 CREATE UNIQUE INDEX IF NOT EXISTS run_items_delivery_event_id_key \
+                    ON run_items(delivery_event_id); \
+                 INSERT INTO schema_meta (version, applied_at) VALUES (9, now());",
             )
             .execute(&mut *transaction)
             .await?;
