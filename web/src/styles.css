@@ -4486,10 +4486,10 @@ pre {
   animation: julia-idle 1.2s steps(1, end) infinite;
 }
 .pixel-agent--walk {
-  background-image: url("/office/julia-walk-forward.png");
-  background-size: 256px 64px;
+  background-image: url("/office/julia-walk-forward-centered.png");
+  background-size: 256px 32px;
   background-position: 0 0;
-  animation: julia-walk 520ms steps(1, end) infinite;
+  animation: julia-walk 1.2s steps(1, end) infinite;
 }
 .pixel-agent--typing {
   background-image: url("/office/julia-pc.png");
@@ -4552,20 +4552,36 @@ pre {
 }
 @keyframes julia-walk {
   0%,
-  24.99% {
+  12.4% {
     background-position: 0 0;
   }
-  25%,
-  49.99% {
+  12.5%,
+  24.9% {
     background-position: -32px 0;
   }
-  50%,
-  74.99% {
+  25%,
+  37.4% {
     background-position: -64px 0;
   }
-  75%,
-  100% {
+  37.5%,
+  49.9% {
     background-position: -96px 0;
+  }
+  50%,
+  62.4% {
+    background-position: -128px 0;
+  }
+  62.5%,
+  74.9% {
+    background-position: -160px 0;
+  }
+  75%,
+  87.4% {
+    background-position: -192px 0;
+  }
+  87.5%,
+  100% {
+    background-position: -224px 0;
   }
 }
 @keyframes julia-type {

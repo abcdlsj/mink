@@ -23,7 +23,7 @@ const VISIT_HOLD_MS = 45_000;
 
 const WANDER_DELAY_MS = 25_000;
 const WANDER_HOLD_MS = 5_000;
-const WANDER_ARRIVE_MS = 5_000;
+const WANDER_ARRIVE_MS = 7_000;
 const LEISURE_HOLD_MS = 12_000;
 
 interface OfficeProp {
@@ -488,7 +488,7 @@ export function CompanyOfficeView({
   useEffect(() => {
     const element = stageRef.current;
     if (!element) return;
-    const update = () => setScale(Math.min(1, element.clientWidth / layout.width));
+    const update = () => setScale(element.clientWidth / layout.width);
     update();
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(element);
@@ -557,10 +557,7 @@ export function CompanyOfficeView({
       <div
         className="office-stage-wrap"
         ref={stageRef}
-        style={{
-          width: `min(calc(100% - 40px), ${layout.width}px)`,
-          aspectRatio: `${layout.width} / ${layout.height}`,
-        }}
+        style={{ aspectRatio: `${layout.width} / ${layout.height}` }}
       >
         {activeAgents.length === 0 ? (
           <div className="office-empty">
@@ -628,6 +625,13 @@ export function CompanyOfficeView({
                     setSettled((current) =>
                       new Set(current ?? activeAgents.map((agent) => agent.member_id)).add(agent.member_id),
                     );
+                    setWanderByMember((current) => {
+                      const wander = current.get(agent.member_id);
+                      if (!wander) return current;
+                      const next = new Map(current);
+                      next.set(agent.member_id, { ...wander, at: Date.now() });
+                      return next;
+                    });
                   }}
                   title={`${name} · ${activityLabel(status)}`}
                 >
