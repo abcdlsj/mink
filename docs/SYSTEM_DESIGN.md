@@ -145,7 +145,7 @@ Driver：
 
 ## LLM usage 本地遥测
 
-- Computer 在本地 daemon 数据库（`llm_usage` 表）记录每次 LLM 调用的 token 用量：run_id、agent_id、driver_kind、model、input/output/cached/cache_write tokens、耗时与时间；builtin Driver 在每次 turn 完成后按与上次记录的差值写入，Codex Driver 暂不暴露 token 用量。
+- Computer 在本地 daemon 数据库（`llm_usage` 表）记录每次 LLM 调用的 token 用量：run_id、agent_id、driver_kind、model、input/output/cached/cache_write tokens、耗时与时间；Agent runtime 返回当前 Run 内每次 provider 调用的独立 usage（包含上下文压缩调用），builtin Driver 逐条写入，Codex Driver 暂不暴露 token 用量。
 - 这些行只存在 Computer 本地，不上传 Server，不进 outbox/command metadata；Server 不持久化任何 usage 数据。
 - `GET /api/v1/computers/{computer_id}/llm-usage?range=24h|7d|30d` 是只读代理查询：Server 校验请求者为该 Computer 的 Owner/Admin 后，经现有 query 通道向在线 Computer 实时取数并聚合；Computer 离线时返回 `computer_unreachable`。
 - 聚合在 Computer 侧完成：总量、cache hit rate（cached / input）、按小时（≤48h）或按天的曲线 bucket、按 model 与按 agent 的分组，以及按 agent 的独立曲线序列（`by_agent_series`）和 model 分组（`by_agent_model`），供 Agent 维度统计页使用。
