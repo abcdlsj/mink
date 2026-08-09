@@ -297,13 +297,15 @@ async fn channel_activity_query_rejects_another_computer_impersonating_an_agent(
 
         let result = adapter
             .channel_activity_snapshot(
-                ComputerId::from_uuid(other_computer),
-                RunId::from_uuid(run),
-                MemberId::from_uuid(agent),
-                ChannelId::from_uuid(channel),
-                0,
-                1,
-                10,
+                super::ChannelActivityQueryRequest {
+                    computer_id: ComputerId::from_uuid(other_computer),
+                    run_id: RunId::from_uuid(run),
+                    agent_id: MemberId::from_uuid(agent),
+                    channel_id: ChannelId::from_uuid(channel),
+                    after_sequence: 0,
+                    through_sequence: 1,
+                    limit: 10,
+                },
             )
             .await;
         let error = result.err().expect("foreign computer must be rejected");

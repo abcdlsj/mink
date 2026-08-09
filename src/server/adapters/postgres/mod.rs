@@ -73,6 +73,16 @@ pub(super) struct PostgresTransaction {
     notified_computers: std::collections::BTreeSet<Uuid>,
 }
 
+pub(super) struct ChannelActivityQueryRequest {
+    pub(super) computer_id: ComputerId,
+    pub(super) run_id: RunId,
+    pub(super) agent_id: MemberId,
+    pub(super) channel_id: ChannelId,
+    pub(super) after_sequence: u64,
+    pub(super) through_sequence: u64,
+    pub(super) limit: u32,
+}
+
 #[derive(Clone, Copy)]
 struct AmbientActivityEvent {
     channel_id: ChannelId,
@@ -118,13 +128,7 @@ impl PostgresAdapter {
 
     pub(super) async fn channel_activity_snapshot(
         &self,
-        computer_id: ComputerId,
-        run_id: RunId,
-        agent_id: MemberId,
-        channel_id: ChannelId,
-        after_sequence: u64,
-        through_sequence: u64,
-        limit: u32,
+        request: ChannelActivityQueryRequest,
     ) -> Result<ChannelActivitySnapshot, ApplicationError> {
         let connection = self.pool.acquire().await.map_err(map_sqlx)?;
         let mut transaction = PostgresTransaction {
@@ -132,17 +136,7 @@ impl PostgresAdapter {
             effects: Vec::new(),
             notified_computers: BTreeSet::new(),
         };
-        transaction
-            .channel_activity_snapshot(
-                computer_id,
-                run_id,
-                agent_id,
-                channel_id,
-                after_sequence,
-                through_sequence,
-                limit,
-            )
-            .await
+        transaction.channel_activity_snapshot(request).await
     }
 
     pub(super) async fn initialize_schema(&self) -> Result<(), sqlx::Error> {

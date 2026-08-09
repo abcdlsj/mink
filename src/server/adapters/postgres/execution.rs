@@ -580,14 +580,17 @@ impl PostgresTransaction {
     /// incremental cursor; this query only freezes and serves the requested sequence range.
     pub(super) async fn channel_activity_snapshot(
         &mut self,
-        computer_id: ComputerId,
-        run_id: RunId,
-        agent_id: MemberId,
-        channel_id: ChannelId,
-        after_sequence: u64,
-        through_sequence: u64,
-        limit: u32,
+        request: super::ChannelActivityQueryRequest,
     ) -> Result<ChannelActivitySnapshot, ApplicationError> {
+        let super::ChannelActivityQueryRequest {
+            computer_id,
+            run_id,
+            agent_id,
+            channel_id,
+            after_sequence,
+            through_sequence,
+            limit,
+        } = request;
         if !self.can_operate_agent(computer_id, agent_id).await? {
             return Err(ApplicationError::PermissionDenied);
         }

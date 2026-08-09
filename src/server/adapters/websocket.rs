@@ -211,15 +211,15 @@ pub(super) async fn computer_socket(
             ComputerFrame::ChannelActivityQuery { query } => {
                 let application = storage.clone();
                 let result = application
-                    .channel_activity_snapshot(
-                        ComputerId::from_uuid(computer_id),
-                        query.run_id,
-                        MemberId::from_uuid(query.agent_id.into_uuid()),
-                        query.channel_id,
-                        query.after_sequence,
-                        query.through_sequence,
-                        query.limit,
-                    )
+                    .channel_activity_snapshot(super::postgres::ChannelActivityQueryRequest {
+                        computer_id: ComputerId::from_uuid(computer_id),
+                        run_id: query.run_id,
+                        agent_id: MemberId::from_uuid(query.agent_id.into_uuid()),
+                        channel_id: query.channel_id,
+                        after_sequence: query.after_sequence,
+                        through_sequence: query.through_sequence,
+                        limit: query.limit,
+                    })
                     .await;
                 let result = channel_activity_result(query.query_id, result);
                 let _ =
