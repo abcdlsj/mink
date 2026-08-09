@@ -4366,24 +4366,26 @@ pre {
   left: 0;
   width: 960px;
   height: 540px;
-  background-image: url("/office/arlantr-office.png");
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
+  background-image: url("/office/floor.png");
+  background-repeat: repeat;
   image-rendering: pixelated;
   transform-origin: 0 0;
 }
-.office-plant-sprite {
+.office-sprite {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 2;
-  width: 32px;
-  height: 32px;
-  background-image: url("/office/plant.png");
+  z-index: 1;
   background-repeat: no-repeat;
-  background-size: 32px 32px;
-  background-position: 0 0;
   image-rendering: pixelated;
+}
+.office-workstation {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 128px;
+  height: 128px;
 }
 .office-agent {
   position: absolute;
