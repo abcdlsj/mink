@@ -3,7 +3,8 @@ export type AgentPose = "sit" | "stand" | "walk" | "typing" | "leisure";
 /**
  * Renders Julia from Arlan_TR's Free office pixel art
  * (https://arlantr.itch.io/free-office-pixel-art). Pose classes switch between
- * the idle, walk and PC typing sprite sheets; direction is handled by flip.
+ * the idle and walk sheets or the rear-facing workstation frame; direction is
+ * handled by flip.
  */
 export function PixelAgent({
   pose,

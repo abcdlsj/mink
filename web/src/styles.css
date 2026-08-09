@@ -4186,14 +4186,9 @@ pre {
   animation: julia-walk 1.2s steps(1, end) infinite;
 }
 .pixel-agent--typing {
-  top: -32px;
-  left: -16px;
-  width: 64px;
-  height: 64px;
-  background-image: url("/office/julia-pc.png");
-  background-size: 384px 64px;
+  background-image: url("/office/julia-facing-pc.png");
+  background-size: 32px 32px;
   background-position: 0 0;
-  animation: julia-type 1.2s steps(6, end) infinite;
 }
 .pixel-agent--leisure {
   background-image: url("/office/julia-coffee.png");
@@ -4280,11 +4275,6 @@ pre {
   87.5%,
   100% {
     background-position: -224px 0;
-  }
-}
-@keyframes julia-type {
-  to {
-    background-position: -384px 0;
   }
 }
 @keyframes julia-coffee {
