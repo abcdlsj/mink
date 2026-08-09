@@ -91,6 +91,12 @@ Driver：
 - Memory 不复制 Message 历史或 Provider transcript；symlink 可能指向 Memory 根之外，投影和正文读取不跟随。
 - Agent 退役保留身份、Message、Task、Result；Memory 和 workspace 可能丢失，UI 必须说明该限制。
 
+## 独立 Telegram Agent
+
+- Telegram update 只能在对话 worker 完成处理并持久化会话进度后推进 offset；仅放入内存队列不构成确认。同一 chat 串行处理，不同 chat 可并行。
+- 多个 chat 共享的会话索引只有一个进程内写入入口；会话 locator 与已处理 message ID 在同一次持久化中更新，并发 chat 不得相互覆盖。
+- 到期 scheduled task 在执行成功前保留可恢复状态；进程退出、turn 启动失败或执行失败后仍可重试。循环任务从当前时间推进到下一个未来周期，不逐次补跑离线期间的历史周期。
+
 ## Agent CLI
 
 - 所有自动化调用使用 `--json`；stdout 只能输出一个 JSON envelope，诊断输出写入 stderr。
@@ -142,4 +148,4 @@ Driver：
 - Computer 在本地 daemon 数据库（`llm_usage` 表）记录每次 LLM 调用的 token 用量：run_id、agent_id、driver_kind、model、input/output/cached/cache_write tokens、耗时与时间；builtin Driver 在每次 turn 完成后按与上次记录的差值写入，Codex Driver 暂不暴露 token 用量。
 - 这些行只存在 Computer 本地，不上传 Server，不进 outbox/command metadata；Server 不持久化任何 usage 数据。
 - `GET /api/v1/computers/{computer_id}/llm-usage?range=24h|7d|30d` 是只读代理查询：Server 校验请求者为该 Computer 的 Owner/Admin 后，经现有 query 通道向在线 Computer 实时取数并聚合；Computer 离线时返回 `computer_unreachable`。
-- 聚合在 Computer 侧完成：总量、cache hit rate（cached / input）、按小时（≤48h）或按天的曲线 bucket、按 model 与按 agent 的分组，以及按 agent 的独立曲线序列（`by_agent_series`，供 Agent 维度统计页使用）。
+- 聚合在 Computer 侧完成：总量、cache hit rate（cached / input）、按小时（≤48h）或按天的曲线 bucket、按 model 与按 agent 的分组，以及按 agent 的独立曲线序列（`by_agent_series`）和 model 分组（`by_agent_model`），供 Agent 维度统计页使用。
