@@ -849,7 +849,7 @@ mod tests {
         async fn notice(
             &mut self,
             _: &LocalRun,
-            _: &crate::computer::core::input::AttentionNoticeInput,
+            _: &AttentionNoticeInput,
         ) -> Result<(), ApplicationError> {
             Ok(())
         }
