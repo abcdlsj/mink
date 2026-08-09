@@ -4366,6 +4366,7 @@ pre {
   left: 0;
   width: 960px;
   height: 540px;
+  overflow: hidden;
   background-image: url("/office/floor.png");
   background-repeat: repeat;
   image-rendering: pixelated;

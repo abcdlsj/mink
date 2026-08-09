@@ -17,88 +17,166 @@ import { activityLabel } from "../../agentActivity";
 import { PixelAgent, type AgentPose } from "../../components/company/PixelAgent";
 import { useSpaceEvents } from "../../hooks/useSpaceEvents";
 
-const ROOM_WIDTH = 960;
 const HOT_WINDOW_MS = 120_000;
 const HOT_THRESHOLD = 5;
 const VISIT_HOLD_MS = 45_000;
 
-const WORKSTATIONS: readonly { x: number; y: number }[] = [
-  { x: 160, y: 256 },
-  { x: 320, y: 256 },
-  { x: 480, y: 256 },
-  { x: 640, y: 256 },
-  { x: 80, y: 120 },
-  { x: 176, y: 120 },
-  { x: 784, y: 120 },
-  { x: 880, y: 120 },
-  { x: 160, y: 384 },
-  { x: 320, y: 384 },
-  { x: 480, y: 384 },
-  { x: 640, y: 384 },
-];
-
-const DESKS: readonly { x: number; y: number }[] = WORKSTATIONS.map((station) => ({
-  x: station.x,
-  y: station.y + 24,
-}));
-
-const MEETING_SPOTS: readonly { x: number; y: number }[] = [
-  { x: 480, y: 288 },
-  { x: 384, y: 318 },
-  { x: 576, y: 318 },
-  { x: 480, y: 372 },
-  { x: 390, y: 352 },
-  { x: 570, y: 352 },
-  { x: 480, y: 322 },
-  { x: 480, y: 348 },
-];
-
-const VISITOR_SPOT = { x: 860, y: 430 };
 const WANDER_DELAY_MS = 25_000;
 const WANDER_HOLD_MS = 8_000;
-const WANDER_SPOTS: readonly { x: number; y: number }[] = [
-  { x: 160, y: 320 },
-  { x: 320, y: 320 },
-  { x: 640, y: 320 },
-  { x: 800, y: 320 },
-  { x: 160, y: 160 },
-  { x: 320, y: 160 },
-  { x: 480, y: 160 },
-  { x: 640, y: 160 },
-  { x: 800, y: 160 },
-  { x: 160, y: 448 },
-  { x: 320, y: 448 },
-  { x: 480, y: 448 },
-  { x: 640, y: 448 },
-  { x: 800, y: 448 },
-];
 
-const WALL_TILES: readonly { x: number }[] = Array.from({ length: 15 }, (_, index) => ({
-  x: index * 64,
-}));
-
-const OFFICE_PROPS: readonly {
+interface OfficeProp {
   src: string;
   x: number;
   y: number;
   width: number;
   height: number;
-}[] = [
-  { src: "water-cooler.png", x: 16, y: 224, width: 16, height: 32 },
-  { src: "printer.png", x: 16, y: 320, width: 64, height: 32 },
-  { src: "trash.png", x: 16, y: 160, width: 16, height: 16 },
-  { src: "plant.png", x: 16, y: 480, width: 32, height: 32 },
-  { src: "coffee-maker.png", x: 880, y: 224, width: 64, height: 64 },
-  { src: "sink.png", x: 880, y: 320, width: 64, height: 64 },
-  { src: "cabinet.png", x: 880, y: 160, width: 64, height: 64 },
-  { src: "plant.png", x: 880, y: 480, width: 32, height: 32 },
-  { src: "writing-table.png", x: 432, y: 288, width: 64, height: 64 },
-  { src: "chair.png", x: 456, y: 268, width: 16, height: 16 },
-  { src: "chair.png", x: 456, y: 356, width: 16, height: 16 },
-  { src: "chair.png", x: 412, y: 312, width: 16, height: 16 },
-  { src: "chair.png", x: 500, y: 312, width: 16, height: 16 },
-  { src: "stamping-table.png", x: 448, y: 480, width: 64, height: 32 },
-];
+}
+
+interface OfficeLayout {
+  width: number;
+  height: number;
+  workstations: readonly { x: number; y: number }[];
+  desks: readonly { x: number; y: number }[];
+  wallTiles: readonly { x: number }[];
+  props: readonly OfficeProp[];
+  wanderSpots: readonly { x: number; y: number }[];
+  meetingSpots: readonly { x: number; y: number }[];
+  visitorSpot: { x: number; y: number };
+}
+
+function buildOfficeLayout(count: number): OfficeLayout {
+  const tier = count <= 0 ? 0 : count <= 3 ? 1 : count <= 6 ? 2 : count <= 9 ? 3 : 4;
+  const sizes = [
+    { width: 320, height: 180 },
+    { width: 480, height: 270 },
+    { width: 640, height: 360 },
+    { width: 800, height: 450 },
+    { width: 960, height: 540 },
+  ];
+  const { width, height } = sizes[tier];
+  const wallTiles = Array.from({ length: Math.ceil(width / 64) }, (_, index) => ({
+    x: Math.min(index * 64, width - 64),
+  }));
+
+  const workstations: { x: number; y: number }[] = [];
+  if (tier === 1) {
+    const n = Math.min(count, 3);
+    const spacing = 80;
+    const startX = (width - (n - 1) * spacing) / 2;
+    const y = Math.round(height * 0.48);
+    for (let index = 0; index < n; index += 1) {
+      workstations.push({ x: Math.round(startX + index * spacing), y });
+    }
+  } else if (tier === 2) {
+    const rows = 2;
+    const cols = 3;
+    const startX = (width - (cols - 1) * 80) / 2;
+    const startY = Math.round(height * 0.38);
+    for (let row = 0; row < rows && workstations.length < count; row += 1) {
+      for (let col = 0; col < cols && workstations.length < count; col += 1) {
+        workstations.push({ x: Math.round(startX + col * 80), y: startY + row * 90 });
+      }
+    }
+  } else if (tier === 3) {
+    const rows = 3;
+    const cols = 3;
+    const startX = (width - (cols - 1) * 80) / 2;
+    const startY = Math.round(height * 0.3);
+    for (let row = 0; row < rows && workstations.length < count; row += 1) {
+      for (let col = 0; col < cols && workstations.length < count; col += 1) {
+        workstations.push({ x: Math.round(startX + col * 80), y: startY + row * 80 });
+      }
+    }
+  } else if (tier === 4) {
+    const rows = 3;
+    const cols = 4;
+    const spacingX = 112;
+    const startX = (width - (cols - 1) * spacingX) / 2;
+    const startY = 160;
+    for (let row = 0; row < rows && workstations.length < count; row += 1) {
+      for (let col = 0; col < cols && workstations.length < count; col += 1) {
+        workstations.push({ x: Math.round(startX + col * spacingX), y: startY + row * 120 });
+      }
+    }
+  }
+
+  const desks = workstations.map((station) => ({ x: station.x, y: station.y + 24 }));
+  const props: OfficeProp[] = [];
+  if (tier >= 1) {
+    props.push({ src: "plant.png", x: 16, y: height - 48, width: 32, height: 32 });
+    props.push({ src: "plant.png", x: width - 48, y: height - 48, width: 32, height: 32 });
+    props.push({ src: "water-cooler.png", x: 16, y: height - 96, width: 16, height: 32 });
+    props.push({ src: "trash.png", x: width - 32, y: height - 96, width: 16, height: 16 });
+  }
+  if (tier >= 2) {
+    props.push({ src: "printer.png", x: 16, y: height - 160, width: 64, height: 32 });
+    props.push({ src: "coffee-maker.png", x: width - 80, y: height - 160, width: 64, height: 64 });
+  }
+  if (tier >= 3) {
+    props.push({ src: "sink.png", x: width - 80, y: height - 240, width: 64, height: 64 });
+    props.push({ src: "cabinet.png", x: width - 80, y: 16, width: 64, height: 64 });
+  }
+  if (tier >= 4) {
+    const tableX = (width - 64) / 2;
+    const tableY = (height - 64) / 2;
+    props.push({ src: "writing-table.png", x: tableX, y: tableY, width: 64, height: 64 });
+    props.push({ src: "chair.png", x: tableX + 24, y: tableY - 20, width: 16, height: 16 });
+    props.push({ src: "chair.png", x: tableX + 24, y: tableY + 68, width: 16, height: 16 });
+    props.push({ src: "chair.png", x: tableX - 20, y: tableY + 24, width: 16, height: 16 });
+    props.push({ src: "chair.png", x: tableX + 68, y: tableY + 24, width: 16, height: 16 });
+    props.push({ src: "stamping-table.png", x: (width - 64) / 2, y: height - 60, width: 64, height: 32 });
+  }
+
+  const blocked = [
+    ...workstations.map((station) => ({
+      x0: station.x - 40,
+      y0: station.y - 32,
+      x1: station.x + 40,
+      y1: station.y + 40,
+    })),
+    ...props.map((prop) => ({
+      x0: prop.x - 8,
+      y0: prop.y - 8,
+      x1: prop.x + prop.width + 8,
+      y1: prop.y + prop.height + 8,
+    })),
+  ];
+  const wanderSpots: { x: number; y: number }[] = [];
+  for (let y = 72; y < height - 16; y += 48) {
+    for (let x = 40; x < width - 16; x += 64) {
+      if (!blocked.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)) {
+        wanderSpots.push({ x, y });
+      }
+    }
+  }
+  if (!wanderSpots.length) wanderSpots.push({ x: width / 2, y: height - 40 });
+
+  const meetingSpots =
+    tier >= 4
+      ? [
+          { x: (width - 64) / 2 + 32, y: (height - 64) / 2 + 32 },
+          { x: (width - 64) / 2 + 8, y: (height - 64) / 2 + 56 },
+          { x: (width - 64) / 2 + 56, y: (height - 64) / 2 + 56 },
+          { x: (width - 64) / 2 + 32, y: (height - 64) / 2 + 80 },
+        ]
+      : tier === 3
+        ? [{ x: width / 2, y: 175 }]
+        : tier === 2
+          ? [{ x: width / 2, y: 182 }]
+          : [{ x: width / 2, y: height - 60 }];
+
+  return {
+    width,
+    height,
+    workstations,
+    desks,
+    wallTiles,
+    props,
+    wanderSpots,
+    meetingSpots,
+    visitorSpot: { x: width - 80, y: height - 48 },
+  };
+}
 
 interface DmVisit {
   visitorId: string;
@@ -138,6 +216,7 @@ export function CompanyOfficeView({
     () => (agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active"),
     [agents.data],
   );
+  const layout = useMemo(() => buildOfficeLayout(activeAgents.length), [activeAgents.length]);
   const [dmVisits, setDmVisits] = useState<ReadonlyMap<string, DmVisit>>(new Map());
   const [hotGroups, setHotGroups] = useState<ReadonlyMap<string, HotGroup>>(new Map());
   const [settled, setSettled] = useState<ReadonlySet<string> | null>(null);
@@ -335,12 +414,12 @@ export function CompanyOfficeView({
           if (!wander) {
             const idleFor = now - (lastIdleAt.current.get(memberId) ?? now);
             if (idleFor >= WANDER_DELAY_MS) {
-              nextWander.set(memberId, { ...pickWanderSpot(), at: now });
+              nextWander.set(memberId, { ...pickWanderSpot(layout.wanderSpots), at: now });
               nextSettled.delete(memberId);
               settledChanged = true;
             }
           } else if (currentSettled.has(memberId) && now - wander.at >= WANDER_HOLD_MS) {
-            nextWander.set(memberId, { ...pickWanderSpot(), at: now });
+            nextWander.set(memberId, { ...pickWanderSpot(layout.wanderSpots), at: now });
             nextSettled.delete(memberId);
             settledChanged = true;
           }
@@ -369,12 +448,12 @@ export function CompanyOfficeView({
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [activeAgents, dmVisits, hotGroups, settled, wanderByMember]);
+  }, [activeAgents, dmVisits, hotGroups, layout, settled, wanderByMember]);
 
   useEffect(() => {
     const element = stageRef.current;
     if (!element) return;
-    const update = () => setScale(Math.min(1, element.clientWidth / ROOM_WIDTH));
+    const update = () => setScale(Math.min(1, element.clientWidth / layout.width));
     update();
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(element);
@@ -383,17 +462,17 @@ export function CompanyOfficeView({
       observer?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, []);
+  }, [layout.width]);
 
   const deskByMember = useMemo(
     () =>
       new Map(
         activeAgents.map((agent, index) => [
           agent.member_id,
-          DESKS[index % DESKS.length],
+          layout.desks[index % layout.desks.length],
         ]),
       ),
-    [activeAgents],
+    [activeAgents, layout.desks],
   );
   const memberById = useMemo(
     () => new Map(members.map((member) => [member.id, member])),
@@ -440,7 +519,14 @@ export function CompanyOfficeView({
         ) : null}
       </div>
 
-      <div className="office-stage-wrap" ref={stageRef}>
+      <div
+        className="office-stage-wrap"
+        ref={stageRef}
+        style={{
+          width: `min(calc(100% - 40px), ${layout.width}px)`,
+          aspectRatio: `${layout.width} / ${layout.height}`,
+        }}
+      >
         {activeAgents.length === 0 ? (
           <div className="office-empty">
             <Users aria-hidden="true" />
@@ -453,11 +539,11 @@ export function CompanyOfficeView({
         ) : (
           <div
             className="office-room"
-            style={{ transform: `scale(${scale})` }}
+            style={{ width: layout.width, height: layout.height, transform: `scale(${scale})` }}
           >
-            <OfficeFurniture activeAgents={activeAgents} />
+            <OfficeFurniture activeAgents={activeAgents} layout={layout} />
             {activeAgents.map((agent) => {
-              const desk = deskByMember.get(agent.member_id) ?? DESKS[0];
+              const desk = deskByMember.get(agent.member_id) ?? layout.desks[0];
               const visit = [...dmVisits.values()].find((candidate) => candidate.visitorId === agent.member_id);
               const hosting = [...dmVisits.values()].find((candidate) => candidate.hostId === agent.member_id);
               const group = [...hotGroups.values()].find((candidate) => candidate.memberIds.includes(agent.member_id));
@@ -466,9 +552,9 @@ export function CompanyOfficeView({
               const talk = Boolean(visit || hosting);
               const wander = wanderByMember.get(agent.member_id);
               const target = visit
-                ? visitHostTarget(visit.hostId, deskByMember)
+                ? visitHostTarget(visit.hostId, deskByMember, layout.visitorSpot)
                 : group
-                  ? meetingSpot(group, agent.member_id)
+                  ? meetingSpot(group, agent.member_id, layout.meetingSpots)
                   : working
                     ? desk
                     : wander ?? desk;
@@ -539,10 +625,10 @@ export function CompanyOfficeView({
   );
 }
 
-function OfficeFurniture({ activeAgents }: { activeAgents: Agent[] }) {
+function OfficeFurniture({ activeAgents, layout }: { activeAgents: Agent[]; layout: OfficeLayout }) {
   return (
     <>
-      {WALL_TILES.map((tile, index) => (
+      {layout.wallTiles.map((tile, index) => (
         <OfficeSprite
           key={`wall-${index}`}
           src="partition-wall.png"
@@ -552,10 +638,10 @@ function OfficeFurniture({ activeAgents }: { activeAgents: Agent[] }) {
           height={64}
         />
       ))}
-      {OFFICE_PROPS.map((prop, index) => (
+      {layout.props.map((prop, index) => (
         <OfficeSprite key={`${prop.src}-${index}`} {...prop} />
       ))}
-      {WORKSTATIONS.map((station, index) => {
+      {layout.workstations.map((station, index) => {
         const working = activeAgents[index]?.activity_status === "working";
         return (
           <span
@@ -607,23 +693,31 @@ function OfficeSprite({
   );
 }
 
-function visitHostTarget(hostId: string, deskByMember: Map<string, { x: number; y: number }>): { x: number; y: number } {
+function visitHostTarget(
+  hostId: string,
+  deskByMember: Map<string, { x: number; y: number }>,
+  visitorSpot: { x: number; y: number },
+): { x: number; y: number } {
   const desk = deskByMember.get(hostId);
-  return desk ? { x: desk.x + 54, y: desk.y + 4 } : VISITOR_SPOT;
+  return desk ? { x: desk.x + 54, y: desk.y + 4 } : visitorSpot;
 }
 
-function meetingSpot(group: HotGroup, memberId: string): { x: number; y: number } {
+function meetingSpot(
+  group: HotGroup,
+  memberId: string,
+  spots: readonly { x: number; y: number }[],
+): { x: number; y: number } {
   const index = group.memberIds.indexOf(memberId);
-  if (index < 0) return MEETING_SPOTS[0];
-  return MEETING_SPOTS[index % MEETING_SPOTS.length];
+  if (index < 0 || !spots.length) return { x: 0, y: 0 };
+  return spots[index % spots.length];
 }
 
 function distance(from: { x: number; y: number }, to: { x: number; y: number }): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-function pickWanderSpot(): { x: number; y: number } {
-  return WANDER_SPOTS[Math.floor(Math.random() * WANDER_SPOTS.length)];
+function pickWanderSpot(spots: readonly { x: number; y: number }[]): { x: number; y: number } {
+  return spots[Math.floor(Math.random() * spots.length)];
 }
 
 function agentVariant(seed: string): number {
