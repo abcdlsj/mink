@@ -23,18 +23,18 @@ const HOT_THRESHOLD = 5;
 const VISIT_HOLD_MS = 45_000;
 
 const WORKSTATIONS: readonly { x: number; y: number }[] = [
-  { x: 120, y: 230 },
-  { x: 320, y: 230 },
-  { x: 520, y: 230 },
-  { x: 720, y: 230 },
-  { x: 110, y: 110 },
-  { x: 210, y: 110 },
-  { x: 750, y: 110 },
-  { x: 850, y: 110 },
-  { x: 120, y: 410 },
-  { x: 320, y: 410 },
-  { x: 520, y: 410 },
-  { x: 720, y: 410 },
+  { x: 160, y: 256 },
+  { x: 320, y: 256 },
+  { x: 480, y: 256 },
+  { x: 640, y: 256 },
+  { x: 80, y: 120 },
+  { x: 176, y: 120 },
+  { x: 784, y: 120 },
+  { x: 880, y: 120 },
+  { x: 160, y: 384 },
+  { x: 320, y: 384 },
+  { x: 480, y: 384 },
+  { x: 640, y: 384 },
 ];
 
 const DESKS: readonly { x: number; y: number }[] = WORKSTATIONS.map((station) => ({
@@ -57,21 +57,47 @@ const VISITOR_SPOT = { x: 860, y: 430 };
 const WANDER_DELAY_MS = 25_000;
 const WANDER_HOLD_MS = 8_000;
 const WANDER_SPOTS: readonly { x: number; y: number }[] = [
-  { x: 200, y: 320 },
+  { x: 160, y: 320 },
   { x: 320, y: 320 },
-  { x: 440, y: 320 },
-  { x: 560, y: 320 },
-  { x: 680, y: 320 },
+  { x: 640, y: 320 },
   { x: 800, y: 320 },
-  { x: 200, y: 170 },
-  { x: 320, y: 170 },
-  { x: 560, y: 170 },
-  { x: 680, y: 170 },
-  { x: 200, y: 480 },
-  { x: 440, y: 480 },
-  { x: 680, y: 480 },
-  { x: 60, y: 300 },
-  { x: 900, y: 300 },
+  { x: 160, y: 160 },
+  { x: 320, y: 160 },
+  { x: 480, y: 160 },
+  { x: 640, y: 160 },
+  { x: 800, y: 160 },
+  { x: 160, y: 448 },
+  { x: 320, y: 448 },
+  { x: 480, y: 448 },
+  { x: 640, y: 448 },
+  { x: 800, y: 448 },
+];
+
+const WALL_TILES: readonly { x: number }[] = Array.from({ length: 15 }, (_, index) => ({
+  x: index * 64,
+}));
+
+const OFFICE_PROPS: readonly {
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}[] = [
+  { src: "water-cooler.png", x: 16, y: 224, width: 16, height: 32 },
+  { src: "printer.png", x: 16, y: 320, width: 64, height: 32 },
+  { src: "trash.png", x: 16, y: 160, width: 16, height: 16 },
+  { src: "plant.png", x: 16, y: 480, width: 32, height: 32 },
+  { src: "coffee-maker.png", x: 880, y: 224, width: 64, height: 64 },
+  { src: "sink.png", x: 880, y: 320, width: 64, height: 64 },
+  { src: "cabinet.png", x: 880, y: 160, width: 64, height: 64 },
+  { src: "plant.png", x: 880, y: 480, width: 32, height: 32 },
+  { src: "writing-table.png", x: 432, y: 288, width: 64, height: 64 },
+  { src: "chair.png", x: 456, y: 268, width: 16, height: 16 },
+  { src: "chair.png", x: 456, y: 356, width: 16, height: 16 },
+  { src: "chair.png", x: 412, y: 312, width: 16, height: 16 },
+  { src: "chair.png", x: 500, y: 312, width: 16, height: 16 },
+  { src: "stamping-table.png", x: 448, y: 480, width: 64, height: 32 },
 ];
 
 interface DmVisit {
@@ -516,30 +542,19 @@ export function CompanyOfficeView({
 function OfficeFurniture({ activeAgents }: { activeAgents: Agent[] }) {
   return (
     <>
-      {Array.from({ length: 15 }, (_, index) => (
+      {WALL_TILES.map((tile, index) => (
         <OfficeSprite
           key={`wall-${index}`}
           src="partition-wall.png"
-          x={index * 64}
+          x={tile.x}
           y={0}
           width={64}
           height={64}
         />
       ))}
-      <OfficeSprite src="water-cooler.png" x={20} y={240} width={16} height={32} />
-      <OfficeSprite src="coffee-maker.png" x={896} y={240} width={64} height={64} />
-      <OfficeSprite src="printer.png" x={20} y={120} width={64} height={32} />
-      <OfficeSprite src="sink.png" x={896} y={120} width={64} height={64} />
-      <OfficeSprite src="trash.png" x={24} y={80} width={16} height={16} />
-      <OfficeSprite src="cabinet.png" x={896} y={80} width={64} height={64} />
-      <OfficeSprite src="plant.png" x={32} y={470} width={32} height={32} />
-      <OfficeSprite src="plant.png" x={896} y={470} width={32} height={32} />
-      <OfficeSprite src="writing-table.png" x={448} y={288} width={64} height={64} />
-      <OfficeSprite src="chair.png" x={472} y={268} width={16} height={16} />
-      <OfficeSprite src="chair.png" x={472} y={356} width={16} height={16} />
-      <OfficeSprite src="chair.png" x={428} y={312} width={16} height={16} />
-      <OfficeSprite src="chair.png" x={516} y={312} width={16} height={16} />
-      <OfficeSprite src="stamping-table.png" x={448} y={500} width={64} height={32} />
+      {OFFICE_PROPS.map((prop, index) => (
+        <OfficeSprite key={`${prop.src}-${index}`} {...prop} />
+      ))}
       {WORKSTATIONS.map((station, index) => {
         const working = activeAgents[index]?.activity_status === "working";
         return (
