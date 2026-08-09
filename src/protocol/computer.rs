@@ -916,8 +916,8 @@ mod tests {
         };
         let value = serde_json::to_value(hello).unwrap();
 
-        assert_eq!(value["supported_versions"]["minimum"], 2);
-        assert_eq!(value["supported_versions"]["maximum"], 2);
+        assert_eq!(value["supported_versions"]["minimum"], 3);
+        assert_eq!(value["supported_versions"]["maximum"], 3);
         assert_eq!(value["capabilities"][0], "active_turn_steer");
     }
 
