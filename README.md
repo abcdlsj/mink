@@ -202,6 +202,32 @@ SUMI_COMPUTER__OPEN_PAIRING_BROWSER=false \
 ./target/release/sumi computer
 ```
 
+## Builtin agent harness benchmark
+
+`tests/builtin_harness_benchmark.rs` is a live benchmark for the Builtin driver
+that measures prompt cache rate, context compression, and long-conversation
+focus, and compares the result against the codex CLI harness (driven through
+Sumi's codex driver). Both legs run the same scripted conversation with the
+same OpenAI-compatible provider and model.
+
+```sh
+mise run harness-benchmark
+```
+
+Required environment (typically in a git-ignored `mise.local.toml`):
+
+- `SUMI_HARNESS_BUILTIN_TOKEN` — provider API key for the Builtin leg.
+- `SUMI_TEST_CODEX_HOME` — codex profile directory whose `config.toml` and
+  `auth.json` select the same provider/model for the codex CLI leg.
+
+Optional knobs: `SUMI_HARNESS_DRIVER` (`builtin`/`codex`/`both`),
+`SUMI_HARNESS_REPORT_DIR`, `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW`,
+`SUMI_HARNESS_COMPACTION_RATIO`, `SUMI_HARNESS_KEEP_RECENT_TOKENS`, and
+`SUMI_HARNESS_ENFORCE_THRESHOLDS` (with `SUMI_HARNESS_MIN_CACHE_RATE` and
+`SUMI_HARNESS_MIN_PROBE_ACCURACY`). The report is written as `report.json`
+and `report.md` under `SUMI_HARNESS_REPORT_DIR` (default
+`target/harness-report`).
+
 ## Docker
 
 The repository includes a `Dockerfile` and `compose.yaml` for the Server and

@@ -19,6 +19,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ crates/
 COPY schema/ schema/
 COPY src/ src/
 RUN cargo build --release --locked

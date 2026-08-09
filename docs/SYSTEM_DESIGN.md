@@ -78,6 +78,11 @@ Driver：
 - 必须换新 generation：Task 终态、Linked Threads 成员集合不兼容、Driver/Role/workspace 变化、locator 丢失或 resume 失败、显式 reset。
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
+- Builtin Provider Session 持久化每次模型调用的 token usage 与嵌入方写入的上下文元数据；`sumi-builtin-agent` harness 把每次压缩记录（触发原因、边界、估算 source/summary token）写入 session metadata，供运行期观测与 harness 基准测试使用。
+- `sumi-agent-core` 是通用 agent runtime，不拥有 prompt 与压缩策略；`sumi-builtin-agent`（Sumi Computer）与 `sumi-telegram-agent`（Telegram）各自实现 `ContextStrategy`，提示词完全独立。
+- Builtin 上下文压缩按模型上下文窗口与触发比例（`computer.builtin.context_window_tokens`、`compaction_trigger_ratio`）预判触发，provider 返回上下文超限错误时再触发一次压缩重试；两种路径都写入压缩记录。
+- Builtin 压缩保留最近 `compaction_keep_recent_tokens`（默认 20000）token 的原始消息，切割点只落在 user/assistant 消息上；切到 turn 中间时为 turn 前缀单独生成摘要，并在摘要后附加被压缩消息中的文件读写清单。
+- Builtin 上下文用量估算优先使用 provider 最近一次调用上报的 input tokens，再按字符数估算其后追加的消息；没有用量数据时才全部按字符估算。
 - `memory/MEMORY.md` 是每个 Run 开始必须读取的主文件；产生影响后续协作的新知识时，Agent 必须在相关对外动作前写入。
 - Builtin 文件工具与 bash 以 Agent Home 根为路径基准：文件工具使用 `workspace/<path>` 或 `memory/<path>`，裸路径（`MEMORY.md`、`notes/<topic>.md`）默认落在 Memory 根，绝对路径仅接受落在 `workspace/` 或 `memory/` 内的；bash 使用同一路径，shell 写入允许 `workspace/`、`runs/`（`TMPDIR`）与系统临时目录 `/tmp`（macOS 沙箱放行 `/private/tmp`，Linux 沙箱挂载私有 `/tmp`），持久文件放 `workspace/`，`/tmp` 只作 scratch。macOS 系统 bash 3.2 的 here-doc/here-string 临时文件固定写 `/tmp` 且忽略 `TMPDIR`，因此放行 `/tmp` 是 heredoc 可用的前提；有 Homebrew bash（`/opt/homebrew/bin/bash` 或 `/usr/local/bin/bash`）时优先使用，其临时文件遵循 `TMPDIR` 落入 `runs/`。Memory CLI 的 `path` 相对 Memory 根（如 `MEMORY.md`、`notes/<topic>.md`）。
 - Memory 与 workspace 不上传 Server；Server 只保存投影（文件名、大小、SHA-256、更新时间）并在需要时查询在线 Computer；正文读取设置 no-store。

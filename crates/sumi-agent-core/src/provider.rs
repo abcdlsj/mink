@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 
 use super::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
 
-#[derive(Clone)]
-pub(super) struct ProviderConfig {
+#[derive(Clone, Debug)]
+pub struct ProviderConfig {
     pub(super) api_key: SecretString,
     pub(super) base_url: Option<String>,
     pub(super) model: String,
@@ -18,7 +18,7 @@ pub(super) struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub(super) fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
+    pub fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: None,
@@ -27,12 +27,12 @@ impl ProviderConfig {
         }
     }
 
-    pub(super) fn with_base_url(mut self, url: String) -> Self {
+    pub fn with_base_url(mut self, url: String) -> Self {
         self.base_url = Some(url);
         self
     }
 
-    pub(super) fn with_prompt_cache_key(mut self, key: String) -> Self {
+    pub fn with_prompt_cache_key(mut self, key: String) -> Self {
         if !key.is_empty() {
             self.prompt_cache_key = Some(key);
         }
@@ -178,16 +178,12 @@ fn build_openai_request(
             }
 
             let mut obj = serde_json::json!({ "role": m.role });
-            if !m.content.is_empty() {
-                obj["content"] = if explicit_prompt_cache && m.cache_breakpoint {
-                    serde_json::json!([{
-                        "type": "text",
-                        "text": m.content,
-                        "prompt_cache_breakpoint": { "mode": "explicit" }
-                    }])
-                } else {
-                    serde_json::Value::String(m.content.clone())
-                };
+            let image_attachments = m.attachments.iter().any(|attachment| {
+                attachment.kind == "image"
+                    && (!attachment.data.is_empty() || !attachment.url.is_empty())
+            });
+            if !m.content.is_empty() || image_attachments {
+                obj["content"] = message_content(m, explicit_prompt_cache, image_attachments);
             }
             if !m.tool_calls.is_empty() {
                 obj["tool_calls"] = m
@@ -249,6 +245,48 @@ fn build_openai_request(
     }
 
     request
+}
+
+fn message_content(
+    message: &Message,
+    explicit_prompt_cache: bool,
+    image_attachments: bool,
+) -> serde_json::Value {
+    if !image_attachments {
+        return if explicit_prompt_cache && message.cache_breakpoint {
+            serde_json::json!([{
+                "type": "text",
+                "text": message.content,
+                "prompt_cache_breakpoint": { "mode": "explicit" }
+            }])
+        } else {
+            serde_json::Value::String(message.content.clone())
+        };
+    }
+    let mut parts = vec![serde_json::json!({
+        "type": "text",
+        "text": message.content,
+    })];
+    for attachment in &message.attachments {
+        if attachment.kind != "image" || (attachment.data.is_empty() && attachment.url.is_empty()) {
+            continue;
+        }
+        let url = if !attachment.data.is_empty() {
+            let mime = if attachment.mime.is_empty() {
+                "image/jpeg"
+            } else {
+                attachment.mime.as_str()
+            };
+            format!("data:{mime};base64,{}", attachment.data)
+        } else {
+            attachment.url.clone()
+        };
+        parts.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": { "url": url }
+        }));
+    }
+    serde_json::Value::Array(parts)
 }
 
 #[derive(Default)]
@@ -348,6 +386,7 @@ async fn handle_stream_chunk(
             total_tokens: usage["total_tokens"].as_i64().unwrap_or(0) as i32,
             cached_input_tokens: usage["prompt_tokens_details"]["cached_tokens"]
                 .as_i64()
+                .or_else(|| usage["prompt_cache_hit_tokens"].as_i64())
                 .unwrap_or(0) as i32,
             cache_write_tokens: usage["prompt_tokens_details"]["cache_write_tokens"]
                 .as_i64()
@@ -457,6 +496,23 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, 1920);
         assert_eq!(usage.cache_write_tokens, 64);
         assert_eq!(usage.source, "openai_chat_completions");
+    }
+
+    #[tokio::test]
+    async fn usage_falls_back_to_deepseek_cache_hit_field() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut state = OpenAiStreamState::default();
+        handle_stream_chunk(
+            serde_json::json!({"usage":{"prompt_tokens":2006,"completion_tokens":300,"total_tokens":2306,"prompt_cache_hit_tokens":1920,"prompt_cache_miss_tokens":86}}),
+            &mut state,
+            &tx,
+        )
+        .await
+        .unwrap();
+
+        let usage = state.usage.expect("usage");
+        assert_eq!(usage.input_tokens, 2006);
+        assert_eq!(usage.cached_input_tokens, 1920);
     }
 
     #[tokio::test]
