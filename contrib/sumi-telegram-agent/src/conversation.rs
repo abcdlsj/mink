@@ -6,6 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sumi_builtin_agent::{
@@ -18,7 +20,7 @@ use crate::{
     config::Settings,
     markdown::{ReplyImage, render_markdown},
     plugin::TelegramPlugin,
-    reminder::{ReminderPlugin, spawn_delivery_loop},
+    scheduler::{ScheduledTask, SchedulerPlugin},
     state::{ConversationEntry, ConversationState},
     telegram::{TelegramClient, guess_mime},
     text::sanitize_file_name,
@@ -48,7 +50,7 @@ pub struct Conversation {
     locator: String,
     last_message_id: i64,
     plugin: Arc<TelegramPlugin<TelegramClient>>,
-    reminder_plugin: Arc<ReminderPlugin<TelegramClient>>,
+    scheduler_plugin: Arc<SchedulerPlugin>,
     client: TelegramClient,
     chat_id: i64,
     identity: String,
@@ -75,16 +77,14 @@ impl Conversation {
         };
         let agent_home = config.agent_home(agent_id);
         let plugin = Arc::new(TelegramPlugin::new(chat_id, client.clone()));
-        let reminder_plugin = Arc::new(ReminderPlugin::new(
-            chat_id,
-            client.clone(),
-            agent_home.join("reminders.json"),
+        let scheduler_plugin = Arc::new(SchedulerPlugin::new(
+            agent_home.join("scheduler.json"),
+            settings.timezone,
         ));
-        let mut runtime = AgentRuntime::new(config, vec![plugin.clone(), reminder_plugin.clone()]);
+        let mut runtime = AgentRuntime::new(config, vec![plugin.clone(), scheduler_plugin.clone()]);
         runtime
             .provision(agent_id, &settings.identity, &settings.role)
             .await?;
-        spawn_delivery_loop(reminder_plugin.clone());
         let state = ConversationState::load(&state_path).await?;
         let entry = state
             .conversations
@@ -101,7 +101,7 @@ impl Conversation {
             locator,
             last_message_id: entry.last_message_id,
             plugin,
-            reminder_plugin,
+            scheduler_plugin,
             client,
             chat_id,
             identity: settings.identity.clone(),
@@ -120,7 +120,7 @@ impl Conversation {
         self.last_message_id = message.message_id;
         let text = message.text_content();
         self.plugin.set_reply_target(Some(message.message_id));
-        self.reminder_plugin
+        self.scheduler_plugin
             .set_reply_target(Some(message.message_id));
         self.react(REACTION_WORKING).await;
         if text.trim() == "/reset" {
@@ -149,12 +149,13 @@ impl Conversation {
         };
         let run_id = Uuid::now_v7();
         let memory = self.runtime.list_memory(self.agent_id).await?;
+        let now = self.local_now().to_rfc3339();
         let request = TurnRequest {
             product_contract: self.product_contract.clone(),
             driver_contract: self.driver_contract.clone(),
             identity: self.identity.clone(),
             role: self.role.clone(),
-            input: build_turn_input(message, &descriptors, &memory),
+            input: build_turn_input(message, &descriptors, &memory, &now),
             content_hash: content_hash(&text, &descriptors),
             attachments,
             blocked_tools: Default::default(),
@@ -183,7 +184,7 @@ impl Conversation {
             TurnOutcome::Completed => {
                 self.react(REACTION_DONE).await;
                 if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
-                    self.send_reply(&reply, message.message_id).await?;
+                    self.send_reply(&reply, Some(message.message_id)).await?;
                 }
             }
             TurnOutcome::Failed => {
@@ -212,6 +213,98 @@ impl Conversation {
         self.persist().await
     }
 
+    pub async fn handle_due_tasks(&mut self) -> Result<()> {
+        let now = Utc::now().timestamp();
+        let due = self.scheduler_plugin.take_due(now).await?;
+        for task in due {
+            if let Err(error) = self.run_scheduled_task(&task).await {
+                tracing::warn!(%error, task_id = %task.id, "scheduled task turn failed");
+            }
+            if let Err(error) = self.scheduler_plugin.reschedule(&task).await {
+                tracing::warn!(%error, task_id = %task.id, "scheduled task reschedule failed");
+            }
+        }
+        Ok(())
+    }
+
+    async fn run_scheduled_task(&mut self, task: &ScheduledTask) -> Result<()> {
+        let run_id = Uuid::now_v7();
+        let request = TurnRequest {
+            product_contract: self.product_contract.clone(),
+            driver_contract: self.driver_contract.clone(),
+            identity: self.identity.clone(),
+            role: self.role.clone(),
+            input: json!({
+                "scheduled_task": {
+                    "id": task.id,
+                    "prompt": task.prompt,
+                    "created_at_unix": task.created_at_unix,
+                },
+                "conversation": {
+                    "platform": "telegram",
+                    "chat_id": self.chat_id,
+                },
+                "now": self.local_now().to_rfc3339(),
+            }),
+            content_hash: format!("scheduled-{}-{}", task.id, task.next_at_unix),
+            attachments: Vec::new(),
+            blocked_tools: Default::default(),
+            sandbox_environment: Default::default(),
+        };
+        if let Err(error) = self
+            .runtime
+            .start_turn(run_id, &self.locator, request)
+            .await
+        {
+            tracing::warn!(%error, task_id = %task.id, "failed to start scheduled task");
+            self.send_notice(
+                "A scheduled task could not be started; it will be retried next time.",
+                task.reply_to_message_id,
+            )
+            .await?;
+            return Ok(());
+        }
+        let outcome = match self.wait_for_outcome(run_id).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                tracing::warn!(%error, task_id = %task.id, "scheduled task outcome failed");
+                return Ok(());
+            }
+        };
+        match outcome {
+            TurnOutcome::Completed => {
+                if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
+                    self.send_reply(&reply, task.reply_to_message_id).await?;
+                }
+            }
+            TurnOutcome::Failed => {
+                self.send_notice(
+                    "A scheduled task failed; it will be retried next time.",
+                    task.reply_to_message_id,
+                )
+                .await?;
+            }
+            TurnOutcome::Interrupted => {
+                self.send_notice(
+                    "A scheduled task timed out; it will be retried next time.",
+                    task.reply_to_message_id,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    fn local_now(&self) -> DateTime<Tz> {
+        Utc::now().with_timezone(&self.scheduler_plugin.timezone())
+    }
+
+    async fn send_notice(&self, text: &str, reply_to_message_id: Option<i64>) -> Result<()> {
+        self.client
+            .send_message(self.chat_id, text, reply_to_message_id, None)
+            .await
+    }
+
     async fn react(&self, emoji: &str) {
         if let Err(error) = self
             .client
@@ -222,7 +315,7 @@ impl Conversation {
         }
     }
 
-    async fn send_reply(&self, reply: &str, reply_to_message_id: i64) -> Result<()> {
+    async fn send_reply(&self, reply: &str, reply_to_message_id: Option<i64>) -> Result<()> {
         let rendered = render_markdown(reply);
         for part in rendered.messages {
             if part.trim().is_empty() {
@@ -230,14 +323,14 @@ impl Conversation {
             }
             match self
                 .client
-                .send_message_html(self.chat_id, &part, Some(reply_to_message_id))
+                .send_message_html(self.chat_id, &part, reply_to_message_id)
                 .await
             {
                 Ok(()) => {}
                 Err(error) => {
                     tracing::warn!(%error, "HTML reply rejected; falling back to plain text");
                     self.client
-                        .send_message(self.chat_id, &part, Some(reply_to_message_id), None)
+                        .send_message(self.chat_id, &part, reply_to_message_id, None)
                         .await?;
                 }
             }
@@ -249,7 +342,7 @@ impl Conversation {
     async fn send_reply_images(
         &self,
         images: &[ReplyImage],
-        reply_to_message_id: i64,
+        reply_to_message_id: Option<i64>,
     ) -> Result<()> {
         for image in images {
             if image.url.starts_with("http://") || image.url.starts_with("https://") {
@@ -259,7 +352,7 @@ impl Conversation {
                         self.chat_id,
                         &image.url,
                         &image.alt,
-                        Some(reply_to_message_id),
+                        reply_to_message_id,
                         Some("HTML"),
                     )
                     .await
@@ -297,7 +390,7 @@ impl Conversation {
                     file_name,
                     bytes,
                     &image.alt,
-                    Some(reply_to_message_id),
+                    reply_to_message_id,
                     Some("HTML"),
                 )
                 .await
@@ -495,7 +588,12 @@ async fn resume_locator(
     }
 }
 
-fn build_turn_input(message: &Message, descriptors: &[Value], memory: &[MemoryFile]) -> Value {
+fn build_turn_input(
+    message: &Message,
+    descriptors: &[Value],
+    memory: &[MemoryFile],
+    now: &str,
+) -> Value {
     let from = message.from.as_ref();
     let first_name = from
         .and_then(|user| user.first_name.clone())
@@ -519,6 +617,7 @@ fn build_turn_input(message: &Message, descriptors: &[Value], memory: &[MemoryFi
         },
         "attachments": descriptors,
         "memory": memory,
+        "now": now,
     })
 }
 
@@ -561,6 +660,7 @@ mod tests {
                 json!({"kind":"file","name":"a.pdf","mime":"application/pdf","path":"workspace/attachments/7/a.pdf","size":3}),
             ],
             &[],
+            "2026-08-09T09:00:00+08:00",
         );
         assert_eq!(input["conversation"]["platform"], "telegram");
         assert_eq!(input["conversation"]["chat_id"], 42);
@@ -571,6 +671,7 @@ mod tests {
             "workspace/attachments/7/a.pdf"
         );
         assert_eq!(input["memory"], json!([]));
+        assert_eq!(input["now"], "2026-08-09T09:00:00+08:00");
     }
 
     #[test]
@@ -601,6 +702,7 @@ mod tests {
             role: "Role".into(),
             product_contract: "p".into(),
             driver_contract: "d".into(),
+            timezone: chrono_tz::Tz::Asia__Shanghai,
             turn_timeout: Duration::from_secs(1),
         };
         let conversation = Conversation::open(

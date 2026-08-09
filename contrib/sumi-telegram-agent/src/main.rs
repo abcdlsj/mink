@@ -2,7 +2,7 @@ mod config;
 mod conversation;
 mod markdown;
 mod plugin;
-mod reminder;
+mod scheduler;
 mod state;
 mod telegram;
 mod text;
@@ -101,11 +101,24 @@ async fn handle_update(
             let conversation =
                 Conversation::open(settings, chat_id, client.clone(), state_path.to_owned())
                     .await?;
-            entry.insert(Arc::new(Mutex::new(conversation))).clone()
+            let conversation = entry.insert(Arc::new(Mutex::new(conversation))).clone();
+            spawn_scheduler_loop(conversation.clone());
+            conversation
         }
     };
     drop(registry);
     conversation.lock().await.handle_message(&message).await
+}
+
+fn spawn_scheduler_loop(conversation: Arc<Mutex<Conversation>>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if let Err(error) = conversation.lock().await.handle_due_tasks().await {
+                tracing::warn!(%error, "scheduled task delivery failed");
+            }
+        }
+    });
 }
 
 fn init_tracing() {

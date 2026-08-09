@@ -1,7 +1,10 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, ensure};
+use chrono_tz::Tz;
 use secrecy::SecretString;
+
+use crate::scheduler::parse_timezone;
 
 pub const DEFAULT_PRODUCT_CONTRACT: &str = concat!(
     "You are chatting with a user through Telegram. Reply text is delivered automatically as a ",
@@ -31,6 +34,7 @@ pub struct Settings {
     pub role: String,
     pub product_contract: String,
     pub driver_contract: String,
+    pub timezone: Tz,
     pub turn_timeout: Duration,
 }
 
@@ -62,6 +66,7 @@ impl Settings {
             )?,
             product_contract: env_or("SUMI_PRODUCT_CONTRACT", DEFAULT_PRODUCT_CONTRACT)?,
             driver_contract: env_or("SUMI_DRIVER_CONTRACT", DEFAULT_DRIVER_CONTRACT)?,
+            timezone: parse_timezone(&env_or("SUMI_AGENT_TZ", "Asia/Shanghai")?)?,
             turn_timeout: Duration::from_secs(timeout_seconds),
         })
     }
@@ -112,6 +117,7 @@ mod tests {
             role: "Role".into(),
             product_contract: "p".into(),
             driver_contract: "d".into(),
+            timezone: parse_timezone("Asia/Shanghai").unwrap(),
             turn_timeout: Duration::from_secs(1),
         };
         assert!(!format!("{:?}", settings.telegram_token).contains("tg-secret"));

@@ -32,6 +32,7 @@ Environment:
 | `SUMI_AGENT_ROLE` | Help text | Agent role in prompts |
 | `SUMI_PRODUCT_CONTRACT` | built-in | Extra platform rules |
 | `SUMI_DRIVER_CONTRACT` | built-in | Tool mechanics rules |
+| `SUMI_AGENT_TZ` | `Asia/Shanghai` | Chat timezone for scheduled tasks and `now` in run context |
 | `SUMI_TURN_TIMEOUT_SECONDS` | `600` | Max seconds per agent turn |
 
 Send `/reset` in any chat to start a fresh conversation.
@@ -59,18 +60,24 @@ Every turn includes a memory projection (path, size, sha256, modified time) in
 the run context so the agent knows what is stored. `sumi-builtin-agent` exposes
 `AgentRuntime::list_memory/read_memory/write_memory` for host applications.
 
-## Reminders
+## Scheduled tasks
 
-The builtin `reminder` plugin is injected into every conversation and persists
-reminders in `<agent-home>/reminders.json`:
+The builtin `scheduler` plugin is injected into every conversation and
+persists agent tasks in `<agent-home>/scheduler.json`:
 
-- `reminder.set` with `text` and `in_minutes` (1-43200) schedules a one-shot
-  reminder; the bot delivers `⏰ Reminder: <text>` when it is due.
-- `reminder.list` returns the scheduled reminders as JSON.
-- `reminder.cancel` removes one by id.
+- `scheduler.create` with `prompt`, `next_at` (RFC3339 in the chat timezone),
+  and `repeat` (`once` | `daily` | `weekly`, default `once`) schedules an agent
+  task.
+- `scheduler.list` returns scheduled tasks as JSON.
+- `scheduler.cancel` removes one by id.
 
-Reminders survive restarts and are checked every 5 seconds. Due reminders reply
-to the message that created them when available.
+When a task is due, the bot starts a full agent turn with the prompt as the
+instruction (for example "每天9点查看每日新闻" becomes a daily task that at
+09:00 reads the news, organizes a summary, and sends it to the chat), delivers
+the result, and reschedules recurring tasks. The current local time is included
+as `now` in every run context so the agent can compute `next_at`. Tasks survive
+restarts and are checked every 5 seconds. The chat timezone is configured with
+`SUMI_AGENT_TZ` (default `Asia/Shanghai`).
 
 ## Files and images
 
