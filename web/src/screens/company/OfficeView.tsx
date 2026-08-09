@@ -49,6 +49,23 @@ const MEETING_SPOTS: readonly { x: number; y: number }[] = [
 ];
 
 const VISITOR_SPOT = { x: 860, y: 430 };
+const WANDER_DELAY_MS = 25_000;
+const WANDER_HOLD_MS = 8_000;
+const WANDER_SPOTS: readonly { x: number; y: number }[] = [
+  { x: 480, y: 220 },
+  { x: 480, y: 330 },
+  { x: 760, y: 300 },
+  { x: 200, y: 220 },
+  { x: 300, y: 200 },
+  { x: 480, y: 180 },
+  { x: 860, y: 430 },
+  { x: 120, y: 430 },
+  { x: 700, y: 200 },
+  { x: 760, y: 400 },
+  { x: 200, y: 300 },
+  { x: 900, y: 200 },
+  { x: 80, y: 200 },
+];
 
 interface DmVisit {
   visitorId: string;
@@ -91,10 +108,14 @@ export function CompanyOfficeView({
   const [dmVisits, setDmVisits] = useState<ReadonlyMap<string, DmVisit>>(new Map());
   const [hotGroups, setHotGroups] = useState<ReadonlyMap<string, HotGroup>>(new Map());
   const [settled, setSettled] = useState<ReadonlySet<string> | null>(null);
+  const [wanderByMember, setWanderByMember] = useState<
+    ReadonlyMap<string, { x: number; y: number; at: number }>
+  >(new Map());
   const [governorDms, setGovernorDms] = useState<ReadonlyMap<string, { a: string; b: string }>>(
     () => new Map(),
   );
   const channelActivity = useRef<Map<string, number[]>>(new Map());
+  const lastIdleAt = useRef<Map<string, number>>(new Map());
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -135,6 +156,16 @@ export function CompanyOfficeView({
     return merged;
   }, [governorDms, viewerDmDirectory]);
   const settledSet = settled ?? new Set(activeAgents.map((agent) => agent.member_id));
+  useEffect(() => {
+    const now = Date.now();
+    const ids = new Set(activeAgents.map((agent) => agent.member_id));
+    for (const agent of activeAgents) {
+      if (!lastIdleAt.current.has(agent.member_id)) lastIdleAt.current.set(agent.member_id, now);
+    }
+    for (const memberId of [...lastIdleAt.current.keys()]) {
+      if (!ids.has(memberId)) lastIdleAt.current.delete(memberId);
+    }
+  }, [activeAgents]);
 
   async function handleDmMessage(pair: { a: string; b: string }, channelId: string) {
     let authorId: string | undefined;
@@ -161,6 +192,11 @@ export function CompanyOfficeView({
     );
     setSettled((current) => {
       const next = new Set(current ?? activeAgents.map((agent) => agent.member_id));
+      next.delete(agentVisitor);
+      return next;
+    });
+    setWanderByMember((current) => {
+      const next = new Map(current);
       next.delete(agentVisitor);
       return next;
     });
@@ -206,6 +242,11 @@ export function CompanyOfficeView({
         for (const memberId of memberIds) next.delete(memberId);
         return next;
       });
+      setWanderByMember((current) => {
+        const next = new Map(current);
+        for (const memberId of memberIds) next.delete(memberId);
+        return next;
+      });
     } catch {
       // A channel that became unreadable between event and fetch is ignored.
     }
@@ -232,13 +273,61 @@ export function CompanyOfficeView({
         .flatMap((group) => group.memberIds);
       setDmVisits((current) => pruneByUntil(current, now));
       setHotGroups((current) => pruneByUntil(current, now));
+      const currentSettled = settled ?? new Set(activeAgents.map((agent) => agent.member_id));
+      const nextSettled = new Set(currentSettled);
+      let settledChanged = false;
       if (expiredVisitors.length || expiredGroupIds.length) {
-        setSettled((current) => {
-          const next = new Set(current ?? activeAgents.map((agent) => agent.member_id));
-          for (const memberId of [...expiredVisitors, ...expiredGroupIds]) next.delete(memberId);
-          return next;
-        });
+        for (const memberId of [...expiredVisitors, ...expiredGroupIds]) {
+          if (nextSettled.delete(memberId)) settledChanged = true;
+        }
       }
+      const nextWander = new Map(wanderByMember);
+      const activeVisits = [...dmVisits.values()];
+      const activeGroups = [...hotGroups.values()];
+      for (const agent of activeAgents) {
+        const memberId = agent.member_id;
+        const inVisit = activeVisits.some(
+          (visit) => visit.visitorId === memberId || visit.hostId === memberId,
+        );
+        const inGroup = activeGroups.some((group) => group.memberIds.includes(memberId));
+        const working = agent.activity_status === "working";
+        if (working || inVisit || inGroup) {
+          if (nextWander.delete(memberId)) {
+            nextSettled.delete(memberId);
+            settledChanged = true;
+          }
+          lastIdleAt.current.set(memberId, now);
+        } else {
+          const wander = nextWander.get(memberId);
+          if (!wander) {
+            const idleFor = now - (lastIdleAt.current.get(memberId) ?? now);
+            if (idleFor >= WANDER_DELAY_MS) {
+              nextWander.set(memberId, { ...pickWanderSpot(), at: now });
+              nextSettled.delete(memberId);
+              settledChanged = true;
+            }
+          } else if (currentSettled.has(memberId) && now - wander.at >= WANDER_HOLD_MS) {
+            nextWander.set(memberId, { ...pickWanderSpot(), at: now });
+            nextSettled.delete(memberId);
+            settledChanged = true;
+          }
+        }
+      }
+      setWanderByMember((current) => {
+        const currentEntries = [...current.entries()];
+        const nextEntries = [...nextWander.entries()];
+        if (
+          currentEntries.length === nextEntries.length &&
+          currentEntries.every(
+            ([key, value], index) =>
+              nextEntries[index]?.[0] === key && nextEntries[index]?.[1] === value,
+          )
+        ) {
+          return current;
+        }
+        return nextWander;
+      });
+      if (settledChanged) setSettled(nextSettled);
       const cutoff = now - HOT_WINDOW_MS;
       for (const [channelId, times] of channelActivity.current) {
         const kept = times.filter((timestamp) => timestamp >= cutoff);
@@ -247,7 +336,7 @@ export function CompanyOfficeView({
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [activeAgents, dmVisits, hotGroups]);
+  }, [activeAgents, dmVisits, hotGroups, settled, wanderByMember]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -342,11 +431,14 @@ export function CompanyOfficeView({
               const status = agent.activity_status;
               const working = status === "working";
               const talk = Boolean(visit || hosting);
+              const wander = wanderByMember.get(agent.member_id);
               const target = visit
                 ? visitHostTarget(visit.hostId, deskByMember)
                 : group
                   ? meetingSpot(group, agent.member_id)
-                  : desk;
+                  : working
+                    ? desk
+                    : wander ?? desk;
               const moving = !reduced && !settledSet.has(agent.member_id);
               const pose: AgentPose = moving
                 ? "walk"
@@ -356,7 +448,9 @@ export function CompanyOfficeView({
                     ? "stand"
                     : working
                       ? "typing"
-                      : "sit";
+                      : wander
+                        ? "stand"
+                        : "sit";
               const duration = reduced
                 ? 0
                 : Math.min(2600, Math.max(350, 140 + distance(desk, target) * 2.1));
@@ -382,6 +476,7 @@ export function CompanyOfficeView({
                   title={`${name} · ${activityLabel(status)}`}
                 >
                   <PixelAgent
+                    variant={agentVariant(agent.member_id)}
                     pose={pose}
                     working={working}
                     talking={talk}
@@ -433,6 +528,18 @@ function meetingSpot(group: HotGroup, memberId: string): { x: number; y: number 
 
 function distance(from: { x: number; y: number }, to: { x: number; y: number }): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+function pickWanderSpot(): { x: number; y: number } {
+  return WANDER_SPOTS[Math.floor(Math.random() * WANDER_SPOTS.length)];
+}
+
+function agentVariant(seed: string): number {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  return hash % 4;
 }
 
 function pruneByUntil<T extends { until: number }>(current: ReadonlyMap<string, T>, now: number): ReadonlyMap<string, T> {

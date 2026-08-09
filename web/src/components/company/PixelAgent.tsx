@@ -10,11 +10,13 @@ export function PixelAgent({
   working = false,
   talking = false,
   flip = false,
+  variant = 0,
 }: {
   pose: AgentPose;
   working?: boolean;
   talking?: boolean;
   flip?: boolean;
+  variant?: number;
 }) {
   const effectivePose: AgentPose = pose === "sit" && working ? "typing" : pose;
   const walking = effectivePose === "walk";
@@ -27,6 +29,7 @@ export function PixelAgent({
         `pixel-agent--${effectivePose}`,
         walking ? "pixel-agent--walk" : "",
         typing ? "pixel-agent--typing" : "",
+        `pixel-agent--variant-${variant % 4}`,
         flip ? "pixel-agent--flip" : "",
       ].filter(Boolean).join(" ")}
       role="img"

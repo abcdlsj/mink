@@ -4403,10 +4403,10 @@ pre {
 }
 .office-agent-label {
   position: absolute;
-  top: 34px;
+  top: -22px;
   left: 50%;
   display: inline-flex;
-  width: 92px;
+  width: 100px;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -4497,9 +4497,18 @@ pre {
 .pixel-agent--flip {
   transform: scaleX(-1);
 }
+.pixel-agent--variant-1 {
+  filter: hue-rotate(140deg) saturate(1.1);
+}
+.pixel-agent--variant-2 {
+  filter: hue-rotate(230deg) saturate(1.1);
+}
+.pixel-agent--variant-3 {
+  filter: hue-rotate(310deg) saturate(1.1);
+}
 .pixel-agent__bubble {
   position: absolute;
-  top: -18px;
+  top: -40px;
   left: 50%;
   display: flex;
   gap: 2px;
