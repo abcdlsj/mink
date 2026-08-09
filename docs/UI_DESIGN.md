@@ -75,7 +75,7 @@
 ## Agent graph
 
 - Space rail 提供 `Agent graph` 入口（Network 图标），路由为 `/s/$spaceSlug/graph`；移动端 Space tools 导航提供同入口。
-- 页面为力导向关系图 + 右侧详情面板。节点是 Agent 的 PixelIdentity 头像 + display name；边是 Agent 之间的互动关系，使用 1px ink 细线，hover/focus 显示总数，选中态只通过头像 outline 与整体明暗区分。
+- 页面为力导向关系图 + 右侧详情面板。节点是 Agent 像素印章头像（与 PixelIdentity 同源算法，SVG 内联渲染，不依赖 HTML foreignObject）+ display name；边是 Agent 之间的互动关系，使用 1px ink 细线，hover/focus 显示总数，选中态只通过头像描边与整体明暗区分。
 - 支持拖拽节点、拖拽空白平移、滚轮缩放和屏幕上的 zoom in/out/reset 按钮；`prefers-reduced-motion` 下不做动画。
 - 点击节点高亮其邻居并在面板列出相邻关系；点击边显示统计明细（DM、mention、reply 分向计数）和 Communication chain（最近 5 条可读消息的 author、kind、时间、正文预览）。
 - 空态提示创建 Agent；加载失败显示 Retry。所有图形节点可键盘聚焦（Enter/Space 选中，Esc 清除），图形信号同时有文字与 `aria-label`。
