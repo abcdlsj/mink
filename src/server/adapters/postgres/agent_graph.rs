@@ -14,23 +14,17 @@ pub(in crate::server::adapters) struct AgentGraphNodeRow {
     pub(in crate::server::adapters) role_text: String,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
 pub(in crate::server::adapters) struct DirectChannelPairRow {
     pub(in crate::server::adapters) channel_id: Uuid,
     pub(in crate::server::adapters) member_a: Uuid,
     pub(in crate::server::adapters) member_b: Uuid,
 }
 
-#[derive(Debug, FromRow)]
-pub(in crate::server::adapters) struct DirectMessageStatRow {
-    pub(in crate::server::adapters) member_a: Uuid,
-    pub(in crate::server::adapters) member_b: Uuid,
-    pub(in crate::server::adapters) message_count: i64,
-    pub(in crate::server::adapters) last_message_at: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, FromRow)]
-pub(in crate::server::adapters) struct DirectedInteractionStatRow {
+#[derive(Clone, Debug, FromRow)]
+pub(in crate::server::adapters) struct AgentGraphChannelStatRow {
+    pub(in crate::server::adapters) channel_id: Uuid,
+    pub(in crate::server::adapters) source: String,
     pub(in crate::server::adapters) from_member_id: Uuid,
     pub(in crate::server::adapters) to_member_id: Uuid,
     pub(in crate::server::adapters) message_count: i64,
@@ -103,30 +97,18 @@ impl PostgresQueries {
         .map_err(map_sqlx)
     }
 
-    pub(in crate::server::adapters) async fn direct_message_stats(
+    pub(in crate::server::adapters) async fn readable_channel_ids(
         &self,
         space_id: Uuid,
         viewer_id: Uuid,
         viewer_is_governor: bool,
-    ) -> Result<Vec<DirectMessageStatRow>, ApplicationError> {
-        sqlx::query_as(
-            "SELECT cm1.member_id AS member_a, cm2.member_id AS member_b,
-                    COUNT(m.id) AS message_count, MAX(m.created_at) AS last_message_at
-             FROM channels c
-             JOIN channel_members cm1 ON cm1.channel_id = c.id
-             JOIN channel_members cm2 ON cm2.channel_id = c.id AND cm2.member_id > cm1.member_id
-             LEFT JOIN messages m ON m.channel_id = c.id AND m.content_kind = 'text'
-                    AND m.deleted_at IS NULL
-                    AND m.author_member_id IN (cm1.member_id, cm2.member_id)
-             WHERE c.space_id = $1 AND c.kind = 'direct'
+    ) -> Result<Vec<Uuid>, ApplicationError> {
+        sqlx::query_scalar(
+            "SELECT c.id FROM channels c
+             WHERE c.space_id = $1
                AND ($3 OR EXISTS (SELECT 1 FROM channel_members v
                                   WHERE v.channel_id = c.id AND v.member_id = $2))
-               AND cm1.member_id IN (SELECT id FROM members
-                                     WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-               AND cm2.member_id IN (SELECT id FROM members
-                                     WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-             GROUP BY cm1.member_id, cm2.member_id
-             HAVING COUNT(m.id) > 0",
+             ORDER BY c.id",
         )
         .bind(space_id)
         .bind(viewer_id)
@@ -136,60 +118,60 @@ impl PostgresQueries {
         .map_err(map_sqlx)
     }
 
-    pub(in crate::server::adapters) async fn mention_stats(
+    pub(in crate::server::adapters) async fn agent_graph_channel_stats(
         &self,
         space_id: Uuid,
-        viewer_id: Uuid,
-        viewer_is_governor: bool,
-    ) -> Result<Vec<DirectedInteractionStatRow>, ApplicationError> {
+    ) -> Result<Vec<AgentGraphChannelStatRow>, ApplicationError> {
         sqlx::query_as(
-            "SELECT m.author_member_id AS from_member_id, mm.member_id AS to_member_id,
-                    COUNT(*) AS message_count, MAX(m.created_at) AS last_message_at
-             FROM messages m
-             JOIN message_mentions mm ON mm.message_id = m.id
-             JOIN channels c ON c.id = m.channel_id
-             WHERE c.space_id = $1 AND m.content_kind = 'text' AND m.deleted_at IS NULL
-               AND ($3 OR EXISTS (SELECT 1 FROM channel_members v
-                                  WHERE v.channel_id = c.id AND v.member_id = $2))
-               AND m.author_member_id IN (SELECT id FROM members
-                                          WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-               AND mm.member_id IN (SELECT id FROM members
-                                    WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-             GROUP BY m.author_member_id, mm.member_id",
+            "SELECT channel_id, source, from_member_id, to_member_id, message_count, last_message_at
+             FROM (
+                SELECT c.id AS channel_id, 'dm' AS source,
+                       cm1.member_id AS from_member_id, cm2.member_id AS to_member_id,
+                       COUNT(m.id) AS message_count, MAX(m.created_at) AS last_message_at
+                FROM channels c
+                JOIN channel_members cm1 ON cm1.channel_id = c.id
+                JOIN channel_members cm2 ON cm2.channel_id = c.id AND cm2.member_id > cm1.member_id
+                LEFT JOIN messages m ON m.channel_id = c.id AND m.content_kind = 'text'
+                       AND m.deleted_at IS NULL
+                       AND m.author_member_id IN (cm1.member_id, cm2.member_id)
+                WHERE c.space_id = $1 AND c.kind = 'direct'
+                  AND cm1.member_id IN (SELECT id FROM members
+                                        WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                  AND cm2.member_id IN (SELECT id FROM members
+                                        WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                GROUP BY c.id, cm1.member_id, cm2.member_id
+                HAVING COUNT(m.id) > 0
+                UNION ALL
+                SELECT m.channel_id AS channel_id, 'mention' AS source,
+                       m.author_member_id AS from_member_id, mm.member_id AS to_member_id,
+                       COUNT(*) AS message_count, MAX(m.created_at) AS last_message_at
+                FROM messages m
+                JOIN message_mentions mm ON mm.message_id = m.id
+                JOIN channels c ON c.id = m.channel_id
+                WHERE c.space_id = $1 AND m.content_kind = 'text' AND m.deleted_at IS NULL
+                  AND m.author_member_id IN (SELECT id FROM members
+                                             WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                  AND mm.member_id IN (SELECT id FROM members
+                                       WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                GROUP BY m.channel_id, m.author_member_id, mm.member_id
+                UNION ALL
+                SELECT r.channel_id AS channel_id, 'reply' AS source,
+                       r.author_member_id AS from_member_id, p.author_member_id AS to_member_id,
+                       COUNT(*) AS message_count, MAX(r.created_at) AS last_message_at
+                FROM messages r
+                JOIN messages p ON p.id = r.reply_to_message_id
+                JOIN channels c ON c.id = r.channel_id
+                WHERE c.space_id = $1 AND r.placement = 'reply'
+                  AND r.deleted_at IS NULL AND p.deleted_at IS NULL
+                  AND r.author_member_id IN (SELECT id FROM members
+                                             WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                  AND p.author_member_id IN (SELECT id FROM members
+                                             WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
+                GROUP BY r.channel_id, r.author_member_id, p.author_member_id
+             ) stats
+             ORDER BY channel_id, source, from_member_id, to_member_id",
         )
         .bind(space_id)
-        .bind(viewer_id)
-        .bind(viewer_is_governor)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(map_sqlx)
-    }
-
-    pub(in crate::server::adapters) async fn reply_stats(
-        &self,
-        space_id: Uuid,
-        viewer_id: Uuid,
-        viewer_is_governor: bool,
-    ) -> Result<Vec<DirectedInteractionStatRow>, ApplicationError> {
-        sqlx::query_as(
-            "SELECT r.author_member_id AS from_member_id, p.author_member_id AS to_member_id,
-                    COUNT(*) AS message_count, MAX(r.created_at) AS last_message_at
-             FROM messages r
-             JOIN messages p ON p.id = r.reply_to_message_id
-             JOIN channels c ON c.id = r.channel_id
-             WHERE c.space_id = $1 AND r.placement = 'reply'
-               AND r.deleted_at IS NULL AND p.deleted_at IS NULL
-               AND ($3 OR EXISTS (SELECT 1 FROM channel_members v
-                                  WHERE v.channel_id = c.id AND v.member_id = $2))
-               AND r.author_member_id IN (SELECT id FROM members
-                                          WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-               AND p.author_member_id IN (SELECT id FROM members
-                                          WHERE space_id = $1 AND kind = 'agent' AND retired_at IS NULL)
-             GROUP BY r.author_member_id, p.author_member_id",
-        )
-        .bind(space_id)
-        .bind(viewer_id)
-        .bind(viewer_is_governor)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)

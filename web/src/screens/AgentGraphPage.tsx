@@ -291,7 +291,14 @@ export function AgentGraphWorkspace({
                       {a.display_name} ↔ {b.display_name}: {edge.total_interactions} interactions
                       (DM {edge.dm_message_count}, mentions {edge.mention_a_to_b + edge.mention_b_to_a}, replies {edge.reply_a_to_b + edge.reply_b_to_a})
                     </title>
-                    <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={width} />
+                    <line
+                      className="graph-edge-line"
+                      x1={a.x}
+                      y1={a.y}
+                      x2={b.x}
+                      y2={b.y}
+                      strokeWidth={width}
+                    />
                     <line className="graph-edge-hit" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
                   </g>
                 );

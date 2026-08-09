@@ -43,6 +43,7 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
             .context("Server session TTL must be a positive number of hours")?,
         attachment_max_bytes: config.attachment_max_bytes,
         queries: QueryRegistry::default(),
+        agent_graph_cache: http::AgentGraphCache::default(),
     };
     let api = http::api_router(state.clone(), 100 * 1024 * 1024);
     let dispatcher = tokio::spawn(dispatch_available_work_forever(state.clone()));

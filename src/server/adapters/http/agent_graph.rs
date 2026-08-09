@@ -1,12 +1,71 @@
 use super::*;
 use crate::server::adapters::postgres::{
-    AgentGraphNodeRow, DirectChannelPairRow, DirectMessageStatRow, DirectedInteractionStatRow,
-    RecentDirectedMessageRow, RecentDmMessageRow,
+    AgentGraphChannelStatRow, AgentGraphNodeRow, DirectChannelPairRow, RecentDirectedMessageRow,
+    RecentDmMessageRow,
 };
 use crate::server::application::agent_graph::{
     AgentGraphInputs, AgentGraphInteractionKind, DirectChannelPair, DirectMessageStat,
     DirectedInteractionStat, RecentDirectedMessage, RecentDmMessage, build_agent_graph,
 };
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
+use time::OffsetDateTime;
+
+/// How long per-Space graph statistics stay cached. The graph is deliberately not real-time: it is
+/// recomputed at most once every two hours per Space, then filtered per viewer on each request.
+const AGENT_GRAPH_CACHE_TTL: time::Duration = time::Duration::hours(2);
+
+#[derive(Clone, Default)]
+pub(in crate::server::adapters) struct AgentGraphCache {
+    inner: Arc<Mutex<HashMap<Uuid, AgentGraphCacheEntry>>>,
+}
+
+#[derive(Clone)]
+struct AgentGraphCacheEntry {
+    pairs: Vec<DirectChannelPairRow>,
+    stats: Vec<AgentGraphChannelStatRow>,
+    computed_at: OffsetDateTime,
+}
+
+impl AgentGraphCache {
+    async fn stats(
+        &self,
+        read: &PostgresQueries,
+        space_id: Uuid,
+    ) -> Result<(Vec<DirectChannelPairRow>, Vec<AgentGraphChannelStatRow>), ApplicationError> {
+        let now = OffsetDateTime::now_utc();
+        let cached = {
+            let guard = self.inner.lock().expect("agent graph cache lock");
+            guard
+                .get(&space_id)
+                .filter(|entry| cache_is_fresh(entry.computed_at, now))
+                .cloned()
+        };
+        if let Some(entry) = cached {
+            return Ok((entry.pairs, entry.stats));
+        }
+        let pairs = read
+            .direct_channel_pairs(space_id, Uuid::nil(), true)
+            .await?;
+        let stats = read.agent_graph_channel_stats(space_id).await?;
+        self.inner.lock().expect("agent graph cache lock").insert(
+            space_id,
+            AgentGraphCacheEntry {
+                pairs: pairs.clone(),
+                stats: stats.clone(),
+                computed_at: now,
+            },
+        );
+        Ok((pairs, stats))
+    }
+}
+
+fn cache_is_fresh(computed_at: OffsetDateTime, now: OffsetDateTime) -> bool {
+    let elapsed_seconds = now.unix_timestamp() - computed_at.unix_timestamp();
+    elapsed_seconds >= 0 && elapsed_seconds < AGENT_GRAPH_CACHE_TTL.whole_seconds()
+}
 
 pub(super) async fn agent_graph(
     State(state): State<RuntimeState>,
@@ -24,26 +83,42 @@ pub(super) async fn agent_graph(
         .agent_graph_nodes(space_id)
         .await
         .map_err(application_error)?;
-    let direct_channel_pairs = state
+    let readable = state
         .read
-        .direct_channel_pairs(space_id, member_id, viewer_is_governor)
+        .readable_channel_ids(space_id, member_id, viewer_is_governor)
         .await
         .map_err(application_error)?;
-    let direct_message_stats = state
-        .read
-        .direct_message_stats(space_id, member_id, viewer_is_governor)
+    let readable: HashSet<Uuid> = readable.into_iter().collect();
+    let (direct_channel_pairs, channel_stats) = state
+        .agent_graph_cache
+        .stats(&state.read, space_id)
         .await
         .map_err(application_error)?;
-    let mention_stats = state
-        .read
-        .mention_stats(space_id, member_id, viewer_is_governor)
-        .await
-        .map_err(application_error)?;
-    let reply_stats = state
-        .read
-        .reply_stats(space_id, member_id, viewer_is_governor)
-        .await
-        .map_err(application_error)?;
+    let mut direct_message_stats = Vec::new();
+    let mut mention_stats = Vec::new();
+    let mut reply_stats = Vec::new();
+    for row in channel_stats {
+        if !readable.contains(&row.channel_id) {
+            continue;
+        }
+        let stat = DirectedInteractionStat {
+            from_member_id: MemberId::from_uuid(row.from_member_id),
+            to_member_id: MemberId::from_uuid(row.to_member_id),
+            message_count: u64::try_from(row.message_count).unwrap_or_default(),
+            last_message_at: row.last_message_at,
+        };
+        match row.source.as_str() {
+            "dm" => direct_message_stats.push(DirectMessageStat {
+                member_a_id: stat.from_member_id,
+                member_b_id: stat.to_member_id,
+                message_count: stat.message_count,
+                last_message_at: stat.last_message_at,
+            }),
+            "mention" => mention_stats.push(stat),
+            "reply" => reply_stats.push(stat),
+            _ => {}
+        }
+    }
     let recent_dm_messages = state
         .read
         .recent_dm_messages(space_id, member_id)
@@ -61,18 +136,9 @@ pub(super) async fn agent_graph(
             .into_iter()
             .map(direct_channel_pair)
             .collect(),
-        direct_message_stats: direct_message_stats
-            .into_iter()
-            .map(direct_message_stat)
-            .collect(),
-        mention_stats: mention_stats
-            .into_iter()
-            .map(directed_interaction_stat)
-            .collect(),
-        reply_stats: reply_stats
-            .into_iter()
-            .map(directed_interaction_stat)
-            .collect(),
+        direct_message_stats,
+        mention_stats,
+        reply_stats,
         recent_dm_messages: recent_dm_messages
             .into_iter()
             .map(recent_dm_message)
@@ -101,24 +167,6 @@ fn direct_channel_pair(row: DirectChannelPairRow) -> DirectChannelPair {
         channel_id: ChannelId::from_uuid(row.channel_id),
         member_a_id: MemberId::from_uuid(row.member_a),
         member_b_id: MemberId::from_uuid(row.member_b),
-    }
-}
-
-fn direct_message_stat(row: DirectMessageStatRow) -> DirectMessageStat {
-    DirectMessageStat {
-        member_a_id: MemberId::from_uuid(row.member_a),
-        member_b_id: MemberId::from_uuid(row.member_b),
-        message_count: u64::try_from(row.message_count).unwrap_or_default(),
-        last_message_at: row.last_message_at,
-    }
-}
-
-fn directed_interaction_stat(row: DirectedInteractionStatRow) -> DirectedInteractionStat {
-    DirectedInteractionStat {
-        from_member_id: MemberId::from_uuid(row.from_member_id),
-        to_member_id: MemberId::from_uuid(row.to_member_id),
-        message_count: u64::try_from(row.message_count).unwrap_or_default(),
-        last_message_at: row.last_message_at,
     }
 }
 
@@ -199,4 +247,22 @@ fn agent_graph_response(
 
 fn count(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::OffsetDateTime;
+
+    #[test]
+    fn cache_entries_are_fresh_for_two_hours() {
+        let now = OffsetDateTime::from_unix_timestamp(1_700_000_000).expect("test timestamp");
+        assert!(cache_is_fresh(now, now));
+        assert!(cache_is_fresh(
+            now,
+            now + time::Duration::hours(2) - time::Duration::seconds(1)
+        ));
+        assert!(!cache_is_fresh(now, now + time::Duration::hours(2)));
+        assert!(!cache_is_fresh(now, now + time::Duration::hours(3)));
+    }
 }

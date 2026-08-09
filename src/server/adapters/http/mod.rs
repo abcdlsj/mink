@@ -160,6 +160,7 @@ pub(super) struct RuntimeState {
     pub(super) session_lifetime: SessionLifetime,
     pub(super) attachment_max_bytes: u64,
     pub(super) queries: QueryRegistry,
+    pub(super) agent_graph_cache: AgentGraphCache,
 }
 
 mod agent_graph;

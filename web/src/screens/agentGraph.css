@@ -83,15 +83,15 @@
   cursor: grabbing;
 }
 
-.graph-edge line:first-child {
+.graph-edge-line {
   stroke: var(--line-strong);
 }
 
-.graph-edge--active line:first-child {
+.graph-edge--active .graph-edge-line {
   stroke: var(--accent);
 }
 
-.graph-edge--dimmed line:first-child {
+.graph-edge--dimmed .graph-edge-line {
   opacity: 0.25;
 }
 

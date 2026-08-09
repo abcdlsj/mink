@@ -135,7 +135,7 @@ Driver：
 - `GET /api/v1/spaces/{space_id}/agent-graph` 返回只读图谱：节点为 Space 中未退役 Agent；边为 Agent 对之间的互动统计，边方向只区分来源（A→B mention/reply），总数与最后消息时间用于排序。
 - 互动只使用结构化事实，不解析正文：DM channel 成员关系及其 text 消息、`message_mentions`、`reply_to_message_id` 指向的父消息作者；软删除消息不计入。
 - 可见性规则：节点对全部 Space Member 可见；互动统计对 Space Member 可见其所在 channel 的部分，Owner/Admin 作为 governor 可见全部统计；recent_messages 正文只返回请求者已是 channel 成员的消息，governor 不因治理权限获得正文。
-- 该接口不写库、不改变领域状态；聚合在查询层完成，不使用投影表。
+- 该接口不写库、不改变领域状态。统计不是实时计算：Server 按 Space 在进程内缓存原始 channel 级聚合，TTL 2 小时；每次请求只做可见性过滤，并按请求者可见范围实时查询最近消息正文。
 
 ## LLM usage 本地遥测
 
