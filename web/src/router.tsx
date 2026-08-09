@@ -9,7 +9,8 @@ import {
 import { RouteChrome } from "./RouteChrome";
 import { ChannelPage } from "./screens/ChannelPage";
 import { CompanyOfficePage } from "./screens/CompanyPage";
-import { AgentGraphPage } from "./screens/AgentGraphPage";
+import { AgentGraphRouteContent, InsightsPage } from "./screens/InsightsPage";
+import { AgentStatisticsPage } from "./screens/AgentStatisticsPage";
 import { AgentDetailPage } from "./screens/AgentDetailPage";
 import { ComputersPage } from "./screens/ComputersPage";
 import { DesignLabPage, DesignLabSurfacePage } from "./screens/DesignLabPage";
@@ -86,10 +87,30 @@ const agentsRoute = createRoute({
   path: "/s/$spaceSlug/agents",
   component: AgentsPage,
 });
-const agentGraphRoute = createRoute({
+const insightsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/s/$spaceSlug/graph",
-  component: AgentGraphPage,
+  path: "/s/$spaceSlug/insights",
+  component: InsightsPage,
+});
+const insightsIndexRoute = createRoute({
+  getParentRoute: () => insightsRoute,
+  path: "/",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/s/$spaceSlug/insights/stats",
+      params: { spaceSlug: params.spaceSlug },
+    });
+  },
+});
+const insightsStatsRoute = createRoute({
+  getParentRoute: () => insightsRoute,
+  path: "stats",
+  component: AgentStatisticsPage,
+});
+const insightsGraphRoute = createRoute({
+  getParentRoute: () => insightsRoute,
+  path: "graph",
+  component: AgentGraphRouteContent,
 });
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -160,7 +181,10 @@ const routeTree = rootRoute.addChildren([
   companyOfficeRoute,
   membersRoute,
   agentsRoute,
-  agentGraphRoute,
+  insightsRoute,
+  insightsIndexRoute,
+  insightsStatsRoute,
+  insightsGraphRoute,
   settingsRoute,
   designLabRoute,
   designLabSurfaceRoute,

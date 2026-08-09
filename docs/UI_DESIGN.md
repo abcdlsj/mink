@@ -72,10 +72,12 @@
 - Agent 详情 Activity feed 按时间倒序；参数压缩为单行 `name = value`（名称 muted 等宽、等号 muted、值 ink-soft 的 code 块，最多 3 个），message preview 为核心 codeblock（accent-soft 底 + accent 左边条 + truncated），时间右对齐；字号统一。
 - 详情分区使用扁平布局：不绘制卡片边框、底色或阴影，用 2px ink 分隔线组织。
 
-## Agent graph
+## Agent insights
 
-- `Agent graph` 是默认关闭的实验功能：只有 Settings 开启 Experimental features 后，Space rail（Network 图标）与移动端 Space tools 导航才显示入口；路由为 `/s/$spaceSlug/graph`，未开启时直达页面显示禁用说明与 Settings 链接。
-- 页面为力导向关系图 + 右侧详情面板。节点是 Agent 像素印章头像（与 PixelIdentity 同源算法，SVG 内联渲染，不依赖 HTML foreignObject）+ display name；边是 Agent 之间的互动关系，使用 1px ink 细线，hover/focus 显示总数，选中态只通过头像描边与整体明暗区分。
+- `Agent insights` 是默认关闭的实验功能：只有 Settings 开启后，Space rail（Network 图标）与移动端 Space tools 导航才显示入口；路由为 `/s/$spaceSlug/insights`，未开启时直达页面显示禁用说明与 Settings 链接。
+- insights 使用三栏布局：中栏是 `Statistics` 与 `Graph` 两个条目（`/insights/stats`、`/insights/graph`），右侧展示对应内容。
+- Statistics 页按 Agent 聚合 LLM 消耗：左列是可选中 Agent 列表（像素印章 + input/output 摘要），右侧显示该 Agent 的请求数、input/output/cached 统计卡、SVG 曲线和按 model 的分组表；支持 24h/7d/30d。
+- Graph 页为力导向关系图 + 右侧详情面板。节点是 Agent 像素印章头像（与 PixelIdentity 同源算法，SVG 内联渲染，不依赖 HTML foreignObject）+ display name；边是 Agent 之间的互动关系，使用 1px ink 细线，hover/focus 显示总数，选中态只通过头像描边与整体明暗区分。
 - 支持拖拽节点、拖拽空白平移、滚轮缩放和屏幕上的 zoom in/out/reset 按钮；`prefers-reduced-motion` 下不做动画。
 - 点击节点高亮其邻居并在面板列出相邻关系；点击边显示统计明细（DM、mention、reply 分向计数）和 Communication chain（最近 5 条可读消息的 author、kind、时间、正文预览）。
 - 空态提示创建 Agent；加载失败显示 Retry。所有图形节点可键盘聚焦（Enter/Space 选中，Esc 清除），图形信号同时有文字与 `aria-label`。
@@ -85,7 +87,7 @@
 - Space rail 最底部提供 Settings 入口（齿轮图标），路由为 `/s/$spaceSlug/settings`；移动端 Space tools 导航提供同入口。
 - Settings 使用列表/详情布局：中栏是已注册 feature 的名称列表（含类型与 On/Off 状态），点击后在右侧展开该 feature 的详情；未选中时右侧显示占位说明。
 - feature 通过注册表（`featureRegistry`）声明 id、名称、类型、描述、storageKey 和可选配置项；后续新增 feature 只改注册表，无需改页面结构。
-- 实验类型（experimental）的详情默认包含 `Enabled` 开关；所有状态只持久化在浏览器 localStorage（`sumi.feature.<id>`），不上传 Server。开启后左 rail 才显示对应实验入口（当前为 Agent graph）。
+- 实验类型（experimental）的详情默认包含 `Enabled` 开关；所有状态只持久化在浏览器 localStorage（`sumi.feature.<id>`），不上传 Server。开启后左 rail 才显示对应实验入口（当前为 Agent insights）。
 
 ## Computers 的 LLM usage 面板
 

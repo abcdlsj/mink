@@ -44,7 +44,7 @@ import type {
   CreateThreadReplyInput,
   ErrorEnvelope,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentGraph, AgentGraphNode, AgentGraphEdge, AgentGraphMessage, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, LlmUsage, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AgentGraph, AgentGraphNode, AgentGraphEdge, AgentGraphMessage, AgentRuntime, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreatedInvitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, LlmUsage, LlmUsageBucket, LlmUsageAgentSeries, MessageAuthor, Message, MessagePage, MessageTaskRef, MessageTaskSummary, CreateMessageInput, Attachment, InboxItem, Task, TaskStatus, Run, RunStatus, SessionContinuity, ThreadReference, CreateTaskInput, LinkTaskThreadInput, CompleteTaskInput, CloseTaskInput, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 export class ApiRequestError extends Error {
   readonly code: string;

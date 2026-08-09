@@ -6,7 +6,7 @@ import { SettingsWorkspace } from "./SettingsPage";
 
 beforeEach(() => {
   window.localStorage.clear();
-  setFeatureEnabled("agent-graph", false);
+  setFeatureEnabled("agent-insights", false);
 });
 
 afterEach(() => {
@@ -22,20 +22,20 @@ describe("SettingsWorkspace", () => {
   });
 
   it("shows the experimental enable toggle and persists it per feature", () => {
-    render(<SettingsWorkspace selectedFeatureId="agent-graph" />);
+    render(<SettingsWorkspace selectedFeatureId="agent-insights" />);
 
     const toggle = screen.getByRole("checkbox", { name: "Enabled" });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
 
     expect(screen.getByRole("checkbox", { name: "Enabled" })).toBeChecked();
-    expect(window.localStorage.getItem("sumi.feature.agent-graph")).toBe("1");
+    expect(window.localStorage.getItem("sumi.feature.agent-insights")).toBe("1");
   });
 
   it("labels the feature kind", () => {
-    render(<SettingsWorkspace selectedFeatureId="agent-graph" />);
+    render(<SettingsWorkspace selectedFeatureId="agent-insights" />);
 
     expect(screen.getByText("experimental")).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Agent graph" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Agent insights" })).toBeVisible();
   });
 });

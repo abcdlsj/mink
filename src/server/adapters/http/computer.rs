@@ -537,17 +537,7 @@ pub(super) async fn computer_llm_usage(
             cache_hit_rate: usage.cache_hit_rate_basis_points as f64 / 10_000.0,
             first_at: usage.first_at.map(timestamp),
             last_at: usage.last_at.map(timestamp),
-            series: usage
-                .series
-                .into_iter()
-                .map(|bucket| LlmUsageBucketResponse {
-                    bucket: bucket.bucket,
-                    requests: bucket.requests,
-                    input_tokens: bucket.input_tokens,
-                    output_tokens: bucket.output_tokens,
-                    cached_input_tokens: bucket.cached_input_tokens,
-                })
-                .collect(),
+            series: usage.series.into_iter().map(llm_usage_bucket).collect(),
             by_model: usage
                 .by_model
                 .into_iter()
@@ -558,9 +548,33 @@ pub(super) async fn computer_llm_usage(
                 .into_iter()
                 .map(llm_usage_breakdown)
                 .collect(),
+            by_agent_series: usage
+                .by_agent_series
+                .into_iter()
+                .map(|entry| LlmUsageAgentSeriesResponse {
+                    agent_id: entry.agent_id.into_uuid(),
+                    requests: entry.requests,
+                    input_tokens: entry.input_tokens,
+                    output_tokens: entry.output_tokens,
+                    cached_input_tokens: entry.cached_input_tokens,
+                    series: entry.series.into_iter().map(llm_usage_bucket).collect(),
+                })
+                .collect(),
         })),
         QueryResult::Unavailable { .. } => Err(ApiError::computer_unreachable()),
         _ => Err(ApiError::internal()),
+    }
+}
+
+fn llm_usage_bucket(
+    bucket: crate::protocol::computer::LlmUsageBucketResult,
+) -> LlmUsageBucketResponse {
+    LlmUsageBucketResponse {
+        bucket: bucket.bucket,
+        requests: bucket.requests,
+        input_tokens: bucket.input_tokens,
+        output_tokens: bucket.output_tokens,
+        cached_input_tokens: bucket.cached_input_tokens,
     }
 }
 

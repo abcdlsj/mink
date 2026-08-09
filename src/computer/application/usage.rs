@@ -40,6 +40,16 @@ pub(in crate::computer) struct LlmUsageBreakdown {
     pub(in crate::computer) cached_input_tokens: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::computer) struct LlmUsageAgentSeries {
+    pub(in crate::computer) agent_id: AgentId,
+    pub(in crate::computer) requests: u64,
+    pub(in crate::computer) input_tokens: u64,
+    pub(in crate::computer) output_tokens: u64,
+    pub(in crate::computer) cached_input_tokens: u64,
+    pub(in crate::computer) series: Vec<LlmUsageBucket>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::computer) struct LlmUsageSummary {
     pub(in crate::computer) requests: u64,
@@ -53,6 +63,7 @@ pub(in crate::computer) struct LlmUsageSummary {
     pub(in crate::computer) series: Vec<LlmUsageBucket>,
     pub(in crate::computer) by_model: Vec<LlmUsageBreakdown>,
     pub(in crate::computer) by_agent: Vec<LlmUsageBreakdown>,
+    pub(in crate::computer) by_agent_series: Vec<LlmUsageAgentSeries>,
 }
 
 /// Aggregates raw local usage rows into the dashboard payload. Buckets are hourly for ranges of up
@@ -63,9 +74,9 @@ pub(in crate::computer) fn summarize(
 ) -> LlmUsageSummary {
     let hourly = range_hours <= 48;
     let mut summary = LlmUsageSummary::default();
-    let mut series: BTreeMap<String, LlmUsageBucket> = BTreeMap::new();
     let mut by_model: BTreeMap<String, LlmUsageBreakdown> = BTreeMap::new();
     let mut by_agent: BTreeMap<String, LlmUsageBreakdown> = BTreeMap::new();
+    let mut by_agent_records: BTreeMap<AgentId, Vec<&LlmUsageRecord>> = BTreeMap::new();
 
     for record in records {
         summary.requests += 1;
@@ -84,16 +95,6 @@ pub(in crate::computer) fn summarize(
                 .map_or(record.created_at, |last| last.max(record.created_at)),
         );
 
-        let bucket = bucket_key(record.created_at, hourly);
-        let entry = series.entry(bucket.clone()).or_insert(LlmUsageBucket {
-            bucket,
-            ..Default::default()
-        });
-        entry.requests += 1;
-        entry.input_tokens += as_u64(record.input_tokens);
-        entry.output_tokens += as_u64(record.output_tokens);
-        entry.cached_input_tokens += as_u64(record.cached_input_tokens);
-
         let model = record.model.clone().unwrap_or_else(|| "unknown".to_owned());
         let entry = by_model.entry(model.clone()).or_insert(LlmUsageBreakdown {
             key: model,
@@ -107,6 +108,10 @@ pub(in crate::computer) fn summarize(
             ..Default::default()
         });
         add_breakdown(entry, record);
+        by_agent_records
+            .entry(record.agent_id)
+            .or_default()
+            .push(record);
     }
 
     summary.cache_hit_rate = if summary.input_tokens > 0 {
@@ -114,10 +119,47 @@ pub(in crate::computer) fn summarize(
     } else {
         0.0
     };
-    summary.series = series.into_values().collect();
+    summary.series = bucket_series(&records.iter().collect::<Vec<_>>(), hourly);
     summary.by_model = by_model.into_values().collect();
     summary.by_agent = by_agent.into_values().collect();
+    summary.by_agent_series = by_agent_records
+        .into_iter()
+        .map(|(agent_id, agent_records)| {
+            let mut totals = LlmUsageAgentSeries {
+                agent_id,
+                requests: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                cached_input_tokens: 0,
+                series: Vec::new(),
+            };
+            for record in &agent_records {
+                totals.requests += 1;
+                totals.input_tokens += as_u64(record.input_tokens);
+                totals.output_tokens += as_u64(record.output_tokens);
+                totals.cached_input_tokens += as_u64(record.cached_input_tokens);
+            }
+            totals.series = bucket_series(&agent_records, hourly);
+            totals
+        })
+        .collect();
     summary
+}
+
+fn bucket_series(records: &[&LlmUsageRecord], hourly: bool) -> Vec<LlmUsageBucket> {
+    let mut series: BTreeMap<String, LlmUsageBucket> = BTreeMap::new();
+    for record in records {
+        let bucket = bucket_key(record.created_at, hourly);
+        let entry = series.entry(bucket.clone()).or_insert(LlmUsageBucket {
+            bucket,
+            ..Default::default()
+        });
+        entry.requests += 1;
+        entry.input_tokens += as_u64(record.input_tokens);
+        entry.output_tokens += as_u64(record.output_tokens);
+        entry.cached_input_tokens += as_u64(record.cached_input_tokens);
+    }
+    series.into_values().collect()
 }
 
 fn add_breakdown(entry: &mut LlmUsageBreakdown, record: &LlmUsageRecord) {
@@ -209,6 +251,28 @@ mod tests {
         assert_eq!(summary.requests, 0);
         assert!(summary.series.is_empty());
         assert!(summary.by_model.is_empty());
+        assert!(summary.by_agent_series.is_empty());
         assert_eq!(summary.cache_hit_rate, 0.0);
+    }
+
+    #[test]
+    fn summarize_splits_series_per_agent() {
+        let records = vec![
+            record(1, 10, "model", 1000, 100, 500, 1000),
+            record(1, 10, "model", 2000, 200, 0, 4600),
+            record(2, 11, "model", 500, 50, 100, 1000),
+        ];
+        let summary = summarize(&records, 24);
+        assert_eq!(summary.by_agent_series.len(), 2);
+        let first = summary
+            .by_agent_series
+            .iter()
+            .find(|entry| entry.agent_id == AgentId::from_uuid(Uuid::from_u128(1)))
+            .expect("agent one series");
+        assert_eq!(first.requests, 2);
+        assert_eq!(first.input_tokens, 3000);
+        assert_eq!(first.output_tokens, 300);
+        assert_eq!(first.series.len(), 2);
+        assert_eq!(first.series[0].cached_input_tokens, 500);
     }
 }

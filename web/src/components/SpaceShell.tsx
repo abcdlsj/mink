@@ -44,9 +44,10 @@ import {
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { designLabEnabled } from "../featureFlags";
-import { AGENT_GRAPH_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
+import { AGENT_INSIGHTS_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
+import { InsightsNavigation } from "./InsightsNavigation";
 import { PixelIdentity } from "./PixelIdentity";
 import { PixelWord } from "./PixelWord";
 import { SettingsNavigation } from "./SettingsNavigation";
@@ -71,7 +72,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "graph" | "settings" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "insights" | "settings" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -83,7 +84,7 @@ export function SpaceShell({
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
-  const agentGraphEnabled = useFeatureEnabled(AGENT_GRAPH_FEATURE_ID);
+  const agentInsightsEnabled = useFeatureEnabled(AGENT_INSIGHTS_FEATURE_ID);
   const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
@@ -343,12 +344,12 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
-          {agentGraphEnabled ? (
+          {agentInsightsEnabled ? (
             <RailItem
               icon={Network}
-              label="Agent graph"
-              active={active === "graph"}
-              href={`/s/${space.data.slug}/graph`}
+              label="Agent insights"
+              active={active === "insights"}
+              href={`/s/${space.data.slug}/insights/stats`}
             />
           ) : null}
           {designLabEnabled() ? (
@@ -442,12 +443,12 @@ export function SpaceShell({
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
             />
-            {agentGraphEnabled ? (
+            {agentInsightsEnabled ? (
               <NavigationItem
                 icon={Network}
-                label="Agent graph"
-                active={active === "graph"}
-                href={`/s/${space.data.slug}/graph`}
+                label="Agent insights"
+                active={active === "insights"}
+                href={`/s/${space.data.slug}/insights/stats`}
               />
             ) : null}
             <NavigationItem
@@ -475,6 +476,8 @@ export function SpaceShell({
               spaceSlug={space.data.slug}
               locationPath={location.pathname}
             />
+          ) : active === "insights" ? (
+            <InsightsNavigation spaceSlug={space.data.slug} />
           ) : active === "settings" ? (
             <SettingsNavigation spaceSlug={space.data.slug} />
           ) : (

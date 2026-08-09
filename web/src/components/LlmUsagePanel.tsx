@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowDownToLine, ArrowUpFromLine, Gauge } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { getComputerLlmUsage, type LlmUsage } from "../api/client";
+import { BreakdownTable, StatCard, TokenUsageChart, formatCount } from "./TokenUsageChart";
 import "./llmUsage.css";
 
 export type LlmUsageRange = "24h" | "7d" | "30d";
@@ -73,41 +74,6 @@ export function LlmUsagePanel({
 }
 
 function UsageBody({ usage }: { usage: LlmUsage }) {
-  const maxTokens = useMemo(
-    () =>
-      Math.max(
-        1,
-        ...usage.series.flatMap((bucket) => [
-          bucket.input_tokens,
-          bucket.output_tokens,
-          bucket.cached_input_tokens,
-        ]),
-      ),
-    [usage.series],
-  );
-  const points = useMemo(() => {
-    const width = 620;
-    const height = 150;
-    const padding = 8;
-    const step = usage.series.length > 1 ? (width - padding * 2) / (usage.series.length - 1) : 0;
-    const toY = (value: number) => height - padding - (value / maxTokens) * (height - padding * 2);
-    const xAt = (index: number) => padding + index * step;
-    return {
-      input: usage.series
-        .map((bucket, index) => `${xAt(index)},${toY(bucket.input_tokens)}`)
-        .join(" "),
-      cached: usage.series
-        .map((bucket, index) => `${xAt(index)},${toY(bucket.cached_input_tokens)}`)
-        .join(" "),
-      output: usage.series
-        .map((bucket, index) => `${xAt(index)},${toY(bucket.output_tokens)}`)
-        .join(" "),
-      area: `${padding},${150 - padding} ${usage.series
-        .map((bucket, index) => `${xAt(index)},${toY(bucket.input_tokens)}`)
-        .join(" ")} ${padding + step * (usage.series.length - 1)},${150 - padding}`,
-    };
-  }, [usage.series, maxTokens]);
-
   return (
     <div className="llm-usage-body">
       <div className="llm-usage-cards" aria-label="LLM usage summary">
@@ -122,80 +88,9 @@ function UsageBody({ usage }: { usage: LlmUsage }) {
         />
       </div>
 
-      <figure className="llm-usage-chart" aria-label={`Token usage over the selected period; peak ${formatCount(maxTokens)} tokens`}>
-        <svg viewBox="0 0 620 150" role="img" aria-label="Token usage curve: input, cached input, and output tokens per bucket">
-          <polygon points={points.area} className="llm-usage-area" />
-          <polyline points={points.input} className="llm-usage-line llm-usage-line--input" />
-          <polyline points={points.cached} className="llm-usage-line llm-usage-line--cached" />
-          <polyline points={points.output} className="llm-usage-line llm-usage-line--output" />
-        </svg>
-        <figcaption>
-          <span className="llm-usage-legend llm-usage-legend--input">Input</span>
-          <span className="llm-usage-legend llm-usage-legend--cached">Cached input</span>
-          <span className="llm-usage-legend llm-usage-legend--output">Output</span>
-        </figcaption>
-      </figure>
-
+      <TokenUsageChart series={usage.series} />
       <BreakdownTable title="By model" rows={usage.by_model} />
       <BreakdownTable title="By agent" rows={usage.by_agent} />
     </div>
   );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: typeof Activity;
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <div className="llm-usage-card">
-      <Icon aria-hidden="true" />
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail ? <small>{detail}</small> : null}
-    </div>
-  );
-}
-
-function BreakdownTable({ title, rows }: { title: string; rows: LlmUsage["by_model"] }) {
-  if (!rows.length) return null;
-  return (
-    <div className="llm-usage-breakdown">
-      <h4>{title}</h4>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Requests</th>
-            <th scope="col">Input</th>
-            <th scope="col">Output</th>
-            <th scope="col">Cached</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <th scope="row">{row.key}</th>
-              <td>{formatCount(row.requests)}</td>
-              <td>{formatCount(row.input_tokens)}</td>
-              <td>{formatCount(row.output_tokens)}</td>
-              <td>{formatCount(row.cached_input_tokens)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function formatCount(value: number): string {
-  if (value < 1000) return String(value);
-  if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`;
-  return `${(value / 1_000_000).toFixed(2)}M`;
 }

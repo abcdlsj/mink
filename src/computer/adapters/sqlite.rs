@@ -144,7 +144,7 @@ impl SqliteAdapter {
         let since = since
             .format(&Rfc3339)
             .map_err(|_| ApplicationError::Internal)?;
-        sqlx::query_as(
+        let rows = sqlx::query_as(
             "SELECT id, run_id, agent_id, driver_kind, model, input_tokens, output_tokens, \
              cached_input_tokens, cache_write_tokens, duration_ms, created_at \
              FROM llm_usage WHERE created_at >= ? ORDER BY created_at ASC LIMIT 10000",
@@ -152,7 +152,11 @@ impl SqliteAdapter {
         .bind(since)
         .fetch_all(&mut self.connection)
         .await
-        .map_err(map_sqlx)
+        .map_err(|error| {
+            tracing::warn!(?error, "llm_usage_rows query failed");
+            map_sqlx(error)
+        })?;
+        Ok(rows)
     }
 
     async fn load(&mut self) -> Result<Snapshot, ApplicationError> {
@@ -558,12 +562,22 @@ impl LlmUsageStore for SqliteAdapter {
         let rows = self.llm_usage_rows(since).await?;
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
-            let id = Uuid::parse_str(&row.id).map_err(|_| ApplicationError::Internal)?;
-            let run_id = Uuid::parse_str(&row.run_id).map_err(|_| ApplicationError::Internal)?;
-            let agent_id =
-                Uuid::parse_str(&row.agent_id).map_err(|_| ApplicationError::Internal)?;
-            let created_at = OffsetDateTime::parse(&row.created_at, &Rfc3339)
-                .map_err(|_| ApplicationError::Internal)?;
+            let id = Uuid::parse_str(&row.id).map_err(|error| {
+                tracing::error!(value = %row.id, ?error, "invalid llm_usage id");
+                ApplicationError::Internal
+            })?;
+            let run_id = Uuid::parse_str(&row.run_id).map_err(|error| {
+                tracing::error!(value = %row.run_id, ?error, "invalid llm_usage run_id");
+                ApplicationError::Internal
+            })?;
+            let agent_id = Uuid::parse_str(&row.agent_id).map_err(|error| {
+                tracing::error!(value = %row.agent_id, ?error, "invalid llm_usage agent_id");
+                ApplicationError::Internal
+            })?;
+            let created_at = OffsetDateTime::parse(&row.created_at, &Rfc3339).map_err(|error| {
+                tracing::error!(value = %row.created_at, ?error, "invalid llm_usage created_at");
+                ApplicationError::Internal
+            })?;
             records.push(LlmUsageRecord {
                 id,
                 run_id: RunId::from_uuid(run_id),

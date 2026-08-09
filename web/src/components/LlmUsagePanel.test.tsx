@@ -7,6 +7,11 @@ import { LlmUsagePanel } from "./LlmUsagePanel";
 
 const computerId = "019c0000-0000-7000-8000-000000000001";
 
+const series = [
+  { bucket: "2026-08-01T00:00:00Z", requests: 6, input_tokens: 22_000, output_tokens: 3_000, cached_input_tokens: 15_000 },
+  { bucket: "2026-08-01T01:00:00Z", requests: 6, input_tokens: 26_000, output_tokens: 4_500, cached_input_tokens: 16_000 },
+];
+
 const usage: LlmUsage = {
   requests: 12,
   input_tokens: 48_000,
@@ -16,15 +21,15 @@ const usage: LlmUsage = {
   cache_hit_rate: 0.646,
   first_at: "2026-08-01T00:00:00Z",
   last_at: "2026-08-01T02:00:00Z",
-  series: [
-    { bucket: "2026-08-01T00:00:00Z", requests: 6, input_tokens: 22_000, output_tokens: 3_000, cached_input_tokens: 15_000 },
-    { bucket: "2026-08-01T01:00:00Z", requests: 6, input_tokens: 26_000, output_tokens: 4_500, cached_input_tokens: 16_000 },
-  ],
+  series,
   by_model: [
     { key: "deepseek-v4-pro", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000 },
   ],
   by_agent: [
     { key: "019c0000-0000-7000-8000-000000000010", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000 },
+  ],
+  by_agent_series: [
+    { agent_id: "019c0000-0000-7000-8000-000000000010", requests: 12, input_tokens: 48_000, output_tokens: 7_500, cached_input_tokens: 31_000, series },
   ],
 };
 

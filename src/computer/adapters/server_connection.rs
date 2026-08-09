@@ -192,8 +192,23 @@ impl ServerConnectionAdapter {
                             .collect(),
                         by_model: summary.by_model.into_iter().map(usage_breakdown).collect(),
                         by_agent: summary.by_agent.into_iter().map(usage_breakdown).collect(),
+                        by_agent_series: summary
+                            .by_agent_series
+                            .into_iter()
+                            .map(|entry| wire::LlmUsageAgentSeriesResult {
+                                agent_id: entry.agent_id,
+                                requests: entry.requests,
+                                input_tokens: entry.input_tokens,
+                                output_tokens: entry.output_tokens,
+                                cached_input_tokens: entry.cached_input_tokens,
+                                series: entry.series.into_iter().map(usage_bucket).collect(),
+                            })
+                            .collect(),
                     }),
-                    Err(error) => unavailable(&error, wire::QueryErrorCode::Internal),
+                    Err(error) => {
+                        tracing::warn!(%error, "LLM usage query failed on Computer");
+                        unavailable(&error, wire::QueryErrorCode::Internal)
+                    }
                 }
             }
         };
@@ -437,6 +452,18 @@ fn usage_breakdown(
         input_tokens: breakdown.input_tokens,
         output_tokens: breakdown.output_tokens,
         cached_input_tokens: breakdown.cached_input_tokens,
+    }
+}
+
+fn usage_bucket(
+    bucket: crate::computer::application::usage::LlmUsageBucket,
+) -> wire::LlmUsageBucketResult {
+    wire::LlmUsageBucketResult {
+        bucket: bucket.bucket,
+        requests: bucket.requests,
+        input_tokens: bucket.input_tokens,
+        output_tokens: bucket.output_tokens,
+        cached_input_tokens: bucket.cached_input_tokens,
     }
 }
 

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
 import { Minus, Plus, RotateCcw, X } from "lucide-react";
 import {
   useEffect,
@@ -18,8 +17,6 @@ import {
 } from "../api/client";
 import { PixelIdentity } from "../components/PixelIdentity";
 import { buildAgentIdenticon, identityPalette } from "../components/agentIdenticon";
-import { SpaceShell } from "../components/SpaceShell";
-import { AGENT_GRAPH_FEATURE_ID, useFeatureEnabled } from "../featureRegistry";
 import { layoutGraph, type GraphLayoutNode } from "./agentGraphLayout";
 import "./agentGraph.css";
 
@@ -35,38 +32,6 @@ export interface GraphView {
 
 /** The graph world is already centered on the 900x560 canvas; the default view must not offset it. */
 export const INITIAL_GRAPH_VIEW: GraphView = { x: 0, y: 0, k: 1 };
-
-export function AgentGraphPage() {
-  const { spaceSlug } = useParams({ from: "/s/$spaceSlug/graph" });
-  const agentGraphEnabled = useFeatureEnabled(AGENT_GRAPH_FEATURE_ID);
-  if (!agentGraphEnabled) {
-    return (
-      <SpaceShell spaceSlug={spaceSlug} active="graph">
-        {() => (
-          <div className="route-status">
-            <section className="route-status-panel">
-              <p className="section-kicker">EXPERIMENTAL</p>
-              <h1>Agent graph is disabled.</h1>
-              <p>Enable experimental features in Settings to show this entry in the rail.</p>
-              <Link
-                className="command-button command-button--accent"
-                to="/s/$spaceSlug/settings"
-                params={{ spaceSlug }}
-              >
-                Open Settings
-              </Link>
-            </section>
-          </div>
-        )}
-      </SpaceShell>
-    );
-  }
-  return (
-    <SpaceShell spaceSlug={spaceSlug} active="graph">
-      {({ space }) => <AgentGraphWorkspace spaceId={space.id} spaceSlug={space.slug} />}
-    </SpaceShell>
-  );
-}
 
 export function AgentGraphWorkspace({
   spaceId,

@@ -20,15 +20,16 @@ export interface RegisteredFeature {
   fields: FeatureConfigField[];
 }
 
-export const AGENT_GRAPH_FEATURE_ID = "agent-graph";
+export const AGENT_INSIGHTS_FEATURE_ID = "agent-insights";
 
 export const REGISTERED_FEATURES: readonly RegisteredFeature[] = [
   {
-    id: AGENT_GRAPH_FEATURE_ID,
-    name: "Agent graph",
+    id: AGENT_INSIGHTS_FEATURE_ID,
+    name: "Agent insights",
     kind: "experimental",
-    description: "Agent-to-Agent coordination graph shown in the left rail.",
-    storageKey: "sumi.feature.agent-graph",
+    description:
+      "Agent-level usage statistics and the Agent-to-Agent coordination graph, shown in the left rail.",
+    storageKey: "sumi.feature.agent-insights",
     fields: [],
   },
 ];
