@@ -618,9 +618,11 @@ where
                                 &mut pending_server_frames,
                                 &mut pending_activity_results,
                                 storage,
-                                start.agent_id,
-                                start.focus.channel_id,
-                                start.channel_snapshot_sequence,
+                                ChannelActivityRequest {
+                                    agent_id: start.agent_id,
+                                    channel_id: start.focus.channel_id,
+                                    through_sequence: start.channel_snapshot_sequence,
+                                },
                             ).await?)
                         } else {
                             None
@@ -676,6 +678,12 @@ where
     }
 }
 
+struct ChannelActivityRequest {
+    agent_id: crate::ids::AgentId,
+    channel_id: crate::ids::ChannelId,
+    through_sequence: u64,
+}
+
 async fn fetch_channel_activity<P, R, W>(
     reader: &mut R,
     writer: &mut W,
@@ -685,9 +693,7 @@ async fn fetch_channel_activity<P, R, W>(
         crate::protocol::computer::ChannelActivityResultEnvelope,
     >,
     storage: &mut P,
-    agent_id: crate::ids::AgentId,
-    channel_id: crate::ids::ChannelId,
-    through_sequence: u64,
+    request: ChannelActivityRequest,
 ) -> anyhow::Result<crate::protocol::computer::ChannelActivitySnapshot>
 where
     P: TransactionPort,
@@ -700,24 +706,24 @@ where
     let after = storage
         .transact(async |transaction| {
             Ok(transaction
-                .channel_context(agent_id, channel_id)?
+                .channel_context(request.agent_id, request.channel_id)?
                 .map_or(0, |context| context.through_sequence))
         })
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
     let mut next_after = after;
     let mut messages = Vec::new();
-    while next_after < through_sequence {
+    while next_after < request.through_sequence {
         let query_id = crate::ids::QueryId::from_uuid(Uuid::now_v7());
         writer
             .send(WebSocketMessage::Text(
                 serde_json::to_string(&ComputerFrame::ChannelActivityQuery {
                     query: ChannelActivityQuery {
                         query_id,
-                        agent_id,
-                        channel_id,
+                        agent_id: request.agent_id,
+                        channel_id: request.channel_id,
                         after_sequence: next_after,
-                        through_sequence,
+                        through_sequence: request.through_sequence,
                         limit: 256,
                     },
                 })?
@@ -777,8 +783,8 @@ where
         messages.extend(result.result.messages);
     }
     Ok(ChannelActivitySnapshot {
-        channel_id,
-        snapshot_sequence: through_sequence,
+        channel_id: request.channel_id,
+        snapshot_sequence: request.through_sequence,
         messages,
     })
 }
