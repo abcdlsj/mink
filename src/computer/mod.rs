@@ -4,7 +4,7 @@ mod core;
 mod drivers;
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet, VecDeque},
     path::{Path, PathBuf},
 };
 
@@ -15,12 +15,12 @@ use anyhow::{Context, ensure};
 use application::{
     ApplicationError,
     pipeline::RunPipelineService,
-    ports::{AgentHomePort, DriverPort, LlmUsageStore, TransactionPort},
+    ports::{AgentHomePort, ComputerTransaction, DriverPort, LlmUsageStore, TransactionPort},
     recovery::RecoveryService,
 };
 use backon::{BackoffBuilder, ExponentialBuilder};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -549,6 +549,8 @@ where
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
     let mut driver_observation = tokio::time::interval(std::time::Duration::from_millis(250));
     let mut lost_driver_check = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut pending_server_frames = VecDeque::new();
+    let mut pending_activity_results = BTreeMap::new();
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
@@ -606,12 +608,24 @@ where
                     send_next_pending_event(storage, &mut writer, &mut sent_events).await?;
                 }
             }
-            incoming=reader.next()=>{
-                let incoming=incoming.context("Computer WebSocket closed")??;
-                let WebSocketMessage::Text(encoded)=incoming else{continue;};
-                match serde_json::from_str::<ServerFrame>(&encoded)?{
+            incoming=next_server_frame(&mut reader, &mut pending_server_frames)=>{
+                match incoming? {
                     ServerFrame::Command{envelope}=>{
-                        for frame in adapter.receive(storage,driver,homes,*envelope).await.map_err(|error|anyhow::anyhow!(error))?{
+                        let channel_activity = if let crate::protocol::computer::Command::RunStart(start) = &envelope.command {
+                            Some(fetch_channel_activity(
+                                &mut reader,
+                                &mut writer,
+                                &mut pending_server_frames,
+                                &mut pending_activity_results,
+                                storage,
+                                start.agent_id,
+                                start.focus.channel_id,
+                                start.channel_snapshot_sequence,
+                            ).await?)
+                        } else {
+                            None
+                        };
+                        for frame in adapter.receive_with_activity(storage,driver,homes,*envelope,channel_activity).await.map_err(|error|anyhow::anyhow!(error))?{
                             writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                         }
                         RunPipelineService::dispatch(
@@ -634,8 +648,163 @@ where
                         writer.send(WebSocketMessage::Text(serde_json::to_string(&frame)?.into())).await?;
                     }
                     ServerFrame::Shutdown{code}=>anyhow::bail!("Server stopped Computer connection: {code:?}"),
+                    ServerFrame::ChannelActivityResult { result } => {
+                        pending_activity_results.insert(result.query_id, result);
+                    }
                 }
             }
+        }
+    }
+}
+
+async fn next_server_frame<R>(
+    reader: &mut R,
+    pending: &mut VecDeque<ServerFrame>,
+) -> anyhow::Result<ServerFrame>
+where
+    R: Stream<Item = Result<WebSocketMessage, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    if let Some(frame) = pending.pop_front() {
+        return Ok(frame);
+    }
+    loop {
+        let incoming = reader.next().await.context("Computer WebSocket closed")??;
+        let WebSocketMessage::Text(encoded) = incoming else {
+            continue;
+        };
+        return Ok(serde_json::from_str::<ServerFrame>(&encoded)?);
+    }
+}
+
+async fn fetch_channel_activity<P, R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    pending: &mut VecDeque<ServerFrame>,
+    pending_activity_results: &mut BTreeMap<
+        crate::ids::QueryId,
+        crate::protocol::computer::ChannelActivityResultEnvelope,
+    >,
+    storage: &mut P,
+    agent_id: crate::ids::AgentId,
+    channel_id: crate::ids::ChannelId,
+    through_sequence: u64,
+) -> anyhow::Result<crate::protocol::computer::ChannelActivitySnapshot>
+where
+    P: TransactionPort,
+    R: Stream<Item = Result<WebSocketMessage, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    W: Sink<WebSocketMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    use crate::protocol::computer::{
+        ChannelActivityQuery, ChannelActivitySnapshot, ComputerFrame, ServerFrame,
+    };
+    let after = storage
+        .transact(async |transaction| {
+            Ok(transaction
+                .channel_context(agent_id, channel_id)?
+                .map_or(0, |context| context.through_sequence))
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+    let mut next_after = after;
+    let mut messages = Vec::new();
+    while next_after < through_sequence {
+        let query_id = crate::ids::QueryId::from_uuid(Uuid::now_v7());
+        writer
+            .send(WebSocketMessage::Text(
+                serde_json::to_string(&ComputerFrame::ChannelActivityQuery {
+                    query: ChannelActivityQuery {
+                        query_id,
+                        agent_id,
+                        channel_id,
+                        after_sequence: next_after,
+                        through_sequence,
+                        limit: 256,
+                    },
+                })?
+                .into(),
+            ))
+            .await?;
+        let mut deferred = VecDeque::new();
+        let result = if let Some(result) = pending_activity_results.remove(&query_id) {
+            result
+        } else {
+            loop {
+                let frame = if let Some(frame) = pending.pop_front() {
+                    frame
+                } else {
+                    let frame = match reader.next().await {
+                        Some(Ok(frame)) => frame,
+                        Some(Err(error)) => {
+                            pending.extend(deferred);
+                            return Err(anyhow::anyhow!(error)
+                                .context("Server failed during Channel activity query"));
+                        }
+                        None => {
+                            pending.extend(deferred);
+                            return Err(anyhow::anyhow!(
+                                "Server closed during Channel activity query"
+                            ));
+                        }
+                    };
+                    let WebSocketMessage::Text(encoded) = frame else {
+                        continue;
+                    };
+                    match serde_json::from_str::<ServerFrame>(&encoded) {
+                        Ok(frame) => frame,
+                        Err(error) => {
+                            pending.extend(deferred);
+                            return Err(error.into());
+                        }
+                    }
+                };
+                if let Some(result) =
+                    route_activity_frame(frame, query_id, &mut deferred, pending_activity_results)
+                {
+                    break result;
+                }
+            }
+        };
+        pending.extend(deferred);
+        let Some(last) = result
+            .result
+            .messages
+            .last()
+            .map(|entry| entry.message.sequence)
+        else {
+            break;
+        };
+        next_after = last;
+        messages.extend(result.result.messages);
+    }
+    Ok(ChannelActivitySnapshot {
+        channel_id,
+        snapshot_sequence: through_sequence,
+        messages,
+    })
+}
+
+fn route_activity_frame(
+    frame: crate::protocol::computer::ServerFrame,
+    query_id: crate::ids::QueryId,
+    deferred: &mut VecDeque<crate::protocol::computer::ServerFrame>,
+    pending_results: &mut BTreeMap<
+        crate::ids::QueryId,
+        crate::protocol::computer::ChannelActivityResultEnvelope,
+    >,
+) -> Option<crate::protocol::computer::ChannelActivityResultEnvelope> {
+    use crate::protocol::computer::ServerFrame;
+
+    match frame {
+        ServerFrame::ChannelActivityResult { result } if result.query_id == query_id => {
+            Some(result)
+        }
+        ServerFrame::ChannelActivityResult { result } => {
+            pending_results.insert(result.query_id, result);
+            None
+        }
+        other => {
+            deferred.push_back(other);
+            None
         }
     }
 }
@@ -817,6 +986,70 @@ mod tests {
     use super::*;
     use application::{ports::LlmUsageStore, usage::LlmUsageRecord};
     use time::{Duration, OffsetDateTime};
+
+    #[test]
+    fn interleaved_activity_results_are_cached_by_query_id() {
+        use crate::protocol::computer::{
+            ChannelActivityResultEnvelope, ChannelActivitySnapshot, ServerFrame, ShutdownCode,
+        };
+
+        let target = crate::ids::QueryId::from_uuid(Uuid::now_v7());
+        let other = crate::ids::QueryId::from_uuid(Uuid::now_v7());
+        let snapshot = |query_id| ChannelActivityResultEnvelope {
+            query_id,
+            result: ChannelActivitySnapshot {
+                channel_id: crate::ids::ChannelId::from_uuid(Uuid::now_v7()),
+                snapshot_sequence: 1,
+                messages: Vec::new(),
+            },
+        };
+        let mut deferred = VecDeque::new();
+        let mut pending = BTreeMap::new();
+
+        assert!(
+            route_activity_frame(
+                ServerFrame::ChannelActivityResult {
+                    result: snapshot(other),
+                },
+                target,
+                &mut deferred,
+                &mut pending,
+            )
+            .is_none()
+        );
+        assert!(pending.contains_key(&other));
+        assert!(deferred.is_empty());
+
+        let result = route_activity_frame(
+            ServerFrame::ChannelActivityResult {
+                result: snapshot(target),
+            },
+            target,
+            &mut deferred,
+            &mut pending,
+        )
+        .expect("target query result should complete the fetch");
+        assert_eq!(result.query_id, target);
+
+        assert!(
+            route_activity_frame(
+                ServerFrame::Shutdown {
+                    code: ShutdownCode::ServerShutdown,
+                },
+                target,
+                &mut deferred,
+                &mut pending,
+            )
+            .is_none()
+        );
+        assert!(matches!(
+            deferred.pop_front(),
+            Some(ServerFrame::Shutdown {
+                code: ShutdownCode::ServerShutdown
+            })
+        ));
+        assert!(pending.contains_key(&other));
+    }
 
     fn usage_record(id: Uuid, created_at: OffsetDateTime) -> LlmUsageRecord {
         LlmUsageRecord {

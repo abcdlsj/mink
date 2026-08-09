@@ -13,8 +13,8 @@ use crate::{
         SessionScope, SessionState, TerminalStatus,
         command::Command,
         ports::{
-            CommandStatus, ComputerTransaction, LlmUsageStore, LocalErrorCode, LocalEvent,
-            StoredCommand, TransactionPort,
+            ChannelContextState, CommandStatus, ComputerTransaction, LlmUsageStore, LocalErrorCode,
+            LocalEvent, StoredCommand, TransactionPort,
         },
         usage::LlmUsageRecord,
     },
@@ -33,6 +33,7 @@ struct Snapshot {
     runs: BTreeMap<RunId, LocalRun>,
     sessions: Vec<ProviderSession>,
     events: BTreeMap<EventId, LocalEvent>,
+    channel_contexts: BTreeMap<(AgentId, crate::ids::ChannelId), ChannelContextState>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -131,7 +132,23 @@ impl SqliteAdapter {
             .map_err(map_sqlx)?;
             version = 3;
         }
-        if version != 3 {
+        if version == 3 {
+            sqlx::raw_sql(
+                "CREATE TABLE channel_contexts (\
+                     agent_id TEXT NOT NULL,\
+                     channel_id TEXT NOT NULL,\
+                     through_sequence INTEGER NOT NULL CHECK (through_sequence >= 0),\
+                     PRIMARY KEY (agent_id, channel_id)\
+                 ) STRICT;\
+                 INSERT INTO schema_meta (version, applied_at)\
+                 VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+            )
+            .execute(&mut connection)
+            .await
+            .map_err(map_sqlx)?;
+            version = 4;
+        }
+        if version != 4 {
             return Err(ApplicationError::Internal);
         }
         Ok(Self { connection })
@@ -331,6 +348,24 @@ impl SqliteAdapter {
             };
             snapshot.events.insert(event_id, event);
         }
+        for row in sqlx::query("SELECT agent_id,channel_id,through_sequence FROM channel_contexts")
+            .fetch_all(&mut self.connection)
+            .await
+            .map_err(map_sqlx)?
+        {
+            let agent_id = parse_id(row.get("agent_id"))?;
+            let channel_id = parse_id(row.get("channel_id"))?;
+            let through_sequence = u64::try_from(row.get::<i64, _>("through_sequence"))
+                .map_err(|_| ApplicationError::Internal)?;
+            snapshot.channel_contexts.insert(
+                (agent_id, channel_id),
+                ChannelContextState {
+                    agent_id,
+                    channel_id,
+                    through_sequence,
+                },
+            );
+        }
         Ok(snapshot)
     }
 
@@ -355,6 +390,10 @@ impl SqliteAdapter {
             .execute(&mut self.connection)
             .await
             .map_err(map_sqlx)?;
+        sqlx::query("DELETE FROM channel_contexts")
+            .execute(&mut self.connection)
+            .await
+            .map_err(map_sqlx)?;
 
         for command in snapshot.commands.values() {
             sqlx::query(
@@ -368,6 +407,20 @@ impl SqliteAdapter {
             .bind(encode(&command.command)?)
             .bind(command_status_name(command.status))
             .bind(command.error.as_ref().map(application_error_name))
+            .execute(&mut self.connection)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        for context in snapshot.channel_contexts.values() {
+            sqlx::query(
+                "INSERT INTO channel_contexts (agent_id,channel_id,through_sequence) VALUES (?,?,?)",
+            )
+            .bind(context.agent_id.to_string())
+            .bind(context.channel_id.to_string())
+            .bind(
+                i64::try_from(context.through_sequence)
+                    .map_err(|_| ApplicationError::Internal)?,
+            )
             .execute(&mut self.connection)
             .await
             .map_err(map_sqlx)?;
@@ -692,6 +745,29 @@ impl ComputerTransaction for SqliteTransaction {
             .filter(|run| !run.view().state.is_terminal())
             .cloned()
             .collect())
+    }
+
+    fn channel_context(
+        &mut self,
+        agent_id: AgentId,
+        channel_id: crate::ids::ChannelId,
+    ) -> Result<Option<ChannelContextState>, ApplicationError> {
+        Ok(self
+            .snapshot
+            .channel_contexts
+            .get(&(agent_id, channel_id))
+            .cloned())
+    }
+
+    fn save_channel_context(
+        &mut self,
+        context: ChannelContextState,
+    ) -> Result<(), ApplicationError> {
+        let key = (context.agent_id, context.channel_id);
+        let changed = self.snapshot.channel_contexts.get(&key) != Some(&context);
+        self.snapshot.channel_contexts.insert(key, context);
+        self.dirty |= changed;
+        Ok(())
     }
 
     fn sessions(
@@ -1075,7 +1151,7 @@ mod tests {
             .fetch_one(&mut adapter.connection)
             .await
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[tokio::test]
@@ -1490,6 +1566,9 @@ mod tests {
                         author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                         body: "body".to_owned(),
                     }],
+                    channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+                    channel_snapshot_sequence: 1,
+                    channel_activity: Vec::new(),
                     dispatched_items,
                 },
                 channel_members: Vec::new(),

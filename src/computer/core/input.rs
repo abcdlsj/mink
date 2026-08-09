@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 
 use time::OffsetDateTime;
 
-use crate::ids::{AgentId, InboxItemId, MemberId, MessageId, NoticeId, SpaceId, TaskId, ThreadId};
+use crate::ids::{
+    AgentId, ChannelId, InboxItemId, MemberId, MessageId, NoticeId, SpaceId, TaskId, ThreadId,
+};
 
 use super::scheduler::WorkStrength;
 
@@ -64,7 +66,17 @@ pub(in crate::computer) struct RunContextInput {
     pub(in crate::computer) focus_thread_id: ThreadId,
     pub(in crate::computer) message_snapshot_sequence: u64,
     pub(in crate::computer) focus_messages: Vec<ContextMessageInput>,
+    pub(in crate::computer) channel_id: ChannelId,
+    pub(in crate::computer) channel_snapshot_sequence: u64,
+    pub(in crate::computer) channel_activity: Vec<ChannelActivityInput>,
     pub(in crate::computer) dispatched_items: Vec<DispatchedItemInput>,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub(in crate::computer) struct ChannelActivityInput {
+    pub(in crate::computer) thread_id: ThreadId,
+    pub(in crate::computer) channel_seq: u64,
+    pub(in crate::computer) message: ContextMessageInput,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -204,6 +216,15 @@ impl RunInput {
             digest.update(message.author_member_id.to_string().as_bytes());
             digest.update(message.body.as_bytes());
         }
+        digest.update(self.context.channel_id.to_string().as_bytes());
+        digest.update(self.context.channel_snapshot_sequence.to_le_bytes());
+        for activity in &self.context.channel_activity {
+            digest.update(activity.thread_id.to_string().as_bytes());
+            digest.update(activity.channel_seq.to_le_bytes());
+            digest.update(activity.message.message_id.to_string().as_bytes());
+            digest.update(activity.message.author_member_id.to_string().as_bytes());
+            digest.update(activity.message.body.as_bytes());
+        }
         for item in &self.context.dispatched_items {
             digest.update(item.content_hash().as_bytes());
         }
@@ -310,6 +331,20 @@ impl RunInput {
             "focus_messages".to_owned(),
             serde_json::Value::Array(focus_messages),
         );
+        context.insert(
+            "channel_id".to_owned(),
+            serde_json::json!(self.context.channel_id),
+        );
+        context.insert(
+            "channel_snapshot_sequence".to_owned(),
+            serde_json::json!(self.context.channel_snapshot_sequence),
+        );
+        if !self.context.channel_activity.is_empty() {
+            context.insert(
+                "channel_activity".to_owned(),
+                serde_json::json!(self.context.channel_activity),
+            );
+        }
         if omitted_replies > 0 {
             context.insert(
                 "omitted_earlier_message_count".to_owned(),
@@ -408,6 +443,9 @@ mod tests {
                 focus_thread_id: ThreadId::from_uuid(Uuid::from_u128(3)),
                 message_snapshot_sequence: 7,
                 focus_messages,
+                channel_id: crate::ids::ChannelId::from_uuid(Uuid::from_u128(4)),
+                channel_snapshot_sequence: 7,
+                channel_activity: Vec::new(),
                 dispatched_items,
             },
             channel_members: Vec::new(),

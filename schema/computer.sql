@@ -7,7 +7,7 @@ CREATE TABLE schema_meta (
 ) STRICT;
 
 INSERT INTO schema_meta (version, applied_at)
-VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 CREATE TABLE local_commands (
     command_id TEXT PRIMARY KEY,
@@ -51,6 +51,13 @@ CREATE TABLE provider_sessions (
     last_resumed_at TEXT,
     closed_at TEXT,
     PRIMARY KEY (agent_id, scope_kind, scope_id, generation)
+) STRICT;
+
+CREATE TABLE channel_contexts (
+    agent_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    through_sequence INTEGER NOT NULL CHECK (through_sequence >= 0),
+    PRIMARY KEY (agent_id, channel_id)
 ) STRICT;
 
 CREATE TABLE run_deliveries (

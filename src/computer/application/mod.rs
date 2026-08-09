@@ -11,9 +11,9 @@ pub(in crate::computer) mod usage;
 pub(in crate::computer) use crate::computer::core::{
     home::{LocalAgent, LocalAgentState, MemoryFile},
     input::{
-        ActivityEventInput, AgentInput, AttentionNoticeInput, ChannelMemberInput,
-        ContextMessageInput, DispatchedItemInput, MemoryEntryInput, NoticeLocationInput,
-        RunContextInput, RunInput, TaskInput, WorkInput,
+        ActivityEventInput, AgentInput, AttentionNoticeInput, ChannelActivityInput,
+        ChannelMemberInput, ContextMessageInput, DispatchedItemInput, MemoryEntryInput,
+        NoticeLocationInput, RunContextInput, RunInput, TaskInput, WorkInput,
     },
     scheduler::{RunPriority, WorkStrength},
     session::{

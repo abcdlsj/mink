@@ -274,6 +274,7 @@ pub(crate) struct RunStart {
     pub(crate) agent_id: AgentId,
     pub(crate) task: Option<TaskSnapshot>,
     pub(crate) focus: FocusSnapshot,
+    pub(crate) channel_snapshot_sequence: u64,
     pub(crate) dispatched_items: Vec<InboxItemSnapshot>,
     pub(crate) channel_members: Vec<ChannelMemberSnapshot>,
 }
@@ -385,6 +386,24 @@ pub(crate) struct FocusSnapshot {
     pub(crate) root: MessageSnapshot,
     pub(crate) replies: Vec<MessageSnapshot>,
     pub(crate) message_sequence: u64,
+}
+
+/// A permission-filtered Channel snapshot used to build the Computer's incremental
+/// Agent + Channel context. The Server sends the authoritative range; the Computer
+/// applies its persisted `through_seq` before projecting a Run input.
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChannelActivitySnapshot {
+    pub(crate) channel_id: ChannelId,
+    pub(crate) snapshot_sequence: u64,
+    pub(crate) messages: Vec<ChannelActivityMessageSnapshot>,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChannelActivityMessageSnapshot {
+    pub(crate) thread_id: ThreadId,
+    pub(crate) message: MessageSnapshot,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -506,10 +525,21 @@ pub(crate) enum NoticeLocation {
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum ServerFrame {
-    Command { envelope: Box<CommandEnvelope> },
-    Receipt { receipt: Receipt },
-    Query { query: QueryEnvelope },
-    Shutdown { code: ShutdownCode },
+    Command {
+        envelope: Box<CommandEnvelope>,
+    },
+    Receipt {
+        receipt: Receipt,
+    },
+    Query {
+        query: QueryEnvelope,
+    },
+    ChannelActivityResult {
+        result: ChannelActivityResultEnvelope,
+    },
+    Shutdown {
+        code: ShutdownCode,
+    },
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -522,6 +552,7 @@ pub(crate) enum ComputerFrame {
     DeliveryReceipt { receipt: DeliveryReceipt },
     RunResult { result: RunResult },
     QueryResult { result: QueryResultEnvelope },
+    ChannelActivityQuery { query: ChannelActivityQuery },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -529,6 +560,24 @@ pub(crate) enum ComputerFrame {
 pub(crate) struct QueryEnvelope {
     pub(crate) query_id: QueryId,
     pub(crate) query: Query,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChannelActivityQuery {
+    pub(crate) query_id: QueryId,
+    pub(crate) agent_id: AgentId,
+    pub(crate) channel_id: ChannelId,
+    pub(crate) after_sequence: u64,
+    pub(crate) through_sequence: u64,
+    pub(crate) limit: u32,
+}
+
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChannelActivityResultEnvelope {
+    pub(crate) query_id: QueryId,
+    pub(crate) result: ChannelActivitySnapshot,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -854,6 +903,7 @@ pub(crate) enum ComputerErrorCode {
     SessionUnavailable,
     AgentUnavailable,
     InvalidCommand,
+    UnhandledItems,
     Internal,
 }
 
@@ -916,8 +966,8 @@ mod tests {
         };
         let value = serde_json::to_value(hello).unwrap();
 
-        assert_eq!(value["supported_versions"]["minimum"], 3);
-        assert_eq!(value["supported_versions"]["maximum"], 3);
+        assert_eq!(value["supported_versions"]["minimum"], 4);
+        assert_eq!(value["supported_versions"]["maximum"], 4);
         assert_eq!(value["capabilities"][0], "active_turn_steer");
     }
 
@@ -1063,6 +1113,7 @@ mod tests {
                 replies: Vec::new(),
                 message_sequence: 1,
             },
+            channel_snapshot_sequence: 1,
             dispatched_items: Vec::new(),
             channel_members: Vec::new(),
         });

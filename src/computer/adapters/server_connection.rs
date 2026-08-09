@@ -1,13 +1,16 @@
+use std::collections::HashSet;
+
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
 use crate::{
     computer::application::{
-        ActivityEventInput, AgentInput, ApplicationError, AttentionNoticeInput, ChannelMemberInput,
-        ContextMessageInput, ContinuityState, DeliveryState, DispatchedItemInput, DriverKind,
-        ItemDisposition, LocalAgent, LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput,
-        MemoryFile, NewRun, NoticeLocationInput, RunContextInput, RunInput, RunPriority,
-        SessionFingerprint, SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
+        ActivityEventInput, AgentInput, ApplicationError, AttentionNoticeInput,
+        ChannelActivityInput, ChannelMemberInput, ContextMessageInput, ContinuityState,
+        DeliveryState, DispatchedItemInput, DriverKind, ItemDisposition, LocalAgent,
+        LocalAgentState, LocalRun, LocalRunState, MemoryEntryInput, MemoryFile, NewRun,
+        NoticeLocationInput, RunContextInput, RunInput, RunPriority, SessionFingerprint,
+        SessionScope, TaskInput, TerminalStatus, WorkInput, WorkStrength,
         command::{Command as ApplicationCommand, CommandService},
         ports::{
             AgentHomePort, CommandStatus, ComputerTransaction, DriverPort, LlmUsageStore,
@@ -15,7 +18,7 @@ use crate::{
         },
         query::QueryService,
     },
-    ids::{RunId, ThreadId},
+    ids::{AgentId, ChannelId, RunId, ThreadId},
     protocol::computer as wire,
 };
 
@@ -28,6 +31,7 @@ impl ServerConnectionAdapter {
         Self { product_contract }
     }
 
+    #[cfg(test)]
     pub(in crate::computer) async fn receive<
         P: TransactionPort,
         D: DriverPort,
@@ -38,6 +42,22 @@ impl ServerConnectionAdapter {
         driver: &mut D,
         homes: &mut H,
         envelope: wire::CommandEnvelope,
+    ) -> Result<Vec<wire::ComputerFrame>, ApplicationError> {
+        self.receive_with_activity(store, driver, homes, envelope, None)
+            .await
+    }
+
+    pub(in crate::computer) async fn receive_with_activity<
+        P: TransactionPort,
+        D: DriverPort,
+        H: AgentHomePort,
+    >(
+        &self,
+        store: &mut P,
+        driver: &mut D,
+        homes: &mut H,
+        envelope: wire::CommandEnvelope,
+        channel_activity: Option<wire::ChannelActivitySnapshot>,
     ) -> Result<Vec<wire::ComputerFrame>, ApplicationError> {
         let diagnostic = envelope.command.diagnostic();
         tracing::debug!(
@@ -51,7 +71,7 @@ impl ServerConnectionAdapter {
             "Computer command received"
         );
         let command = self
-            .application_command(store, homes, envelope.command)
+            .application_command(store, homes, envelope.command, channel_activity)
             .await?;
         let sequence = envelope.sequence.0;
         let execution =
@@ -237,6 +257,7 @@ impl ServerConnectionAdapter {
         store: &mut P,
         homes: &mut H,
         command: wire::Command,
+        channel_activity: Option<wire::ChannelActivitySnapshot>,
     ) -> Result<ApplicationCommand, ApplicationError> {
         match command {
             wire::Command::AgentProvision(configuration) => {
@@ -333,6 +354,17 @@ impl ServerConnectionAdapter {
                             .chain(start.focus.replies.iter())
                             .map(context_message)
                             .collect(),
+                        channel_id: start.focus.channel_id,
+                        channel_snapshot_sequence: start.channel_snapshot_sequence,
+                        channel_activity: incremental_channel_activity(
+                            store,
+                            start.agent_id,
+                            start.focus.channel_id,
+                            focus_thread_id,
+                            &dispatched_items,
+                            channel_activity.as_ref(),
+                        )
+                        .await?,
                         dispatched_items,
                     },
                     channel_members: start
@@ -453,6 +485,50 @@ impl ServerConnectionAdapter {
             },
         }
     }
+}
+
+async fn incremental_channel_activity<P: TransactionPort>(
+    store: &mut P,
+    agent_id: AgentId,
+    channel_id: ChannelId,
+    focus_thread_id: ThreadId,
+    dispatched_items: &[DispatchedItemInput],
+    snapshot: Option<&wire::ChannelActivitySnapshot>,
+) -> Result<Vec<ChannelActivityInput>, ApplicationError> {
+    let Some(snapshot) = snapshot else {
+        return Ok(Vec::new());
+    };
+    let through = store
+        .transact(async |transaction| {
+            Ok(transaction
+                .channel_context(agent_id, channel_id)?
+                .map_or(0, |context| context.through_sequence))
+        })
+        .await?;
+    let claimed_message_ids = dispatched_items
+        .iter()
+        .flat_map(|item| {
+            item.message_id.into_iter().chain(
+                item.activity_events
+                    .iter()
+                    .filter_map(|event| event.message_id),
+            )
+        })
+        .collect::<HashSet<_>>();
+    Ok(snapshot
+        .messages
+        .iter()
+        .filter(|entry| {
+            entry.message.sequence > through
+                && entry.thread_id != focus_thread_id
+                && !claimed_message_ids.contains(&entry.message.message_id)
+        })
+        .map(|entry| ChannelActivityInput {
+            thread_id: entry.thread_id,
+            channel_seq: entry.message.sequence,
+            message: context_message(&entry.message),
+        })
+        .collect())
 }
 
 fn usage_breakdown(
@@ -661,6 +737,7 @@ fn local_error(error: LocalErrorCode) -> wire::ComputerErrorCode {
         LocalErrorCode::DriverLost => wire::ComputerErrorCode::DriverLost,
         LocalErrorCode::ComputerRestarted => wire::ComputerErrorCode::ComputerRestarted,
         LocalErrorCode::SessionUnavailable => wire::ComputerErrorCode::SessionUnavailable,
+        LocalErrorCode::UnhandledItems => wire::ComputerErrorCode::UnhandledItems,
         LocalErrorCode::Internal => wire::ComputerErrorCode::Internal,
     }
 }
@@ -769,7 +846,11 @@ mod tests {
             Ok(SteerOutcome::Unsupported)
         }
 
-        async fn notice(&mut self, _: &LocalRun) -> Result<(), ApplicationError> {
+        async fn notice(
+            &mut self,
+            _: &LocalRun,
+            _: &crate::computer::core::input::AttentionNoticeInput,
+        ) -> Result<(), ApplicationError> {
             Ok(())
         }
 
@@ -869,6 +950,7 @@ mod tests {
                             replies: Vec::new(),
                             message_sequence: 1,
                         },
+                        channel_snapshot_sequence: 1,
                         dispatched_items: Vec::new(),
                         channel_members: Vec::new(),
                     }),

@@ -57,7 +57,9 @@ impl RunService {
             DriverTurnOutcome::Completed if !has_unhandled_items => {
                 (TerminalStatus::Completed, None)
             }
-            DriverTurnOutcome::Completed => (TerminalStatus::Failed, None),
+            DriverTurnOutcome::Completed => {
+                (TerminalStatus::Failed, Some(LocalErrorCode::UnhandledItems))
+            }
             DriverTurnOutcome::Failed => {
                 (TerminalStatus::Failed, Some(LocalErrorCode::DriverError))
             }
@@ -261,7 +263,7 @@ impl RunService {
         sequence: u64,
         item: DispatchedItemInput,
     ) -> Result<DeliveryState, ApplicationError> {
-        let (mut run, inserted, late_outcome) = store
+        let (run, inserted, late_outcome) = store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
                 if run.view().state.is_terminal() {
@@ -305,16 +307,49 @@ impl RunService {
             SteerOutcome::TooLate => DeliveryState::TooLate,
             SteerOutcome::Unsupported => DeliveryState::Unsupported,
         };
-        run.record_delivery(sequence, outcome)?;
+        let event_id = next_event_id();
         store
             .transact(async |transaction| {
-                transaction.save_run(run.clone())?;
-                transaction.append_event(LocalEvent::Delivery {
-                    event_id: next_event_id(),
-                    run_id,
-                    sequence,
-                    outcome,
-                })
+                let mut current = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
+                if current.view().state.is_terminal() {
+                    // Finalization won the attach/finalize race. The receipt is explicitly late;
+                    // never overwrite the terminal Run snapshot with the stale pre-steer clone.
+                    let late_item = current
+                        .view()
+                        .deliveries
+                        .get(&sequence)
+                        .map(|delivery| delivery.item.clone())
+                        .ok_or(ApplicationError::NotFound)?;
+                    let late = current.late_delivery(sequence, &late_item)?;
+                    if late == DeliveryState::TooLate {
+                        current.record_item_disposition(
+                            current.view().deliveries[&sequence].item.item_id,
+                            ItemDisposition::Released,
+                        )?;
+                    }
+                    transaction.save_run(current)?;
+                    transaction.append_event(LocalEvent::Delivery {
+                        event_id,
+                        run_id,
+                        sequence,
+                        outcome: late,
+                    })
+                } else {
+                    current.record_delivery(sequence, outcome)?;
+                    if matches!(outcome, DeliveryState::TooLate | DeliveryState::Unsupported) {
+                        current.record_item_disposition(
+                            current.view().deliveries[&sequence].item.item_id,
+                            ItemDisposition::Released,
+                        )?;
+                    }
+                    transaction.save_run(current)?;
+                    transaction.append_event(LocalEvent::Delivery {
+                        event_id,
+                        run_id,
+                        sequence,
+                        outcome,
+                    })
+                }
             })
             .await?;
         Ok(outcome)
@@ -327,6 +362,7 @@ impl RunService {
         notice: AttentionNoticeInput,
     ) -> Result<(), ApplicationError> {
         let notice_id = notice.notice_id;
+        let driver_notice = notice.clone();
         let (mut run, inserted) = store
             .transact(async |transaction| {
                 let mut run = transaction.run(run_id)?.ok_or(ApplicationError::NotFound)?;
@@ -336,7 +372,7 @@ impl RunService {
             })
             .await?;
         if inserted || run.notice_is_pending(notice_id) {
-            driver.notice(&run).await?;
+            driver.notice(&run, &driver_notice).await?;
             run.record_notice(notice_id)?;
             store
                 .transact(async |transaction| transaction.save_run(run))
@@ -435,6 +471,14 @@ impl RunService {
                 run.validate_item_outcomes(&item_outcomes)?;
                 if !forced_restart_failure {
                     run.finish(status)?;
+                }
+                if matches!(status, TerminalStatus::Completed | TerminalStatus::Yielded) {
+                    let run_view = run.view();
+                    transaction.save_channel_context(super::ports::ChannelContextState {
+                        agent_id: run_view.agent_id,
+                        channel_id: run_view.input.context.channel_id,
+                        through_sequence: run_view.input.context.channel_snapshot_sequence,
+                    })?;
                 }
                 if let Some((scope, generation)) = run.view().session {
                     let mut sessions = transaction.sessions(run.view().agent_id, scope)?;

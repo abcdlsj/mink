@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub(crate) const CURRENT: ProtocolVersion = ProtocolVersion::new(3);
+pub(crate) const CURRENT: ProtocolVersion = ProtocolVersion::new(4);
 pub(crate) const SUPPORTED: ProtocolVersionRange = ProtocolVersionRange::new(CURRENT, CURRENT);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

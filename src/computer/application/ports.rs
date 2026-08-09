@@ -5,10 +5,11 @@ use time::OffsetDateTime;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AgentId, CommandId, EventId, InboxItemId, RunId};
+use crate::ids::{AgentId, ChannelId, CommandId, EventId, InboxItemId, RunId};
 
 use crate::computer::core::{
     home::{LocalAgent, MemoryFile},
+    input::AttentionNoticeInput,
     session::{ProviderSession, SessionFingerprint, SessionScope},
     supervisor::{DeliveryState, ItemDisposition, LocalRun, TerminalStatus},
 };
@@ -16,6 +17,13 @@ use crate::computer::core::{
 use super::ApplicationError;
 use super::command::Command;
 use super::usage::LlmUsageRecord;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::computer) struct ChannelContextState {
+    pub(in crate::computer) agent_id: AgentId,
+    pub(in crate::computer) channel_id: ChannelId,
+    pub(in crate::computer) through_sequence: u64,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::computer) enum CommandStatus {
@@ -78,6 +86,8 @@ pub(in crate::computer) enum LocalErrorCode {
     ComputerRestarted,
     /// A Provider Session could not be opened or resumed.
     SessionUnavailable,
+    /// The Driver completed its turn while an Accepted Item still had no disposition.
+    UnhandledItems,
     Internal,
 }
 
@@ -89,6 +99,15 @@ pub(in crate::computer) trait ComputerTransaction {
     fn run(&mut self, id: RunId) -> Result<Option<LocalRun>, ApplicationError>;
     fn save_run(&mut self, run: LocalRun) -> Result<(), ApplicationError>;
     fn nonterminal_runs(&mut self) -> Result<Vec<LocalRun>, ApplicationError>;
+    fn channel_context(
+        &mut self,
+        agent_id: AgentId,
+        channel_id: ChannelId,
+    ) -> Result<Option<ChannelContextState>, ApplicationError>;
+    fn save_channel_context(
+        &mut self,
+        context: ChannelContextState,
+    ) -> Result<(), ApplicationError>;
     fn sessions(
         &mut self,
         agent_id: AgentId,
@@ -202,6 +221,7 @@ impl fmt::Debug for OpenedSession {
 pub(in crate::computer) enum SteerOutcome {
     Accepted,
     TooLate,
+    #[allow(dead_code)]
     Unsupported,
 }
 
@@ -237,7 +257,11 @@ pub(in crate::computer) trait DriverPort {
         run: &LocalRun,
         sequence: u64,
     ) -> Result<SteerOutcome, ApplicationError>;
-    async fn notice(&mut self, run: &LocalRun) -> Result<(), ApplicationError>;
+    async fn notice(
+        &mut self,
+        run: &LocalRun,
+        notice: &AttentionNoticeInput,
+    ) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, run: &LocalRun) -> Result<(), ApplicationError>;
     async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn wait_for_completion(

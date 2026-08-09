@@ -29,9 +29,9 @@ use super::{
     command::{Command, CommandService},
     pipeline::RunPipelineService,
     ports::{
-        AgentHomePort, CommandStatus, ComputerTransaction, DriverCompletion, DriverPort,
-        DriverTurnOutcome, LocalErrorCode, LocalEvent, OpenSessionRequest, OpenedSession,
-        ProcessEvidence, SteerOutcome, StoredCommand, TransactionPort,
+        AgentHomePort, ChannelContextState, CommandStatus, ComputerTransaction, DriverCompletion,
+        DriverPort, DriverTurnOutcome, LocalErrorCode, LocalEvent, OpenSessionRequest,
+        OpenedSession, ProcessEvidence, SteerOutcome, StoredCommand, TransactionPort,
     },
     recovery::RecoveryService,
     run::RunService,
@@ -44,6 +44,7 @@ struct MemoryState {
     runs: BTreeMap<RunId, LocalRun>,
     sessions: Vec<ProviderSession>,
     events: BTreeMap<EventId, LocalEvent>,
+    channel_contexts: BTreeMap<(AgentId, ChannelId), ChannelContextState>,
 }
 
 #[derive(Default)]
@@ -119,6 +120,28 @@ impl ComputerTransaction for MemoryTransaction {
             .filter(|run| !run.view().state.is_terminal())
             .cloned()
             .collect())
+    }
+
+    fn channel_context(
+        &mut self,
+        agent_id: AgentId,
+        channel_id: ChannelId,
+    ) -> Result<Option<ChannelContextState>, ApplicationError> {
+        Ok(self
+            .state
+            .channel_contexts
+            .get(&(agent_id, channel_id))
+            .cloned())
+    }
+
+    fn save_channel_context(
+        &mut self,
+        context: ChannelContextState,
+    ) -> Result<(), ApplicationError> {
+        self.state
+            .channel_contexts
+            .insert((context.agent_id, context.channel_id), context);
+        Ok(())
     }
 
     fn sessions(
@@ -376,7 +399,11 @@ impl DriverPort for FakeDriver {
         Ok(self.steer_outcome)
     }
 
-    async fn notice(&mut self, _run: &LocalRun) -> Result<(), ApplicationError> {
+    async fn notice(
+        &mut self,
+        _run: &LocalRun,
+        _notice: &crate::computer::core::input::AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
         self.notice_count += 1;
         Ok(())
     }
@@ -2074,6 +2101,9 @@ fn test_input<const N: usize>(
                 author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                 body: "message body".to_owned(),
             }],
+            channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+            channel_snapshot_sequence: 1,
+            channel_activity: Vec::new(),
             dispatched_items: items
                 .into_iter()
                 .map(|(item_id, task_id, thread_id)| claimed_item(item_id, task_id, thread_id))
