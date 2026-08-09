@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Hash,
+  Building2,
   Inbox,
   LockKeyhole,
   ListTodo,
@@ -66,7 +67,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -308,6 +309,12 @@ export function SpaceShell({
             href={`/s/${space.data.slug}/channels/general`}
           />
           <RailItem
+            icon={Building2}
+            label="Company"
+            active={active === "company"}
+            href={`/s/${space.data.slug}/company`}
+          />
+          <RailItem
             icon={Inbox}
             label="Inbox"
             active={active === "inbox"}
@@ -387,6 +394,12 @@ export function SpaceShell({
               href={`/s/${space.data.slug}/channels/general`}
             />
             <NavigationItem
+              icon={Building2}
+              label="Company"
+              active={active === "company"}
+              href={`/s/${space.data.slug}/company`}
+            />
+            <NavigationItem
               icon={Inbox}
               label="Inbox"
               active={active === "inbox"}
@@ -424,6 +437,11 @@ export function SpaceShell({
             <InboxNavigation />
           ) : active === "tasks" ? (
             <TasksNavigation tasks={navTasks.data ?? []} spaceSlug={space.data.slug} pending={navTasks.isPending} />
+          ) : active === "company" ? (
+            <CompanyNavigation
+              spaceSlug={space.data.slug}
+              locationPath={location.pathname}
+            />
           ) : (
             <>
           <div className="nav-section-heading">
@@ -637,6 +655,27 @@ function TasksNavigation({ tasks, spaceSlug, pending }: { tasks: Task[]; spaceSl
           <span title={task.title}>{task.title}</span>
         </Link>
       ))}
+    </div>
+  );
+}
+
+function CompanyNavigation({
+  spaceSlug,
+  locationPath,
+}: {
+  spaceSlug: string;
+  locationPath: string;
+}) {
+  const officeActive = locationPath.endsWith("/company/office") || locationPath.endsWith("/company");
+  return (
+    <div className="company-navigation">
+      <p className="nav-label">COMPANY</p>
+      <NavigationItem
+        icon={Building2}
+        label="Office"
+        active={officeActive}
+        href={`/s/${spaceSlug}/company/office`}
+      />
     </div>
   );
 }
