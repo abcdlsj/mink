@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Mutex,
@@ -18,10 +19,13 @@ const SCHEDULER_CONTRACT: &str = concat!(
     "Scheduler tools: `scheduler.create` schedules an agent task with `prompt` and `next_at` ",
     "(RFC3339 in the chat timezone; the run context includes the current local time as `now`). ",
     "`repeat` is `once`, `daily`, or `weekly` (default `once`). At the scheduled time the agent ",
-    "runs a full turn with the prompt as its instruction and delivers the result to this chat, ",
-    "then reschedules a recurring task. Use `scheduler.list` to inspect tasks and ",
-    "`scheduler.cancel` with the returned id to remove one. Tasks survive restarts.",
+    "runs a full turn with the prompt as its instruction and delivers the result to this chat. ",
+    "A successful recurring task is advanced to its next future occurrence; a failed task stays ",
+    "pending and is retried. Use `scheduler.list` to inspect tasks and `scheduler.cancel` with ",
+    "the returned id to remove one. Tasks survive restarts.",
 );
+const RETRY_BASE_SECONDS: i64 = 5;
+const RETRY_MAX_SECONDS: i64 = 5 * 60;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -64,6 +68,20 @@ impl ScheduledTask {
         Some(next_local.timestamp())
     }
 
+    /// Return the first occurrence strictly after `now_unix`, skipping all
+    /// periods that elapsed while the process was offline.
+    pub fn next_occurrence_after(&self, timezone: Tz, now_unix: i64) -> Option<i64> {
+        let mut next = self.next_occurrence(timezone)?;
+        while next <= now_unix {
+            next = ScheduledTask {
+                next_at_unix: next,
+                ..self.clone()
+            }
+            .next_occurrence(timezone)?;
+        }
+        Some(next)
+    }
+
     pub fn local_rfc3339(&self, timezone: Tz) -> String {
         timezone
             .timestamp_opt(self.next_at_unix, 0)
@@ -83,6 +101,14 @@ pub struct SchedulerPlugin {
     state_path: PathBuf,
     timezone: Tz,
     reply_to: Mutex<Option<i64>>,
+    claims: tokio::sync::Mutex<HashMap<Uuid, RetryState>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RetryState {
+    attempts: u32,
+    in_flight: bool,
+    next_retry_unix: i64,
 }
 
 impl SchedulerPlugin {
@@ -91,6 +117,7 @@ impl SchedulerPlugin {
             state_path,
             timezone,
             reply_to: Mutex::new(None),
+            claims: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -113,37 +140,90 @@ impl SchedulerPlugin {
         state.save(&self.state_path).await
     }
 
-    /// Remove and return tasks whose `next_at_unix` has passed.
+    /// Claim and return tasks whose `next_at_unix` has passed.
+    ///
+    /// Claims are intentionally process-local. The task remains in the
+    /// durable file until [`finish`](Self::finish) records a successful turn,
+    /// so a crash or failed start leaves it available after restart.
     pub async fn take_due(&self, now_unix: i64) -> Result<Vec<ScheduledTask>> {
+        let mut claims = self.claims.lock().await;
         let mut state = self.state().await?;
-        let (due, pending): (Vec<_>, Vec<_>) = state
-            .tasks
-            .into_iter()
-            .partition(|task| task.next_at_unix <= now_unix);
-        if due.is_empty() {
-            return Ok(Vec::new());
+        let mut due = Vec::new();
+        let tasks = std::mem::take(&mut state.tasks);
+        for task in tasks {
+            let claim = claims.entry(task.id).or_default();
+            if task.next_at_unix <= now_unix
+                && !claim.in_flight
+                && now_unix >= claim.next_retry_unix
+            {
+                claim.in_flight = true;
+                due.push(task);
+            } else {
+                state.tasks.push(task);
+            }
         }
-        state.tasks = pending;
-        self.save(&state).await?;
-        let mut due = due;
         due.sort_by_key(|task| task.next_at_unix);
         Ok(due)
     }
 
-    /// Re-insert a completed task at its next occurrence, or keep it removed
-    /// for one-shot tasks.
-    pub async fn reschedule(&self, task: &ScheduledTask) -> Result<Option<ScheduledTask>> {
-        let Some(next_at_unix) = task.next_occurrence(self.timezone) else {
-            return Ok(None);
-        };
-        let next = ScheduledTask {
-            next_at_unix,
-            ..task.clone()
-        };
-        let mut state = self.state().await?;
-        state.tasks.push(next.clone());
-        self.save(&state).await?;
-        Ok(Some(next))
+    /// Record the outcome of a claimed task.
+    ///
+    /// Failed tasks are left untouched and become eligible for a later claim.
+    /// Successful one-shot tasks are removed; recurring tasks are moved to the
+    /// first occurrence after `now_unix`, avoiding a catch-up burst after a
+    /// long offline period.
+    pub async fn finish(
+        &self,
+        task: &ScheduledTask,
+        succeeded: bool,
+        now_unix: i64,
+    ) -> Result<Option<ScheduledTask>> {
+        let mut claims = self.claims.lock().await;
+        let result: Result<Option<ScheduledTask>> = async {
+            if !succeeded {
+                Ok(self
+                    .state()
+                    .await?
+                    .tasks
+                    .into_iter()
+                    .find(|candidate| candidate.id == task.id))
+            } else {
+                let mut state = self.state().await?;
+                let Some(index) = state
+                    .tasks
+                    .iter()
+                    .position(|candidate| candidate.id == task.id)
+                else {
+                    return Ok(None);
+                };
+                let next = task.next_occurrence_after(self.timezone, now_unix);
+                state.tasks.remove(index);
+                if let Some(next_at_unix) = next {
+                    let next_task = ScheduledTask {
+                        next_at_unix,
+                        ..task.clone()
+                    };
+                    state.tasks.push(next_task.clone());
+                    self.save(&state).await?;
+                    Ok(Some(next_task))
+                } else {
+                    self.save(&state).await?;
+                    Ok(None)
+                }
+            }
+        }
+        .await;
+        if result.is_ok() && (succeeded || matches!(&result, Ok(None))) {
+            claims.remove(&task.id);
+        } else {
+            let claim = claims.entry(task.id).or_default();
+            claim.in_flight = false;
+            claim.attempts = claim.attempts.saturating_add(1);
+            let exponent = claim.attempts.saturating_sub(1).min(6);
+            let delay = (RETRY_BASE_SECONDS * (1_i64 << exponent)).min(RETRY_MAX_SECONDS);
+            claim.next_retry_unix = now_unix.saturating_add(delay);
+        }
+        result
     }
 }
 
@@ -401,7 +481,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn take_due_and_reschedule_advance_daily_and_weekly_tasks() {
+    async fn take_due_and_finish_advance_daily_and_weekly_tasks() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("scheduler.json");
         let now = now_unix();
@@ -448,19 +528,19 @@ mod tests {
         assert_eq!(due.len(), 3);
 
         let once = due.iter().find(|task| task.repeat == Repeat::Once).unwrap();
-        assert!(plugin.reschedule(once).await.unwrap().is_none());
+        assert!(plugin.finish(once, true, now).await.unwrap().is_none());
         let daily = due
             .iter()
             .find(|task| task.repeat == Repeat::Daily)
             .unwrap();
-        let daily = plugin.reschedule(daily).await.unwrap().unwrap();
+        let daily = plugin.finish(daily, true, now).await.unwrap().unwrap();
         assert!(daily.next_at_unix >= now + 86_400 - 120);
         assert_eq!(daily.repeat, Repeat::Daily);
         let weekly = due
             .iter()
             .find(|task| task.repeat == Repeat::Weekly)
             .unwrap();
-        let weekly = plugin.reschedule(weekly).await.unwrap().unwrap();
+        let weekly = plugin.finish(weekly, true, now).await.unwrap().unwrap();
         assert!(weekly.next_at_unix >= now + 7 * 86_400 - 120);
         assert_eq!(weekly.repeat, Repeat::Weekly);
 
@@ -469,6 +549,75 @@ mod tests {
         assert!(remaining.iter().any(|task| task.prompt == "future"));
         assert!(remaining.iter().any(|task| task.prompt == "daily"));
         assert!(remaining.iter().any(|task| task.prompt == "weekly"));
+    }
+
+    #[tokio::test]
+    async fn failed_once_task_remains_claimable_for_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("scheduler.json");
+        let now = now_unix();
+        let task = ScheduledTask {
+            id: Uuid::now_v7(),
+            prompt: "retry me".into(),
+            next_at_unix: now - 1,
+            repeat: Repeat::Once,
+            reply_to_message_id: None,
+            created_at_unix: now - 10,
+        };
+        SchedulerState {
+            tasks: vec![task.clone()],
+        }
+        .save(&path)
+        .await
+        .unwrap();
+        let plugin = SchedulerPlugin::new(path, timezone());
+
+        let due = plugin.take_due(now).await.unwrap();
+        assert_eq!(due, vec![task.clone()]);
+        assert_eq!(
+            plugin.finish(&task, false, now).await.unwrap(),
+            Some(task.clone())
+        );
+        assert_eq!(
+            plugin.take_due(now + RETRY_BASE_SECONDS - 1).await.unwrap(),
+            Vec::new()
+        );
+        assert_eq!(
+            plugin.take_due(now + RETRY_BASE_SECONDS).await.unwrap(),
+            vec![task]
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_recurring_task_skips_elapsed_periods() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("scheduler.json");
+        let now = now_unix();
+        let task = ScheduledTask {
+            id: Uuid::now_v7(),
+            prompt: "daily digest".into(),
+            next_at_unix: now - 5 * 86_400,
+            repeat: Repeat::Daily,
+            reply_to_message_id: None,
+            created_at_unix: now - 6 * 86_400,
+        };
+        SchedulerState {
+            tasks: vec![task.clone()],
+        }
+        .save(&path)
+        .await
+        .unwrap();
+        let plugin = SchedulerPlugin::new(path, timezone());
+
+        let due = plugin.take_due(now).await.unwrap();
+        assert_eq!(due, vec![task.clone()]);
+        let next = plugin.finish(&task, true, now).await.unwrap().unwrap();
+        assert!(next.next_at_unix > now);
+        assert!(next.next_at_unix <= now + 86_400);
+        assert_eq!(
+            plugin.take_due(now).await.unwrap(),
+            Vec::<ScheduledTask>::new()
+        );
     }
 
     #[test]

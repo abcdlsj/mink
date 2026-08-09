@@ -15,7 +15,7 @@ use sumi_agent_core::{
     TurnRequest, agent_rooted_path,
 };
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::{MissedTickBehavior, interval},
 };
 use uuid::Uuid;
@@ -43,7 +43,10 @@ const SCHEDULER_TICK_SECONDS: u64 = 5;
 /// A queued unit of work for one conversation worker.
 #[derive(Debug)]
 pub enum Job {
-    Message(Message),
+    Message {
+        message: Message,
+        completion: oneshot::Sender<Result<()>>,
+    },
 }
 
 /// Serializes all work for one conversation so the single provider session is
@@ -53,12 +56,17 @@ pub enum Job {
 pub struct ConversationWorker {
     conversation: Conversation,
     rx: mpsc::UnboundedReceiver<Job>,
+    blocked_message_id: Option<i64>,
 }
 
 impl ConversationWorker {
     pub fn spawn(conversation: Conversation) -> mpsc::UnboundedSender<Job> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let worker = Self { conversation, rx };
+        let worker = Self {
+            conversation,
+            rx,
+            blocked_message_id: None,
+        };
         tokio::spawn(worker.run());
         tx
     }
@@ -69,8 +77,8 @@ impl ConversationWorker {
         loop {
             // Drains already queued messages before a scheduler tick can fire.
             if let Ok(job) = self.rx.try_recv() {
-                if let Err(error) = self.handle(job).await {
-                    tracing::warn!(%error, "conversation job failed");
+                if self.handle(job).await {
+                    self.reject_pending();
                 }
                 continue;
             }
@@ -78,8 +86,8 @@ impl ConversationWorker {
                 biased;
                 job = self.rx.recv() => match job {
                     Some(job) => {
-                        if let Err(error) = self.handle(job).await {
-                            tracing::warn!(%error, "conversation job failed");
+                        if self.handle(job).await {
+                            self.reject_pending();
                         }
                     }
                     None => break,
@@ -93,9 +101,42 @@ impl ConversationWorker {
         }
     }
 
-    async fn handle(&mut self, job: Job) -> Result<()> {
+    async fn handle(&mut self, job: Job) -> bool {
         match job {
-            Job::Message(message) => self.conversation.handle_message(&message).await,
+            Job::Message {
+                message,
+                completion,
+            } => {
+                let message_id = message.id.0 as i64;
+                if let Some(blocked_message_id) = self.blocked_message_id
+                    && blocked_message_id != message_id
+                {
+                    let _ = completion.send(Err(anyhow::anyhow!(
+                        "a preceding Telegram message is waiting for retry"
+                    )));
+                    return true;
+                }
+                let result = self.conversation.handle_message(&message).await;
+                if let Err(error) = &result {
+                    tracing::warn!(%error, "conversation job failed");
+                }
+                if result.is_err() {
+                    self.blocked_message_id = Some(message_id);
+                } else if self.blocked_message_id == Some(message_id) {
+                    self.blocked_message_id = None;
+                }
+                let failed = result.is_err();
+                let _ = completion.send(result);
+                failed
+            }
+        }
+    }
+
+    fn reject_pending(&mut self) {
+        while let Ok(Job::Message { completion, .. }) = self.rx.try_recv() {
+            let _ = completion.send(Err(anyhow::anyhow!(
+                "a preceding Telegram message is waiting for retry"
+            )));
         }
     }
 }
@@ -185,16 +226,14 @@ impl Conversation {
         if message_id <= self.last_message_id {
             return Ok(());
         }
-        self.last_message_id = message_id;
         let text = text_content(message);
         self.plugin.set_reply_target(Some(message_id));
-        self.scheduler_plugin
-            .set_reply_target(Some(message_id));
-        self.react(REACTION_WORKING).await;
+        self.scheduler_plugin.set_reply_target(Some(message_id));
+        self.react(message_id, REACTION_WORKING).await;
         if text.trim() == "/reset" {
             self.reset(message_id).await?;
-            self.react(REACTION_DONE).await;
-            self.persist().await?;
+            self.react(message_id, REACTION_DONE).await;
+            self.persist_message(message_id).await?;
             return Ok(());
         }
         self.client.send_chat_action(self.chat_id, "typing").await?;
@@ -202,7 +241,7 @@ impl Conversation {
             Ok(ingested) => ingested,
             Err(error) => {
                 tracing::warn!(%error, "failed to ingest Telegram attachment");
-                self.react(REACTION_FAILED).await;
+                self.react(message_id, REACTION_FAILED).await;
                 self.client
                     .send_message(
                         self.chat_id,
@@ -211,7 +250,7 @@ impl Conversation {
                         None,
                     )
                     .await?;
-                self.persist().await?;
+                self.persist_message(message_id).await?;
                 return Ok(());
             }
         };
@@ -240,7 +279,7 @@ impl Conversation {
             .await
         {
             tracing::warn!(%error, "failed to start agent turn");
-            self.react(REACTION_FAILED).await;
+            self.react(message_id, REACTION_FAILED).await;
             self.client
                 .send_message(
                     self.chat_id,
@@ -249,19 +288,19 @@ impl Conversation {
                     None,
                 )
                 .await?;
-            self.persist().await?;
+            self.persist_message(message_id).await?;
             return Ok(());
         }
         let outcome = self.wait_for_outcome(run_id).await?;
         match outcome {
             TurnOutcome::Completed => {
-                self.react(REACTION_DONE).await;
+                self.react(message_id, REACTION_DONE).await;
                 if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
                     self.send_reply(&reply, Some(message_id)).await?;
                 }
             }
             TurnOutcome::Failed => {
-                self.react(REACTION_FAILED).await;
+                self.react(message_id, REACTION_FAILED).await;
                 self.client
                     .send_message(
                         self.chat_id,
@@ -272,7 +311,7 @@ impl Conversation {
                     .await?;
             }
             TurnOutcome::Interrupted => {
-                self.react(REACTION_TIMED_OUT).await;
+                self.react(message_id, REACTION_TIMED_OUT).await;
                 self.client
                     .send_message(
                         self.chat_id,
@@ -283,24 +322,28 @@ impl Conversation {
                     .await?;
             }
         }
-        self.persist().await
+        self.persist_message(message_id).await
     }
 
     pub async fn handle_due_tasks(&mut self) -> Result<()> {
         let now = Utc::now().timestamp();
         let due = self.scheduler_plugin.take_due(now).await?;
         for task in due {
-            if let Err(error) = self.run_scheduled_task(&task).await {
-                tracing::warn!(%error, task_id = %task.id, "scheduled task turn failed");
-            }
-            if let Err(error) = self.scheduler_plugin.reschedule(&task).await {
+            let succeeded = match self.run_scheduled_task(&task).await {
+                Ok(succeeded) => succeeded,
+                Err(error) => {
+                    tracing::warn!(%error, task_id = %task.id, "scheduled task turn failed");
+                    false
+                }
+            };
+            if let Err(error) = self.scheduler_plugin.finish(&task, succeeded, now).await {
                 tracing::warn!(%error, task_id = %task.id, "scheduled task reschedule failed");
             }
         }
         Ok(())
     }
 
-    async fn run_scheduled_task(&mut self, task: &ScheduledTask) -> Result<()> {
+    async fn run_scheduled_task(&mut self, task: &ScheduledTask) -> Result<bool> {
         let run_id = Uuid::now_v7();
         let memory = self.runtime.list_memory(self.agent_id).await?;
         let input = json!({
@@ -342,13 +385,18 @@ impl Conversation {
                 task.reply_to_message_id,
             )
             .await?;
-            return Ok(());
+            return Ok(false);
         }
         let outcome = match self.wait_for_outcome(run_id).await {
             Ok(outcome) => outcome,
             Err(error) => {
                 tracing::warn!(%error, task_id = %task.id, "scheduled task outcome failed");
-                return Ok(());
+                self.send_notice(
+                    "A scheduled task could not be completed; it will be retried next time.",
+                    task.reply_to_message_id,
+                )
+                .await?;
+                return Ok(false);
             }
         };
         match outcome {
@@ -356,6 +404,7 @@ impl Conversation {
                 if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
                     self.send_reply(&reply, task.reply_to_message_id).await?;
                 }
+                Ok(true)
             }
             TurnOutcome::Failed => {
                 self.send_notice(
@@ -363,6 +412,7 @@ impl Conversation {
                     task.reply_to_message_id,
                 )
                 .await?;
+                Ok(false)
             }
             TurnOutcome::Interrupted => {
                 self.send_notice(
@@ -370,9 +420,9 @@ impl Conversation {
                     task.reply_to_message_id,
                 )
                 .await?;
+                Ok(false)
             }
         }
-        Ok(())
     }
 
     fn local_now(&self) -> DateTime<Tz> {
@@ -385,10 +435,10 @@ impl Conversation {
             .await
     }
 
-    async fn react(&self, emoji: &str) {
+    async fn react(&self, message_id: i64, emoji: &str) {
         if let Err(error) = self
             .client
-            .set_message_reaction(self.chat_id, self.last_message_id, emoji)
+            .set_message_reaction(self.chat_id, message_id, emoji)
             .await
         {
             tracing::warn!(%error, "failed to set Telegram reaction");
@@ -637,16 +687,20 @@ impl Conversation {
             .await
     }
 
-    async fn persist(&self) -> Result<()> {
-        let mut state = ConversationState::load(&self.state_path).await?;
-        state.conversations.insert(
+    async fn persist_message(&mut self, message_id: i64) -> Result<()> {
+        ConversationState::upsert(
+            &self.state_path,
             self.chat_id.to_string(),
             ConversationEntry {
                 locator: self.locator.clone(),
-                last_message_id: self.last_message_id,
+                last_message_id: message_id,
             },
-        );
-        state.save(&self.state_path).await
+        )
+        .await?;
+        // Advance the in-memory watermark only after the durable entry has
+        // been written. A failed write leaves the update retryable.
+        self.last_message_id = message_id;
+        Ok(())
     }
 }
 

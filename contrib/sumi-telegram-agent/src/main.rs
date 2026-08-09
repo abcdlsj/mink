@@ -9,10 +9,14 @@ mod telegram;
 mod text;
 mod types;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::{
     config::Settings,
@@ -22,6 +26,7 @@ use crate::{
 use teloxide::types::UpdateKind;
 
 type ConversationRegistry = Arc<Mutex<HashMap<i64, mpsc::UnboundedSender<Job>>>>;
+type UpdateReceipt = oneshot::Receiver<anyhow::Result<()>>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -54,43 +59,69 @@ async fn main() -> anyhow::Result<()> {
                 break;
             }
         };
-        let mut tasks = Vec::new();
+        let mut receipts = Vec::new();
+        let mut dispatch_failed = false;
+        let mut blocked_chats = HashSet::new();
         let mut next_offset = offset;
         for update in updates {
-            next_offset = Some(update.id.0 as i64 + 1);
+            let update_id = update.id.0 as i64;
+            next_offset = Some(update_id + 1);
             let UpdateKind::Message(message) = update.kind else {
                 continue;
             };
-            if message.text().is_none()
-                && message.photo().is_none()
-                && message.document().is_none()
+            if message.text().is_none() && message.photo().is_none() && message.document().is_none()
             {
                 continue;
             }
             let chat_id = message.chat.id.0;
-            let client = client.clone();
-            let settings = settings.clone();
-            let conversations = conversations.clone();
+            if blocked_chats.contains(&chat_id) {
+                dispatch_failed = true;
+                continue;
+            }
             let state_path = settings.agent_home.join("conversations.json");
-            tasks.push(tokio::spawn(async move {
-                let result = handle_update(
-                    &settings,
-                    &client,
-                    &conversations,
-                    &state_path,
-                    chat_id,
-                    message,
-                )
-                .await;
-                if let Err(error) = result {
-                    tracing::error!(%chat_id, %error, "failed to handle Telegram message");
+            match handle_update(
+                &settings,
+                &client,
+                &conversations,
+                &state_path,
+                chat_id,
+                message,
+            )
+            .await
+            {
+                Ok(receipt) => receipts.push((update_id, receipt)),
+                Err(error) => {
+                    dispatch_failed = true;
+                    blocked_chats.insert(chat_id);
+                    tracing::error!(%chat_id, %error, "failed to enqueue Telegram message");
                 }
-            }));
+            }
         }
-        for task in tasks {
-            task.await?;
+        let mut batch_succeeded = !dispatch_failed;
+        for (update_id, receipt) in receipts {
+            match receipt.await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    batch_succeeded = false;
+                    tracing::error!(%update_id, %error, "Telegram message was not durably handled");
+                }
+                Err(_) => {
+                    batch_succeeded = false;
+                    tracing::error!(%update_id, "Telegram conversation worker stopped before completion");
+                }
+            }
         }
-        offset = next_offset;
+        if batch_succeeded {
+            // Telegram confirms all updates below this offset only when the
+            // next getUpdates request is made. Every receipt above represents
+            // a worker completion after its conversation state was persisted.
+            offset = next_offset;
+        } else {
+            // Keep the previous offset so Telegram redelivers any update whose
+            // worker did not complete. Persisted message watermarks make
+            // already completed updates idempotent on the retry.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
     }
     Ok(())
 }
@@ -102,7 +133,7 @@ async fn handle_update(
     state_path: &std::path::Path,
     chat_id: i64,
     message: types::Message,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<UpdateReceipt> {
     let mut registry = conversations.lock().await;
     let sender = match registry.entry(chat_id) {
         std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
@@ -116,10 +147,18 @@ async fn handle_update(
         }
     };
     drop(registry);
-    sender
-        .send(Job::Message(message))
-        .map_err(|_| anyhow::anyhow!("conversation worker stopped"))?;
-    Ok(())
+    let (completion, receipt) = oneshot::channel();
+    if sender
+        .send(Job::Message {
+            message,
+            completion,
+        })
+        .is_err()
+    {
+        conversations.lock().await.remove(&chat_id);
+        return Err(anyhow::anyhow!("conversation worker stopped"));
+    }
+    Ok(receipt)
 }
 
 fn init_tracing() {
