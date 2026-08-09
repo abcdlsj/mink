@@ -12,6 +12,7 @@ import { ToBottomButton } from "./ToBottomButton";
 
 export function MessageTimeline({
   timelineRef,
+  scrollApiRef,
   header,
   page,
   pending,
@@ -27,6 +28,7 @@ export function MessageTimeline({
   onOpenAgentDm,
 }: {
   timelineRef: RefObject<HTMLDivElement | null>;
+  scrollApiRef?: RefObject<MessageTimelineScrollApi | null>;
   header?: ReactNode;
   page?: MessagePage;
   pending: boolean;
@@ -44,7 +46,23 @@ export function MessageTimeline({
   const [newMessageAnnouncement, setNewMessageAnnouncement] = useState("");
   const announcedMessageRef = useRef<string | null>(null);
   const latestMessageId = page?.messages.at(-1)?.id;
-  const { showToBottom, scrollToBottom } = useLatestMessageScroll(timelineRef, latestMessageId);
+  const messageIds = page?.messages.map((message) => message.id);
+  const { showToBottom, newMessageCount, scrollToBottom, markLatestSeen } = useLatestMessageScroll(
+    timelineRef,
+    latestMessageId,
+    {
+      memoryKey: channelId,
+      messageIds,
+    },
+  );
+
+  useEffect(() => {
+    if (!scrollApiRef) return;
+    scrollApiRef.current = { scrollToBottom, markLatestSeen };
+    return () => {
+      scrollApiRef.current = null;
+    };
+  }, [markLatestSeen, scrollApiRef, scrollToBottom]);
 
   // The timeline itself must not be a live region: a polite region on the
   // whole list makes screen readers re-read every message on each update.
@@ -168,11 +186,16 @@ export function MessageTimeline({
           );
         })}
       </div>
-      {showToBottom ? (
-        <ToBottomButton onClick={scrollToBottom} />
+      {showToBottom || newMessageCount > 0 ? (
+        <ToBottomButton onClick={scrollToBottom} newMessageCount={newMessageCount} />
       ) : null}
     </div>
   );
+}
+
+export interface MessageTimelineScrollApi {
+  scrollToBottom: () => void;
+  markLatestSeen: () => void;
 }
 
 function SystemNoticeGroup({

@@ -20,7 +20,7 @@ import {
 } from "../api/client";
 import { DialogFrame } from "../components/DialogFrame";
 import { MessageComposer, type ComposerInput } from "../components/channel/MessageComposer";
-import { MessageTimeline } from "../components/channel/MessageTimeline";
+import { MessageTimeline, type MessageTimelineScrollApi } from "../components/channel/MessageTimeline";
 import { ThreadPane } from "../components/channel/ThreadPane";
 import { PixelIdentity, PresenceIdentity, SpaceShell } from "../components/SpaceShell";
 
@@ -91,6 +91,7 @@ export function MessageWorkspace({
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const workspace = useRef<HTMLElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
+  const timelineScrollApi = useRef<MessageTimelineScrollApi | null>(null);
   const channelScrollPosition = useRef(0);
   const threadTrigger = useRef<HTMLButtonElement | null>(null);
   const threadResizeStart = useRef<{ pointerId: number; x: number; width: number } | undefined>(undefined);
@@ -178,9 +179,7 @@ export function MessageWorkspace({
   const showLatestChannelMessages = useCallback(() => {
     document.getElementById("channel-heading")?.focus();
     setThreadId(undefined);
-    window.requestAnimationFrame(() => {
-      if (timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight;
-    });
+    window.requestAnimationFrame(() => timelineScrollApi.current?.scrollToBottom());
   }, []);
   const messages = useQuery({
     queryKey: ["messages", channel.id],
@@ -237,14 +236,7 @@ export function MessageWorkspace({
       has_more_before: current?.has_more_before ?? false,
       has_more_after: false,
     }));
-    window.requestAnimationFrame(() => {
-      const target = document.getElementById(`message-${message.id}`);
-      if (target && typeof target.scrollIntoView === "function") {
-        target.scrollIntoView({ block: "end" });
-      } else if (timeline.current) {
-        timeline.current.scrollTop = timeline.current.scrollHeight;
-      }
-    });
+    window.requestAnimationFrame(() => timelineScrollApi.current?.scrollToBottom());
   }
 
   const addAgents = useMutation({
@@ -295,6 +287,7 @@ export function MessageWorkspace({
       </header>
       <MessageTimeline
         timelineRef={timeline}
+        scrollApiRef={timelineScrollApi}
         header={setup && spaceSlug ? (
           <SetupStrip
             spaceSlug={spaceSlug}

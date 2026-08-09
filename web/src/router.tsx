@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 
 import { RouteChrome } from "./RouteChrome";
+import { loadLastConversationRoute } from "./conversationMemory";
 import { ChannelPage } from "./screens/ChannelPage";
 import { CompanyOfficePage } from "./screens/CompanyPage";
 import { AgentGraphRouteContent, InsightsPage } from "./screens/InsightsPage";
@@ -51,9 +52,17 @@ const spaceEntryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug",
   beforeLoad: ({ params }) => {
+    const saved = loadLastConversationRoute(params.spaceSlug);
+    if (saved?.kind === "dm") {
+      throw redirect({
+        to: "/s/$spaceSlug/dm/$memberId",
+        params: { spaceSlug: params.spaceSlug, memberId: saved.memberId },
+      });
+    }
+    const channelSlug = saved && saved.kind === "channel" ? saved.channelSlug : "general";
     throw redirect({
       to: "/s/$spaceSlug/channels/$channelSlug",
-      params: { spaceSlug: params.spaceSlug, channelSlug: "general" },
+      params: { spaceSlug: params.spaceSlug, channelSlug },
     });
   },
 });

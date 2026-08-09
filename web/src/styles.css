@@ -3888,6 +3888,18 @@ pre {
   transition: background-color 100ms linear, box-shadow 100ms linear, transform 100ms ease-out;
 }
 .to-bottom-button svg { width: 14px; height: 14px; }
+.to-bottom-badge {
+  display: inline-grid;
+  min-width: 20px;
+  height: 18px;
+  place-items: center;
+  padding: 0 5px;
+  border: 1px solid var(--ink);
+  background: var(--accent);
+  color: var(--paper);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
 .to-bottom-button:hover:not(:disabled) { background: var(--accent-soft); box-shadow: 3px 3px 0 var(--ink); transform: translateY(-1px); }
 .to-bottom-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .member-strip { gap: 3px; }

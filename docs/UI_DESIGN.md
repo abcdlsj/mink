@@ -26,12 +26,12 @@
 - Message 内容占满 Channel 可用宽度，不受行长限制。
 - 1100px 及以上保持四栏；700 至 1099px Navigation 变抽屉、Thread 覆盖 Channel；低于 700px 使用单列，Thread 和 Task 详情为全屏路由。
 - Header 高 62px；Composer 最小 88px，增长到 240px 后内部滚动。Composer 使用悬浮卡片（1px line-strong 边框、圆角 12px、柔和阴影），不画 2px 外框。
-- 返回 Channel 时恢复滚动位置和打开的 Thread；Composer 未发送正文按对话保存在浏览器本地，发送成功后清除。
+- 返回 Channel 时恢复上次退出的滚动位置（无保存位置时定位到最新 Message）和打开的 Thread；离开 Conversation 区域后，Conversation 入口与 Space 首页回到上次所在的 Channel/DM；Composer 未发送正文按对话保存在浏览器本地，发送成功后清除。
 - Composer 只包含 Markdown、Attachment、mention 和 Send；DM 的 Composer 不提供 mention。
 
 ## 对话与 Task
 
-- Channel 与 Thread 收到新消息时，距底部不超过 3/4 可视屏高则自动定位到最新 Message；超过 3/4 屏时不自动定位，显示 `To bottom`，点击后回到最新 Message；发送成功后同样定位到新 Message。
+- Channel 与 Thread 收到新消息时，距底部不超过 3/4 可视屏高则自动定位到最新 Message；超过 3/4 屏时不自动定位，显示 `To bottom`，点击后回到最新 Message；发送成功后同样定位到新 Message。Channel 在恢复的旧位置或离开期间产生的新消息，以数量展示在 `To bottom` 按钮上，点击回到最新 Message 后清除。
 - 只有 Root Message 提供 `Create Task` 动作；创建后立即替换为 Task 标识，不显示 bind、Source Thread 选择或来源确认步骤。
 - Thread reply 不显示创建动作；reply 上的 Task 动作保持禁用并说明只能从 Root Message 创建。
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板：极淡、单 icon（Reply to thread 与 Task 动作），无边框无背景，贴齐 Message 行右上角；hover 消息才出现。

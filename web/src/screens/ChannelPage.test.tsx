@@ -8,6 +8,7 @@ import { createAppRouter } from "../router";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
 describe("ChannelPage", () => {
@@ -113,6 +114,51 @@ describe("ChannelPage", () => {
         }),
       );
     });
+  });
+
+  it("returns to the last channel when reopening Conversation", async () => {
+    window.localStorage.setItem(
+      "sumi.lastConversation.sumi-lab",
+      JSON.stringify({ kind: "channel", channelSlug: "design" }),
+    );
+    const spaceId = "019c0000-0000-7000-8000-000000000001";
+    const ownerId = "019c0000-0000-7000-8000-000000000002";
+    const generalId = "019c0000-0000-7000-8000-000000000003";
+    const designId = "019c0000-0000-7000-8000-000000000004";
+    const owner = { id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) {
+        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#F0602F", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: generalId });
+      }
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) {
+        return json({
+          can_create: true,
+          channels: [
+            { id: generalId, space_id: spaceId, kind: "public", slug: "general", created_by_member_id: ownerId, joined: true },
+            { id: designId, space_id: spaceId, kind: "private", slug: "design", topic: "Decisions", created_by_member_id: ownerId, joined: true },
+          ],
+        });
+      }
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/agents") && !init?.method) return json([]);
+      if (path.endsWith(`/channels/${designId}/members`) && !init?.method) return json({ members: [owner], can_manage: true });
+      if (path.endsWith(`/channels/${designId}/messages`) && !init?.method) {
+        return json({ channel_id: designId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      }
+      if (path.endsWith("/members") && !init?.method) return json([owner]);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab");
+
+    expect(await screen.findByRole("heading", { name: "#design starts here." })).toBeVisible();
+    const rail = screen.getByRole("complementary", { name: "Space tools" });
+    expect(within(rail).getByRole("link", { name: "Conversation" })).toHaveAttribute(
+      "href",
+      "/s/sumi-lab/channels/design",
+    );
   });
 
   it("creates and opens a DM from conversation navigation", async () => {

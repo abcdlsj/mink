@@ -10,7 +10,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message, MessagePage } from "../../api/client";
 import { ExpandableMessageText, MessageTimeline } from "./MessageTimeline";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
+});
 
 describe("System Notice timeline", () => {
   it("renders one notice as body copy without a separator", () => {
@@ -343,9 +347,154 @@ describe("timeline position", () => {
     );
 
     expect(timeline.scrollTop).toBe(50);
-    expect(screen.getByRole("button", { name: "Go to latest message" })).toBeVisible();
+    const button = screen.getByRole("button", { name: /1 new message/ });
+    expect(button).toHaveTextContent("To bottom");
+    expect(button).toHaveTextContent("1");
+  });
+
+  it("restores the saved position and shows messages after it on To bottom", () => {
+    mockScrollMetrics(500, 100);
+    window.localStorage.setItem(
+      "sumi.channelScroll.channel-1",
+      JSON.stringify({ scrollTop: 120, latestMessageId: "human-message-1" }),
+    );
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2), humanMessage(3)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    expect(timeline.scrollTop).toBe(120);
+    const button = screen.getByRole("button", { name: /2 new messages/ });
+    expect(button).toHaveTextContent("To bottom");
+    expect(button).toHaveTextContent("2");
+
+    fireEvent.click(button);
+
+    expect(timeline.scrollTop).toBe(500);
+    expect(screen.queryByRole("button", { name: /new messages/ })).not.toBeInTheDocument();
+  });
+
+  it("does not overwrite saved memory while the first page is loading", () => {
+    mockScrollMetrics(500, 100);
+    window.localStorage.setItem(
+      "sumi.channelScroll.channel-1",
+      JSON.stringify({ scrollTop: 120, latestMessageId: "human-message-1" }),
+    );
+    const timelineRef = createRef<HTMLDivElement>();
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          pending
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2), humanMessage(3)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(timelineRef.current!.scrollTop).toBe(120);
+    expect(screen.getByRole("button", { name: /2 new messages/ })).toBeVisible();
+  });
+
+  it("lands on the latest message when no saved position exists", () => {
+    mockScrollMetrics(500, 100);
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(timelineRef.current!.scrollTop).toBe(500);
+    expect(screen.queryByRole("button", { name: /new messages/ })).not.toBeInTheDocument();
+  });
+
+  it("persists the scroll position while reading older messages", () => {
+    mockScrollMetrics(500, 100);
+    const timelineRef = createRef<HTMLDivElement>();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MessageTimeline
+          timelineRef={timelineRef}
+          page={pageWith([humanMessage(1), humanMessage(2)])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const timeline = timelineRef.current!;
+    timeline.scrollTop = 150;
+    fireEvent.scroll(timeline);
+
+    const saved = JSON.parse(window.localStorage.getItem("sumi.channelScroll.channel-1")!);
+    expect(saved.scrollTop).toBe(150);
+    expect(saved.latestMessageId).toBe("human-message-2");
   });
 });
+
+function mockScrollMetrics(scrollHeight: number, clientHeight: number) {
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(scrollHeight);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(clientHeight);
+}
 
 function renderSystemNotices(messages: Message[]) {
   const page = pageWith(messages);

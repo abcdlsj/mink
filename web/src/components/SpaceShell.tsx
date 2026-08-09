@@ -50,6 +50,7 @@ import {
   useFeatureEnabled,
 } from "../featureRegistry";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
+import { loadLastConversationRoute, saveLastConversationRoute } from "../conversationMemory";
 import { DialogFrame } from "./DialogFrame";
 import { InsightsNavigation } from "./InsightsNavigation";
 import { PixelIdentity } from "./PixelIdentity";
@@ -237,6 +238,18 @@ export function SpaceShell({
     return () => document.removeEventListener("keydown", handleKey);
   }, [navigationOpen, navigationTrigger]);
 
+  useEffect(() => {
+    const channelMatch = location.pathname.match(/\/channels\/([^/]+)$/);
+    if (channelMatch) {
+      saveLastConversationRoute(spaceSlug, { kind: "channel", channelSlug: channelMatch[1] });
+      return;
+    }
+    const dmMatch = location.pathname.match(/\/dm\/([^/]+)$/);
+    if (dmMatch) {
+      saveLastConversationRoute(spaceSlug, { kind: "dm", memberId: dmMatch[1] });
+    }
+  }, [location.pathname, spaceSlug]);
+
   // SPA navigation does not move focus on its own. After a route change,
   // focus the new view's h1 so keyboard users land at the content start.
   useEffect(() => {
@@ -287,6 +300,31 @@ export function SpaceShell({
   const roleByMemberId = new Map(
     (agents.data ?? []).map((agent) => [agent.member_id, agent.role_text] as const),
   );
+  const activeChannelSlug = location.pathname.match(/\/channels\/([^/]+)$/)?.[1];
+  const activeDmMemberId = location.pathname.match(/\/dm\/([^/]+)$/)?.[1];
+  const savedConversationRoute = loadLastConversationRoute(space.data.slug);
+  const currentOrSavedConversationRoute = activeChannelSlug
+    ? { kind: "channel" as const, channelSlug: activeChannelSlug }
+    : activeDmMemberId
+      ? { kind: "dm" as const, memberId: activeDmMemberId }
+      : savedConversationRoute;
+  const savedChannelSlug =
+    currentOrSavedConversationRoute?.kind === "channel" &&
+    channels.data.channels.some(
+      (candidate) => candidate.joined && candidate.slug === currentOrSavedConversationRoute.channelSlug,
+    )
+      ? currentOrSavedConversationRoute.channelSlug
+      : "general";
+  const savedDmMemberId =
+    currentOrSavedConversationRoute?.kind === "dm" &&
+    (directMessages.data ?? []).some(
+      (candidate) => candidate.other_member.id === currentOrSavedConversationRoute.memberId,
+    )
+      ? currentOrSavedConversationRoute.memberId
+      : undefined;
+  const conversationHref = savedDmMemberId
+    ? `/s/${space.data.slug}/dm/${savedDmMemberId}`
+    : `/s/${space.data.slug}/channels/${savedChannelSlug}`;
 
   return (
     <>
@@ -317,7 +355,7 @@ export function SpaceShell({
             icon={MessageCircle}
             label="Conversation"
             active={active === "channel" || active === "dm"}
-            href={`/s/${space.data.slug}/channels/general`}
+            href={conversationHref}
           />
           {companyOfficeEnabled ? (
             <RailItem
@@ -418,7 +456,7 @@ export function SpaceShell({
               icon={MessageCircle}
               label="Conversation"
               active={active === "channel" || active === "dm"}
-              href={`/s/${space.data.slug}/channels/general`}
+              href={conversationHref}
             />
             {companyOfficeEnabled ? (
               <NavigationItem
