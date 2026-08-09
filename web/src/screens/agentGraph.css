@@ -125,6 +125,11 @@
   stroke-width: 3px;
 }
 
+.graph-node--neighbor .graph-node-avatar {
+  stroke: var(--indigo);
+  stroke-width: 2px;
+}
+
 .graph-node--dimmed {
   opacity: 0.3;
 }

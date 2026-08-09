@@ -49,6 +49,7 @@ interface OfficeLayout {
 
 function buildOfficeLayout(count: number): OfficeLayout {
   const tier = count <= 0 ? 0 : count <= 3 ? 1 : count <= 6 ? 2 : count <= 9 ? 3 : 4;
+  const extended = count > 12;
   const sizes = [
     { width: 320, height: 180 },
     { width: 480, height: 270 },
@@ -56,7 +57,12 @@ function buildOfficeLayout(count: number): OfficeLayout {
     { width: 800, height: 450 },
     { width: 960, height: 540 },
   ];
-  const { width, height } = sizes[tier];
+  // Preserve the documented 10–12 Agent canvas, then grow the room vertically
+  // in four-column rows so every additional Agent receives its own station.
+  const width = sizes[tier].width;
+  const height = extended
+    ? Math.max(sizes[tier].height, 160 + Math.ceil(count / 4) * 120)
+    : sizes[tier].height;
   const wallTiles = Array.from({ length: Math.ceil(width / 64) }, (_, index) => ({
     x: Math.min(index * 64, width - 64),
   }));
@@ -91,7 +97,7 @@ function buildOfficeLayout(count: number): OfficeLayout {
       }
     }
   } else if (tier === 4) {
-    const rows = 3;
+    const rows = extended ? Math.ceil(count / 4) : 3;
     const cols = 4;
     const spacingX = 112;
     const startX = (width - (cols - 1) * spacingX) / 2;
@@ -393,6 +399,18 @@ export function CompanyOfficeView({
   });
 
   useEffect(() => {
+    if (reduced) {
+      const activeIds = new Set(activeAgents.map((agent) => agent.member_id));
+      setWanderByMember((current) => (current.size ? new Map() : current));
+      setSettled((current) => {
+        if (current && current.size === activeIds.size && [...activeIds].every((id) => current.has(id))) {
+          return current;
+        }
+        return activeIds;
+      });
+      return;
+    }
+
     const timer = window.setInterval(() => {
       const now = Date.now();
       const expiredVisitors = [...dmVisits.values()]
@@ -483,7 +501,7 @@ export function CompanyOfficeView({
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [activeAgents, dmVisits, hotGroups, layout, settled, wanderByMember]);
+  }, [activeAgents, dmVisits, hotGroups, layout, reduced, settled, wanderByMember]);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -504,7 +522,7 @@ export function CompanyOfficeView({
       new Map(
         activeAgents.map((agent, index) => [
           agent.member_id,
-          layout.desks[index % layout.desks.length],
+          layout.desks[index],
         ]),
       ),
     [activeAgents, layout.desks],
@@ -582,7 +600,7 @@ export function CompanyOfficeView({
               const status = agent.activity_status;
               const working = status === "working";
               const talk = Boolean(visit || hosting);
-              const wander = wanderByMember.get(agent.member_id);
+              const wander = reduced ? undefined : wanderByMember.get(agent.member_id);
               const target = visit
                 ? visitHostTarget(visit.hostId, deskByMember, layout.visitorSpot)
                 : group

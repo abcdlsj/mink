@@ -71,6 +71,42 @@ describe("ThreadPane latest message scroll", () => {
     expect(scroll.scrollTop).toBe(400);
     expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
   });
+
+  it("always reveals a reply sent by the current user, even from an older scroll position", async () => {
+    const threadId = "thread-1";
+    let threadData: ThreadRead = threadRead(threadId, []);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith(`/api/v1/threads/${threadId}`)) return json(threadData);
+      if (path.endsWith(`/api/v1/threads/${threadId}/messages`) && init?.method === "POST") {
+        const reply = replyMessage("reply-sent", "Reply sent by me");
+        threadData = threadRead(threadId, [reply]);
+        return json(reply, 201);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    const { container } = renderThread(queryClient, threadId);
+    await screen.findByText("Root message");
+    const scroll = container.querySelector(".thread-messages") as HTMLElement;
+    Object.defineProperty(scroll, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 300 });
+    scroll.scrollTop = 40;
+    fireEvent.scroll(scroll);
+    Object.defineProperty(scroll, "scrollHeight", { configurable: true, value: 400 });
+
+    const input = screen.getByLabelText("Thread reply");
+    fireEvent.change(input, { target: { value: "Reply sent by me" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await screen.findByText("Reply sent by me");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(scroll.scrollTop).toBe(400);
+    expect(screen.queryByRole("button", { name: "Go to latest message" })).not.toBeInTheDocument();
+  });
 });
 
 function renderThread(queryClient: QueryClient, threadId: string) {

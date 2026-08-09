@@ -4303,6 +4303,9 @@ pre {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .office-agent {
+    transition: none !important;
+  }
   .pixel-agent--sit,
   .pixel-agent--stand,
   .pixel-agent--walk,

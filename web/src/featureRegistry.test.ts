@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AGENT_INSIGHTS_FEATURE_ID,
@@ -7,11 +9,28 @@ import {
   featureEnabled,
   registeredFeature,
   setFeatureEnabled,
+  useFeatureStates,
 } from "./featureRegistry";
 
 beforeEach(() => {
   window.localStorage.clear();
 });
+
+afterEach(() => {
+  cleanup();
+});
+
+function FeatureStateProbe() {
+  const states = useFeatureStates();
+  return createElement(
+    "button",
+    {
+      type: "button",
+      onClick: () => setFeatureEnabled(AGENT_INSIGHTS_FEATURE_ID, true),
+    },
+    states.get(AGENT_INSIGHTS_FEATURE_ID) ? "On" : "Off",
+  );
+}
 
 describe("feature registry", () => {
   it("registers the Agent graph as an experimental feature", () => {
@@ -42,5 +61,14 @@ describe("feature registry", () => {
     expect(featureEnabled("missing")).toBe(false);
     setFeatureEnabled("missing", true);
     expect(window.localStorage.getItem("sumi.feature.missing")).toBeNull();
+  });
+
+  it("publishes a new immutable snapshot so settings state updates immediately", () => {
+    render(createElement(FeatureStateProbe));
+    expect(screen.getByRole("button")).toHaveTextContent("Off");
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(screen.getByRole("button")).toHaveTextContent("On");
   });
 });

@@ -99,6 +99,11 @@ export function ThreadPane({
     queryClient.setQueryData<ThreadRead>(["thread", threadId], (current) =>
       current ? { ...current, snapshot_channel_seq: message.seq, replies: [...current.replies, message] } : current,
     );
+    // A reply sent from this composer is an explicit navigation action. It
+    // must reveal the new reply even when the reader was browsing older ones;
+    // the scroll hook still applies the 3/4-screen rule to external updates.
+    scrollToBottom();
+    window.requestAnimationFrame(() => scrollToBottom());
     void queryClient.invalidateQueries({ queryKey: ["messages", channelId] });
   }
 

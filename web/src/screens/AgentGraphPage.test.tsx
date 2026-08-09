@@ -48,6 +48,18 @@ const edge: AgentGraphEdge = {
     },
   ],
 };
+const edgeBToC: AgentGraphEdge = {
+  ...edge,
+  member_a_id: agentB.member_id,
+  member_b_id: "019c0000-0000-7000-8000-000000000012",
+  total_interactions: 2,
+  recent_messages: [],
+};
+const agentC: AgentGraphNode = {
+  member_id: edgeBToC.member_b_id,
+  display_name: "Planner_Three",
+  role_text: "Planner",
+};
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -102,6 +114,71 @@ describe("AgentGraphWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Coder_One" })).toBeVisible();
     const details = screen.getByRole("complementary", { name: "Agent graph details" });
     expect(within(details).getByRole("button", { name: /Reviewer_Two/ })).toHaveTextContent("4");
+  });
+
+  it("dims only non-neighbors and keeps selected edge endpoints distinct", async () => {
+    renderWorkspace({ nodes: [agentA, agentB, agentC], edges: [edge, edgeBToC] });
+
+    const selected = await screen.findByRole("button", { name: "Coder_One, Coder" });
+    fireEvent.click(selected);
+
+    expect(selected).toHaveClass("graph-node--active");
+    expect(screen.getByRole("button", { name: "Reviewer_Two, Reviewer" })).toHaveClass(
+      "graph-node--neighbor",
+    );
+    expect(screen.getByRole("button", { name: "Planner_Three, Planner" })).toHaveClass(
+      "graph-node--dimmed",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "4 interactions between Coder_One and Reviewer_Two",
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Coder_One, Coder" })).toHaveClass(
+      "graph-node--active",
+    );
+    expect(screen.getByRole("button", { name: "Reviewer_Two, Reviewer" })).toHaveClass(
+      "graph-node--active",
+    );
+    expect(screen.getByRole("button", { name: "Planner_Three, Planner" })).toHaveClass(
+      "graph-node--dimmed",
+    );
+  });
+
+  it("converts responsive client pixels for pan and wheel anchor", async () => {
+    renderWorkspace({ nodes: [agentA, agentB], edges: [edge] });
+    const svg = await screen.findByRole("application", { name: /Agent coordination graph/ });
+    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
+      x: 100,
+      y: 50,
+      left: 100,
+      top: 50,
+      right: 550,
+      bottom: 330,
+      width: 450,
+      height: 280,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(svg, { pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(svg, { pointerId: 1, clientX: 145, clientY: 78 });
+    fireEvent.pointerUp(svg, { pointerId: 1, clientX: 145, clientY: 78 });
+    expect(svg.querySelector(":scope > g")?.getAttribute("transform")).toBe("translate(90 56) scale(1)");
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    fireEvent.pointerDown(svg, { pointerId: 2, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(svg, { pointerId: 2, clientX: 145, clientY: 78 });
+    fireEvent.pointerUp(svg, { pointerId: 2, clientX: 145, clientY: 78 });
+    expect(svg.querySelector(":scope > g")?.getAttribute("transform")).toBe("translate(180 112) scale(1.25)");
+
+    fireEvent.wheel(svg, { clientX: 325, clientY: 190, deltaY: -100 });
+    const transform = svg.querySelector(":scope > g")?.getAttribute("transform") ?? "";
+    const match = transform.match(/^translate\(([-0-9.]+) ([-0-9.]+)\) scale\(([-0-9.]+)\)$/);
+    expect(match).not.toBeNull();
+    expect(Number(match?.[1])).toBeCloseTo(147.6);
+    expect(Number(match?.[2])).toBeCloseTo(91.84);
+    expect(Number(match?.[3])).toBeCloseTo(1.4);
   });
 
   it("selecting an edge shows the communication chain", async () => {

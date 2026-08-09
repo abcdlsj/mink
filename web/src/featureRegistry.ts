@@ -58,7 +58,12 @@ export function setFeatureEnabled(id: string, enabled: boolean): void {
   const feature = registeredFeature(id);
   if (!feature) return;
   window.localStorage?.setItem(feature.storageKey, enabled ? "1" : "0");
-  stateCache?.set(id, enabled);
+  // useSyncExternalStore compares snapshots by identity. Replace the map so
+  // subscribers observe each persisted state transition immediately.
+  if (stateCache) {
+    stateCache = new Map(stateCache);
+    stateCache.set(id, enabled);
+  }
   for (const listener of featureListeners) listener();
 }
 

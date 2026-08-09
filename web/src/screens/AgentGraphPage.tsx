@@ -24,10 +24,62 @@ const VIEW_WIDTH = 900;
 const VIEW_HEIGHT = 560;
 const LAYOUT_ITERATIONS = 220;
 
+function clientToViewBoxPoint(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+): GraphPointer {
+  // Browsers expose the exact viewBox transform through getScreenCTM. Keep a
+  // rect-based fallback for test DOMs and older SVG implementations.
+  try {
+    const ctm = svg.getScreenCTM?.();
+    if (ctm && svg.createSVGPoint) {
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const local = point.matrixTransform(ctm.inverse());
+      return { x: local.x, y: local.y };
+    }
+  } catch {
+    // Fall through to the viewBox dimensions below.
+  }
+
+  const rect = svg.getBoundingClientRect();
+  const width = rect.width || VIEW_WIDTH;
+  const height = rect.height || VIEW_HEIGHT;
+  const scale = Math.min(width / VIEW_WIDTH, height / VIEW_HEIGHT);
+  const renderedWidth = VIEW_WIDTH * scale;
+  const renderedHeight = VIEW_HEIGHT * scale;
+  const offsetX = (width - renderedWidth) / 2;
+  const offsetY = (height - renderedHeight) / 2;
+  return {
+    x: (clientX - rect.left - offsetX) / scale,
+    y: (clientY - rect.top - offsetY) / scale,
+  };
+}
+
+function capturePointer(svg: SVGSVGElement, pointerId: number): void {
+  if (typeof svg.setPointerCapture === "function") svg.setPointerCapture(pointerId);
+}
+
+function releasePointer(svg: SVGSVGElement, pointerId: number): void {
+  if (
+    typeof svg.releasePointerCapture === "function" &&
+    (!svg.hasPointerCapture || svg.hasPointerCapture(pointerId))
+  ) {
+    svg.releasePointerCapture(pointerId);
+  }
+}
+
 export interface GraphView {
   x: number;
   y: number;
   k: number;
+}
+
+interface GraphPointer {
+  x: number;
+  y: number;
 }
 
 /** The graph world is already centered on the 900x560 canvas; the default view must not offset it. */
@@ -81,6 +133,19 @@ export function AgentGraphWorkspace({
   const selectedEdge = selectedEdgeKey
     ? edges.find((edge) => edgeKey(edge) === selectedEdgeKey)
     : undefined;
+  const selectedNodeIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const ids = new Set([selectedNodeId]);
+    for (const edge of edges) {
+      if (edge.member_a_id === selectedNodeId) ids.add(edge.member_b_id);
+      if (edge.member_b_id === selectedNodeId) ids.add(edge.member_a_id);
+    }
+    return ids;
+  }, [edges, selectedNodeId]);
+  const selectedEdgeEndpointIds = useMemo(() => {
+    if (!selectedEdge) return new Set<string>();
+    return new Set([selectedEdge.member_a_id, selectedEdge.member_b_id]);
+  }, [selectedEdge]);
   const neighborEdges = useMemo(
     () =>
       selectedNode
@@ -92,40 +157,50 @@ export function AgentGraphWorkspace({
   );
 
   function handlePointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    const svg = event.currentTarget as SVGSVGElement;
     const target = event.target as Element;
     const nodeGroup = target.closest("[data-node-id]") as SVGGElement | null;
     if (nodeGroup?.dataset.nodeId) {
       const node = positions.get(nodeGroup.dataset.nodeId);
       if (!node) return;
+      const point = clientToViewBoxPoint(svg, event.clientX, event.clientY);
       event.preventDefault();
       dragging.current = {
         kind: "node",
         nodeId: node.member_id,
         pointerId: event.pointerId,
-        lastX: event.clientX,
-        lastY: event.clientY,
+        lastX: point.x,
+        lastY: point.y,
       };
-      (event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId);
+      capturePointer(svg, event.pointerId);
       return;
     }
+    const point = clientToViewBoxPoint(svg, event.clientX, event.clientY);
     dragging.current = {
       kind: "view",
       pointerId: event.pointerId,
-      lastX: event.clientX,
-      lastY: event.clientY,
+      lastX: point.x,
+      lastY: point.y,
     };
-    (event.currentTarget as SVGSVGElement).setPointerCapture(event.pointerId);
+    capturePointer(svg, event.pointerId);
   }
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     const drag = dragging.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const dx = event.clientX - drag.lastX;
-    const dy = event.clientY - drag.lastY;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
+    const point = clientToViewBoxPoint(event.currentTarget, event.clientX, event.clientY);
+    const dx = point.x - drag.lastX;
+    const dy = point.y - drag.lastY;
+    drag.lastX = point.x;
+    drag.lastY = point.y;
     if (drag.kind === "view") {
-      setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
+      setView((current) => ({
+        ...current,
+        // translate() is expressed in the SVG viewBox coordinate system and
+        // is not part of the scaled world coordinates.
+        x: current.x + dx,
+        y: current.y + dy,
+      }));
       return;
     }
     const node = drag.nodeId ? positions.get(drag.nodeId) : undefined;
@@ -144,25 +219,22 @@ export function AgentGraphWorkspace({
   function handlePointerUp(event: ReactPointerEvent<SVGSVGElement>) {
     if (dragging.current?.pointerId === event.pointerId) {
       dragging.current = undefined;
-      (event.currentTarget as SVGSVGElement).releasePointerCapture(event.pointerId);
+      releasePointer(event.currentTarget, event.pointerId);
     }
   }
 
   function handleWheel(event: React.WheelEvent<SVGSVGElement>) {
     event.preventDefault();
     const factor = event.deltaY < 0 ? 1.12 : 0.89;
-    const rect = container.current?.getBoundingClientRect();
-    if (!rect) return;
-    const cursorX = event.clientX - rect.left;
-    const cursorY = event.clientY - rect.top;
+    const cursor = clientToViewBoxPoint(event.currentTarget, event.clientX, event.clientY);
     setView((current) => {
       const nextK = Math.min(3, Math.max(0.35, current.k * factor));
-      const worldX = (cursorX - current.x) / current.k;
-      const worldY = (cursorY - current.y) / current.k;
+      const worldX = (cursor.x - current.x) / current.k;
+      const worldY = (cursor.y - current.y) / current.k;
       return {
         k: nextK,
-        x: cursorX - worldX * nextK,
-        y: cursorY - worldY * nextK,
+        x: cursor.x - worldX * nextK,
+        y: cursor.y - worldY * nextK,
       };
     });
   }
@@ -258,7 +330,7 @@ export function AgentGraphWorkspace({
                 if (!a || !b) return null;
                 const key = edgeKey(edge);
                 const active = selectedEdgeKey === key || selectedNodeId === a.member_id || selectedNodeId === b.member_id;
-                const dimmed = (selectedNodeId || selectedEdgeKey) && !active;
+                const dimmed = Boolean(selectedNodeId || selectedEdgeKey) && !active;
                 return (
                   <g
                     key={key}
@@ -294,22 +366,22 @@ export function AgentGraphWorkspace({
                 );
               })}
               {[...positions.values()].map((node) => {
-                const active = selectedNodeId === node.member_id;
+                const active =
+                  selectedNodeId === node.member_id || selectedEdgeEndpointIds.has(node.member_id);
+                const neighbor =
+                  Boolean(selectedNodeId) &&
+                  node.member_id !== selectedNodeId &&
+                  selectedNodeIds.has(node.member_id);
                 const avatar = buildAgentIdenticon(node.member_id);
                 const palette = identityPalette(node.member_id);
-                const connected = selectedNodeId
-                  ? edges.some(
-                      (edge) =>
-                        edge.member_a_id === selectedNodeId || edge.member_b_id === selectedNodeId,
-                    )
-                  : true;
-                const dimmed = (selectedNodeId || selectedEdgeKey) && !active && !connected;
+                const dimmed =
+                  Boolean(selectedNodeId || selectedEdgeKey) && !active && !neighbor;
                 return (
                   <g
                     key={node.member_id}
                     data-node-id={node.member_id}
                     transform={`translate(${node.x} ${node.y})`}
-                    className={`graph-node${active ? " graph-node--active" : ""}${dimmed ? " graph-node--dimmed" : ""}`}
+                    className={`graph-node${active ? " graph-node--active" : ""}${neighbor ? " graph-node--neighbor" : ""}${dimmed ? " graph-node--dimmed" : ""}`}
                     role="button"
                     tabIndex={0}
                     aria-label={`${node.display_name}, ${node.role_text}`}
