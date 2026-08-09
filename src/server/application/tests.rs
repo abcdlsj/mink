@@ -12,7 +12,8 @@ use crate::server::domain::{
     access::{HumanRegistration, SessionLifetime, SpaceAccess},
     attachment::{Attachment, AttachmentStatus, ContentDigest, DeclaredContent},
     attention::{
-        InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot, InboxItemStatus,
+        AttentionStrength, InboxItem, InboxItemDisposition, InboxItemKind, InboxItemSnapshot,
+        InboxItemStatus,
     },
     conversation::{Channel, ChannelKind, Message, MessageContent, MessagePlacement, Thread},
     execution::{
@@ -1902,6 +1903,10 @@ impl EffectSink for MemoryTransaction {
             .get(&(actor, action.to_owned(), key))
             .copied())
     }
+    async fn insert_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
+        self.state.items.insert(item.view().id, item);
+        Ok(())
+    }
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         self.state.items.insert(item.view().id, item);
         Ok(())
@@ -2018,6 +2023,8 @@ async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently
             source: TaskSource::AgentRun(run_id),
             title: "重建领域层".into(),
             assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![],
             idempotency_key: key,
             now,
         },
@@ -2037,6 +2044,8 @@ async fn agent_task_creation_atomically_binds_run_items_and_retries_idempotently
             source: TaskSource::AgentRun(run_id),
             title: "不会覆盖".into(),
             assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![],
             idempotency_key: key,
             now,
         },
@@ -2063,6 +2072,8 @@ async fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
             source: TaskSource::HumanRoot(thread_id),
             title: "非法来源".into(),
             assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![],
             idempotency_key: idempotency(13),
             now: OffsetDateTime::UNIX_EPOCH,
         },
@@ -2076,6 +2087,394 @@ async fn reply_cannot_create_task_and_transaction_leaves_no_effects() {
     ));
     assert!(port.state.tasks.is_empty());
     assert!(port.state.effects.is_empty());
+}
+
+#[tokio::test]
+async fn agent_task_creation_links_carried_threads_atomically_and_rolls_back_conflicts() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(1);
+    let source = thread(2);
+    let linked = thread(7);
+    let occupied = thread(8);
+    let conflict_source = thread(12);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, source, &[agent]);
+    insert_thread(&mut port, linked, &[agent]);
+    insert_thread(&mut port, occupied, &[agent]);
+    insert_thread(&mut port, conflict_source, &[agent]);
+    port.state.assignable_agents.insert(agent);
+    port.state
+        .runs
+        .insert(run(4), running_run(run(4), agent, source, None, Vec::new()));
+    port.state.runs.insert(
+        run(13),
+        running_run(run(13), agent, conflict_source, None, Vec::new()),
+    );
+    port.state.tasks.insert(
+        task(9),
+        make_task(task(9), occupied, agent, TaskStatus::Todo),
+    );
+
+    let created = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(5),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(4)),
+            title: "长期跟踪".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![linked],
+            idempotency_key: idempotency(6),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(created.linked_to(linked));
+    assert!(port.state.effects.iter().any(
+        |effect| matches!(effect, Effect::ThreadLinked { task_id, thread_id } if *task_id == task(5) && *thread_id == linked)
+    ));
+
+    let conflict = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(10),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(13)),
+            title: "冲突".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![occupied],
+            idempotency_key: idempotency(11),
+            now,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict, ApplicationError::Conflict);
+    assert!(!port.state.tasks.contains_key(&task(10)));
+}
+
+#[tokio::test]
+async fn agent_task_creation_with_source_override_creates_todo_and_pending_item() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(30);
+    let focus = thread(31);
+    let new_root = thread(32);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    insert_thread(&mut port, new_root, &[agent]);
+    port.state.assignable_agents.insert(agent);
+    port.state.runs.insert(
+        run(33),
+        running_run(run(33), agent, focus, None, Vec::new()),
+    );
+
+    let bound = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(34),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(33)),
+            title: "当前任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![],
+            idempotency_key: idempotency(35),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(bound.view().status, TaskStatus::InProgress);
+    assert_eq!(port.state.runs[&run(33)].view().task_id, Some(task(34)));
+
+    let created = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(36),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(33)),
+            title: "独立任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: Some(new_root),
+            link_thread_ids: vec![],
+            idempotency_key: idempotency(37),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.view().source_thread_id, new_root);
+    assert_eq!(created.view().status, TaskStatus::Todo);
+    assert_eq!(created.view().assignee_agent_member_id, Some(agent));
+    assert_eq!(
+        port.state.runs[&run(33)].view().task_id,
+        Some(task(34)),
+        "the current Run keeps its original Task"
+    );
+    let items = port.state.items.values().collect::<Vec<_>>();
+    assert_eq!(items.len(), 1);
+    let item = items[0].view();
+    assert_eq!(item.kind, InboxItemKind::TaskActivity);
+    assert_eq!(item.strength, AttentionStrength::Hard);
+    assert_eq!(item.status, InboxItemStatus::Pending);
+    assert_eq!(item.thread_id, new_root);
+    assert_eq!(item.task_id, Some(task(36)));
+    assert_eq!(item.member_id, agent);
+    assert!(
+        port.state
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::InboxChanged(member) if *member == agent))
+    );
+}
+
+#[tokio::test]
+async fn source_override_task_activity_item_drives_bound_run_after_current_run_ends() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(40);
+    let focus = thread(41);
+    let new_root = thread(42);
+    let mut port = MemoryPort::default();
+    port.state
+        .computer_assignments
+        .insert((computer(999), agent));
+    port.state.agents.insert(
+        agent,
+        Agent {
+            member_id: agent,
+            space_id: space(1),
+            computer_id: Some(computer(999)),
+            role_text: "run".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
+    insert_thread(&mut port, focus, &[agent]);
+    insert_thread(&mut port, new_root, &[agent]);
+    port.state.assignable_agents.insert(agent);
+    port.state.runs.insert(
+        run(43),
+        running_run(run(43), agent, focus, None, Vec::new()),
+    );
+
+    let created = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(44),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(43)),
+            title: "独立任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: Some(new_root),
+            link_thread_ids: vec![],
+            idempotency_key: idempotency(45),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    let task_id = created.view().id;
+    let item_id = port.state.items.values().next().unwrap().view().id;
+
+    CompleteRun::execute(
+        &mut port,
+        CompleteRunInput {
+            max_retry_count: 5,
+            event_id: event(80),
+            run_id: run(43),
+            computer_id: computer(999),
+            outcome: RunOutcome::Completed,
+            error_code: None,
+            item_dispositions: Vec::new(),
+            continuation_note: None,
+            now,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut dispatch = dispatch_input(run(46), agent, Some(task_id), new_root);
+    dispatch.trigger = RunTrigger::TaskActivity;
+    dispatch.item_ids.push(item_id);
+    let run_b = DispatchRun::execute(&mut port, dispatch).await.unwrap();
+    assert_eq!(run_b.view().task_id, Some(task_id));
+    assert_eq!(
+        port.state.items[&item_id].view().status,
+        InboxItemStatus::Assigned
+    );
+
+    StartRun::execute(
+        &mut port,
+        StartRunInput {
+            run_id: run(46),
+            computer_id: computer(999),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        port.state.tasks[&task_id].view().status,
+        TaskStatus::InProgress
+    );
+
+    let completed = RecordTaskOutcome::execute(
+        &mut port,
+        RecordTaskOutcomeInput {
+            scope: TaskOutcomeScope::AgentRun(OutcomeRunContext {
+                run_id: run(46),
+                computer_id: computer(999),
+                message_snapshot_sequence: 0,
+            }),
+            actor_member_id: agent,
+            idempotency_key: idempotency(47),
+            outcome: TaskOutcome::Done {
+                result: OutcomeMessage {
+                    message_id: message(48),
+                    body_markdown: "完成".into(),
+                    post_to: TaskPostTarget::Source,
+                },
+            },
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(completed.view().status, TaskStatus::Done);
+}
+
+#[tokio::test]
+async fn source_override_task_create_is_idempotent_for_task_and_item() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(50);
+    let focus = thread(51);
+    let new_root = thread(52);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    insert_thread(&mut port, new_root, &[agent]);
+    port.state.assignable_agents.insert(agent);
+    port.state.runs.insert(
+        run(53),
+        running_run(run(53), agent, focus, None, Vec::new()),
+    );
+    let input = || CreateTaskInput {
+        task_id: task(54),
+        actor_member_id: agent,
+        source: TaskSource::AgentRun(run(53)),
+        title: "独立任务".into(),
+        assignee_agent_member_id: None,
+        source_thread_id: Some(new_root),
+        link_thread_ids: vec![],
+        idempotency_key: idempotency(55),
+        now,
+    };
+
+    let first = CreateTaskFromRootMessage::execute(&mut port, input())
+        .await
+        .unwrap();
+    let retried = CreateTaskFromRootMessage::execute(&mut port, input())
+        .await
+        .unwrap();
+    assert_eq!(retried, first);
+    assert_eq!(port.state.tasks.len(), 1);
+    assert_eq!(
+        port.state
+            .items
+            .values()
+            .filter(|item| item.view().task_id == Some(task(54)))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn source_override_task_create_rolls_back_task_and_item_on_link_conflict() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(60);
+    let focus = thread(61);
+    let new_root = thread(62);
+    let occupied = thread(63);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent]);
+    insert_thread(&mut port, new_root, &[agent]);
+    insert_thread(&mut port, occupied, &[agent]);
+    port.state.assignable_agents.insert(agent);
+    port.state.runs.insert(
+        run(64),
+        running_run(run(64), agent, focus, None, Vec::new()),
+    );
+    port.state.tasks.insert(
+        task(65),
+        make_task(task(65), occupied, agent, TaskStatus::Todo),
+    );
+
+    let error = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(66),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(64)),
+            title: "冲突任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: Some(new_root),
+            link_thread_ids: vec![occupied],
+            idempotency_key: idempotency(67),
+            now,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error, ApplicationError::Conflict);
+    assert_eq!(port.state.tasks.len(), 1);
+    assert!(port.state.items.is_empty());
+}
+
+#[tokio::test]
+async fn task_create_assigning_other_agent_creates_todo_and_item_for_assignee() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let agent = member(70);
+    let other = member(71);
+    let focus = thread(72);
+    let mut port = MemoryPort::default();
+    insert_thread(&mut port, focus, &[agent, other]);
+    port.state.assignable_agents.insert(agent);
+    port.state.assignable_agents.insert(other);
+    port.state.runs.insert(
+        run(73),
+        running_run(run(73), agent, focus, None, Vec::new()),
+    );
+
+    let created = CreateTaskFromRootMessage::execute(
+        &mut port,
+        CreateTaskInput {
+            task_id: task(74),
+            actor_member_id: agent,
+            source: TaskSource::AgentRun(run(73)),
+            title: "交给别人".into(),
+            assignee_agent_member_id: Some(other),
+            source_thread_id: None,
+            link_thread_ids: vec![],
+            idempotency_key: idempotency(75),
+            now,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.view().status, TaskStatus::Todo);
+    assert_eq!(created.view().assignee_agent_member_id, Some(other));
+    assert_eq!(port.state.runs[&run(73)].view().task_id, None);
+    let items = port.state.items.values().collect::<Vec<_>>();
+    assert_eq!(items.len(), 1);
+    let item = items[0].view();
+    assert_eq!(item.member_id, other);
+    assert_eq!(item.task_id, Some(task(74)));
+    assert_eq!(item.kind, InboxItemKind::TaskActivity);
+    assert_eq!(item.status, InboxItemStatus::Pending);
 }
 
 #[tokio::test]

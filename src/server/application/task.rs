@@ -1,9 +1,12 @@
 use time::OffsetDateTime;
+use uuid::Uuid;
 
-use crate::ids::{ComputerId, IdempotencyKey, MemberId, MessageId, RunId, TaskId, ThreadId};
+use crate::ids::{
+    ComputerId, IdempotencyKey, InboxItemId, MemberId, MessageId, RunId, TaskId, ThreadId,
+};
 
 use crate::server::domain::{
-    attention::InboxItemDisposition,
+    attention::{InboxItem, InboxItemDisposition, InboxItemKind},
     conversation::{Message, MessageContent, MessagePlacement},
     execution::{Run, RunOutcome, RunStatus},
     task::{CloseReason, Task},
@@ -25,6 +28,8 @@ pub(in crate::server) struct CreateTaskInput {
     pub(in crate::server) source: TaskSource,
     pub(in crate::server) title: String,
     pub(in crate::server) assignee_agent_member_id: Option<MemberId>,
+    pub(in crate::server) source_thread_id: Option<ThreadId>,
+    pub(in crate::server) link_thread_ids: Vec<ThreadId>,
     pub(in crate::server) idempotency_key: IdempotencyKey,
     pub(in crate::server) now: OffsetDateTime,
 }
@@ -43,8 +48,8 @@ impl CreateTaskFromRootMessage {
             {
                 return transaction.task(task_id).await;
             }
-            let (source_thread_id, running_agent) = match input.source {
-                TaskSource::HumanRoot(thread_id) => (thread_id, None),
+            let (source_thread_id, running_agent, run_can_bind) = match input.source {
+                TaskSource::HumanRoot(thread_id) => (thread_id, None, false),
                 TaskSource::AgentRun(run_id) => {
                     let run = transaction.run(run_id).await?;
                     let run_view = run.view();
@@ -53,9 +58,14 @@ impl CreateTaskFromRootMessage {
                     {
                         return Err(ApplicationError::ContextChanged);
                     }
-                    (run_view.focus_thread_id, Some(run))
+                    let focus_thread_id = run_view.focus_thread_id;
+                    let source_thread_id = input.source_thread_id.unwrap_or(focus_thread_id);
+                    let run_can_bind =
+                        source_thread_id == focus_thread_id && run_view.task_id.is_none();
+                    (source_thread_id, Some(run), run_can_bind)
                 }
             };
+            let created_by_agent = running_agent.is_some();
             let source = transaction.thread(source_thread_id).await?;
             if !transaction
                 .can_read_thread(input.actor_member_id, source.id)
@@ -81,6 +91,8 @@ impl CreateTaskFromRootMessage {
             {
                 return Err(ApplicationError::PermissionDenied);
             }
+            let current_agent_id = running_agent.as_ref().map(|run| run.view().agent_id);
+            let bind_current_run = run_can_bind && assignee == current_agent_id;
 
             let task = Task::create(
                 input.task_id,
@@ -89,12 +101,14 @@ impl CreateTaskFromRootMessage {
                 assignee,
                 &source,
                 &root,
-                running_agent.is_some(),
+                bind_current_run,
                 input.now,
             )?;
-            let task = transaction.insert_task(task.clone()).await?;
+            let mut task = transaction.insert_task(task.clone()).await?;
 
-            if let Some(mut run) = running_agent {
+            if let Some(mut run) = running_agent
+                && bind_current_run
+            {
                 run.bind_task(&task)?;
                 let task_id = task.view().id;
                 for run_item in run.items() {
@@ -107,6 +121,33 @@ impl CreateTaskFromRootMessage {
                     run_id: run.view().id,
                     task_id,
                 });
+            }
+            for thread_id in input.link_thread_ids {
+                link_thread(
+                    transaction,
+                    input.actor_member_id,
+                    &mut task,
+                    thread_id,
+                    input.now,
+                )
+                .await?;
+            }
+            if created_by_agent && !bind_current_run {
+                let Some(assignee_id) = assignee else {
+                    return Err(ApplicationError::Internal);
+                };
+                let item = InboxItem::open_hard(
+                    InboxItemId::from_uuid(Uuid::now_v7()),
+                    task.view().space_id,
+                    assignee_id,
+                    None,
+                    source_thread_id,
+                    Some(task.view().id),
+                    InboxItemKind::TaskActivity,
+                    input.now,
+                )?;
+                transaction.insert_inbox_item(item).await?;
+                transaction.emit(Effect::InboxChanged(assignee_id));
             }
             transaction
                 .record_task_idempotency(
@@ -492,6 +533,41 @@ impl UpdateTask {
     }
 }
 
+async fn link_thread<T: ServerTransaction>(
+    transaction: &mut T,
+    actor: MemberId,
+    task: &mut Task,
+    target_thread_id: ThreadId,
+    now: OffsetDateTime,
+) -> Result<(), ApplicationError> {
+    let source = transaction.thread(task.view().source_thread_id).await?;
+    let target = transaction.thread(target_thread_id).await?;
+    if !transaction.can_link_thread(actor, task, &target).await? {
+        return Err(ApplicationError::PermissionDenied);
+    }
+    for link in task.related_threads() {
+        if !transaction.can_read_thread(actor, link.thread_id).await? {
+            return Err(ApplicationError::PermissionDenied);
+        }
+    }
+    if transaction
+        .unfinished_task_for_thread(target.id)
+        .await?
+        .is_some_and(|task_id| task_id != task.view().id)
+    {
+        return Err(ApplicationError::Conflict);
+    }
+    if !task.linked_to(target.id) {
+        task.add_related_thread(&source, &target, actor, now)?;
+        transaction.save_task(task.clone()).await?;
+        transaction.emit(Effect::ThreadLinked {
+            task_id: task.view().id,
+            thread_id: target.id,
+        });
+    }
+    Ok(())
+}
+
 pub(in crate::server) struct LinkThreadToTask;
 
 impl LinkThreadToTask {
@@ -511,37 +587,14 @@ impl LinkThreadToTask {
                 return transaction.task(task_id).await;
             }
             let mut task = transaction.task(input.task_id).await?;
-            let source = transaction.thread(task.view().source_thread_id).await?;
-            let target = transaction.thread(input.target_thread_id).await?;
-            if !transaction
-                .can_link_thread(input.actor_member_id, &task, &target)
-                .await?
-            {
-                return Err(ApplicationError::PermissionDenied);
-            }
-            for link in task.related_threads() {
-                if !transaction
-                    .can_read_thread(input.actor_member_id, link.thread_id)
-                    .await?
-                {
-                    return Err(ApplicationError::PermissionDenied);
-                }
-            }
-            if transaction
-                .unfinished_task_for_thread(target.id)
-                .await?
-                .is_some_and(|task_id| task_id != task.view().id)
-            {
-                return Err(ApplicationError::Conflict);
-            }
-            if !task.linked_to(target.id) {
-                task.add_related_thread(&source, &target, input.actor_member_id, input.now)?;
-                transaction.save_task(task.clone()).await?;
-                transaction.emit(Effect::ThreadLinked {
-                    task_id: task.view().id,
-                    thread_id: target.id,
-                });
-            }
+            link_thread(
+                transaction,
+                input.actor_member_id,
+                &mut task,
+                input.target_thread_id,
+                input.now,
+            )
+            .await?;
             transaction
                 .record_task_idempotency(
                     input.actor_member_id,

@@ -1141,6 +1141,9 @@ impl EffectSink for PostgresTransaction {
     ) -> Result<Option<uuid::Uuid>, ApplicationError> {
         self.resource_for_idempotency(actor, action, key).await
     }
+    async fn insert_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
+        self.insert_inbox_item(item).await
+    }
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError> {
         self.save_inbox_item(item).await
     }

@@ -111,6 +111,10 @@ enum TaskCommand {
         title: Option<String>,
         #[arg(long)]
         assign: Option<MemberId>,
+        #[arg(long)]
+        source: Option<ThreadId>,
+        #[arg(long)]
+        thread: Vec<ThreadId>,
     },
     LinkThread {
         thread_id: ThreadId,
@@ -358,11 +362,19 @@ impl AgentCli {
                 )
             }
             Command::Task(TaskArgs {
-                command: TaskCommand::Create { title, assign },
+                command:
+                    TaskCommand::Create {
+                        title,
+                        assign,
+                        source,
+                        thread,
+                    },
             }) => (
                 Action::TaskCreate {
                     title,
                     assignee: assign,
+                    source_thread: source,
+                    link_threads: thread,
                 },
                 true,
             ),
@@ -628,8 +640,12 @@ mod tests {
         TestAgentCli::try_parse_from(args).map(|parsed| parsed.agent)
     }
 
+    fn parse_owned(args: impl IntoIterator<Item = String>) -> Result<AgentCli, clap::Error> {
+        TestAgentCli::try_parse_from(args).map(|parsed| parsed.agent)
+    }
+
     #[test]
-    fn task_create_has_no_source_or_context_parameters() {
+    fn task_create_accepts_title_and_rejects_unknown_flags() {
         parse([
             "sumi-agent",
             "task",
@@ -640,6 +656,41 @@ mod tests {
         ])
         .unwrap();
         assert!(parse(["sumi-agent", "task", "create", "--task", "bad", "--json"]).is_err());
+    }
+
+    #[test]
+    fn task_create_carries_source_and_link_threads() {
+        let source = ThreadId::from_uuid(uuid::Uuid::from_u128(6));
+        let first = ThreadId::from_uuid(uuid::Uuid::from_u128(7));
+        let second = ThreadId::from_uuid(uuid::Uuid::from_u128(8));
+        let cli = parse_owned([
+            "sumi-agent".to_owned(),
+            "task".to_owned(),
+            "create".to_owned(),
+            "--title".to_owned(),
+            "design".to_owned(),
+            "--source".to_owned(),
+            source.to_string(),
+            "--thread".to_owned(),
+            first.to_string(),
+            "--thread".to_owned(),
+            second.to_string(),
+            "--json".to_owned(),
+        ])
+        .unwrap();
+        let Command::Task(TaskArgs {
+            command:
+                TaskCommand::Create {
+                    source: parsed_source,
+                    thread,
+                    ..
+                },
+        }) = cli.command
+        else {
+            panic!("expected task create");
+        };
+        assert_eq!(parsed_source, Some(source));
+        assert_eq!(thread, vec![first, second]);
     }
 
     #[test]

@@ -1473,6 +1473,8 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
             source: TaskSource::HumanRoot(ThreadId::from_uuid(root)),
             title: "PostgreSQL transaction".into(),
             assignee_agent_member_id: None,
+            source_thread_id: None,
+            link_thread_ids: vec![],
             idempotency_key,
             now: OffsetDateTime::now_utc(),
         },
@@ -1497,6 +1499,90 @@ async fn application_transaction_commits_task_source_idempotency_and_outbox_toge
             .unwrap(),
     );
     assert_eq!(facts, (1, 1, 1));
+
+    let new_root = Uuid::now_v7();
+    sqlx::raw_sql(&format!(
+        "INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement, \
+         content_kind,author_member_id,body_markdown,created_at) \
+         VALUES ('{new_root}','{space}','{channel}','{new_root}',2,'root','text', \
+                 '{actor_agent}','independent',now());"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let second_task_id = TaskId::from_uuid(Uuid::now_v7());
+    let created = CreateTaskFromRootMessage::execute(
+        &mut adapter,
+        CreateTaskInput {
+            task_id: second_task_id,
+            actor_member_id: MemberId::from_uuid(actor_agent),
+            source: TaskSource::AgentRun(RunId::from_uuid(run_id)),
+            title: "独立任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: Some(ThreadId::from_uuid(new_root)),
+            link_thread_ids: vec![],
+            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.view().status, TaskStatus::Todo);
+    let item: (Uuid, Uuid, String, String) =
+        sqlx::query_as("SELECT thread_id,task_id,kind,status FROM inbox_items WHERE member_id=$1")
+            .bind(actor_agent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        item,
+        (
+            new_root,
+            second_task_id.into_uuid(),
+            "task_activity".to_owned(),
+            "pending".to_owned()
+        )
+    );
+
+    let conflicting_root = Uuid::now_v7();
+    sqlx::raw_sql(&format!(
+        "INSERT INTO messages (id,space_id,channel_id,thread_id,channel_seq,placement, \
+         content_kind,author_member_id,body_markdown,created_at) \
+         VALUES ('{conflicting_root}','{space}','{channel}','{conflicting_root}',3,'root', \
+                 'text','{actor_agent}','conflict',now());"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE channels SET next_seq=4 WHERE id=$1")
+        .bind(channel)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let conflict = CreateTaskFromRootMessage::execute(
+        &mut adapter,
+        CreateTaskInput {
+            task_id: TaskId::from_uuid(Uuid::now_v7()),
+            actor_member_id: MemberId::from_uuid(actor_agent),
+            source: TaskSource::AgentRun(RunId::from_uuid(run_id)),
+            title: "冲突任务".into(),
+            assignee_agent_member_id: None,
+            source_thread_id: Some(ThreadId::from_uuid(conflicting_root)),
+            link_thread_ids: vec![ThreadId::from_uuid(root)],
+            idempotency_key: IdempotencyKey::from_uuid(Uuid::now_v7()),
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict, ApplicationError::Conflict);
+    let item_count: i64 = sqlx::query_scalar("SELECT count(*) FROM inbox_items WHERE member_id=$1")
+        .bind(actor_agent)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(item_count, 1);
+
     let invalid_done = sqlx::query("UPDATE tasks SET status='done',finished_at=now() WHERE id=$1")
         .bind(task_id.into_uuid())
         .execute(&pool)

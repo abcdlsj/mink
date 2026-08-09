@@ -455,6 +455,8 @@ pub(super) async fn create_task_from_root<P: TransactionPort + Clone>(
             source: TaskSource::HumanRoot(ThreadId::from_uuid(root_message_id.into_uuid())),
             title: body.title,
             assignee_agent_member_id: body.assignee_agent_member_id,
+            source_thread_id: None,
+            link_thread_ids: Vec::new(),
             idempotency_key: context.idempotency_key,
             now: OffsetDateTime::now_utc(),
         },

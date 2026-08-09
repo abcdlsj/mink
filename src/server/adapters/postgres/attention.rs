@@ -121,6 +121,31 @@ impl PostgresTransaction {
         }
     }
 
+    pub(super) async fn insert_inbox_item(
+        &mut self,
+        item: InboxItem,
+    ) -> Result<(), ApplicationError> {
+        let item = item.snapshot();
+        sqlx::query(
+            "INSERT INTO inbox_items \
+             (id,space_id,member_id,message_id,thread_id,task_id,kind,strength,status, \
+              available_at,created_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'hard','pending',$8,$8)",
+        )
+        .bind(item.id.into_uuid())
+        .bind(item.space_id.into_uuid())
+        .bind(item.member_id.into_uuid())
+        .bind(item.message_id.map(MessageId::into_uuid))
+        .bind(item.thread_id.into_uuid())
+        .bind(item.task_id.map(TaskId::into_uuid))
+        .bind(inbox_kind_str(item.kind))
+        .bind(item.available_at)
+        .execute(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
     pub(super) async fn inbox_for_member(
         &mut self,
         member_id: MemberId,

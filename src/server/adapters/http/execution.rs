@@ -633,7 +633,12 @@ pub(super) async fn execute_agent_action(
                 json!({"message_id":message_id,"thread_id":thread_id.unwrap_or(message_id),"channel_id":channel_id}),
             )
         }
-        capability::Action::TaskCreate { title, assignee } => {
+        capability::Action::TaskCreate {
+            title,
+            assignee,
+            source_thread,
+            link_threads,
+        } => {
             let key = request.idempotency_key.ok_or_else(|| {
                 capability_error(
                     capability::ErrorCode::InvalidArgument,
@@ -641,9 +646,10 @@ pub(super) async fn execute_agent_action(
                     false,
                 )
             })?;
+            let source_thread_id = source_thread.unwrap_or(context.focus_thread_id);
             let default_title = state
                 .read
-                .focus_body(context.focus_thread_id.into_uuid())
+                .focus_body(source_thread_id.into_uuid())
                 .await
                 .map_err(|_| {
                     capability_error(
@@ -659,7 +665,7 @@ pub(super) async fn execute_agent_action(
                     .unwrap_or_else(|| "Assigned Agent".to_owned()),
                 None => "Unassigned".to_owned(),
             };
-            let focus = activity_thread_reference(&state.read, context.focus_thread_id).await;
+            let focus = activity_thread_reference(&state.read, source_thread_id).await;
             let mut storage = state.storage.clone();
             let task = CreateTaskFromRootMessage::execute(
                 &mut storage,
@@ -669,6 +675,8 @@ pub(super) async fn execute_agent_action(
                     source: TaskSource::AgentRun(context.run_id),
                     title: title.clone(),
                     assignee_agent_member_id: assignee,
+                    source_thread_id: source_thread,
+                    link_thread_ids: link_threads.clone(),
                     idempotency_key: key,
                     now: OffsetDateTime::now_utc(),
                 },
@@ -685,7 +693,7 @@ pub(super) async fn execute_agent_action(
                     json!({
                         "run_id": context.run_id,
                         "task_id": task_id,
-                        "thread_id": context.focus_thread_id,
+                        "thread_id": source_thread_id,
                         "scope_channel_id": focus.as_ref().map(|reference| reference.channel_id),
                     }),
                     vec![("title", title), ("assignee", assignee_label)],
@@ -693,6 +701,32 @@ pub(super) async fn execute_agent_action(
                 ),
             )
             .await;
+            for thread_id in link_threads {
+                let target = activity_thread_reference(&state.read, thread_id).await;
+                record_agent_activity(
+                    state,
+                    context.space_id.into_uuid(),
+                    context.agent_id.into_uuid(),
+                    "task.link_thread",
+                    agent_activity_details(
+                        json!({
+                            "run_id": context.run_id,
+                            "task_id": task_id,
+                            "thread_id": thread_id,
+                            "scope_channel_id": target.as_ref().map(|reference| reference.channel_id),
+                        }),
+                        vec![(
+                            "thread",
+                            target
+                                .as_ref()
+                                .map(|reference| reference.label.clone())
+                                .unwrap_or_else(|| "Thread".to_owned()),
+                        )],
+                        None,
+                    ),
+                )
+                .await;
+            }
             capability_value(
                 &task_projection(&state.read, task_id.into_uuid())
                     .await

@@ -59,6 +59,8 @@ Driver：
 ## Task 与协作事务
 
 - 同一 Root Message 最多一个 Task；相同 idempotency key 返回同一 Task。
+- Agent CLI 的 `task create` 可携带单个 `--source` 指定 Source Thread，不指定时用当前 Focus；Source Thread 必须是 Root Message，且该 Thread 已存在 Task（含终态）时报 Conflict；`--thread` 可重复，在创建事务内完成 Linked Thread 关联；`task link-thread` 只用于对已存在 Task 补充关联。
+- Agent 用 `--source` 创建不在当前 Focus 的 Task 时，Task 为 TODO，并在同一事务为 assignee 创建 pending hard TaskActivity Item（thread_id 与 task_id 指向新 Task）；当前 Run 结束后该 Item 经 claim 启动绑定新 Task 的 Run，Run 进入 working 时 TODO 推进为 In Progress。
 - Related Thread 只能关联可见范围兼容的 Thread；一个 Thread 同时最多关联一个未结束 Task。
 - 状态转换：TODO → In Progress → In Review → Done；TODO / In Progress / In Review → Closed。
 - 第一个 Task Run 进入 working 时，TODO 推进为 In Progress；In Progress 可直接进入 Done。
