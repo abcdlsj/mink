@@ -200,6 +200,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
             return Err(ApplicationError::DriverUnavailable);
         };
         let compaction_trigger_tokens = builtin_provider.compaction_trigger_tokens();
+        let compaction_keep_recent_tokens = builtin_provider.compaction_keep_recent_tokens();
         let provider = builtin_provider
             .into_provider_config()
             .with_prompt_cache_key(format!(
@@ -221,12 +222,13 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
                 driver_token,
             });
             let engine = match OpenAiProvider::new(provider) {
-                Ok(provider) => Engine::new_with_trigger(
+                Ok(provider) => Engine::new_with_compaction(
                     Arc::new(provider),
                     ToolExecutor::new(tools),
                     system_messages(&input_owned),
                     tool_definitions(),
                     compaction_trigger_tokens,
+                    compaction_keep_recent_tokens,
                 ),
                 Err(_) => return DriverTurnOutcome::Failed,
             };
@@ -725,6 +727,7 @@ mod tests {
                 model: "test-model".to_owned(),
                 context_window_tokens: 128_000,
                 compaction_trigger_ratio: 0.75,
+                compaction_keep_recent_tokens: 20_000,
             }),
             ..ComputerConfig::default()
         }

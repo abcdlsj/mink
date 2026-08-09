@@ -476,6 +476,7 @@ pub struct HarnessBuiltinConfig {
     pub token: String,
     pub context_window_tokens: usize,
     pub compaction_trigger_ratio: f64,
+    pub compaction_keep_recent_tokens: usize,
 }
 
 pub fn write_harness_computer_config(
@@ -498,13 +499,14 @@ pub fn write_harness_computer_config(
     std::fs::write(
         path,
         format!(
-            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nmax_concurrent_runs = {max_concurrent_runs}\nper_agent_timeout_seconds = 1200\nshutdown_grace_period_seconds = 1\n{codex_sources}\n[computer.builtin]\napi_base = '{}'\ntoken = '{}'\nmodel = '{}'\ncontext_window_tokens = {}\ncompaction_trigger_ratio = {}\n",
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nopen_pairing_browser = false\nmax_concurrent_runs = {max_concurrent_runs}\nper_agent_timeout_seconds = 1200\nshutdown_grace_period_seconds = 1\n{codex_sources}\n[computer.builtin]\napi_base = '{}'\ntoken = '{}'\nmodel = '{}'\ncontext_window_tokens = {}\ncompaction_trigger_ratio = {}\ncompaction_keep_recent_tokens = {}\n",
             state_dir.display(),
             builtin.api_base,
             builtin.token,
             builtin.model,
             builtin.context_window_tokens,
             builtin.compaction_trigger_ratio,
+            builtin.compaction_keep_recent_tokens,
         ),
     )?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;

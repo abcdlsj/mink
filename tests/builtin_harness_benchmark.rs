@@ -28,9 +28,11 @@
 //!   config.toml/auth.json select the same provider and model)
 //! - `SUMI_HARNESS_DRIVER` (`builtin`, `codex`, or `both`; default `both`)
 //! - `SUMI_HARNESS_REPORT_DIR` (default `target/harness-report`)
-//! - `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW` (default `16000`; the builtin compaction trigger
+//! - `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW` (default `64000`; the builtin compaction trigger
 //!   is derived from this window so the benchmark deterministically exercises compression)
-//! - `SUMI_HARNESS_COMPACTION_RATIO` (default `0.75`)
+//! - `SUMI_HARNESS_COMPACTION_RATIO` (default `0.5`)
+//! - `SUMI_HARNESS_KEEP_RECENT_TOKENS` (default `20000`; recent context tokens kept
+//!   unsummarized by compaction, mirroring codex and pi)
 //! - `SUMI_HARNESS_ENFORCE_THRESHOLDS` (`1` gates on quality thresholds; default off)
 //! - `SUMI_HARNESS_MIN_CACHE_RATE` (default `0.3`)
 //! - `SUMI_HARNESS_MIN_PROBE_ACCURACY` (default `0.6`)
@@ -130,6 +132,8 @@ struct CompactionReport {
     through: usize,
     source_tokens: usize,
     summary_tokens: usize,
+    split_turn: bool,
+    kept_tokens: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -412,8 +416,9 @@ fn builtin_config() -> Result<HarnessBuiltinConfig> {
         .unwrap_or_else(|_| "deepseek-v4-flash".to_owned());
     let token = std::env::var("SUMI_HARNESS_BUILTIN_TOKEN")
         .context("SUMI_HARNESS_BUILTIN_TOKEN is required for the builtin leg")?;
-    let context_window_tokens = env_parse("SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW", 16_000usize)?;
-    let compaction_trigger_ratio = env_parse("SUMI_HARNESS_COMPACTION_RATIO", 0.75f64)?;
+    let context_window_tokens = env_parse("SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW", 64_000usize)?;
+    let compaction_trigger_ratio = env_parse("SUMI_HARNESS_COMPACTION_RATIO", 0.5f64)?;
+    let compaction_keep_recent_tokens = env_parse("SUMI_HARNESS_KEEP_RECENT_TOKENS", 20_000usize)?;
     ensure!(
         (0.0..=1.0).contains(&compaction_trigger_ratio) && compaction_trigger_ratio > 0.0,
         "SUMI_HARNESS_COMPACTION_RATIO must be in (0, 1]"
@@ -424,6 +429,7 @@ fn builtin_config() -> Result<HarnessBuiltinConfig> {
         token,
         context_window_tokens,
         compaction_trigger_ratio,
+        compaction_keep_recent_tokens,
     })
 }
 
@@ -939,6 +945,8 @@ async fn builtin_metrics(
                 through: record["through"].as_u64().unwrap_or(0) as usize,
                 source_tokens,
                 summary_tokens,
+                split_turn: record["split_turn"].as_bool().unwrap_or(false),
+                kept_tokens: record["kept_tokens"].as_u64().unwrap_or(0) as usize,
             });
         }
     }
@@ -1028,6 +1036,8 @@ async fn codex_metrics(
                             through: 0,
                             source_tokens: 0,
                             summary_tokens: message.len().div_ceil(4),
+                            split_turn: false,
+                            kept_tokens: 0,
                         });
                     }
                 }
@@ -1196,6 +1206,7 @@ fn render_markdown(report: &HarnessReport) -> String {
         ("cache hit calls", "cache_hit_calls"),
         ("total calls", "total_calls"),
         ("compactions", "compactions"),
+        ("split-turn compactions", "split_turn_compactions"),
         ("compression ratio avg", "compression_ratio_avg"),
         (
             "final projected context tokens",
@@ -1234,6 +1245,12 @@ fn format_value(key: &str, report: &DriverReport) -> String {
         "cache_hit_calls" => report.cache_hit_calls.to_string(),
         "total_calls" => report.total_calls.to_string(),
         "compactions" => report.compactions.to_string(),
+        "split_turn_compactions" => report
+            .compaction_records
+            .iter()
+            .filter(|record| record.split_turn)
+            .count()
+            .to_string(),
         "compression_ratio_avg" => report
             .compression_ratio_avg
             .map_or_else(|| "-".to_owned(), |value| format!("{:.3}", value)),

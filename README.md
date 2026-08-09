@@ -222,10 +222,11 @@ Required environment (typically in a git-ignored `mise.local.toml`):
 
 Optional knobs: `SUMI_HARNESS_DRIVER` (`builtin`/`codex`/`both`),
 `SUMI_HARNESS_REPORT_DIR`, `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW`,
-`SUMI_HARNESS_COMPACTION_RATIO`, and `SUMI_HARNESS_ENFORCE_THRESHOLDS` (with
-`SUMI_HARNESS_MIN_CACHE_RATE` and `SUMI_HARNESS_MIN_PROBE_ACCURACY`). The
-report is written as `report.json` and `report.md` under
-`SUMI_HARNESS_REPORT_DIR` (default `target/harness-report`).
+`SUMI_HARNESS_COMPACTION_RATIO`, `SUMI_HARNESS_KEEP_RECENT_TOKENS`, and
+`SUMI_HARNESS_ENFORCE_THRESHOLDS` (with `SUMI_HARNESS_MIN_CACHE_RATE` and
+`SUMI_HARNESS_MIN_PROBE_ACCURACY`). The report is written as `report.json`
+and `report.md` under `SUMI_HARNESS_REPORT_DIR` (default
+`target/harness-report`).
 
 ## Docker
 

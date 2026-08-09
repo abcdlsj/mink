@@ -11,6 +11,7 @@ pub(super) struct BuiltinProviderConfig {
     api_base: String,
     token: SecretString,
     compaction_trigger_tokens: usize,
+    compaction_keep_recent_tokens: usize,
 }
 
 impl BuiltinProviderConfig {
@@ -20,6 +21,10 @@ impl BuiltinProviderConfig {
 
     pub(super) fn compaction_trigger_tokens(&self) -> usize {
         self.compaction_trigger_tokens
+    }
+
+    pub(super) fn compaction_keep_recent_tokens(&self) -> usize {
+        self.compaction_keep_recent_tokens
     }
 }
 
@@ -57,6 +62,7 @@ pub(super) fn load(config: &ComputerConfig) -> Result<Option<BuiltinProviderConf
             .to_owned(),
         token: builtin.token.clone_secret(),
         compaction_trigger_tokens: builtin.compaction_trigger_tokens(),
+        compaction_keep_recent_tokens: builtin.compaction_keep_recent_tokens(),
     }))
 }
 
@@ -75,6 +81,7 @@ mod tests {
                 model: model.to_owned(),
                 context_window_tokens: 128_000,
                 compaction_trigger_ratio: 0.75,
+                compaction_keep_recent_tokens: 20_000,
             }),
             ..ComputerConfig::default()
         }
@@ -93,6 +100,7 @@ mod tests {
         assert_eq!(loaded.model, "test-model");
         assert_eq!(loaded.api_base, "http://127.0.0.1:9/v1");
         assert_eq!(loaded.compaction_trigger_tokens(), 96_000);
+        assert_eq!(loaded.compaction_keep_recent_tokens(), 20_000);
         assert!(!format!("{:?}", loaded.token).contains("not-for-logs"));
     }
 
@@ -102,9 +110,11 @@ mod tests {
         let builtin = config.builtin.as_mut().unwrap();
         builtin.context_window_tokens = 16_000;
         builtin.compaction_trigger_ratio = 0.75;
+        builtin.compaction_keep_recent_tokens = 8_000;
 
         let loaded = load(&config).unwrap().unwrap();
 
         assert_eq!(loaded.compaction_trigger_tokens(), 12_000);
+        assert_eq!(loaded.compaction_keep_recent_tokens(), 8_000);
     }
 }

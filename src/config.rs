@@ -48,6 +48,8 @@ pub(crate) struct BuiltinOpenAiConfig {
     pub(crate) context_window_tokens: usize,
     #[serde(default = "default_compaction_trigger_ratio")]
     pub(crate) compaction_trigger_ratio: f64,
+    #[serde(default = "default_compaction_keep_recent_tokens")]
+    pub(crate) compaction_keep_recent_tokens: usize,
 }
 
 fn default_context_window_tokens() -> usize {
@@ -58,11 +60,19 @@ fn default_compaction_trigger_ratio() -> f64 {
     0.75
 }
 
+fn default_compaction_keep_recent_tokens() -> usize {
+    20_000
+}
+
 impl BuiltinOpenAiConfig {
     pub(crate) fn compaction_trigger_tokens(&self) -> usize {
         ((self.context_window_tokens as f64) * self.compaction_trigger_ratio)
             .round()
             .max(1.0) as usize
+    }
+
+    pub(crate) fn compaction_keep_recent_tokens(&self) -> usize {
+        self.compaction_keep_recent_tokens
     }
 }
 
@@ -263,6 +273,14 @@ fn validate(config: &SumiConfig) -> Result<()> {
                 && builtin.compaction_trigger_ratio > 0.0,
             "computer.builtin.compaction_trigger_ratio must be in (0, 1]"
         );
+        ensure!(
+            builtin.compaction_keep_recent_tokens > 0,
+            "computer.builtin.compaction_keep_recent_tokens must be positive"
+        );
+        ensure!(
+            builtin.compaction_keep_recent_tokens < builtin.compaction_trigger_tokens(),
+            "computer.builtin.compaction_keep_recent_tokens must be smaller than the compaction trigger"
+        );
     }
     Ok(())
 }
@@ -377,6 +395,7 @@ mod tests {
         assert_eq!(builtin.context_window_tokens, 128_000);
         assert_eq!(builtin.compaction_trigger_ratio, 0.75);
         assert_eq!(builtin.compaction_trigger_tokens(), 96_000);
+        assert_eq!(builtin.compaction_keep_recent_tokens(), 20_000);
         assert!(!format!("{:?}", config.computer).contains("provider-secret"));
     }
 
@@ -387,6 +406,7 @@ mod tests {
             "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncontext_window_tokens = 0\n",
             "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncompaction_trigger_ratio = 0\n",
             "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncompaction_trigger_ratio = 1.5\n",
+            "[computer.builtin]\napi_base = 'https://api.example.test/v1'\ntoken = 'provider-secret'\nmodel = 'test-model'\ncontext_window_tokens = 16000\ncompaction_trigger_ratio = 0.75\ncompaction_keep_recent_tokens = 12000\n",
         ] {
             let path = directory.path().join(format!(
                 "sumi-{}.toml",
@@ -401,7 +421,8 @@ mod tests {
             let error = load(Some(&path)).unwrap_err();
             assert!(
                 error.to_string().contains("compaction_trigger")
-                    || error.to_string().contains("context_window_tokens"),
+                    || error.to_string().contains("context_window_tokens")
+                    || error.to_string().contains("compaction_keep_recent_tokens"),
                 "unexpected validation error: {error}"
             );
         }
