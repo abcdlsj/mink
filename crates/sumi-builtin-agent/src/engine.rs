@@ -8,7 +8,7 @@ use super::{
     provider::Provider,
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor},
-    types::{Chunk, Message, Response, ToolCall, ToolDef},
+    types::{Attachment, Chunk, Message, Response, ToolCall, ToolDef},
 };
 
 const COMPACTION_TRIGGER_TOKENS: usize = 32_000;
@@ -19,6 +19,7 @@ const MAX_TURN_ATTEMPTS: usize = 3;
 #[derive(Clone, Debug)]
 pub(super) struct Turn {
     pub(super) input: String,
+    pub(super) attachments: Vec<Attachment>,
     pub(super) blocked_tools: HashMap<String, String>,
 }
 
@@ -106,7 +107,14 @@ impl Engine {
             self.compact(session).await?;
         }
         if append_input {
-            session.add(Message::user(turn.input.clone()));
+            if turn.attachments.is_empty() {
+                session.add(Message::user(turn.input.clone()));
+            } else {
+                session.add(Message::user_with_attachments(
+                    turn.input.clone(),
+                    turn.attachments.clone(),
+                ));
+            }
         }
 
         let mut retried_without_images = false;
@@ -575,6 +583,7 @@ mod tests {
 
         let turn = Turn {
             input: "hi".into(),
+            attachments: Vec::new(),
             blocked_tools: HashMap::new(),
         };
         let mut session = Session::default();
@@ -625,6 +634,7 @@ mod tests {
 
         let turn = Turn {
             input: "test".into(),
+            attachments: Vec::new(),
             blocked_tools: HashMap::new(),
         };
         let mut session = Session::default();
@@ -684,6 +694,7 @@ mod tests {
             .run(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,
@@ -728,6 +739,7 @@ mod tests {
             .run(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,
@@ -764,6 +776,7 @@ mod tests {
             .run(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,
@@ -796,6 +809,7 @@ mod tests {
             .run_with_retries(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,
@@ -837,6 +851,7 @@ mod tests {
             .run_with_retries(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,
@@ -870,6 +885,7 @@ mod tests {
             .run_with_retries(
                 &Turn {
                     input: "continue".into(),
+                    attachments: Vec::new(),
                     blocked_tools: HashMap::new(),
                 },
                 &mut session,

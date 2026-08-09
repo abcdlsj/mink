@@ -1,14 +1,36 @@
-use std::path::Path;
-use std::path::PathBuf;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use tokio::process::Command;
 
-use crate::computer::application::ApplicationError;
+use crate::{agent::AgentError, config::SandboxConfig};
 
-pub(in crate::computer) struct SandboxAdapter;
+pub struct SandboxAdapter;
 
 impl SandboxAdapter {
-    pub(in crate::computer) fn validate() -> Result<(), ApplicationError> {
+    /// The shell used inside the sandbox. macOS ships bash 3.2 whose here-doc and here-string
+    /// temporary files ignore `TMPDIR` and always go to `/tmp`; a Homebrew bash honors `TMPDIR`,
+    /// so it is preferred on macOS and keeps heredoc scratch inside the Agent's `runs/` directory.
+    /// Without it the sandbox keeps denying `/tmp` writes and heredocs fail with EPERM.
+    #[cfg(target_os = "macos")]
+    pub fn shell() -> PathBuf {
+        for candidate in ["/opt/homebrew/bin/bash", "/usr/local/bin/bash"] {
+            let path = PathBuf::from(candidate);
+            if path.is_file() {
+                return path;
+            }
+        }
+        PathBuf::from("/bin/sh")
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn shell() -> PathBuf {
+        PathBuf::from("/bin/sh")
+    }
+
+    pub fn validate() -> Result<(), AgentError> {
         #[cfg(target_os = "macos")]
         if Path::new("/usr/bin/sandbox-exec").is_file() {
             return Ok(());
@@ -17,66 +39,76 @@ impl SandboxAdapter {
         if executable_on_path("bwrap").is_some() {
             return Ok(());
         }
-        Err(ApplicationError::DriverUnavailable)
+        Err(AgentError::Unavailable)
     }
 
-    pub(in crate::computer) fn command(
+    pub fn command(
         executable: &Path,
         agent_home: &Path,
         driver_home: &Path,
-        socket: &Path,
-        driver_token: &str,
-    ) -> Result<Command, ApplicationError> {
+        config: &SandboxConfig,
+        environment: &BTreeMap<String, String>,
+    ) -> Result<Command, AgentError> {
         Self::validate()?;
         #[cfg(target_os = "macos")]
         {
-            let sumi_executable = std::env::current_exe().unwrap_or_else(|_| executable.to_owned());
+            let runtime_executable = config.runtime_executable.clone().unwrap_or_else(|| {
+                std::env::current_exe().unwrap_or_else(|_| executable.to_owned())
+            });
             // macOS sandbox profiles match the resolved filesystem path. Paths like /tmp are
             // symlinks to /private/tmp, so profile entries built from the unresolved path silently
             // fail to grant read or write access.
             let executable = canonicalize_or_original(executable);
-            let sumi_executable = canonicalize_or_original(&sumi_executable);
+            let runtime_executable = canonicalize_or_original(&runtime_executable);
             let agent_home = canonicalize_or_original(agent_home);
             let driver_home = canonicalize_or_original(driver_home);
-            let socket = canonicalize_or_original(socket);
-            let profile = format!(
+            let socket = config.socket_path.as_deref().map(canonicalize_or_original);
+            let mut profile = format!(
                 "(version 1)(deny default)(allow process*)(allow network-outbound)\
                  (allow file-read* (subpath \"/System\") (subpath \"/usr\") \
                   (subpath \"/bin\") (subpath \"/sbin\") (subpath \"/Library\") \
                   (subpath \"/private\") (literal \"/\") (literal \"/dev/null\") \
                   (literal \"/dev/urandom\") \
                   (literal \"{}\") (literal \"{}\") (literal \"{}\") \
-                  (subpath \"{}\") (subpath \"{}\") (subpath \"{}\") \
-                  (literal \"{}\"))\
-                 (allow file-read-metadata)\
-                 (allow sysctl-read)\
-                 (allow file-write* (subpath \"{}\") (subpath \"{}\") \
-                  (literal \"{}\") (literal \"/dev/null\"))",
+                  (subpath \"{}\") (subpath \"{}\") (subpath \"{}\")",
                 escape(&executable)?,
-                escape(&sumi_executable)?,
+                escape(&runtime_executable)?,
                 escape(&agent_home)?,
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("memory"))?,
                 escape(&agent_home.join("runs"))?,
-                escape(&socket)?,
+            );
+            if let Some(socket) = &socket {
+                profile.push_str(&format!(" (literal \"{}\")", escape(socket)?));
+            }
+            profile.push_str(&format!(
+                ")\
+                 (allow file-read-metadata)\
+                 (allow sysctl-read)\
+                 (allow file-write* (subpath \"{}\") (subpath \"{}\") \
+                  (literal \"/dev/null\")",
                 escape(&agent_home.join("workspace"))?,
                 escape(&agent_home.join("runs"))?,
-                escape(&socket)?,
-            );
+            ));
+            if let Some(socket) = &socket {
+                profile.push_str(&format!(" (literal \"{}\")", escape(socket)?));
+            }
+            profile.push(')');
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);
             configure_environment(
                 &mut command,
                 &agent_home,
                 &driver_home,
-                &socket,
-                driver_token,
+                socket.as_deref(),
+                config,
+                environment,
             );
             return Ok(command);
         }
         #[cfg(target_os = "linux")]
         {
-            let bwrap = executable_on_path("bwrap").ok_or(ApplicationError::DriverUnavailable)?;
+            let bwrap = executable_on_path("bwrap").ok_or(AgentError::Unavailable)?;
             let mut command = Command::new(bwrap);
             command
                 .arg("--die-with-parent")
@@ -113,23 +145,29 @@ impl SandboxAdapter {
                 .arg("/agent/runs")
                 .arg("--ro-bind")
                 .arg(driver_home)
-                .arg("/agent/driver")
-                .arg("--ro-bind")
-                .arg(socket)
-                .arg("/runtime/daemon.sock")
-                .arg("--")
-                .arg(executable);
+                .arg("/agent/driver");
+            if let Some(socket) = &config.socket_path {
+                command
+                    .arg("--ro-bind")
+                    .arg(socket)
+                    .arg("/runtime/daemon.sock");
+            }
+            command.arg("--").arg(executable);
             configure_environment(
                 &mut command,
                 Path::new("/agent"),
                 Path::new("/agent/driver"),
-                Path::new("/runtime/daemon.sock"),
-                driver_token,
+                config
+                    .socket_path
+                    .as_deref()
+                    .map(|_| Path::new("/runtime/daemon.sock")),
+                config,
+                environment,
             );
             return Ok(command);
         }
         #[allow(unreachable_code)]
-        Err(ApplicationError::DriverUnavailable)
+        Err(AgentError::Unavailable)
     }
 }
 
@@ -142,8 +180,9 @@ fn configure_environment(
     command: &mut Command,
     agent_home: &Path,
     driver_home: &Path,
-    socket: &Path,
-    driver_token: &str,
+    socket: Option<&Path>,
+    config: &SandboxConfig,
+    environment: &BTreeMap<String, String>,
 ) {
     let mut path_entries = Vec::new();
     if let Ok(current_executable) = std::env::current_exe()
@@ -168,11 +207,15 @@ fn configure_environment(
             std::fs::canonicalize(agent_home.join("runs"))
                 .unwrap_or_else(|_| agent_home.join("runs")),
         )
-        .env("SUMI_SOCKET", socket)
-        .env("SUMI_DRIVER_TOKEN", driver_token)
         // Start at Agent Home so shell paths match the file-tool contract
         // (`workspace/<path>`, `memory/<path>`) instead of duplicating the prefix.
         .current_dir(agent_home);
+    if let Some(socket) = socket {
+        command.env("SUMI_SOCKET", socket);
+    }
+    for (key, value) in config.environment.iter().chain(environment) {
+        command.env(key, value);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -185,10 +228,10 @@ fn executable_on_path(name: &str) -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn escape(path: &Path) -> Result<String, ApplicationError> {
+fn escape(path: &Path) -> Result<String, AgentError> {
     path.to_str()
         .map(|value| value.replace('\\', "\\\\").replace('"', "\\\""))
-        .ok_or(ApplicationError::Internal)
+        .ok_or(AgentError::Internal)
 }
 
 #[cfg(test)]
@@ -201,13 +244,12 @@ mod tests {
             return;
         }
         let home = tempfile::tempdir().unwrap();
-        let socket = home.path().join("runtime/daemon.sock");
         let mut command = SandboxAdapter::command(
-            Path::new("/bin/sh"),
+            &SandboxAdapter::shell(),
             home.path(),
             &home.path().join("drivers/builtin"),
-            &socket,
-            "test-token",
+            &SandboxConfig::default(),
+            &BTreeMap::new(),
         )
         .unwrap();
         let output = command.arg("-c").arg("pwd -P").output().await.unwrap();
@@ -221,5 +263,41 @@ mod tests {
             String::from_utf8_lossy(&output.stdout).trim(),
             expected.to_str().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn shell_heredoc_writes_through_tmpdir() {
+        if SandboxAdapter::validate().is_err() {
+            return;
+        }
+        if cfg!(target_os = "macos") && SandboxAdapter::shell().as_path() == Path::new("/bin/sh") {
+            // Apple's system bash hardcodes /tmp for here-doc scratch and ignores TMPDIR;
+            // the sandbox denies /tmp writes, so heredocs cannot work without a modern bash.
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("runs")).unwrap();
+        std::fs::create_dir_all(home.path().join("workspace")).unwrap();
+        let mut command = SandboxAdapter::command(
+            &SandboxAdapter::shell(),
+            home.path(),
+            &home.path().join("drivers/builtin"),
+            &SandboxConfig::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let output = command
+            .arg("-c")
+            .arg("cat <<'EOF' > workspace/heredoc.txt\nhello\nEOF\ncat workspace/heredoc.txt")
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "heredoc failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
     }
 }

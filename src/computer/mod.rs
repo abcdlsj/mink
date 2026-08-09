@@ -8,9 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use adapters::{
-    AgentHomeAdapter, LocalIpcAdapter, SandboxAdapter, ServerConnectionAdapter, SqliteAdapter,
-};
+use adapters::{AgentHomeAdapter, LocalIpcAdapter, ServerConnectionAdapter, SqliteAdapter};
 use anyhow::{Context, ensure};
 use application::{
     ApplicationError,
@@ -24,6 +22,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sumi_builtin_agent::SandboxAdapter;
 use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoClientRequest};
 use uuid::Uuid;
 
@@ -101,7 +100,7 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
         server = %config.server_url,
         "Computer local baseline is ready"
     );
-    SandboxAdapter::validate().map_err(|error| anyhow::anyhow!(error))?;
+    SandboxAdapter::validate().map_err(|error| anyhow::anyhow!("{error:?}"))?;
     let mut driver_secret = [0_u8; 32];
     OsRng.fill_bytes(&mut driver_secret);
     let mut capability_store = SqliteAdapter::open(&database_path)
