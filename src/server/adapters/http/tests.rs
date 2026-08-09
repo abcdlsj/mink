@@ -99,6 +99,7 @@ impl CapabilityFixture {
             session_lifetime: SessionLifetime::from_hours(1).unwrap(),
             attachment_max_bytes: 100 * 1024 * 1024,
             queries: QueryRegistry::default(),
+            agent_graph_cache: AgentGraphCache::default(),
         };
         let mut headers = HeaderMap::new();
         headers.insert(

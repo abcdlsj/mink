@@ -19,7 +19,7 @@ pub(in crate::server::adapters) struct ChannelLeaveReplayQuery {
 
 #[derive(Clone)]
 pub(in crate::server::adapters) struct PostgresQueries {
-    pool: PgPool,
+    pub(in crate::server::adapters) pool: PgPool,
 }
 
 impl PostgresQueries {

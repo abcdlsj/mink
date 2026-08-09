@@ -12,6 +12,7 @@ import {
   type Computer,
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
+import { LlmUsagePanel } from "../components/LlmUsagePanel";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import { DialogFrame } from "../components/DialogFrame";
 
@@ -261,6 +262,7 @@ function ComputerDetail({
         <div><span>Daemon</span><strong className="tabular">v{computer.daemon_version}</strong></div>
         <div><span>Last seen</span><strong className="tabular">{computer.last_seen_at ? new Date(computer.last_seen_at).toLocaleString() : "Never connected"}</strong></div>
       </div>
+      {canManage ? <LlmUsagePanel computerId={computer.id} online={computer.status === "online"} /> : null}
           <section className="detail-panel computer-agents">
             <header className="detail-panel-heading">
           <div><p className="detail-section-label">Hosted workload</p><h3>Agents on this Computer</h3></div>

@@ -695,6 +695,7 @@ impl TransactionPort for PostgresAdapter {
     }
 }
 
+mod agent_graph;
 mod attachment;
 mod attention;
 mod conversation;
@@ -704,6 +705,7 @@ mod query;
 mod rows;
 mod task;
 
+pub(in crate::server::adapters) use agent_graph::*;
 pub(in crate::server::adapters) use query::*;
 use rows::*;
 

@@ -8,12 +8,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use adapters::{AgentHomeAdapter, LocalIpcAdapter, ServerConnectionAdapter, SqliteAdapter};
+use adapters::{
+    AgentHomeAdapter, LlmUsageWriter, LocalIpcAdapter, ServerConnectionAdapter, SqliteAdapter,
+};
 use anyhow::{Context, ensure};
 use application::{
     ApplicationError,
     pipeline::RunPipelineService,
-    ports::{AgentHomePort, DriverPort, TransactionPort},
+    ports::{AgentHomePort, DriverPort, LlmUsageStore, TransactionPort},
     recovery::RecoveryService,
 };
 use backon::{BackoffBuilder, ExponentialBuilder};
@@ -106,6 +108,20 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
     let mut capability_store = SqliteAdapter::open(&database_path)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
+    let usage_database_path = database_path.clone();
+    let (usage_tx, mut usage_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let Ok(usage_writer) = LlmUsageWriter::open(&usage_database_path).await else {
+            tracing::error!("LLM usage writer could not open the local daemon database");
+            return;
+        };
+        while let Some(record) = usage_rx.recv().await {
+            if let Err(error) = usage_writer.record(&record).await {
+                tracing::warn!(%error, "LLM usage record could not be stored locally");
+                return;
+            }
+        }
+    });
     let ipc = LocalIpcAdapter::bind(&daemon_socket_path(&computer_home))
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
@@ -193,8 +209,8 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
                     },
                 )
                 .await;
-            if result.is_err() {
-                tracing::warn!("local Agent capability request failed");
+            if let Err(error) = result {
+                tracing::warn!(%error, "local Agent capability request failed");
             }
         }
     });
@@ -203,7 +219,7 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
         config.codex_config_source.clone(),
         config.codex_auth_source.clone(),
     );
-    let mut driver = drivers::runtime(&computer_home, &config, driver_secret)
+    let mut driver = drivers::runtime(&computer_home, &config, driver_secret, Some(usage_tx))
         .map_err(|error| anyhow::anyhow!(error))?;
     RunPipelineService::recover(
         &mut storage,
@@ -459,7 +475,7 @@ async fn connect<P, D, H>(
     yield_interrupts: &mut tokio::sync::mpsc::UnboundedReceiver<RunId>,
 ) -> anyhow::Result<()>
 where
-    P: TransactionPort,
+    P: TransactionPort + LlmUsageStore,
     D: DriverPort,
     H: AgentHomePort,
 {
@@ -509,7 +525,13 @@ where
         anyhow::bail!("Server returned a non-text Computer handshake");
     };
     match serde_json::from_str::<ServerHandshake>(&handshake)? {
-        ServerHandshake::Welcome { .. } => {}
+        ServerHandshake::Welcome { .. } => {
+            tracing::info!(
+                computer_id = %secrets.computer_id,
+                daemon_session_id = %daemon_session_id,
+                "Computer connected to Server"
+            );
+        }
         ServerHandshake::Rejected { code, .. } => {
             anyhow::bail!("Server rejected Computer protocol: {code:?}")
         }
@@ -522,7 +544,13 @@ where
     let mut lost_driver_check = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!(
+                    computer_id = %secrets.computer_id,
+                    "Computer disconnected from Server on shutdown"
+                );
+                return Ok(());
+            }
             Some(run_id) = yield_interrupts.recv() => {
                 RunPipelineService::interrupt_yielded(
                     storage,

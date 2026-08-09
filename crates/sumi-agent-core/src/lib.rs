@@ -28,5 +28,6 @@ pub use plugin::{AgentPlugin, PluginContext};
 pub use provider::ProviderConfig;
 pub use sandbox::SandboxAdapter;
 pub use session::Session;
+pub use types::TokenUsage;
 pub use types::{Attachment, Message, ToolDef};
 pub use workspace::agent_rooted_path;

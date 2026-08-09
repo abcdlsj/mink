@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, path::Path};
 
-use sqlx::{Connection, Row, SqliteConnection, sqlite::SqliteConnectOptions};
-use time::OffsetDateTime;
+use async_trait::async_trait;
+use sqlx::{Connection, FromRow, Row, SqliteConnection, sqlite::SqliteConnectOptions};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use uuid::Uuid;
 
 use crate::{
     computer::application::{
@@ -11,9 +13,10 @@ use crate::{
         SessionScope, SessionState, TerminalStatus,
         command::Command,
         ports::{
-            CommandStatus, ComputerTransaction, LocalErrorCode, LocalEvent, StoredCommand,
-            TransactionPort,
+            CommandStatus, ComputerTransaction, LlmUsageStore, LocalErrorCode, LocalEvent,
+            StoredCommand, TransactionPort,
         },
+        usage::LlmUsageRecord,
     },
     ids::{AgentId, CommandId, EventId, InboxItemId, NoticeId, RunId, TaskId, ThreadId},
 };
@@ -104,10 +107,56 @@ impl SqliteAdapter {
             .map_err(map_sqlx)?;
             version = 2;
         }
-        if version != 2 {
+        if version == 2 {
+            sqlx::raw_sql(
+                "CREATE TABLE llm_usage (
+                     id TEXT PRIMARY KEY,
+                     run_id TEXT NOT NULL,
+                     agent_id TEXT NOT NULL,
+                     driver_kind TEXT NOT NULL CHECK (driver_kind IN ('codex', 'builtin')),
+                     model TEXT,
+                     input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+                     output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+                     cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0),
+                     cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+                     duration_ms INTEGER,
+                     created_at TEXT NOT NULL
+                 ) STRICT;
+                 CREATE INDEX llm_usage_created_at ON llm_usage (created_at);
+                 INSERT INTO schema_meta (version, applied_at) \
+                 VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+            )
+            .execute(&mut connection)
+            .await
+            .map_err(map_sqlx)?;
+            version = 3;
+        }
+        if version != 3 {
             return Err(ApplicationError::Internal);
         }
         Ok(Self { connection })
+    }
+
+    async fn llm_usage_rows(
+        &mut self,
+        since: OffsetDateTime,
+    ) -> Result<Vec<LlmUsageRow>, ApplicationError> {
+        let since = since
+            .format(&Rfc3339)
+            .map_err(|_| ApplicationError::Internal)?;
+        let rows = sqlx::query_as(
+            "SELECT id, run_id, agent_id, driver_kind, model, input_tokens, output_tokens, \
+             cached_input_tokens, cache_write_tokens, duration_ms, created_at \
+             FROM llm_usage WHERE created_at >= ? ORDER BY created_at ASC LIMIT 10000",
+        )
+        .bind(since)
+        .fetch_all(&mut self.connection)
+        .await
+        .map_err(|error| {
+            tracing::warn!(?error, "llm_usage_rows query failed");
+            map_sqlx(error)
+        })?;
+        Ok(rows)
     }
 
     async fn load(&mut self) -> Result<Snapshot, ApplicationError> {
@@ -207,7 +256,7 @@ impl SqliteAdapter {
         for run_snapshot in run_snapshots.into_values() {
             let run_id = run_snapshot.id;
             let run = LocalRun::rehydrate(run_snapshot).map_err(|error| {
-                tracing::error!(%run_id, ?error, "failed to rehydrate local Run");
+                tracing::error!(%run_id, %error, "failed to rehydrate local Run");
                 ApplicationError::Internal
             })?;
             snapshot.runs.insert(run_id, run);
@@ -436,6 +485,114 @@ impl SqliteAdapter {
             .map_err(map_sqlx)?;
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, FromRow)]
+pub(in crate::computer) struct LlmUsageRow {
+    pub(in crate::computer) id: String,
+    pub(in crate::computer) run_id: String,
+    pub(in crate::computer) agent_id: String,
+    pub(in crate::computer) driver_kind: String,
+    pub(in crate::computer) model: Option<String>,
+    pub(in crate::computer) input_tokens: i64,
+    pub(in crate::computer) output_tokens: i64,
+    pub(in crate::computer) cached_input_tokens: i64,
+    pub(in crate::computer) cache_write_tokens: i64,
+    pub(in crate::computer) duration_ms: Option<i64>,
+    pub(in crate::computer) created_at: String,
+}
+
+#[derive(Clone)]
+pub(in crate::computer) struct LlmUsageWriter {
+    pool: sqlx::sqlite::SqlitePool,
+}
+
+impl LlmUsageWriter {
+    pub(in crate::computer) async fn open(path: &Path) -> Result<Self, ApplicationError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(Self { pool })
+    }
+
+    pub(in crate::computer) async fn record(
+        &self,
+        record: &LlmUsageRecord,
+    ) -> Result<(), ApplicationError> {
+        let created_at = record
+            .created_at
+            .format(&Rfc3339)
+            .map_err(|_| ApplicationError::Internal)?;
+        sqlx::query(
+            "INSERT INTO llm_usage (id, run_id, agent_id, driver_kind, model, input_tokens, \
+             output_tokens, cached_input_tokens, cache_write_tokens, duration_ms, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(record.id.to_string())
+        .bind(record.run_id.to_string())
+        .bind(record.agent_id.to_string())
+        .bind(&record.driver_kind)
+        .bind(record.model.as_deref())
+        .bind(record.input_tokens)
+        .bind(record.output_tokens)
+        .bind(record.cached_input_tokens)
+        .bind(record.cache_write_tokens)
+        .bind(record.duration_ms)
+        .bind(created_at)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl LlmUsageStore for SqliteAdapter {
+    async fn llm_usage_since(
+        &mut self,
+        since: OffsetDateTime,
+    ) -> Result<Vec<LlmUsageRecord>, ApplicationError> {
+        let rows = self.llm_usage_rows(since).await?;
+        let mut records = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id = Uuid::parse_str(&row.id).map_err(|error| {
+                tracing::error!(value = %row.id, ?error, "invalid llm_usage id");
+                ApplicationError::Internal
+            })?;
+            let run_id = Uuid::parse_str(&row.run_id).map_err(|error| {
+                tracing::error!(value = %row.run_id, ?error, "invalid llm_usage run_id");
+                ApplicationError::Internal
+            })?;
+            let agent_id = Uuid::parse_str(&row.agent_id).map_err(|error| {
+                tracing::error!(value = %row.agent_id, ?error, "invalid llm_usage agent_id");
+                ApplicationError::Internal
+            })?;
+            let created_at = OffsetDateTime::parse(&row.created_at, &Rfc3339).map_err(|error| {
+                tracing::error!(value = %row.created_at, ?error, "invalid llm_usage created_at");
+                ApplicationError::Internal
+            })?;
+            records.push(LlmUsageRecord {
+                id,
+                run_id: RunId::from_uuid(run_id),
+                agent_id: AgentId::from_uuid(agent_id),
+                driver_kind: row.driver_kind,
+                model: row.model,
+                input_tokens: row.input_tokens,
+                output_tokens: row.output_tokens,
+                cached_input_tokens: row.cached_input_tokens,
+                cache_write_tokens: row.cache_write_tokens,
+                duration_ms: row.duration_ms,
+                created_at,
+            });
+        }
+        Ok(records)
     }
 }
 
@@ -918,7 +1075,7 @@ mod tests {
             .fetch_one(&mut adapter.connection)
             .await
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[tokio::test]
@@ -969,6 +1126,57 @@ mod tests {
             .unwrap();
         assert!(events.is_empty());
         assert_eq!(after, before);
+    }
+
+    #[tokio::test]
+    async fn llm_usage_records_are_stored_locally_and_readable_by_range() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("daemon.db");
+        let mut adapter = SqliteAdapter::open(&path).await.unwrap();
+        let writer = LlmUsageWriter::open(&path).await.unwrap();
+        let now = OffsetDateTime::now_utc();
+        let first = LlmUsageRecord {
+            id: Uuid::now_v7(),
+            run_id: RunId::from_uuid(Uuid::now_v7()),
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            driver_kind: "builtin".to_owned(),
+            model: Some("deepseek-v4-pro".to_owned()),
+            input_tokens: 1200,
+            output_tokens: 80,
+            cached_input_tokens: 900,
+            cache_write_tokens: 300,
+            duration_ms: Some(1500),
+            created_at: now,
+        };
+        let second = LlmUsageRecord {
+            id: Uuid::now_v7(),
+            run_id: RunId::from_uuid(Uuid::now_v7()),
+            agent_id: AgentId::from_uuid(Uuid::now_v7()),
+            driver_kind: "builtin".to_owned(),
+            model: Some("deepseek-v4-pro".to_owned()),
+            input_tokens: 800,
+            output_tokens: 40,
+            cached_input_tokens: 0,
+            cache_write_tokens: 0,
+            duration_ms: Some(900),
+            created_at: now,
+        };
+        writer.record(&first).await.unwrap();
+        writer.record(&second).await.unwrap();
+
+        let rows = adapter
+            .llm_usage_since(now.checked_sub(time::Duration::hours(1)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].input_tokens, 1200);
+        assert_eq!(rows[1].cached_input_tokens, 0);
+
+        let none = adapter
+            .llm_usage_since(now.checked_add(time::Duration::hours(1)).unwrap())
+            .await
+            .unwrap();
+        assert!(none.is_empty());
     }
 
     #[tokio::test]

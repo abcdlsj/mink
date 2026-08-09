@@ -6,4 +6,4 @@ pub(super) mod sqlite;
 pub(super) use filesystem::AgentHomeAdapter;
 pub(super) use local_ipc::LocalIpcAdapter;
 pub(super) use server_connection::ServerConnectionAdapter;
-pub(super) use sqlite::SqliteAdapter;
+pub(super) use sqlite::{LlmUsageWriter, SqliteAdapter};

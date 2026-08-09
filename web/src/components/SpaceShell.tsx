@@ -9,8 +9,10 @@ import {
   LoaderCircle,
   MessageCircle,
   Monitor,
+  Network,
   Palette,
   Plus,
+  Settings,
   Users,
   X,
   type LucideIcon,
@@ -42,10 +44,17 @@ import {
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
 import { designLabEnabled } from "../featureFlags";
+import {
+  AGENT_INSIGHTS_FEATURE_ID,
+  COMPANY_OFFICE_FEATURE_ID,
+  useFeatureEnabled,
+} from "../featureRegistry";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
+import { InsightsNavigation } from "./InsightsNavigation";
 import { PixelIdentity } from "./PixelIdentity";
 import { PixelWord } from "./PixelWord";
+import { SettingsNavigation } from "./SettingsNavigation";
 import { SumiMark } from "./SumiMark";
 
 export { PixelIdentity } from "./PixelIdentity";
@@ -67,7 +76,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "insights" | "settings" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -79,6 +88,8 @@ export function SpaceShell({
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
+  const agentInsightsEnabled = useFeatureEnabled(AGENT_INSIGHTS_FEATURE_ID);
+  const companyOfficeEnabled = useFeatureEnabled(COMPANY_OFFICE_FEATURE_ID);
   const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
@@ -308,12 +319,14 @@ export function SpaceShell({
             active={active === "channel" || active === "dm"}
             href={`/s/${space.data.slug}/channels/general`}
           />
-          <RailItem
-            icon={Building2}
-            label="Company"
-            active={active === "company"}
-            href={`/s/${space.data.slug}/company`}
-          />
+          {companyOfficeEnabled ? (
+            <RailItem
+              icon={Building2}
+              label="Company"
+              active={active === "company"}
+              href={`/s/${space.data.slug}/company`}
+            />
+          ) : null}
           <RailItem
             icon={Inbox}
             label="Inbox"
@@ -338,6 +351,14 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
+          {agentInsightsEnabled ? (
+            <RailItem
+              icon={Network}
+              label="Agent insights"
+              active={active === "insights"}
+              href={`/s/${space.data.slug}/insights/stats`}
+            />
+          ) : null}
           {designLabEnabled() ? (
             <RailItem
               icon={Palette}
@@ -354,6 +375,12 @@ export function SpaceShell({
           aria-label="Open navigation"
           title="Open navigation"
           onClick={openNavigation}
+        />
+        <RailItem
+          icon={Settings}
+          label="Settings"
+          active={active === "settings"}
+          href={`/s/${space.data.slug}/settings`}
         />
       </aside>
 
@@ -393,12 +420,14 @@ export function SpaceShell({
               active={active === "channel" || active === "dm"}
               href={`/s/${space.data.slug}/channels/general`}
             />
-            <NavigationItem
-              icon={Building2}
-              label="Company"
-              active={active === "company"}
-              href={`/s/${space.data.slug}/company`}
-            />
+            {companyOfficeEnabled ? (
+              <NavigationItem
+                icon={Building2}
+                label="Company"
+                active={active === "company"}
+                href={`/s/${space.data.slug}/company`}
+              />
+            ) : null}
             <NavigationItem
               icon={Inbox}
               label="Inbox"
@@ -423,6 +452,20 @@ export function SpaceShell({
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
             />
+            {agentInsightsEnabled ? (
+              <NavigationItem
+                icon={Network}
+                label="Agent insights"
+                active={active === "insights"}
+                href={`/s/${space.data.slug}/insights/stats`}
+              />
+            ) : null}
+            <NavigationItem
+              icon={Settings}
+              label="Settings"
+              active={active === "settings"}
+              href={`/s/${space.data.slug}/settings`}
+            />
           </div>
           {active === "members" || active === "agents" ? (
             <MembersNavigation members={members.data} activityByMemberId={activityByMemberId} roleByMemberId={roleByMemberId} spaceSlug={space.data.slug} locationPath={location.pathname} />
@@ -442,6 +485,10 @@ export function SpaceShell({
               spaceSlug={space.data.slug}
               locationPath={location.pathname}
             />
+          ) : active === "insights" ? (
+            <InsightsNavigation spaceSlug={space.data.slug} />
+          ) : active === "settings" ? (
+            <SettingsNavigation spaceSlug={space.data.slug} />
           ) : (
             <>
           <div className="nav-section-heading">

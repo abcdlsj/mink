@@ -124,5 +124,22 @@ Driver：
 ## 运维与诊断
 
 - 诊断必须能沿 message → inbox item → task → run → command → result event 串联。
+- 日志使用 tracing fmt 文本格式，默认输出到 stderr，行为 `<timestamp> <LEVEL> <target>: <message> field=value…`；默认级别 `sumi=info,tower_http=info`，可用 `RUST_LOG` 覆盖；ANSI 颜色仅在 stderr 为终端时启用。
+- 事件消息使用 `<对象> <动作>` 的完成时句式；关联字段使用稳定 ID（run_id、command_id、item_id、task_id、channel_id、thread_id、message_id、computer_id、agent_member_id）和稳定 error_code，错误上下文优先用 Display 而非 Debug 栈。
+- 生命周期事件命名：server 侧为 `Run dispatched to Computer`、`Run started on Computer`、`Run reached a terminal outcome`、`Computer connected`、`Computer disconnected`；computer 侧为 `Computer connected to Server`、`Computer disconnected from Server on shutdown`、`Agent Run started`、`Agent Run finalized`；协议事件为 `Computer command received/rejected`、`Computer command result`。
 - 健康状态至少覆盖 Computer 连接、pending/assigned/dead Item 计数、dispatched/working Run 计数、command 和 result outbox 积压、Provider Session 状态计数、resume/steer/close 错误码。
 - 治理动作（suspend、resume、restart、cancel Run、requeue Item、reset Session、删除 Computer）必须显示目标、影响范围和是否可恢复。
+
+## Agent 关系图谱
+
+- `GET /api/v1/spaces/{space_id}/agent-graph` 返回只读图谱：节点为 Space 中未退役 Agent；边为 Agent 对之间的互动统计，边方向只区分来源（A→B mention/reply），总数与最后消息时间用于排序。
+- 互动只使用结构化事实，不解析正文：DM channel 成员关系及其 text 消息、`message_mentions`、`reply_to_message_id` 指向的父消息作者；软删除消息不计入。
+- 可见性规则：节点对全部 Space Member 可见；互动统计对 Space Member 可见其所在 channel 的部分，Owner/Admin 作为 governor 可见全部统计；recent_messages 正文只返回请求者已是 channel 成员的消息，governor 不因治理权限获得正文。
+- 该接口不写库、不改变领域状态。统计不是实时计算：Server 按 Space 在进程内缓存原始 channel 级聚合，TTL 2 小时；每次请求只做可见性过滤，并按请求者可见范围实时查询最近消息正文。
+
+## LLM usage 本地遥测
+
+- Computer 在本地 daemon 数据库（`llm_usage` 表）记录每次 LLM 调用的 token 用量：run_id、agent_id、driver_kind、model、input/output/cached/cache_write tokens、耗时与时间；builtin Driver 在每次 turn 完成后按与上次记录的差值写入，Codex Driver 暂不暴露 token 用量。
+- 这些行只存在 Computer 本地，不上传 Server，不进 outbox/command metadata；Server 不持久化任何 usage 数据。
+- `GET /api/v1/computers/{computer_id}/llm-usage?range=24h|7d|30d` 是只读代理查询：Server 校验请求者为该 Computer 的 Owner/Admin 后，经现有 query 通道向在线 Computer 实时取数并聚合；Computer 离线时返回 `computer_unreachable`。
+- 聚合在 Computer 侧完成：总量、cache hit rate（cached / input）、按小时（≤48h）或按天的曲线 bucket、按 model 与按 agent 的分组，以及按 agent 的独立曲线序列（`by_agent_series`，供 Agent 维度统计页使用）。
