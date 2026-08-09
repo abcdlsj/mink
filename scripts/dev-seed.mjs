@@ -32,6 +32,9 @@ export const CODEX_COMMAND = process.env.SUMI_SEED_CODEX_COMMAND || "codex";
 export const DEV_SPACE = Object.freeze({ name: "Sumi Dev", slug: "sumi-dev", accent: "#F0602F" });
 export const DEV_CHANNEL_SLUG = "general";
 export const DEV_COMPUTER_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT ?? join(homedir(), ".sumi-dev-seed", "computer");
+export const COMPANY_DRIVE_ROOT =
+  process.env.SUMI_SEED_COMPANY_DRIVE_ROOT ??
+  join(homedir(), ".sumi", "server", "attachments", "company");
 export const DEV_SEED_STATE_ROOT = process.env.SUMI_SEED_COMPUTER_ROOT
   ? DEV_COMPUTER_ROOT
   : dirname(DEV_COMPUTER_ROOT);
@@ -153,6 +156,7 @@ export function buildSeedComputerConfig(
     ["server_url", JSON.stringify(server)],
     ["state_dir", JSON.stringify(stateDir)],
     ["open_pairing_browser", "false"],
+    ["company_drive_root", JSON.stringify(COMPANY_DRIVE_ROOT)],
   ]);
   if (codexHomeFromEnv) {
     forced.set("codex_config_source", JSON.stringify(join(codexHome, "config.toml")));
