@@ -26,6 +26,7 @@ Driver：
 
 ## 协议与投递
 
+- 当前 Computer 协议 schema 为 v3，Server 与 Computer 只宣告当前版本；wire required field 变更时提升版本，不在同一版本中兼容两套 schema。
 - 双方无共同版本时拒绝连接。
 - 写命令先持久化（稳定 command ID + 每 Computer 递增序号）再投递；Computer 先落本地再 ACK；重复命令按 ID 幂等。
 - query 是独立请求-响应通道：不持久化、不重放、不进 command 序号。
