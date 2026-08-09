@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Hash,
   Building2,
+  FolderOpen,
   Inbox,
   LockKeyhole,
   ListTodo,
@@ -437,6 +438,13 @@ export function SpaceShell({
             <InboxNavigation />
           ) : active === "tasks" ? (
             <TasksNavigation tasks={navTasks.data ?? []} spaceSlug={space.data.slug} pending={navTasks.isPending} />
+          ) : active === "company" ? (
+            <CompanyNavigation
+              spaceSlug={space.data.slug}
+              locationPath={location.pathname}
+              hqChannelId={channels.data.channels.find((channel) => channel.slug === "hq")?.id}
+              unreadChannelIds={unreadChannelIds}
+            />
           ) : (
             <>
           <div className="nav-section-heading">
@@ -650,6 +658,46 @@ function TasksNavigation({ tasks, spaceSlug, pending }: { tasks: Task[]; spaceSl
           <span title={task.title}>{task.title}</span>
         </Link>
       ))}
+    </div>
+  );
+}
+
+function CompanyNavigation({
+  spaceSlug,
+  locationPath,
+  hqChannelId,
+  unreadChannelIds,
+}: {
+  spaceSlug: string;
+  locationPath: string;
+  hqChannelId?: string;
+  unreadChannelIds: ReadonlySet<string>;
+}) {
+  const officeActive = locationPath.endsWith("/company/office") || locationPath.endsWith("/company");
+  const hqActive = locationPath.endsWith("/company/hq");
+  const driveActive = locationPath.endsWith("/company/drive");
+  return (
+    <div className="company-navigation">
+      <p className="nav-label">COMPANY</p>
+      <NavigationItem
+        icon={Building2}
+        label="Office"
+        active={officeActive}
+        href={`/s/${spaceSlug}/company/office`}
+      />
+      <NavigationItem
+        icon={Hash}
+        label="HQ"
+        active={hqActive}
+        href={`/s/${spaceSlug}/company/hq`}
+        unread={Boolean(hqChannelId && unreadChannelIds.has(hqChannelId))}
+      />
+      <NavigationItem
+        icon={FolderOpen}
+        label="Drive"
+        active={driveActive}
+        href={`/s/${spaceSlug}/company/drive`}
+      />
     </div>
   );
 }

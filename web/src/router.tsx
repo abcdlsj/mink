@@ -8,7 +8,7 @@ import {
 
 import { RouteChrome } from "./RouteChrome";
 import { ChannelPage } from "./screens/ChannelPage";
-import { CompanyPage } from "./screens/CompanyPage";
+import { CompanyDrivePage, CompanyHQPage, CompanyOfficePage } from "./screens/CompanyPage";
 import { AgentDetailPage } from "./screens/AgentDetailPage";
 import { ComputersPage } from "./screens/ComputersPage";
 import { DesignLabPage, DesignLabSurfacePage } from "./screens/DesignLabPage";
@@ -62,7 +62,27 @@ const channelRoute = createRoute({
 const companyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug/company",
-  component: CompanyPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/s/$spaceSlug/company/office",
+      params: { spaceSlug: params.spaceSlug },
+    });
+  },
+});
+const companyOfficeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/company/office",
+  component: CompanyOfficePage,
+});
+const companyHqRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/company/hq",
+  component: CompanyHQPage,
+});
+const companyDriveRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/company/drive",
+  component: CompanyDrivePage,
 });
 const membersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -135,6 +155,9 @@ const routeTree = rootRoute.addChildren([
   spaceEntryRoute,
   channelRoute,
   companyRoute,
+  companyOfficeRoute,
+  companyHqRoute,
+  companyDriveRoute,
   membersRoute,
   agentsRoute,
   designLabRoute,
