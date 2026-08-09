@@ -1627,9 +1627,189 @@ async fn completed_driver_turn_releases_unhandled_items_and_fails_run() {
         LocalEvent::RunResult {
             status: TerminalStatus::Failed,
             ref item_outcomes,
+            error_code: Some(LocalErrorCode::UnhandledItems),
             ..
         } if item_outcomes == &vec![(claimed, ItemDisposition::Released)]
     ));
+}
+
+#[tokio::test]
+async fn finish_requires_an_error_code_exactly_for_failed_runs() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let thread_id = thread_id();
+    let run = local_run(None, thread_id, []);
+    let run_id = run.view().id;
+    store.state.runs.insert(run_id, run);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        run_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        RunService::finish(
+            &mut store,
+            run_id,
+            TerminalStatus::Failed,
+            Vec::new(),
+            None,
+            None,
+        )
+        .await,
+        Err(ApplicationError::Conflict)
+    );
+    assert_eq!(
+        RunService::finish(
+            &mut store,
+            run_id,
+            TerminalStatus::Completed,
+            Vec::new(),
+            None,
+            Some(LocalErrorCode::DriverError),
+        )
+        .await,
+        Err(ApplicationError::Conflict)
+    );
+    assert_eq!(
+        store.state.runs[&run_id].view().state,
+        LocalRunState::Running
+    );
+}
+
+#[tokio::test]
+async fn channel_context_cursor_advances_only_on_success_and_never_recedes() {
+    let mut store = MemoryPort::default();
+    let mut driver = FakeDriver::default();
+    let agent_id = agent_id();
+    let channel_id = ChannelId::from_uuid(Uuid::now_v7());
+
+    let completed_id = run_id();
+    let completed = local_run_for_channel(completed_id, agent_id, channel_id, thread_id(), 7);
+    store.state.runs.insert(completed_id, completed);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        completed_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::finish(
+        &mut store,
+        completed_id,
+        TerminalStatus::Completed,
+        Vec::new(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        store.state.channel_contexts[&(agent_id, channel_id)].through_sequence,
+        7
+    );
+
+    let failed_id = run_id();
+    let failed = local_run_for_channel(failed_id, agent_id, channel_id, thread_id(), 9);
+    store.state.runs.insert(failed_id, failed);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        failed_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::finish(
+        &mut store,
+        failed_id,
+        TerminalStatus::Failed,
+        Vec::new(),
+        None,
+        Some(LocalErrorCode::DriverError),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        store.state.channel_contexts[&(agent_id, channel_id)].through_sequence,
+        7
+    );
+
+    let canceled_id = run_id();
+    let canceled = local_run_for_channel(canceled_id, agent_id, channel_id, thread_id(), 11);
+    store.state.runs.insert(canceled_id, canceled);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        canceled_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::stop(&mut store, &mut driver, canceled_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.state.channel_contexts[&(agent_id, channel_id)].through_sequence,
+        7
+    );
+
+    let yielded_id = run_id();
+    let yielded = local_run_for_channel(yielded_id, agent_id, channel_id, thread_id(), 12);
+    store.state.runs.insert(yielded_id, yielded);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        yielded_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::yield_run(&mut store, yielded_id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.state.channel_contexts[&(agent_id, channel_id)].through_sequence,
+        12
+    );
+
+    store.state.channel_contexts.insert(
+        (agent_id, channel_id),
+        ChannelContextState {
+            agent_id,
+            channel_id,
+            through_sequence: 20,
+        },
+    );
+    let old_snapshot_id = run_id();
+    let old_snapshot = local_run_for_channel(old_snapshot_id, agent_id, channel_id, thread_id(), 8);
+    store.state.runs.insert(old_snapshot_id, old_snapshot);
+    RunService::start(
+        &mut store,
+        &mut driver,
+        old_snapshot_id,
+        fingerprint(1, "workspace-a"),
+    )
+    .await
+    .unwrap();
+    RunService::finish(
+        &mut store,
+        old_snapshot_id,
+        TerminalStatus::Completed,
+        Vec::new(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        store.state.channel_contexts[&(agent_id, channel_id)].through_sequence,
+        20
+    );
 }
 
 #[tokio::test]
@@ -2063,6 +2243,27 @@ fn local_run_with_id<const N: usize>(
         focus_thread_id: thread_id,
         priority: default_priority(task_id.is_some()),
         input: test_input(agent_id, task_id, thread_id, items),
+    })
+    .unwrap()
+}
+
+fn local_run_for_channel(
+    id: RunId,
+    agent_id: AgentId,
+    channel_id: ChannelId,
+    thread_id: ThreadId,
+    channel_snapshot_sequence: u64,
+) -> LocalRun {
+    let mut input = test_input(agent_id, None, thread_id, []);
+    input.context.channel_id = channel_id;
+    input.context.channel_snapshot_sequence = channel_snapshot_sequence;
+    LocalRun::new(NewRun {
+        id,
+        agent_id,
+        task_id: None,
+        focus_thread_id: thread_id,
+        priority: default_priority(false),
+        input,
     })
     .unwrap()
 }

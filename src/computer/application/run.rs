@@ -429,6 +429,9 @@ impl RunService {
         continuation_note: Option<String>,
         error_code: Option<LocalErrorCode>,
     ) -> Result<EventId, ApplicationError> {
+        if (status == TerminalStatus::Failed) != error_code.is_some() {
+            return Err(ApplicationError::Conflict);
+        }
         tracing::info!(
             %run_id,
             status = ?status,
@@ -473,11 +476,23 @@ impl RunService {
                     run.finish(status)?;
                 }
                 if matches!(status, TerminalStatus::Completed | TerminalStatus::Yielded) {
-                    let run_view = run.view();
+                    let (agent_id, channel_id, snapshot_sequence) = {
+                        let run_view = run.view();
+                        (
+                            run_view.agent_id,
+                            run_view.input.context.channel_id,
+                            run_view.input.context.channel_snapshot_sequence,
+                        )
+                    };
+                    let through_sequence = transaction
+                        .channel_context(agent_id, channel_id)?
+                        .map_or(snapshot_sequence, |context| {
+                            context.through_sequence.max(snapshot_sequence)
+                        });
                     transaction.save_channel_context(super::ports::ChannelContextState {
-                        agent_id: run_view.agent_id,
-                        channel_id: run_view.input.context.channel_id,
-                        through_sequence: run_view.input.context.channel_snapshot_sequence,
+                        agent_id,
+                        channel_id,
+                        through_sequence,
                     })?;
                 }
                 if let Some((scope, generation)) = run.view().session {

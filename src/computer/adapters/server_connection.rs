@@ -789,8 +789,8 @@ mod tests {
         computer::{
             adapters::{filesystem::AgentHomeAdapter, sqlite::SqliteAdapter},
             application::ports::{
-                DriverCompletion, DriverTurnOutcome, OpenSessionRequest, OpenedSession,
-                ProcessEvidence, SteerOutcome,
+                ChannelContextState, DriverCompletion, DriverTurnOutcome, OpenSessionRequest,
+                OpenedSession, ProcessEvidence, SteerOutcome, TransactionPort,
             },
             application::{LocalRun, ProviderSession},
         },
@@ -799,7 +799,8 @@ mod tests {
             ThreadId,
         },
         protocol::computer::{
-            AgentConfiguration, AttentionStrength, CommandEnvelope, CommandSequence,
+            AgentConfiguration, AttentionStrength, ChannelActivityMessageSnapshot,
+            ChannelActivitySnapshot, CommandEnvelope, CommandSequence,
             DriverKind as WireDriverKind, FocusSnapshot, InboxItemSnapshot, InboxSourceKind,
             MessageContent, MessageSnapshot, RoleSnapshot, RunStart,
         },
@@ -823,6 +824,115 @@ mod tests {
 
         assert_eq!(item.source_kind, "channel_activity");
         assert_eq!(item.strength, WorkStrength::Ambient);
+    }
+
+    #[tokio::test]
+    async fn incremental_channel_activity_projects_only_new_unclaimed_non_focus_messages() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = SqliteAdapter::open(&directory.path().join("daemon.db"))
+            .await
+            .unwrap();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let channel_id = ChannelId::from_uuid(Uuid::now_v7());
+        let focus_thread_id = ThreadId::from_uuid(Uuid::now_v7());
+        let old_message_id = MessageId::from_uuid(Uuid::now_v7());
+        let claimed_item_message_id = MessageId::from_uuid(Uuid::now_v7());
+        let claimed_activity_message_id = MessageId::from_uuid(Uuid::now_v7());
+        let other_message_id = MessageId::from_uuid(Uuid::now_v7());
+
+        store
+            .transact(async |transaction| {
+                transaction.save_channel_context(ChannelContextState {
+                    agent_id,
+                    channel_id,
+                    through_sequence: 10,
+                })
+            })
+            .await
+            .unwrap();
+
+        let snapshot_message = |thread_id: ThreadId, message_id: MessageId, sequence: u64| {
+            ChannelActivityMessageSnapshot {
+                thread_id,
+                message: MessageSnapshot {
+                    message_id,
+                    author_member_id: MemberId::from_uuid(Uuid::now_v7()),
+                    sequence,
+                    content: MessageContent::Text {
+                        markdown: format!("message-{sequence}"),
+                    },
+                    created_at: OffsetDateTime::now_utc(),
+                },
+            }
+        };
+        let snapshot = ChannelActivitySnapshot {
+            channel_id,
+            snapshot_sequence: 14,
+            messages: vec![
+                snapshot_message(focus_thread_id, MessageId::from_uuid(Uuid::now_v7()), 11),
+                snapshot_message(ThreadId::from_uuid(Uuid::now_v7()), old_message_id, 10),
+                snapshot_message(
+                    ThreadId::from_uuid(Uuid::now_v7()),
+                    claimed_item_message_id,
+                    12,
+                ),
+                snapshot_message(
+                    ThreadId::from_uuid(Uuid::now_v7()),
+                    claimed_activity_message_id,
+                    13,
+                ),
+                snapshot_message(ThreadId::from_uuid(Uuid::now_v7()), other_message_id, 14),
+            ],
+        };
+        let dispatched_items = vec![
+            DispatchedItemInput {
+                item_id: InboxItemId::from_uuid(Uuid::now_v7()),
+                source_kind: "mention".to_owned(),
+                strength: WorkStrength::Hard,
+                task_id: None,
+                channel_id,
+                thread_id: ThreadId::from_uuid(Uuid::now_v7()),
+                message_id: Some(claimed_item_message_id),
+                content: None,
+                activity_events: Vec::new(),
+            },
+            DispatchedItemInput {
+                item_id: InboxItemId::from_uuid(Uuid::now_v7()),
+                source_kind: "channel_activity".to_owned(),
+                strength: WorkStrength::Ambient,
+                task_id: None,
+                channel_id,
+                thread_id: ThreadId::from_uuid(Uuid::now_v7()),
+                message_id: None,
+                content: None,
+                activity_events: vec![ActivityEventInput {
+                    sequence: 13,
+                    kind: "message".to_owned(),
+                    message_id: Some(claimed_activity_message_id),
+                    member_id: None,
+                }],
+            },
+        ];
+
+        let projected = incremental_channel_activity(
+            &mut store,
+            agent_id,
+            channel_id,
+            focus_thread_id,
+            &dispatched_items,
+            Some(&snapshot),
+        )
+        .await
+        .unwrap();
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].channel_seq, 14);
+        assert_eq!(projected[0].thread_id, snapshot.messages[4].thread_id);
+        assert_eq!(projected[0].message.message_id, other_message_id);
+        assert!(
+            !projected
+                .iter()
+                .any(|message| message.message.message_id == old_message_id)
+        );
     }
 
     #[async_trait(?Send)]
