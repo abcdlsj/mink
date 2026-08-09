@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -73,6 +73,65 @@ describe("System Notice timeline", () => {
 
     expect(row).not.toHaveClass("message-row--grouped");
     expect(screen.getByRole("img", { name: "Sumi avatar" })).toBeVisible();
+  });
+});
+
+describe("Channel sequence semantics", () => {
+  it("keeps the Channel root list separate and labels root and latest reply coordinates", async () => {
+    const root = {
+      ...humanMessage(4),
+      id: "root-message",
+      thread_id: "thread-1",
+      reply_count: 2,
+    };
+    const replies = [
+      { ...humanMessage(7), id: "reply-1", placement: "reply" as const, thread_id: "thread-1" },
+      { ...humanMessage(9), id: "reply-2", placement: "reply" as const, thread_id: "thread-1" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/api/v1/threads/thread-1")) {
+        return jsonResponse({
+          channel_id: "channel-1",
+          thread_id: "thread-1",
+          snapshot_channel_seq: 9,
+          is_following: false,
+          root,
+          replies,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MessageTimeline
+          timelineRef={createRef<HTMLDivElement>()}
+          page={pageWith([root])}
+          pending={false}
+          error={null}
+          retry={vi.fn()}
+          emptyTitle="No messages"
+          channelId="channel-1"
+          spaceSlug="sumi-lab"
+          openThread={vi.fn()}
+          activityByMemberId={new Map()}
+          members={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText("Channel sequence @4")).toHaveTextContent("@4");
+    expect(screen.getByRole("region", { name: "2 Thread replies" })).toBeVisible();
+    expect(container.querySelectorAll(".message-row")).toHaveLength(1);
+
+    const replySummary = screen.getByRole("button", { name: "2 replies" });
+    await waitFor(() => expect(replySummary).toHaveTextContent("latest @9"));
+    expect(replySummary).toHaveTextContent("2 replies");
+    expect(replySummary).toHaveAttribute(
+      "title",
+      "Open Thread; latest reply is Channel sequence @9",
+    );
   });
 });
 
@@ -562,6 +621,13 @@ function humanMessage(seq: number): Message {
     author: { id: "human-ada", kind: "human", display_name: "Ada" },
     content: { type: "text", body_markdown: "Hello" },
   };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 describe("collapsed message body style", () => {

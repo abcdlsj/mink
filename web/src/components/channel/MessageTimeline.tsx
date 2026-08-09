@@ -153,7 +153,13 @@ export function MessageTimeline({
                     <header>
                       <strong>{message.author.display_name}</strong>
                       <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
-                      <span className="message-seq">@{message.seq}</span>
+                      <span
+                        className="message-seq"
+                        aria-label={`Channel sequence @${message.seq}`}
+                        title={`Channel sequence @${message.seq}`}
+                      >
+                        @{message.seq}
+                      </span>
                     </header>
                   )}
                   <MessageBody
@@ -260,7 +266,13 @@ export function CompactMessage({ message, activityStatus, spaceSlug, members, di
       <div>
         <header>
           <strong>{message.author.display_name}</strong>
-          <span className="message-seq">@{message.seq}</span>
+          <span
+            className="message-seq"
+            aria-label={`Channel sequence @${message.seq}`}
+            title={`Channel sequence @${message.seq}`}
+          >
+            @{message.seq}
+          </span>
         </header>
         <MessageBody message={message} spaceSlug={spaceSlug} members={members} />
         {message.task ? <MessageTaskBadge task={message.task} spaceSlug={spaceSlug} /> : null}
@@ -331,11 +343,22 @@ function InlineThreadPreview({ threadId, replyCount, open }: { threadId: string;
     staleTime: 15_000,
   });
   const replies = thread.data?.replies.slice(-3) ?? [];
+  const latestReply = thread.data?.replies.at(-1);
   const hiddenReplyCount = Math.max(0, replyCount - replies.length);
   return (
     <section className="inline-thread-preview" aria-label={`${replyCount} Thread ${replyCount === 1 ? "reply" : "replies"}`}>
-      <button className="inline-thread-heading" type="button" aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} onClick={(event) => open(event.currentTarget)}>
-        <span>{hiddenReplyCount > 0 ? `${hiddenReplyCount} earlier ${hiddenReplyCount === 1 ? "reply" : "replies"}` : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`} <b aria-hidden="true">›</b></span>
+      <button
+        className="inline-thread-heading"
+        type="button"
+        aria-label={`${replyCount} ${replyCount === 1 ? "reply" : "replies"}`}
+        title={latestReply ? `Open Thread; latest reply is Channel sequence @${latestReply.seq}` : "Open Thread"}
+        onClick={(event) => open(event.currentTarget)}
+      >
+        <span>
+          {hiddenReplyCount > 0 ? `${hiddenReplyCount} earlier ${hiddenReplyCount === 1 ? "reply" : "replies"}` : `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`}
+          {latestReply ? <small aria-hidden="true"> · latest @{latestReply.seq}</small> : null}
+          <b aria-hidden="true">›</b>
+        </span>
       </button>
       {thread.isPending ? <span className="inline-thread-status">Loading replies…</span> : null}
       {thread.error ? <span className="inline-thread-status">Replies unavailable</span> : null}

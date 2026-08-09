@@ -35,6 +35,12 @@
   font-size: 15px;
 }
 
+.inline-thread-heading small {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
 .inline-thread-heading:hover,
 .inline-reply:hover {
   background: rgb(20 17 17 / 5%);
@@ -97,6 +103,19 @@
   padding: 3px 0;
   color: var(--muted);
   font-size: var(--text-section-title);
+}
+
+.channel-seq-hint {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thread-pane {

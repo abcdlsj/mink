@@ -271,6 +271,12 @@ export function MessageWorkspace({
         <div className="channel-title">
           <h1 id="channel-heading" tabIndex={-1} aria-label={title}>{title.replace(/^#/, "")}</h1>
           <p>{subtitle}</p>
+          <small
+            className="channel-seq-hint"
+            title="Message coordinates use the Channel sequence. Replies are shown in Threads."
+          >
+            Seq: Channel-wide
+          </small>
         </div>
         <div className="member-strip">
           <ul className="channel-member-avatars" aria-label="Channel members" tabIndex={0}>
