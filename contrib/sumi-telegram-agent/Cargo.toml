@@ -16,12 +16,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 chrono-tz = "0.10"
 hex = "0.4"
 pulldown-cmark = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 sumi-agent-core = { path = "../../crates/sumi-agent-core" }
+teloxide = { version = "0.13", default-features = false, features = ["rustls"] }
 tokio = { version = "1.0", features = ["fs", "io-util", "macros", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

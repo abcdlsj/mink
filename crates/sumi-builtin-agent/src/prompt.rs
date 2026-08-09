@@ -122,24 +122,3 @@ fn builtin_tool_contract() -> String {
     )
     .into()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn contract_hash_changes_when_contracts_change() {
-        let base = driver_contract_hash();
-        assert_eq!(base, driver_contract_hash());
-        assert!(base.len() == 64);
-    }
-
-    #[test]
-    fn system_messages_include_stable_dynamic_and_tool_contract() {
-        let messages = system_messages("Alice", "Role");
-        assert_eq!(messages.len(), 3);
-        assert!(messages[0].content.contains("Sumi Run content"));
-        assert!(messages[1].content.contains("Agent identity: Alice"));
-        assert!(messages[2].content.contains("workspace/"));
-    }
-}

@@ -19,6 +19,7 @@ use crate::{
     conversation::{Conversation, ConversationWorker, Job},
     telegram::TelegramClient,
 };
+use teloxide::types::UpdateKind;
 
 type ConversationRegistry = Arc<Mutex<HashMap<i64, mpsc::UnboundedSender<Job>>>>;
 
@@ -56,14 +57,17 @@ async fn main() -> anyhow::Result<()> {
         let mut tasks = Vec::new();
         let mut next_offset = offset;
         for update in updates {
-            next_offset = Some(update.update_id + 1);
-            let Some(message) = update.message else {
+            next_offset = Some(update.id.0 as i64 + 1);
+            let UpdateKind::Message(message) = update.kind else {
                 continue;
             };
-            if message.text.is_none() && message.photo.is_empty() && message.document.is_none() {
+            if message.text().is_none()
+                && message.photo().is_none()
+                && message.document().is_none()
+            {
                 continue;
             }
-            let chat_id = message.chat.id;
+            let chat_id = message.chat.id.0;
             let client = client.clone();
             let settings = settings.clone();
             let conversations = conversations.clone();

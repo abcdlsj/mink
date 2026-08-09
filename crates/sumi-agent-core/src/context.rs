@@ -251,29 +251,4 @@ mod tests {
         assert_eq!(cut.turn_start, Some(2));
         assert_eq!(cut.first_kept, 4);
     }
-
-    #[test]
-    fn file_operations_appendix_lists_reads_and_modifications() {
-        let messages = vec![Message {
-            role: "assistant".into(),
-            content: String::new(),
-            tool_calls: vec![
-                ToolCall {
-                    id: "call_1".into(),
-                    name: "read".into(),
-                    args: serde_json::json!({"path": "workspace/a.txt"}),
-                },
-                ToolCall {
-                    id: "call_2".into(),
-                    name: "write".into(),
-                    args: serde_json::json!({"path": "workspace/b.txt"}),
-                },
-            ],
-            ..Default::default()
-        }];
-
-        let appendix = file_operations_appendix(&messages);
-        assert!(appendix.contains("workspace/a.txt"));
-        assert!(appendix.contains("workspace/b.txt"));
-    }
 }

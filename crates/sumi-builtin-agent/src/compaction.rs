@@ -203,7 +203,10 @@ mod tests {
         assert!(through > 0);
         assert_eq!(session.metadata()["compactions"][0]["reason"], "preemptive");
         let projected = context.project(&session);
-        assert!(projected[0].content.contains("test summary"));
+        assert_eq!(
+            projected[0].content,
+            "Previous conversation summary (provider context only):\ntest summary\n\n---\n\n**Turn Context (split turn):**\n\ntest summary"
+        );
         assert_eq!(projected.len(), 1 + session.messages().len() - through);
     }
 

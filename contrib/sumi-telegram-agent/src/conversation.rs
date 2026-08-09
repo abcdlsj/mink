@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -27,9 +27,9 @@ use crate::{
     plugin::TelegramPlugin,
     scheduler::{ScheduledTask, SchedulerPlugin},
     state::{ConversationEntry, ConversationState},
-    telegram::{TelegramClient, guess_mime},
+    telegram::TelegramClient,
     text::sanitize_file_name,
-    types::Message,
+    types::{Message, text_content},
 };
 
 const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
@@ -181,17 +181,18 @@ impl Conversation {
     }
 
     pub async fn handle_message(&mut self, message: &Message) -> Result<()> {
-        if message.message_id <= self.last_message_id {
+        let message_id = message.id.0 as i64;
+        if message_id <= self.last_message_id {
             return Ok(());
         }
-        self.last_message_id = message.message_id;
-        let text = message.text_content();
-        self.plugin.set_reply_target(Some(message.message_id));
+        self.last_message_id = message_id;
+        let text = text_content(message);
+        self.plugin.set_reply_target(Some(message_id));
         self.scheduler_plugin
-            .set_reply_target(Some(message.message_id));
+            .set_reply_target(Some(message_id));
         self.react(REACTION_WORKING).await;
         if text.trim() == "/reset" {
-            self.reset(message.message_id).await?;
+            self.reset(message_id).await?;
             self.react(REACTION_DONE).await;
             self.persist().await?;
             return Ok(());
@@ -206,7 +207,7 @@ impl Conversation {
                     .send_message(
                         self.chat_id,
                         "Sorry, I could not process the attachment.",
-                        Some(message.message_id),
+                        Some(message_id),
                         None,
                     )
                     .await?;
@@ -244,7 +245,7 @@ impl Conversation {
                 .send_message(
                     self.chat_id,
                     "Sorry, an error occurred while starting the request.",
-                    Some(message.message_id),
+                    Some(message_id),
                     None,
                 )
                 .await?;
@@ -256,7 +257,7 @@ impl Conversation {
             TurnOutcome::Completed => {
                 self.react(REACTION_DONE).await;
                 if let Some(reply) = self.runtime.latest_reply(&self.locator).await? {
-                    self.send_reply(&reply, Some(message.message_id)).await?;
+                    self.send_reply(&reply, Some(message_id)).await?;
                 }
             }
             TurnOutcome::Failed => {
@@ -265,7 +266,7 @@ impl Conversation {
                     .send_message(
                         self.chat_id,
                         "Sorry, an error occurred while processing your request.",
-                        Some(message.message_id),
+                        Some(message_id),
                         None,
                     )
                     .await?;
@@ -276,7 +277,7 @@ impl Conversation {
                     .send_message(
                         self.chat_id,
                         "The request timed out.",
-                        Some(message.message_id),
+                        Some(message_id),
                         None,
                     )
                     .await?;
@@ -484,17 +485,16 @@ impl Conversation {
         let mut attachments = Vec::new();
         let mut descriptors = Vec::new();
         if let Some(photo) = message
-            .photo
-            .iter()
-            .max_by_key(|photo| photo.file_size.unwrap_or(0))
+            .photo()
+            .and_then(|photos| photos.iter().max_by_key(|photo| photo.file.size))
         {
             let (attachment, descriptor) = self
                 .download_attachment(
-                    message.message_id,
+                    message.id.0 as i64,
                     TelegramFile {
-                        file_id: photo.file_id.clone(),
-                        file_unique_id: photo.file_unique_id.clone(),
-                        declared_size: photo.file_size.unwrap_or(0) as usize,
+                        file_id: photo.file.id.clone(),
+                        file_unique_id: photo.file.unique_id.clone(),
+                        declared_size: photo.file.size as usize,
                         file_name: None,
                         mime_type: None,
                         image: true,
@@ -505,16 +505,16 @@ impl Conversation {
             attachments.push(attachment);
             descriptors.push(descriptor);
         }
-        if let Some(document) = &message.document {
+        if let Some(document) = message.document() {
             let (attachment, descriptor) = self
                 .download_attachment(
-                    message.message_id,
+                    message.id.0 as i64,
                     TelegramFile {
-                        file_id: document.file_id.clone(),
-                        file_unique_id: document.file_unique_id.clone(),
-                        declared_size: document.file_size.unwrap_or(0) as usize,
+                        file_id: document.file.id.clone(),
+                        file_unique_id: document.file.unique_id.clone(),
+                        declared_size: document.file.size as usize,
                         file_name: document.file_name.clone(),
-                        mime_type: document.mime_type.clone(),
+                        mime_type: document.mime_type.as_ref().map(|mime| mime.to_string()),
                         image: false,
                         fallback_kind: "document",
                     },
@@ -537,14 +537,11 @@ impl Conversation {
         );
         let remote = self.client.get_file(&file.file_id).await?;
         ensure!(
-            remote.file_size.unwrap_or(file.declared_size as i64) as usize <= MAX_FILE_BYTES,
+            remote.size as usize <= MAX_FILE_BYTES,
             "file exceeds the 20 MiB download limit"
         );
-        let file_path = remote
-            .file_path
-            .as_deref()
-            .context("Telegram returned no file path")?;
-        let bytes = self.client.download_file(file_path).await?;
+        let file_path = &remote.path;
+        let bytes = self.client.download_file(&remote).await?;
         ensure!(
             bytes.len() <= MAX_FILE_BYTES,
             "file exceeds the 20 MiB download limit"
@@ -675,24 +672,24 @@ fn build_turn_input(
 ) -> Value {
     let from = message.from.as_ref();
     let first_name = from
-        .and_then(|user| user.first_name.clone())
-        .or_else(|| message.chat.first_name.clone());
+        .map(|user| user.first_name.clone())
+        .or_else(|| message.chat.first_name().map(str::to_owned));
     let username = from
         .and_then(|user| user.username.clone())
-        .or_else(|| message.chat.username.clone());
+        .or_else(|| message.chat.username().map(str::to_owned));
     let sender = json!({
-        "id": from.map(|user| user.id).unwrap_or(message.chat.id),
+        "id": from.map(|user| user.id.0 as i64).unwrap_or(message.chat.id.0),
         "first_name": first_name,
         "username": username,
     });
     json!({
         "conversation": {
             "platform": "telegram",
-            "chat_id": message.chat.id,
-            "message_id": message.message_id,
+            "chat_id": message.chat.id.0,
+            "message_id": message.id.0,
             "sender": sender,
-            "text": message.text_content(),
-            "date": message.date,
+            "text": text_content(message),
+            "date": message.date.timestamp(),
         },
         "attachments": descriptors,
         "memory": memory,
@@ -709,30 +706,45 @@ fn content_hash(text: &str, descriptors: &[Value]) -> String {
     hex::encode(digest.finalize())
 }
 
+fn guess_mime(file_name: &str) -> &'static str {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".pdf") {
+        "application/pdf"
+    } else if lower.ends_with(".json") {
+        "application/json"
+    } else if lower.ends_with(".csv") {
+        "text/csv"
+    } else if lower.ends_with(".txt") || lower.ends_with(".md") {
+        "text/plain"
+    } else if lower.ends_with(".zip") {
+        "application/zip"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn turn_input_carries_platform_sender_and_attachment_descriptors() {
-        let message = Message {
-            message_id: 7,
-            chat: crate::types::Chat {
-                id: 42,
-                first_name: Some("Alice".into()),
-                username: None,
-            },
-            from: Some(crate::types::User {
-                id: 42,
-                first_name: Some("Alice".into()),
-                username: Some("alice".into()),
-            }),
-            text: Some("hello".into()),
-            caption: None,
-            photo: Vec::new(),
-            document: None,
-            date: 123,
-        };
+        let message: Message = serde_json::from_value(json!({
+            "message_id": 7,
+            "date": 123,
+            "chat": {"id": 42, "type": "private", "first_name": "Alice"},
+            "from": {"id": 42, "is_bot": false, "first_name": "Alice", "username": "alice"},
+            "text": "hello",
+        }))
+        .unwrap();
         let input = build_turn_input(
             &message,
             &[
