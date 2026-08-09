@@ -922,7 +922,8 @@ async fn builtin_metrics(
         report.cache_rate = report.cached_input_tokens as f64 / report.total_input_tokens as f64;
     }
 
-    let compaction = value["compaction"].as_object();
+    let metadata = value["metadata"].as_object().cloned().unwrap_or_default();
+    let compaction = metadata["compaction"].as_object();
     let through = compaction
         .and_then(|compaction| compaction["through"].as_u64())
         .unwrap_or(0) as usize;
@@ -933,7 +934,7 @@ async fn builtin_metrics(
     report.final_projected_context_tokens =
         Some(summary.len().div_ceil(4) + estimate_messages(retained));
 
-    if let Some(records) = value["compactions"].as_array() {
+    if let Some(records) = metadata["compactions"].as_array() {
         for record in records {
             let source_tokens = record["source_tokens"].as_u64().unwrap_or(0) as usize;
             let summary_tokens = record["summary_tokens"].as_u64().unwrap_or(0) as usize;

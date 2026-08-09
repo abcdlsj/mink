@@ -78,7 +78,8 @@ Driver：
 - 必须换新 generation：Task 终态、Linked Threads 成员集合不兼容、Driver/Role/workspace 变化、locator 丢失或 resume 失败、显式 reset。
 - 不得单独触发换新：token 量达到阈值、Run 数量、固定时间、Server 或 daemon 重启、yield 等待。
 - Session 丢失后 Computer 创建新 generation，并从 Server 事实、Agent Memory 和结构化 Run 结果重建执行上下文。
-- Builtin Provider Session 持久化每次模型调用的 token usage 和每次上下文压缩记录（触发原因、边界、估算 source/summary token），供运行期观测与 harness 基准测试使用。
+- Builtin Provider Session 持久化每次模型调用的 token usage 与嵌入方写入的上下文元数据；`sumi-builtin-agent` harness 把每次压缩记录（触发原因、边界、估算 source/summary token）写入 session metadata，供运行期观测与 harness 基准测试使用。
+- `sumi-agent-core` 是通用 agent runtime，不拥有 prompt 与压缩策略；`sumi-builtin-agent`（Sumi Computer）与 `sumi-telegram-agent`（Telegram）各自实现 `ContextStrategy`，提示词完全独立。
 - Builtin 上下文压缩按模型上下文窗口与触发比例（`computer.builtin.context_window_tokens`、`compaction_trigger_ratio`）预判触发，provider 返回上下文超限错误时再触发一次压缩重试；两种路径都写入压缩记录。
 - Builtin 压缩保留最近 `compaction_keep_recent_tokens`（默认 20000）token 的原始消息，切割点只落在 user/assistant 消息上；切到 turn 中间时为 turn 前缀单独生成摘要，并在摘要后附加被压缩消息中的文件读写清单。
 - Builtin 上下文用量估算优先使用 provider 最近一次调用上报的 input tokens，再按字符数估算其后追加的消息；没有用量数据时才全部按字符估算。

@@ -6,10 +6,10 @@
 
 mod agent;
 mod config;
+pub mod context;
 mod engine;
 mod memory;
 mod plugin;
-mod prompt;
 mod provider;
 mod sandbox;
 mod session;
@@ -18,10 +18,15 @@ mod types;
 mod workspace;
 
 pub use agent::{AgentError, AgentRuntime, Completion, TurnOutcome, TurnRequest};
-pub use config::{AgentConfig, CompactionConfig, SandboxConfig};
+pub use config::{AgentConfig, SandboxConfig};
+pub use context::{
+    ContextStrategy, CutPoint, IdentityContext, Summarizer, estimate_messages,
+    file_operations_appendix, find_cut_point,
+};
 pub use memory::{MemoryFile, PRIMARY_MEMORY_PATH};
 pub use plugin::{AgentPlugin, PluginContext};
 pub use provider::ProviderConfig;
 pub use sandbox::SandboxAdapter;
+pub use session::Session;
 pub use types::{Attachment, Message, ToolDef};
 pub use workspace::agent_rooted_path;

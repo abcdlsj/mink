@@ -1,4 +1,5 @@
 mod config;
+mod context;
 mod conversation;
 mod markdown;
 mod plugin;

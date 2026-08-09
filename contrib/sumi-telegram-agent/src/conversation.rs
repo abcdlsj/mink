@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     config::Settings,
+    context::{TelegramContext, cache_key, system_messages as telegram_system_messages},
     markdown::{ReplyImage, render_markdown},
     plugin::TelegramPlugin,
     scheduler::{ScheduledTask, SchedulerPlugin},
@@ -139,7 +140,7 @@ impl Conversation {
             provider: ProviderConfig::openai(settings.api_key.clone(), settings.model.clone())
                 .with_base_url(settings.api_base.clone()),
             sandbox: SandboxConfig::default(),
-            compaction: sumi_agent_core::CompactionConfig::default(),
+            context: Arc::new(TelegramContext::default()),
         };
         let agent_home = config.agent_home(agent_id);
         let plugin = Arc::new(TelegramPlugin::new(chat_id, client.clone()));
@@ -216,15 +217,20 @@ impl Conversation {
         let run_id = Uuid::now_v7();
         let memory = self.runtime.list_memory(self.agent_id).await?;
         let now = self.local_now().to_rfc3339();
+        let input = build_turn_input(message, &descriptors, &memory, &now);
+        let encoded = serde_json::to_string(&input).unwrap_or_default();
+        let hash = content_hash(&text, &descriptors);
         let request = TurnRequest {
-            product_contract: self.product_contract.clone(),
-            driver_contract: self.driver_contract.clone(),
-            identity: self.identity.clone(),
-            role: self.role.clone(),
-            input: build_turn_input(message, &descriptors, &memory, &now),
-            content_hash: content_hash(&text, &descriptors),
+            system_messages: telegram_system_messages(
+                &self.product_contract,
+                &self.driver_contract,
+                &self.identity,
+                &self.role,
+            ),
+            user_message: crate::context::turn_instruction(&encoded),
             attachments,
             blocked_tools: Default::default(),
+            prompt_cache_key: cache_key(&hash),
             sandbox_environment: Default::default(),
         };
         if let Err(error) = self
@@ -296,27 +302,32 @@ impl Conversation {
     async fn run_scheduled_task(&mut self, task: &ScheduledTask) -> Result<()> {
         let run_id = Uuid::now_v7();
         let memory = self.runtime.list_memory(self.agent_id).await?;
+        let input = json!({
+            "scheduled_task": {
+                "id": task.id,
+                "prompt": task.prompt,
+                "created_at_unix": task.created_at_unix,
+            },
+            "conversation": {
+                "platform": "telegram",
+                "chat_id": self.chat_id,
+            },
+            "memory": memory,
+            "now": self.local_now().to_rfc3339(),
+        });
+        let encoded = serde_json::to_string(&input).unwrap_or_default();
+        let hash = format!("scheduled-{}-{}", task.id, task.next_at_unix);
         let request = TurnRequest {
-            product_contract: self.product_contract.clone(),
-            driver_contract: self.driver_contract.clone(),
-            identity: self.identity.clone(),
-            role: self.role.clone(),
-            input: json!({
-                "scheduled_task": {
-                    "id": task.id,
-                    "prompt": task.prompt,
-                    "created_at_unix": task.created_at_unix,
-                },
-                "conversation": {
-                    "platform": "telegram",
-                    "chat_id": self.chat_id,
-                },
-                "memory": memory,
-                "now": self.local_now().to_rfc3339(),
-            }),
-            content_hash: format!("scheduled-{}-{}", task.id, task.next_at_unix),
+            system_messages: telegram_system_messages(
+                &self.product_contract,
+                &self.driver_contract,
+                &self.identity,
+                &self.role,
+            ),
+            user_message: crate::context::turn_instruction(&encoded),
             attachments: Vec::new(),
             blocked_tools: Default::default(),
+            prompt_cache_key: cache_key(&hash),
             sandbox_environment: Default::default(),
         };
         if let Err(error) = self

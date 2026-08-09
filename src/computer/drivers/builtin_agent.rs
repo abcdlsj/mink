@@ -1,13 +1,15 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
 use sumi_agent_core::{
-    AgentConfig, AgentError, AgentRuntime, CompactionConfig, Completion, ProviderConfig,
-    SandboxConfig, TurnOutcome, TurnRequest,
+    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
+    TurnRequest,
 };
+use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
 
 use crate::{
     computer::{
@@ -60,10 +62,10 @@ impl BuiltinRuntimeClient {
                 runtime_executable: None,
                 environment: BTreeMap::new(),
             },
-            compaction: CompactionConfig {
+            context: Arc::new(BuiltinContext::new(CompactionConfig {
                 trigger_tokens: builtin.compaction_trigger_tokens(),
                 keep_recent_tokens: builtin.compaction_keep_recent_tokens(),
-            },
+            })),
         };
         Ok(Self {
             driver_secret,
@@ -93,19 +95,25 @@ impl BuiltinRuntimeClient {
         }
     }
 
-    fn turn_request(input: &RunInput, driver_secret: &[u8]) -> TurnRequest {
+    fn turn_request(
+        input: &RunInput,
+        driver_secret: &[u8],
+    ) -> Result<TurnRequest, ApplicationError> {
         let driver_token = CapabilityService::driver_token(driver_secret, input.agent.agent_id);
-        TurnRequest {
-            product_contract: prompt::product_contract(),
-            driver_contract: prompt::driver_contract(),
-            identity: input.agent.identity.clone(),
-            role: input.agent.role.clone(),
-            input: input.model_view(),
-            content_hash: input.content_hash(),
+        let encoded =
+            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
+        Ok(TurnRequest {
+            system_messages: prompt::system_messages(&input.agent.identity, &input.agent.role),
+            user_message: prompt::turn_instruction(&encoded),
             attachments: Vec::new(),
             blocked_tools: HashMap::new(),
+            prompt_cache_key: format!(
+                "{}-{}",
+                input.content_hash(),
+                prompt::driver_contract_hash()
+            ),
             sandbox_environment: BTreeMap::from([("SUMI_DRIVER_TOKEN".to_owned(), driver_token)]),
-        }
+        })
     }
 }
 
@@ -142,7 +150,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         locator: &str,
         input: &RunInput,
     ) -> Result<(), ApplicationError> {
-        let request = Self::turn_request(input, &self.driver_secret);
+        let request = Self::turn_request(input, &self.driver_secret)?;
         self.runtime_mut()?
             .start_turn(run_id.into_uuid(), locator, request)
             .await

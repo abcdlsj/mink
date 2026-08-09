@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use std::{collections::BTreeMap, path::PathBuf};
+
+use crate::context::ContextStrategy;
 
 use secrecy::ExposeSecret;
 
@@ -22,25 +25,8 @@ pub struct AgentConfig {
     pub computer_home: PathBuf,
     pub provider: ProviderConfig,
     pub sandbox: SandboxConfig,
-    pub compaction: CompactionConfig,
-}
-
-/// Context compaction policy for the agent runtime.
-#[derive(Clone, Debug)]
-pub struct CompactionConfig {
-    /// Estimated/provided context tokens that trigger a preemptive compaction.
-    pub trigger_tokens: usize,
-    /// Recent context tokens kept unsummarized after compaction.
-    pub keep_recent_tokens: usize,
-}
-
-impl Default for CompactionConfig {
-    fn default() -> Self {
-        Self {
-            trigger_tokens: 32_000,
-            keep_recent_tokens: 20_000,
-        }
-    }
+    /// How the embedding projects and prepares the provider context.
+    pub context: Arc<dyn ContextStrategy>,
 }
 
 impl AgentConfig {
@@ -77,7 +63,7 @@ mod tests {
             computer_home: Path::new("/tmp/none").to_owned(),
             provider: ProviderConfig::openai("secret-value", String::new()),
             sandbox: SandboxConfig::default(),
-            compaction: CompactionConfig::default(),
+            context: Arc::new(crate::context::IdentityContext),
         };
         let error = invalid.validate().unwrap_err();
         assert!(!error.contains("secret-value"));
@@ -86,7 +72,7 @@ mod tests {
             computer_home: Path::new("/tmp/none").to_owned(),
             provider: ProviderConfig::openai("secret-value", "test-model".into()),
             sandbox: SandboxConfig::default(),
-            compaction: CompactionConfig::default(),
+            context: Arc::new(crate::context::IdentityContext),
         };
         assert!(valid.validate().is_ok());
         assert!(!format!("{valid:?}").contains("secret-value"));
