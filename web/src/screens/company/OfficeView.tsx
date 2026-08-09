@@ -23,18 +23,18 @@ const HOT_THRESHOLD = 5;
 const VISIT_HOLD_MS = 45_000;
 
 const DESKS: readonly { x: number; y: number }[] = [
-  { x: 140, y: 150 },
-  { x: 370, y: 150 },
-  { x: 600, y: 150 },
-  { x: 830, y: 150 },
-  { x: 140, y: 285 },
-  { x: 370, y: 285 },
-  { x: 600, y: 285 },
-  { x: 830, y: 285 },
-  { x: 140, y: 420 },
-  { x: 370, y: 420 },
-  { x: 600, y: 420 },
-  { x: 830, y: 420 },
+  { x: 245, y: 120 },
+  { x: 264, y: 120 },
+  { x: 695, y: 120 },
+  { x: 713, y: 120 },
+  { x: 88, y: 309 },
+  { x: 185, y: 316 },
+  { x: 275, y: 312 },
+  { x: 361, y: 317 },
+  { x: 841, y: 306 },
+  { x: 860, y: 330 },
+  { x: 86, y: 426 },
+  { x: 273, y: 427 },
 ];
 
 const MEETING_SPOTS: readonly { x: number; y: number }[] = [
@@ -48,7 +48,7 @@ const MEETING_SPOTS: readonly { x: number; y: number }[] = [
   { x: 480, y: 348 },
 ];
 
-const VISITOR_SPOT = { x: 872, y: 455 };
+const VISITOR_SPOT = { x: 860, y: 430 };
 
 interface DmVisit {
   visitorId: string;
@@ -333,11 +333,7 @@ export function CompanyOfficeView({
             className="office-room"
             style={{ transform: `scale(${scale})` }}
           >
-            <OfficeBackdrop />
-            {activeAgents.map((agent, index) => (
-              <OfficeDesk key={agent.member_id} desk={DESKS[index % DESKS.length]} working={agent.activity_status === "working"} />
-            ))}
-            <OfficeMeetingTable />
+            <OfficePlants />
             {activeAgents.map((agent) => {
               const desk = deskByMember.get(agent.member_id) ?? DESKS[0];
               const visit = [...dmVisits.values()].find((candidate) => candidate.visitorId === agent.member_id);
@@ -374,7 +370,7 @@ export function CompanyOfficeView({
                   to="/s/$spaceSlug/agents/$agentId"
                   params={{ spaceSlug, agentId: agent.member_id }}
                   style={{
-                    transform: `translate(${target.x - 12}px, ${target.y - 28}px)`,
+                    transform: `translate(${target.x - 16}px, ${target.y - 32}px)`,
                     transitionDuration: `${duration}ms`,
                   }}
                   onTransitionEnd={(event) => {
@@ -385,7 +381,12 @@ export function CompanyOfficeView({
                   }}
                   title={`${name} · ${activityLabel(status)}`}
                 >
-                  <PixelAgent seed={agent.member_id} pose={pose} working={working} talking={talk} />
+                  <PixelAgent
+                    pose={pose}
+                    working={working}
+                    talking={talk}
+                    flip={target.x < desk.x}
+                  />
                   <span className="office-agent-label">
                     <i className={`office-status-dot office-status-dot--${status}`} aria-hidden="true" />
                     <span>{name}</span>
@@ -399,51 +400,23 @@ export function CompanyOfficeView({
       {isGovernor ? (
         <p className="office-privacy-note">Agent-to-Agent DMs are visible because you govern this Space.</p>
       ) : null}
+      <p className="office-attribution">
+        Office scene &amp; sprites by{" "}
+        <a href="https://arlantr.itch.io/free-office-pixel-art" target="_blank" rel="noreferrer">
+          Arlan_TR
+        </a>{" "}
+        · Free office pixel art
+      </p>
     </section>
   );
 }
 
-function OfficeBackdrop() {
+function OfficePlants() {
   return (
     <>
-      <div className="office-wall" aria-hidden="true">
-        <i className="office-window" />
-        <i className="office-window" />
-        <i className="office-window" />
-        <span className="office-door">
-          <b />
-        </span>
-      </div>
-      <span className="office-plant" aria-hidden="true"><b /><b /><b /><i /></span>
-      <span className="office-cooler" aria-hidden="true"><b /><i /><i /></span>
-      <span className="office-rug" aria-hidden="true" />
+      <span className="office-plant-sprite" style={{ transform: "translate(44px, 398px)" }} aria-hidden="true" />
+      <span className="office-plant-sprite" style={{ transform: "translate(864px, 288px)" }} aria-hidden="true" />
     </>
-  );
-}
-
-function OfficeDesk({ desk, working }: { desk: { x: number; y: number }; working: boolean }) {
-  return (
-    <span
-      className={`office-desk${working ? " office-desk--working" : ""}`}
-      style={{ transform: `translate(${desk.x - 82}px, ${desk.y - 38}px)` }}
-      aria-hidden="true"
-    >
-      <span className="office-desk-monitor"><b /><i /></span>
-      <span className="office-desk-top" />
-      <span className="office-desk-leg office-desk-leg--left" />
-      <span className="office-desk-leg office-desk-leg--right" />
-    </span>
-  );
-}
-
-function OfficeMeetingTable() {
-  return (
-    <span className="office-meeting" style={{ transform: "translate(365px, 297px)" }} aria-hidden="true">
-      <i className="office-meeting-chair office-meeting-chair--top" />
-      <i className="office-meeting-chair office-meeting-chair--bottom" />
-      <i className="office-meeting-chair office-meeting-chair--left" />
-      <i className="office-meeting-chair office-meeting-chair--right" />
-    </span>
   );
 }
 

@@ -4366,237 +4366,63 @@ pre {
   left: 0;
   width: 960px;
   height: 540px;
+  background-image: url("/office/arlantr-office.png");
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
   transform-origin: 0 0;
 }
-.office-wall {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 960px;
-  height: 92px;
-  border-bottom: 4px solid var(--ink);
-  background: #e3d5bb;
-}
-.office-window {
-  position: absolute;
-  top: 22px;
-  width: 86px;
-  height: 52px;
-  border: 4px solid var(--ink);
-  background: #bfe3e8;
-}
-.office-window:nth-of-type(1) {
-  left: 110px;
-}
-.office-window:nth-of-type(2) {
-  left: 370px;
-}
-.office-window:nth-of-type(3) {
-  left: 630px;
-}
-.office-door {
-  position: absolute;
-  top: 20px;
-  right: 24px;
-  width: 48px;
-  height: 72px;
-  border: 4px solid var(--ink);
-  background: #b98b5a;
-}
-.office-door b {
-  position: absolute;
-  top: 30px;
-  right: 5px;
-  width: 4px;
-  height: 4px;
-  background: var(--ink);
-}
-.office-rug {
-  position: absolute;
-  top: 297px;
-  left: 365px;
-  width: 230px;
-  height: 96px;
-  border: 3px solid var(--ink);
-  background: #e7b98a;
-}
-.office-plant {
-  position: absolute;
-  top: 428px;
-  left: 30px;
-  width: 36px;
-  height: 48px;
-}
-.office-plant b {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--ink);
-  background: var(--green);
-}
-.office-plant b:nth-of-type(1) {
-  top: 4px;
-  left: 0;
-}
-.office-plant b:nth-of-type(2) {
-  top: 0;
-  left: 12px;
-}
-.office-plant b:nth-of-type(3) {
-  top: 6px;
-  left: 22px;
-}
-.office-plant i {
-  position: absolute;
-  top: 18px;
-  left: 8px;
-  width: 20px;
-  height: 18px;
-  border: 3px solid var(--ink);
-  background: #b98b5a;
-}
-.office-cooler {
-  position: absolute;
-  top: 424px;
-  left: 900px;
-  width: 34px;
-  height: 56px;
-}
-.office-cooler b {
-  position: absolute;
-  top: 0;
-  left: 4px;
-  width: 26px;
-  height: 42px;
-  border: 3px solid var(--ink);
-  background: #8fb7d9;
-}
-.office-cooler i:nth-of-type(1) {
-  position: absolute;
-  top: 44px;
-  left: 4px;
-  width: 26px;
-  height: 8px;
-  border: 2px solid var(--ink);
-  background: #d8c5a3;
-}
-.office-cooler i:nth-of-type(2) {
-  position: absolute;
-  top: 22px;
-  left: 2px;
-  width: 4px;
-  height: 4px;
-  background: var(--accent);
-}
-.office-desk {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 1;
-  width: 150px;
-  height: 64px;
-}
-.office-desk-monitor {
-  position: absolute;
-  top: 4px;
-  left: 47px;
-  width: 56px;
-  height: 38px;
-  border: 3px solid var(--ink);
-  background: #2b2622;
-}
-.office-desk-monitor b {
-  position: absolute;
-  top: 5px;
-  left: 4px;
-  width: 42px;
-  height: 22px;
-  background: #bfe3e8;
-}
-.office-desk-monitor i {
-  position: absolute;
-  top: 29px;
-  left: 20px;
-  width: 10px;
-  height: 6px;
-  background: #4b443a;
-}
-.office-desk-top {
-  position: absolute;
-  top: 42px;
-  left: 0;
-  width: 150px;
-  height: 8px;
-  border: 2px solid var(--ink);
-  background: #9a7446;
-}
-.office-desk-leg {
-  position: absolute;
-  top: 50px;
-  width: 8px;
-  height: 10px;
-  border: 2px solid var(--ink);
-  background: #6b5234;
-}
-.office-desk-leg--left {
-  left: 16px;
-}
-.office-desk-leg--right {
-  right: 16px;
-}
-.office-desk--working .office-desk-monitor b {
-  animation: office-screen 1.6s steps(2, end) infinite;
-}
-@keyframes office-screen {
-  0%,
-  49% {
-    background: #bfe3e8;
-  }
-  50%,
-  100% {
-    background: #a7d3da;
-  }
-}
-.office-meeting {
+.office-plant-sprite {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 2;
-  width: 230px;
-  height: 86px;
-  border: 3px solid var(--ink);
-  background: #d8c5a3;
+  width: 32px;
+  height: 32px;
+  background-image: url("/office/arlantr-plant.png");
+  background-repeat: no-repeat;
+  background-size: 224px 32px;
+  background-position: 0 0;
+  image-rendering: pixelated;
+  animation: arlantr-plant 1.05s steps(1, end) infinite;
 }
-.office-meeting-chair {
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--ink);
-  background: #7e5a3b;
-}
-.office-meeting-chair--top {
-  top: -18px;
-  left: 104px;
-}
-.office-meeting-chair--bottom {
-  bottom: -18px;
-  left: 104px;
-}
-.office-meeting-chair--left {
-  top: 32px;
-  left: -18px;
-}
-.office-meeting-chair--right {
-  top: 32px;
-  right: -18px;
+@keyframes arlantr-plant {
+  0%,
+  14.2% {
+    background-position: 0 0;
+  }
+  14.3%,
+  28.5% {
+    background-position: -32px 0;
+  }
+  28.6%,
+  42.8% {
+    background-position: -64px 0;
+  }
+  42.9%,
+  57.1% {
+    background-position: -96px 0;
+  }
+  57.2%,
+  71.4% {
+    background-position: -128px 0;
+  }
+  71.5%,
+  85.7% {
+    background-position: -160px 0;
+  }
+  85.8%,
+  100% {
+    background-position: -192px 0;
+  }
 }
 .office-agent {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 3;
-  width: 24px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   color: inherit;
   text-decoration: none;
   transform-origin: 0 0;
@@ -4608,7 +4434,7 @@ pre {
 }
 .office-agent-label {
   position: absolute;
-  top: 30px;
+  top: 34px;
   left: 50%;
   display: inline-flex;
   width: 92px;
@@ -4662,16 +4488,29 @@ pre {
   font-size: 11px;
   text-align: center;
 }
+.office-attribution {
+  margin: 0;
+  padding: 0 20px 10px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+.office-attribution a {
+  color: var(--ink-soft);
+}
 .pixel-agent {
   position: relative;
   display: block;
-  width: 24px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
+  background-image: url("/office/arlantr-character.png");
+  background-repeat: no-repeat;
+  background-size: 416px 32px;
+  background-position: var(--office-x, 0px) 0;
+  image-rendering: pixelated;
 }
-.pixel-agent svg {
-  display: block;
-  width: 100%;
-  height: 100%;
+.pixel-agent--flip {
+  transform: scaleX(-1);
 }
 .pixel-agent__bubble {
   position: absolute;
@@ -4690,54 +4529,36 @@ pre {
   height: 3px;
   background: var(--ink);
 }
-.pixel-agent__legs-b {
-  opacity: 0;
-}
-@keyframes pixel-walk-a {
+@keyframes arlantr-walk {
   0%,
-  49% {
-    opacity: 1;
+  49.99% {
+    background-position: 0 0;
   }
   50%,
   100% {
-    opacity: 0;
+    background-position: -32px 0;
   }
 }
-@keyframes pixel-walk-b {
+.pixel-agent--walk {
+  animation: arlantr-walk 480ms steps(1, end) infinite;
+}
+@keyframes arlantr-type {
   0%,
-  49% {
-    opacity: 0;
+  49.99% {
+    background-position: -256px 0;
   }
   50%,
   100% {
-    opacity: 1;
+    background-position: -352px 0;
   }
 }
-.pixel-agent--walk .pixel-agent__legs-a {
-  animation: pixel-walk-a 460ms steps(1, end) infinite;
-}
-.pixel-agent--walk .pixel-agent__legs-b {
-  animation: pixel-walk-b 460ms steps(1, end) infinite;
-}
-@keyframes pixel-typing {
-  0%,
-  49% {
-    transform: translateY(0);
-  }
-  50%,
-  100% {
-    transform: translateY(1px);
-  }
-}
-.pixel-agent--typing .pixel-agent__arms {
-  animation: pixel-typing 300ms steps(1, end) infinite;
-  transform-origin: 0 0;
+.pixel-agent--typing {
+  animation: arlantr-type 360ms steps(1, end) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .pixel-agent--walk .pixel-agent__legs-a,
-  .pixel-agent--walk .pixel-agent__legs-b,
-  .pixel-agent--typing .pixel-agent__arms,
-  .office-desk--working .office-desk-monitor b {
+  .pixel-agent--walk,
+  .pixel-agent--typing,
+  .office-plant-sprite {
     animation: none;
   }
 }
