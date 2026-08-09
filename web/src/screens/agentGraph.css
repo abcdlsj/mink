@@ -84,11 +84,8 @@
 }
 
 .graph-edge-line {
-  stroke: var(--line-strong);
-}
-
-.graph-edge--active .graph-edge-line {
-  stroke: var(--accent);
+  stroke: var(--ink);
+  stroke-width: 1;
 }
 
 .graph-edge--dimmed .graph-edge-line {
@@ -110,38 +107,36 @@
   cursor: grab;
 }
 
-.graph-node circle {
-  fill: var(--paper);
-  stroke: var(--ink);
-  stroke-width: 2px;
+.graph-node-avatar {
+  overflow: visible;
 }
 
-.graph-node text {
+.graph-node-avatar .pixel-identity {
+  width: 36px;
+  height: 36px;
+}
+
+.graph-node-label {
   fill: var(--ink);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   pointer-events: none;
   user-select: none;
 }
 
-.graph-node-label {
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.graph-node--active circle {
-  stroke: var(--accent);
-  stroke-width: 3px;
+.graph-node--active .graph-node-avatar .pixel-identity {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .graph-node--dimmed {
   opacity: 0.3;
 }
 
-.graph-node:hover circle,
-.graph-node:focus-visible circle {
-  stroke: var(--accent);
-  stroke-width: 3px;
+.graph-node:hover .graph-node-avatar .pixel-identity,
+.graph-node:focus-visible .graph-node-avatar .pixel-identity {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .agent-graph-panel {

@@ -24,7 +24,6 @@ import "./agentGraph.css";
 const VIEW_WIDTH = 900;
 const VIEW_HEIGHT = 560;
 const LAYOUT_ITERATIONS = 220;
-const NODE_RADIUS = 22;
 
 export interface GraphView {
   x: number;
@@ -267,7 +266,6 @@ export function AgentGraphWorkspace({
                 const key = edgeKey(edge);
                 const active = selectedEdgeKey === key || selectedNodeId === a.member_id || selectedNodeId === b.member_id;
                 const dimmed = (selectedNodeId || selectedEdgeKey) && !active;
-                const width = 1 + Math.min(6, Math.log2(1 + edge.total_interactions) * 1.25);
                 return (
                   <g
                     key={key}
@@ -297,7 +295,6 @@ export function AgentGraphWorkspace({
                       y1={a.y}
                       x2={b.x}
                       y2={b.y}
-                      strokeWidth={width}
                     />
                     <line className="graph-edge-hit" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
                   </g>
@@ -327,11 +324,12 @@ export function AgentGraphWorkspace({
                     }}
                     onKeyDown={(event) => handleNodeKeyDown(event, node.member_id)}
                   >
-                    <circle r={NODE_RADIUS} />
-                    <text className="graph-node-initial" textAnchor="middle" dominantBaseline="central">
-                      {node.display_name.slice(0, 1).toUpperCase()}
-                    </text>
-                    <text className="graph-node-label" textAnchor="middle" y={NODE_RADIUS + 14}>
+                    <foreignObject className="graph-node-avatar" x={-18} y={-18} width={36} height={36}>
+                      <div>
+                        <PixelIdentity name={node.display_name} kind="agent" seed={node.member_id} />
+                      </div>
+                    </foreignObject>
+                    <text className="graph-node-label" textAnchor="middle" y={27}>
                       {node.display_name}
                     </text>
                   </g>
