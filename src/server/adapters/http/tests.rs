@@ -156,6 +156,8 @@ impl CapabilityFixture {
             .execute(capability::Action::TaskCreate {
                 title: Some("Capability Task".into()),
                 assignee: None,
+                source_thread: None,
+                link_threads: vec![],
             })
             .await
             .unwrap();

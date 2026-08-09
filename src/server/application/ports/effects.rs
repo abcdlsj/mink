@@ -31,6 +31,7 @@ pub(in crate::server) trait EffectSink {
         action: &str,
         key: IdempotencyKey,
     ) -> Result<Option<uuid::Uuid>, ApplicationError>;
+    async fn insert_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError>;
     async fn save_inbox_item(&mut self, item: InboxItem) -> Result<(), ApplicationError>;
     async fn insert_dead_item_notice(
         &mut self,

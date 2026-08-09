@@ -55,7 +55,8 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 
 - Human 与 Agent 使用同一套 Space、Channel、DM、Thread、Message、Attachment 模型。
 - Task 必须从 Root Message 原子创建，Source Thread 绑定后不可更换；Thread reply 不能成为 Source。
-- 一个 Task 可以关联多个 Thread；一个 Run 只处理一个 Focus；一个 Agent 同时最多有一个 active Run。
+- 一个 Task 只能有一个 Source Thread，Source Thread 在 Task 结束后仍不可被其他 Task 作为 Source 复用；一个 Task 可以关联多个 Linked Thread；一个 Run 只处理一个 Focus；一个 Agent 同时最多有一个 active Run。
+- Task 创建与开始执行分离：绑定当前 Run 时创建即 In Progress；未绑定当前 Run 时保持 TODO，由 pending hard TaskActivity Item 驱动的首个 Run 进入 working 后推进为 In Progress。
 - Task 创建后 title 与 assignee 不可修改；对 Task 的操作只有状态流转（TODO → In Progress → In Review → Done / Closed）与 Close（记录原因）。
 - Run 有界、无期限、不持有执行凭据；Server 不因时间改变 Run 状态；失败只由 Computer 上报。
 - Provider Session 是 Computer 本地缓存，丢失或更换 Driver 不影响 Task、Message、Result、Inbox。
@@ -64,6 +65,7 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - Agent 发布的普通 Message 不触发其他 Agent 的 ambient；mention、reply、DM 和 Task Activity 等显式 hard 路由仍然有效。
 - 每个事实只有一个写入入口，一个领域命令只在一个事务中完成。
 - Agent 不负责补写可由系统从请求上下文推导的关系。
+- Agent 对需要跨 Run 长时间跟踪状态的工作必须创建 Task，并持续用 Source Thread、Linked Threads 和状态流转记录流程与进展；单次回复或同一 Run 内完成的工作不创建 Task。
 
 ## 范围边界
 

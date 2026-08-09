@@ -60,6 +60,10 @@ pub(crate) enum Action {
     TaskCreate {
         title: Option<String>,
         assignee: Option<MemberId>,
+        #[serde(default)]
+        source_thread: Option<ThreadId>,
+        #[serde(default)]
+        link_threads: Vec<ThreadId>,
     },
     TaskLinkThread {
         thread_id: ThreadId,
