@@ -20,6 +20,7 @@ import { LoginPage } from "./screens/LoginPage";
 import { AgentsPage, MembersPage } from "./screens/MembersPage";
 import { RegisterPage } from "./screens/RegisterPage";
 import { PairComputerPage } from "./screens/PairComputerPage";
+import { SettingsPage } from "./screens/SettingsPage";
 import { SpaceCreatePage } from "./screens/SpaceCreatePage";
 import { TaskDetailPage, TasksPage } from "./screens/TasksPage";
 
@@ -90,6 +91,11 @@ const agentGraphRoute = createRoute({
   path: "/s/$spaceSlug/graph",
   component: AgentGraphPage,
 });
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/settings",
+  component: SettingsPage,
+});
 const designLabRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug/design-lab",
@@ -155,6 +161,7 @@ const routeTree = rootRoute.addChildren([
   membersRoute,
   agentsRoute,
   agentGraphRoute,
+  settingsRoute,
   designLabRoute,
   designLabSurfaceRoute,
   agentDetailRoute,

@@ -12,6 +12,7 @@ import {
   Network,
   Palette,
   Plus,
+  Settings,
   Users,
   X,
   type LucideIcon,
@@ -42,7 +43,7 @@ import {
   type User,
 } from "../api/client";
 import { activityLabel } from "../agentActivity";
-import { designLabEnabled } from "../featureFlags";
+import { designLabEnabled, useExperimentalFeatures } from "../featureFlags";
 import { useSpaceEvents } from "../hooks/useSpaceEvents";
 import { DialogFrame } from "./DialogFrame";
 import { PixelIdentity } from "./PixelIdentity";
@@ -68,7 +69,7 @@ export function SpaceShell({
 }: {
   spaceSlug: string;
   // "design" is the demo-only candidate board; it has no rail entry.
-  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "graph" | "design";
+  active: "channel" | "dm" | "company" | "members" | "agents" | "inbox" | "tasks" | "computers" | "graph" | "settings" | "design";
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
@@ -80,6 +81,7 @@ export function SpaceShell({
   const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [directMessageFormOpen, setDirectMessageFormOpen] = useState(false);
+  const experimentalEnabled = useExperimentalFeatures();
   const [unreadChannelIds, setUnreadChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   const navigationPanel = useRef<HTMLElement>(null);
   const railNavigationTrigger = useRef<HTMLButtonElement>(null);
@@ -339,12 +341,14 @@ export function SpaceShell({
             active={active === "computers"}
             href={`/s/${space.data.slug}/computers`}
           />
-          <RailItem
-            icon={Network}
-            label="Agent graph"
-            active={active === "graph"}
-            href={`/s/${space.data.slug}/graph`}
-          />
+          {experimentalEnabled ? (
+            <RailItem
+              icon={Network}
+              label="Agent graph"
+              active={active === "graph"}
+              href={`/s/${space.data.slug}/graph`}
+            />
+          ) : null}
           {designLabEnabled() ? (
             <RailItem
               icon={Palette}
@@ -354,6 +358,12 @@ export function SpaceShell({
             />
           ) : null}
         </nav>
+        <RailItem
+          icon={Settings}
+          label="Settings"
+          active={active === "settings"}
+          href={`/s/${space.data.slug}/settings`}
+        />
         <button
           ref={railNavigationTrigger}
           className="rail-spacer"
@@ -430,11 +440,19 @@ export function SpaceShell({
               active={active === "computers"}
               href={`/s/${space.data.slug}/computers`}
             />
+            {experimentalEnabled ? (
+              <NavigationItem
+                icon={Network}
+                label="Agent graph"
+                active={active === "graph"}
+                href={`/s/${space.data.slug}/graph`}
+              />
+            ) : null}
             <NavigationItem
-              icon={Network}
-              label="Agent graph"
-              active={active === "graph"}
-              href={`/s/${space.data.slug}/graph`}
+              icon={Settings}
+              label="Settings"
+              active={active === "settings"}
+              href={`/s/${space.data.slug}/settings`}
             />
           </div>
           {active === "members" || active === "agents" ? (

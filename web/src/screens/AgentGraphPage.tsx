@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { Minus, Plus, RotateCcw, X } from "lucide-react";
 import {
   useEffect,
@@ -19,6 +19,7 @@ import {
 import { PixelIdentity } from "../components/PixelIdentity";
 import { buildAgentIdenticon, identityPalette } from "../components/agentIdenticon";
 import { SpaceShell } from "../components/SpaceShell";
+import { useExperimentalFeatures } from "../featureFlags";
 import { layoutGraph, type GraphLayoutNode } from "./agentGraphLayout";
 import "./agentGraph.css";
 
@@ -37,6 +38,29 @@ export const INITIAL_GRAPH_VIEW: GraphView = { x: 0, y: 0, k: 1 };
 
 export function AgentGraphPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/graph" });
+  const experimentalEnabled = useExperimentalFeatures();
+  if (!experimentalEnabled) {
+    return (
+      <SpaceShell spaceSlug={spaceSlug} active="graph">
+        {() => (
+          <div className="route-status">
+            <section className="route-status-panel">
+              <p className="section-kicker">EXPERIMENTAL</p>
+              <h1>Agent graph is disabled.</h1>
+              <p>Enable experimental features in Settings to show this entry in the rail.</p>
+              <Link
+                className="command-button command-button--accent"
+                to="/s/$spaceSlug/settings"
+                params={{ spaceSlug }}
+              >
+                Open Settings
+              </Link>
+            </section>
+          </div>
+        )}
+      </SpaceShell>
+    );
+  }
   return (
     <SpaceShell spaceSlug={spaceSlug} active="graph">
       {({ space }) => <AgentGraphWorkspace spaceId={space.id} spaceSlug={space.slug} />}
