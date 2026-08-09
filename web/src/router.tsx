@@ -8,6 +8,7 @@ import {
 
 import { RouteChrome } from "./RouteChrome";
 import { ChannelPage } from "./screens/ChannelPage";
+import { CompanyOfficePage } from "./screens/CompanyPage";
 import { AgentDetailPage } from "./screens/AgentDetailPage";
 import { ComputersPage } from "./screens/ComputersPage";
 import { DesignLabPage, DesignLabSurfacePage } from "./screens/DesignLabPage";
@@ -57,6 +58,21 @@ const channelRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/s/$spaceSlug/channels/$channelSlug",
   component: ChannelPage,
+});
+const companyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/company",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/s/$spaceSlug/company/office",
+      params: { spaceSlug: params.spaceSlug },
+    });
+  },
+});
+const companyOfficeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$spaceSlug/company/office",
+  component: CompanyOfficePage,
 });
 const membersRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -128,6 +144,8 @@ const routeTree = rootRoute.addChildren([
   createSpaceRoute,
   spaceEntryRoute,
   channelRoute,
+  companyRoute,
+  companyOfficeRoute,
   membersRoute,
   agentsRoute,
   designLabRoute,
