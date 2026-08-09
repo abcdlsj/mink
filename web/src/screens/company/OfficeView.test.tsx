@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +44,33 @@ describe("CompanyOfficeView", () => {
     expect(new Set(transforms).size).toBe(13);
   });
 
+  it("keeps each Agent at the same station when a refresh returns a different order", async () => {
+    const first = officeAgent(0);
+    const second = officeAgent(1);
+    const fetchAgents = stubAgentResponses([
+      [first, second],
+      [second, first],
+    ]);
+    const client = renderOffice();
+
+    const firstLink = await screen.findByTitle("Agent 0 · Idle");
+    const secondLink = await screen.findByTitle("Agent 1 · Idle");
+    const firstStation = firstLink.style.transform;
+    const secondStation = secondLink.style.transform;
+
+    await act(() => client.invalidateQueries({ queryKey: ["agents", spaceId] }));
+    await waitFor(() =>
+      expect(
+        fetchAgents.mock.calls.filter(([input]) =>
+          String(input).endsWith(`/spaces/${spaceId}/agents`),
+        ),
+      ).toHaveLength(2),
+    );
+
+    expect(firstLink).toHaveStyle({ transform: firstStation });
+    expect(secondLink).toHaveStyle({ transform: secondStation });
+  });
+
   it("renders direct targets without movement or sprite animation under reduced motion", async () => {
     stubAgents([officeAgent(0)]);
     const interval = vi.spyOn(window, "setInterval");
@@ -68,7 +95,7 @@ describe("CompanyOfficeView", () => {
 
 function renderOffice() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <CompanyOfficeView
         spaceSlug="sumi-lab"
@@ -80,17 +107,29 @@ function renderOffice() {
       />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 function stubAgents(agents: Agent[]) {
+  return stubAgentResponses([agents]);
+}
+
+function stubAgentResponses(responses: Agent[][]) {
+  let index = 0;
+  const fetchAgents = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith(`/spaces/${spaceId}/agents`)) {
+      const response = responses[Math.min(index, responses.length - 1)];
+      index += 1;
+      return json(response);
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path.endsWith(`/spaces/${spaceId}/agents`)) return json(agents);
-      throw new Error(`Unexpected request: ${path}`);
-    }),
+    fetchAgents,
   );
+  return fetchAgents;
 }
 
 function officeAgent(index: number): Agent {

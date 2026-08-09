@@ -237,7 +237,14 @@ export function CompanyOfficeView({
     enabled: true,
   });
   const activeAgents = useMemo(
-    () => (agents.data ?? []).filter((agent) => agent.desired_lifecycle === "active"),
+    () =>
+      (agents.data ?? [])
+        .filter((agent) => agent.desired_lifecycle === "active")
+        .sort(
+          (left, right) =>
+            left.created_at.localeCompare(right.created_at) ||
+            left.member_id.localeCompare(right.member_id),
+        ),
     [agents.data],
   );
   const layout = useMemo(() => buildOfficeLayout(activeAgents.length), [activeAgents.length]);
