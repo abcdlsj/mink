@@ -17,6 +17,7 @@ import {
   type AgentGraphNode,
 } from "../api/client";
 import { PixelIdentity } from "../components/PixelIdentity";
+import { buildAgentIdenticon, identityPalette } from "../components/agentIdenticon";
 import { SpaceShell } from "../components/SpaceShell";
 import { layoutGraph, type GraphLayoutNode } from "./agentGraphLayout";
 import "./agentGraph.css";
@@ -30,6 +31,9 @@ export interface GraphView {
   y: number;
   k: number;
 }
+
+/** The graph world is already centered on the 900x560 canvas; the default view must not offset it. */
+export const INITIAL_GRAPH_VIEW: GraphView = { x: 0, y: 0, k: 1 };
 
 export function AgentGraphPage() {
   const { spaceSlug } = useParams({ from: "/s/$spaceSlug/graph" });
@@ -53,7 +57,7 @@ export function AgentGraphWorkspace({
   });
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string>();
-  const [view, setView] = useState<GraphView>({ x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2, k: 1 });
+  const [view, setView] = useState<GraphView>(INITIAL_GRAPH_VIEW);
   const [dragOverrides, setDragOverrides] = useState<Map<string, { x: number; y: number }>>(
     () => new Map(),
   );
@@ -241,7 +245,7 @@ export function AgentGraphWorkspace({
           <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => setView((current) => ({ ...current, k: Math.max(0.35, current.k * 0.8) }))}>
             <Minus aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Reset view" title="Reset view" onClick={() => setView({ x: VIEW_WIDTH / 2, y: VIEW_HEIGHT / 2, k: 1 })}>
+          <button type="button" aria-label="Reset view" title="Reset view" onClick={() => setView(INITIAL_GRAPH_VIEW)}>
             <RotateCcw aria-hidden="true" />
           </button>
         </div>
@@ -302,6 +306,8 @@ export function AgentGraphWorkspace({
               })}
               {[...positions.values()].map((node) => {
                 const active = selectedNodeId === node.member_id;
+                const avatar = buildAgentIdenticon(node.member_id);
+                const palette = identityPalette(node.member_id);
                 const connected = selectedNodeId
                   ? edges.some(
                       (edge) =>
@@ -324,11 +330,24 @@ export function AgentGraphWorkspace({
                     }}
                     onKeyDown={(event) => handleNodeKeyDown(event, node.member_id)}
                   >
-                    <foreignObject className="graph-node-avatar" x={-18} y={-18} width={36} height={36}>
-                      <div>
-                        <PixelIdentity name={node.display_name} kind="agent" seed={node.member_id} />
-                      </div>
-                    </foreignObject>
+                    <rect
+                      className="graph-node-avatar"
+                      x={-18}
+                      y={-18}
+                      width={36}
+                      height={36}
+                      fill={palette.background}
+                    />
+                    <g
+                      transform="translate(-16 -16) scale(4)"
+                      shapeRendering="crispEdges"
+                      aria-hidden="true"
+                    >
+                      <rect width="8" height="8" fill={avatar.background} />
+                      {avatar.cells.map(([x, y]) => (
+                        <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill={avatar.foreground} />
+                      ))}
+                    </g>
                     <text className="graph-node-label" textAnchor="middle" y={27}>
                       {node.display_name}
                     </text>

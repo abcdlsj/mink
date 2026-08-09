@@ -108,12 +108,8 @@
 }
 
 .graph-node-avatar {
-  overflow: visible;
-}
-
-.graph-node-avatar .pixel-identity {
-  width: 36px;
-  height: 36px;
+  stroke: var(--ink);
+  stroke-width: 2px;
 }
 
 .graph-node-label {
@@ -124,19 +120,19 @@
   user-select: none;
 }
 
-.graph-node--active .graph-node-avatar .pixel-identity {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
+.graph-node--active .graph-node-avatar {
+  stroke: var(--accent);
+  stroke-width: 3px;
 }
 
 .graph-node--dimmed {
   opacity: 0.3;
 }
 
-.graph-node:hover .graph-node-avatar .pixel-identity,
-.graph-node:focus-visible .graph-node-avatar .pixel-identity {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.graph-node:hover .graph-node-avatar,
+.graph-node:focus-visible .graph-node-avatar {
+  stroke: var(--accent);
+  stroke-width: 3px;
 }
 
 .agent-graph-panel {

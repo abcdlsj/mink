@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentGraph, AgentGraphEdge, AgentGraphNode } from "../api/client";
-import { AgentGraphWorkspace } from "./AgentGraphPage";
+import { AgentGraphWorkspace, INITIAL_GRAPH_VIEW } from "./AgentGraphPage";
 import { layoutGraph } from "./agentGraphLayout";
 
 const spaceId = "019c0000-0000-7000-8000-000000000001";
@@ -126,6 +126,10 @@ describe("AgentGraphWorkspace", () => {
 });
 
 describe("layoutGraph", () => {
+  it("keeps the default view at the canvas origin so the centered layout is visible", () => {
+    expect(INITIAL_GRAPH_VIEW).toEqual({ x: 0, y: 0, k: 1 });
+  });
+
   it("places every node inside the viewport with finite coordinates", () => {
     const nodes = layoutGraph([agentA, agentB], [edge], 900, 560, 60);
 
