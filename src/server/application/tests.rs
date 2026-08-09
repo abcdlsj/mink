@@ -35,8 +35,8 @@ use super::{
         ReadAttachment, WriteUploadContent, WriteUploadContentInput,
     },
     attention::{
-        HardItemRoute, ReadMemberInbox, RequeueDeadItem, RequeueDeadItemInput, RouteHardItem,
-        RouteHardItemInput,
+        HardItemRoute, MarkAllInboxRead, MarkAllInboxReadInput, ReadMemberInbox, RequeueDeadItem,
+        RequeueDeadItemInput, RouteHardItem, RouteHardItemInput,
     },
     computer::{
         AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing, ConfirmPairingInput,
@@ -1120,6 +1120,24 @@ impl CollaborationTransaction for MemoryTransaction {
                     }
             })
             .map(inbox_view)
+            .collect())
+    }
+    async fn pending_inbox_items_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<InboxItem>, ApplicationError> {
+        Ok(self
+            .state
+            .items
+            .values()
+            .filter(|item| {
+                let view = item.view();
+                view.member_id == member_id
+                    && view.space_id == space_id
+                    && view.status == InboxItemStatus::Pending
+            })
+            .cloned()
             .collect())
     }
     async fn inbox_item_view(
@@ -5543,6 +5561,112 @@ async fn only_a_governor_requeues_a_dead_item_and_the_queue_hides_it_until_then(
         Err(ApplicationError::Domain(_))
     ));
     assert_eq!(port.state.items[&item_id].view().requeue_count, 1);
+}
+
+#[tokio::test]
+async fn a_human_marks_all_their_pending_inbox_items_read_in_one_transaction() {
+    let mut port = MemoryPort::default();
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let space_id = space(1);
+    let owner = member(7501);
+    let agent_id = member(7502);
+    space_member_fixture(&mut port, owner, space_id, AccessLevel::Owner);
+    space_member_fixture(&mut port, agent_id, space_id, AccessLevel::Member);
+    port.state.agents.insert(
+        agent_id,
+        Agent {
+            member_id: agent_id,
+            space_id,
+            computer_id: Some(computer(7503)),
+            role_text: "assist".into(),
+            role_revision: 1,
+            lifecycle: AgentLifecycle::Active,
+            driver_kind: DriverKind::Codex,
+            retired_at: None,
+        },
+    );
+
+    let first = item(7504);
+    let second = item(7505);
+    let already_handled = item(7506);
+    let agent_pending = item(7507);
+    let assigned = item(7508);
+    for (index, (item_id, holder, status)) in [
+        (first, owner, InboxItemStatus::Pending),
+        (second, owner, InboxItemStatus::Pending),
+        (already_handled, owner, InboxItemStatus::Handled),
+        (agent_pending, agent_id, InboxItemStatus::Pending),
+        (assigned, owner, InboxItemStatus::Assigned),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        port.state.items.insert(
+            item_id,
+            inbox(item_id, holder, thread(7600 + index as u128), None, status),
+        );
+    }
+
+    let marked = MarkAllInboxRead::execute(
+        &mut port,
+        MarkAllInboxReadInput {
+            actor_id: owner,
+            target_id: owner,
+            space_id,
+            now,
+        },
+    )
+    .await
+    .expect("a Human marks their own Inbox read");
+    assert_eq!(marked, 2);
+    assert_eq!(port.state.effects, vec![Effect::InboxChanged(owner)]);
+    for item_id in [first, second] {
+        let snapshot = port.state.items[&item_id].snapshot();
+        assert_eq!(snapshot.status, InboxItemStatus::Handled);
+        assert_eq!(snapshot.handled_at, Some(now));
+    }
+    assert_eq!(
+        port.state.items[&already_handled].view().status,
+        InboxItemStatus::Handled
+    );
+    assert_eq!(
+        port.state.items[&agent_pending].view().status,
+        InboxItemStatus::Pending
+    );
+    assert_eq!(
+        port.state.items[&assigned].view().status,
+        InboxItemStatus::Assigned
+    );
+
+    // Another actor cannot clear someone else's Inbox, and an Agent target is never read this way.
+    assert_eq!(
+        MarkAllInboxRead::execute(
+            &mut port,
+            MarkAllInboxReadInput {
+                actor_id: agent_id,
+                target_id: owner,
+                space_id,
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
+    assert_eq!(
+        MarkAllInboxRead::execute(
+            &mut port,
+            MarkAllInboxReadInput {
+                actor_id: owner,
+                target_id: agent_id,
+                space_id,
+                now,
+            },
+        )
+        .await
+        .err(),
+        Some(ApplicationError::PermissionDenied)
+    );
 }
 
 #[tokio::test]

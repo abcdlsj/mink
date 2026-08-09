@@ -94,6 +94,13 @@ pub(in crate::server) struct MarkInboxItemReadInput {
     pub(in crate::server) now: time::OffsetDateTime,
 }
 
+pub(in crate::server) struct MarkAllInboxReadInput {
+    pub(in crate::server) actor_id: MemberId,
+    pub(in crate::server) target_id: MemberId,
+    pub(in crate::server) space_id: SpaceId,
+    pub(in crate::server) now: time::OffsetDateTime,
+}
+
 /// Marks a Human-owned Item handled on its owner's explicit read. Agent Items never enter this
 /// path: their terminal state belongs to the Run that leased them, so this command rejects them.
 /// Reading an already handled Item is idempotent and returns the current projection.
@@ -121,6 +128,45 @@ impl MarkInboxItemRead {
             transaction.save_inbox_item(item).await?;
             transaction.emit(Effect::InboxChanged(item_view.member_id));
             transaction.inbox_item_view(input.item_id).await
+        })
+        .await
+    }
+}
+
+/// Marks every pending Item owned by the Human target handled in one transaction. Only pending
+/// Items enter this path: assigned, deferred, and dead Items keep their status, matching the single
+/// Item read command. Returns the number of Items marked.
+pub(in crate::server) struct MarkAllInboxRead;
+
+impl MarkAllInboxRead {
+    pub(in crate::server) async fn execute<P: TransactionPort>(
+        port: &mut P,
+        input: MarkAllInboxReadInput,
+    ) -> Result<u32, ApplicationError> {
+        port.transact(async |transaction| {
+            if input.actor_id != input.target_id {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            let owner = transaction
+                .space_member(input.target_id, input.space_id)
+                .await?
+                .ok_or(ApplicationError::NotFound)?;
+            if owner.kind != MemberKind::Human {
+                return Err(ApplicationError::PermissionDenied);
+            }
+            let items = transaction
+                .pending_inbox_items_for_member(input.target_id, input.space_id)
+                .await?;
+            let mut marked = 0u32;
+            for mut item in items {
+                item.mark_read(input.now)?;
+                transaction.save_inbox_item(item).await?;
+                marked += 1;
+            }
+            if marked > 0 {
+                transaction.emit(Effect::InboxChanged(input.target_id));
+            }
+            Ok(marked)
         })
         .await
     }

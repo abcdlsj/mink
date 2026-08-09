@@ -1430,6 +1430,14 @@ impl CollaborationTransaction for PostgresTransaction {
     ) -> Result<Vec<InboxItemView>, ApplicationError> {
         self.inbox_for_member(member_id, scope).await
     }
+    async fn pending_inbox_items_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<InboxItem>, ApplicationError> {
+        self.pending_inbox_items_for_member(member_id, space_id)
+            .await
+    }
     async fn inbox_item_view(
         &mut self,
         item_id: InboxItemId,

@@ -1230,6 +1230,7 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
 .inbox-item--stacked .inbox-kind { white-space: nowrap; }
 .inbox-item-copy > .inbox-kind { justify-self: start; margin-top: 2px; }
 .inbox-item .inbox-actions button:first-child { background: var(--green); }
+.inbox-workspace .command-button { flex: 0 0 auto; }
 .inbox-empty { max-width: 720px; margin: clamp(28px, 7vh, 72px) auto 0; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); margin-top: clamp(24px, 6vh, 64px); }
 @media (max-width: 700px) {
   .inbox-list-inner { padding: 14px 12px calc(28px + env(safe-area-inset-bottom)); }
@@ -1243,6 +1244,8 @@ h1 { max-width: 620px; margin: 0; font-size: clamp(52px, 7vw, 92px); line-height
   .inbox-address { max-width: 42vw; }
   .inbox-empty-intro { grid-template-columns: 42px minmax(0, 1fr); gap: 12px; }
   .inbox-empty-icon { width: 40px; height: 40px; }
+  .inbox-workspace .command-button { width: 38px; padding: 0; font-size: 0; }
+  .inbox-workspace .command-button svg { width: 18px; height: 18px; }
 }
 /* Computer is a flat machine console: identity, workload, runtime, then destructive governance. */.computer-context-row small { display: flex; align-items: center; gap: 5px; font-family: var(--font-sans); font-size: var(--text-meta); }
 .computer-presence { width: 8px; height: 8px; flex: 0 0 8px; border: 1px solid var(--ink); background: var(--stone); }

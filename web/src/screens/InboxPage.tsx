@@ -1,9 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Inbox, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { CheckCheck, Inbox, type LucideIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
-import { listInbox, markInboxItemRead, type InboxItem, type Member } from "../api/client";
+import {
+  listInbox,
+  markAllInboxRead,
+  markInboxItemRead,
+  type InboxItem,
+  type Member,
+} from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 
 const inboxGroups: Array<{
@@ -94,6 +100,7 @@ function InboxWorkspace({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [readingAll, setReadingAll] = useState(false);
   const inbox = useQuery({
     queryKey: ["inbox", spaceId, memberId],
     queryFn: () => listInbox(memberId),
@@ -132,6 +139,16 @@ function InboxWorkspace({
     }
   }
 
+  function markAllRead() {
+    setReadingAll(true);
+    void markAllInboxRead(memberId)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["inbox", spaceId, memberId] }))
+      .catch((error: unknown) => {
+        console.error("Inbox mark all read failed", error);
+      })
+      .finally(() => setReadingAll(false));
+  }
+
   return (
     <section className="inbox-workspace">
       <header className="channel-header">
@@ -139,6 +156,17 @@ function InboxWorkspace({
           <h1>Inbox</h1>
           <p>Attention routed to you. Open the source to respond.</p>
         </div>
+        {stacks.length > 0 ? (
+          <button
+            className="command-button command-button--accent"
+            type="button"
+            disabled={readingAll}
+            onClick={markAllRead}
+          >
+            <CheckCheck aria-hidden="true" />
+            {readingAll ? "Marking…" : "Mark all read"}
+          </button>
+        ) : null}
       </header>
       <div className="inbox-list">
         <div className="inbox-list-inner">

@@ -192,6 +192,25 @@ impl PostgresTransaction {
         Ok(views)
     }
 
+    pub(super) async fn pending_inbox_items_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<InboxItem>, ApplicationError> {
+        let rows = sqlx::query(
+            "SELECT * FROM inbox_items \
+             WHERE member_id=$1 AND space_id=$2 AND status='pending' \
+             ORDER BY created_at,id \
+             FOR UPDATE",
+        )
+        .bind(member_id.into_uuid())
+        .bind(space_id.into_uuid())
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter().map(inbox_from_row).collect()
+    }
+
     async fn activity_events(
         &mut self,
         item_id: InboxItemId,

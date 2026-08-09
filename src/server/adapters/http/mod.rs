@@ -56,8 +56,9 @@ use crate::{
             ReadAttachment, WriteUploadContent, WriteUploadContentInput,
         },
         application::attention::{
-            HardItemRoute, MarkInboxItemRead, MarkInboxItemReadInput, ReadMemberInbox,
-            RequeueDeadItem, RequeueDeadItemInput, RouteHardItem, RouteHardItemInput,
+            HardItemRoute, MarkAllInboxRead, MarkAllInboxReadInput, MarkInboxItemRead,
+            MarkInboxItemReadInput, ReadMemberInbox, RequeueDeadItem, RequeueDeadItemInput,
+            RouteHardItem, RouteHardItemInput,
         },
         application::computer::{
             AuthenticateComputer, BeginPairing, BeginPairingInput, ConfirmPairing,
@@ -136,14 +137,14 @@ use super::{
         DriverKind as DriverKindCode, InboxActivityEventKind, InboxActivityEventResponse,
         InboxItemResponse, InboxKind, InboxPriority, InboxStatus, InvitationResponse,
         LlmUsageAgentModelResponse, LlmUsageAgentSeriesResponse, LlmUsageBreakdownResponse,
-        LlmUsageBucketResponse, LlmUsageResponse, LoginResponse, MemberKind as MemberKindCode,
-        MemberResponse, MemoryContentResponse, MemoryFileResponse, MessageAuthor,
-        MessageContentResponse, MessagePageResponse, MessagePlacement, MessageResponse,
-        MessageTaskRefResponse, MessageTaskSummary, ProvisionStatus, RegisterResponse, RunOutcome,
-        RunResponse, RunStatus, RuntimeDiagnosticsResponse, RuntimeRunState,
-        SessionContinuityResponse, SessionContinuityState as ContinuityStateCode, SpaceResponse,
-        TaskResponse, TaskStatus, ThreadReadResponse, ThreadReferenceResponse, ThreadRelation,
-        ThreadSubscriptionResponse, UserResponse,
+        LlmUsageBucketResponse, LlmUsageResponse, LoginResponse, MarkAllInboxReadResponse,
+        MemberKind as MemberKindCode, MemberResponse, MemoryContentResponse, MemoryFileResponse,
+        MessageAuthor, MessageContentResponse, MessagePageResponse, MessagePlacement,
+        MessageResponse, MessageTaskRefResponse, MessageTaskSummary, ProvisionStatus,
+        RegisterResponse, RunOutcome, RunResponse, RunStatus, RuntimeDiagnosticsResponse,
+        RuntimeRunState, SessionContinuityResponse, SessionContinuityState as ContinuityStateCode,
+        SpaceResponse, TaskResponse, TaskStatus, ThreadReadResponse, ThreadReferenceResponse,
+        ThreadRelation, ThreadSubscriptionResponse, UserResponse,
     },
     postgres::{ChannelLeaveReplayQuery, PostgresAdapter, PostgresQueries},
     query::QueryRegistry,
@@ -199,6 +200,7 @@ pub(super) fn api_router(state: RuntimeState, attachment_body_limit: usize) -> R
         .route("/spaces/{space_id}/invites", post(invite_human)).route("/invites/{invite_token}", get(invitation_details)).route("/invites/{invite_token}/accept", post(accept_invitation)).route("/spaces/{space_id}/computers", get(list_computers)).route("/spaces/{space_id}/dms", get(list_direct_messages).post(open_direct_message)).route("/spaces/{space_id}/agents", get(list_agents).post(create_agent)).route("/agents/{agent_id}", get(get_agent).patch(update_agent).delete(retire_agent)).route("/agents/{agent_id}/runs/current", get(current_agent_run)).route("/agents/{agent_id}/runs/{run_id}/cancel", post(cancel_run)).route("/agents/{agent_id}/memory/read", post(read_agent_memory))
         .route("/spaces/{space_id}/tasks", get(list_tasks)).route("/tasks/{task_id}", get(get_task)).route("/tasks/{task_id}/runs", get(task_runs)).route("/root-messages/{message_id}/task", post(create_task)).route("/tasks/{task_id}/threads", post(link_task_thread)).route("/tasks/{task_id}/threads/{thread_id}", axum::routing::delete(unlink_task_thread)).route("/tasks/{task_id}/start", post(start_task)).route("/tasks/{task_id}/submit-review", post(submit_task_review)).route("/tasks/{task_id}/request-changes", post(request_task_changes)).route("/tasks/{task_id}/done", post(complete_task)).route("/tasks/{task_id}/close", post(close_task)).route("/tasks/{task_id}/reset-session", post(reset_task_session))
         .route("/channels/{channel_id}/messages", get(list_messages).post(create_root_message)).route("/channels/{channel_id}/members", get(list_channel_members).post(add_channel_agents)).route("/channels/{channel_id}/members/{member_id}", axum::routing::delete(remove_channel_agent)).route("/threads/{thread_id}", get(read_thread)).route("/threads/{thread_id}/messages", post(create_thread_reply)).route("/messages/{message_id}", axum::routing::patch(update_message).delete(delete_message)).route("/members/{member_id}/dms", get(list_agent_direct_messages)).route("/members/{member_id}/inbox", get(member_inbox)).route("/inbox-items/{item_id}/read", post(read_inbox_item)).route("/inbox-items/{item_id}/requeue", post(requeue_inbox_item)).route("/members/{member_id}/permissions/{action_code}", axum::routing::put(grant_permission).delete(revoke_permission))
+        .route("/members/{member_id}/inbox/read", post(read_all_inbox_items))
         .route("/attachments/uploads", post(create_upload)).route("/attachments/{attachment_id}/content", axum::routing::put(upload_content).layer(DefaultBodyLimit::max(attachment_body_limit))).route("/attachments/{attachment_id}/complete", post(complete_upload)).route("/attachments/{attachment_id}/download", get(download_attachment)).route("/computers/{computer_id}", axum::routing::delete(delete_computer)).with_state(state)
 }
 use crate::server::application::ports::{

@@ -28,6 +28,11 @@ pub(in crate::server) trait CollaborationTransaction {
         member_id: MemberId,
         scope: InboxScope,
     ) -> Result<Vec<InboxItemView>, ApplicationError>;
+    async fn pending_inbox_items_for_member(
+        &mut self,
+        member_id: MemberId,
+        space_id: SpaceId,
+    ) -> Result<Vec<InboxItem>, ApplicationError>;
     async fn inbox_item_view(
         &mut self,
         item_id: InboxItemId,

@@ -40,6 +40,7 @@ const exportedTypes = {
   DirectMessage: "DirectMessageResponse",
   ErrorEnvelope: "ErrorEnvelope",
   InboxItem: "InboxItemResponse",
+  MarkAllInboxRead: "MarkAllInboxReadResponse",
   Invitation: "InvitationResponse",
   CreatedInvitation: "CreatedInvitationResponse",
   LoginInput: "LoginRequest",

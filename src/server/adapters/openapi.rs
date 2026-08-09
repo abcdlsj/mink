@@ -53,6 +53,7 @@ use uuid::Uuid;
         CreateUploadRequest,
         CompleteUploadRequest,
         InboxItemResponse,
+        MarkAllInboxReadResponse,
         TaskStatus,
         RunStatus,
         SessionContinuityState,
@@ -579,6 +580,12 @@ pub(super) struct InboxItemResponse {
     pub(super) retry_count: u32,
     /// Times a governor returned this Item from `dead` to the queue.
     pub(super) requeue_count: u32,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub(super) struct MarkAllInboxReadResponse {
+    /// Number of pending Items marked handled.
+    pub(super) count: u32,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]

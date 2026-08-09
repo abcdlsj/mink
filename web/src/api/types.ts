@@ -462,6 +462,13 @@ export interface components {
         LoginResponse: {
             user: components["schemas"]["UserResponse"];
         };
+        MarkAllInboxReadResponse: {
+            /**
+             * Format: int32
+             * @description Number of pending Items marked handled.
+             */
+            count: number;
+        };
         /** @enum {string} */
         MemberKind: "human" | "agent";
         MemberResponse: {
@@ -778,6 +785,7 @@ export type CreateUploadInput = components["schemas"]["CreateUploadRequest"];
 export type DirectMessage = components["schemas"]["DirectMessageResponse"];
 export type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
 export type InboxItem = components["schemas"]["InboxItemResponse"];
+export type MarkAllInboxRead = components["schemas"]["MarkAllInboxReadResponse"];
 export type Invitation = components["schemas"]["InvitationResponse"];
 export type CreatedInvitation = components["schemas"]["CreatedInvitationResponse"];
 export type LoginInput = components["schemas"]["LoginRequest"];

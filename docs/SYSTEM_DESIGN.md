@@ -50,6 +50,7 @@ Driver：
 - hard Item 来源：DM、mention、`@all`、reply、Linked Thread 新消息、system 错误。必须显式处理，Driver 最终回复不构成处理。
 - ambient Item 来源：Agent 订阅的 Thread 更新和所在 Channel 的活动。按 Agent + Thread 或 Agent + Channel 聚合，用 debounce 和 force 上限防止无限推迟。
 - 同一 Message 对同一 Member 只生成一个最高强度 Item；发送者不为自己生成 Message Item。
+- Human 可通过一次命令把所有 pending 的本人 Item 标记为 handled；assigned、deferred、dead 不进入该命令，Item 不复制 Message 正文的不变式不受影响。
 - 与 active Run 的 Agent、Task scope、Focus 一致的 hard Item 尝试 attach；不一致的保持 pending 并发送 notice，notice 不泄露正文。
 - Run 失败时未处理 Items 返回 pending 并增加 retry_count；超过 max_retry_count 进入 dead，并创建不含正文的 system Item。
 - Agent 显式 release 的 Item 不增加 retry_count；重复 command、receipt 丢失和重复 result 不重复计数。

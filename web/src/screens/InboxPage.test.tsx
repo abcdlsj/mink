@@ -46,6 +46,7 @@ describe("Human Inbox", () => {
     expect(groups).toHaveTextContent("Direct messages");
     expect(groups).toHaveTextContent("Threads");
     expect(screen.getAllByText("0")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull();
   });
 
   it("groups attention in product priority order and identifies each sender", async () => {
@@ -116,6 +117,39 @@ describe("Human Inbox", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open #general from Grace; 1 new message" }));
     await waitFor(() => expect(reads).toEqual(["/api/v1/inbox-items/reply/read"]));
+  });
+
+  it("marks every pending Item read with one request", async () => {
+    const reads: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) return json(space);
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) return json({ can_create: true, channels: [] });
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) {
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", access_level: "owner", permissions: [] }]);
+      }
+      if (path.endsWith(`/members/${ownerId}/inbox/read`) && init?.method === "POST") {
+        reads.push(path);
+        return json({ count: 2 });
+      }
+      if (path.endsWith(`/members/${ownerId}/inbox`)) {
+        return json([
+          inboxItem("one", "direct", "grace", "Grace", "A DM", "A DM", "dm-channel"),
+          inboxItem("two", "reply", "lin", "Lin", "A reply"),
+        ]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/inbox");
+
+    const markAll = await screen.findByRole("button", { name: "Mark all read" });
+    fireEvent.click(markAll);
+    await waitFor(() =>
+      expect(reads).toEqual([`/api/v1/members/${ownerId}/inbox/read`]),
+    );
   });
 });
 

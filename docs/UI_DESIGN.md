@@ -65,6 +65,7 @@
 
 - Channel header 的 Member strip 使用与 Agent 头像相同尺寸的加号按钮，并在 Agent 选择浮层中显示 Display Name 与 Role。
 - Human Inbox 按 DM 和 Thread 聚合，同一组只显示最新来源 Message 的预览、时间和组内 Item 数；打开聚合行即标记已读。
+- Inbox 页 header 提供 Mark all read，一次将当前 Human 全部 pending Item 标记为已读；没有待读 Item 时不显示按钮。
 - Agent Inbox 不向普通 Member 公开；Owner/Admin 只能读取来源摘要和错误代码。
 - Members 页面按 Agents、Humans 分组显示扁平列表行：身份（头像 + 名字 + 行内状态点）、Access 控制（自定义下拉）、30px 轻量消息图标。Permission 在 Agent 详情逐项管理，当前动作包括 channel.create、channel.invite、channel.remove 和 agent.create，不提供 Role 套餐。
 - Computers 页面左侧为已配对列表和配对入口；未选择 Computer 时显示配对 onboarding。

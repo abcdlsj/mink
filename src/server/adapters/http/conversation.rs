@@ -620,6 +620,39 @@ pub(super) async fn read_inbox_item(
     Ok(Json(inbox_item_response(&item)))
 }
 
+/// Marks every pending Item of the caller's own Human Inbox handled in one transaction. Agent
+/// Inboxes and another Human's Inbox are rejected here, matching single-Item read authorization.
+pub(super) async fn read_all_inbox_items(
+    State(state): State<RuntimeState>,
+    jar: CookieJar,
+    Path(member_id): Path<Uuid>,
+) -> Result<Json<MarkAllInboxReadResponse>, ApiError> {
+    let target = MemberId::from_uuid(member_id);
+    let mut storage = state.storage.clone();
+    let space_id = storage
+        .transact(async |transaction| {
+            transaction
+                .space_of_member(target)
+                .await?
+                .ok_or(ApplicationError::NotFound)
+        })
+        .await
+        .map_err(application_error)?;
+    let actor = current_member(&state, &jar, space_id.into_uuid()).await?;
+    let count = MarkAllInboxRead::execute(
+        &mut storage,
+        MarkAllInboxReadInput {
+            actor_id: MemberId::from_uuid(actor),
+            target_id: target,
+            space_id,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    .map_err(application_error)?;
+    Ok(Json(MarkAllInboxReadResponse { count }))
+}
+
 pub(super) fn direct_message_response(conversation: &DirectMessageView) -> DirectMessageResponse {
     DirectMessageResponse {
         channel_id: conversation.channel_id.into_uuid(),
