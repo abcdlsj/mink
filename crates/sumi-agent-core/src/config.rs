@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use std::{collections::BTreeMap, path::PathBuf};
+
+use crate::context::ContextStrategy;
 
 use secrecy::ExposeSecret;
 
@@ -22,6 +25,8 @@ pub struct AgentConfig {
     pub computer_home: PathBuf,
     pub provider: ProviderConfig,
     pub sandbox: SandboxConfig,
+    /// How the embedding projects and prepares the provider context.
+    pub context: Arc<dyn ContextStrategy>,
 }
 
 impl AgentConfig {
@@ -58,6 +63,7 @@ mod tests {
             computer_home: Path::new("/tmp/none").to_owned(),
             provider: ProviderConfig::openai("secret-value", String::new()),
             sandbox: SandboxConfig::default(),
+            context: Arc::new(crate::context::IdentityContext),
         };
         let error = invalid.validate().unwrap_err();
         assert!(!error.contains("secret-value"));
@@ -66,6 +72,7 @@ mod tests {
             computer_home: Path::new("/tmp/none").to_owned(),
             provider: ProviderConfig::openai("secret-value", "test-model".into()),
             sandbox: SandboxConfig::default(),
+            context: Arc::new(crate::context::IdentityContext),
         };
         assert!(valid.validate().is_ok());
         assert!(!format!("{valid:?}").contains("secret-value"));

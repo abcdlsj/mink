@@ -2971,6 +2971,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "sumi-agent-core",
  "sumi-builtin-agent",
  "tempfile",
  "thiserror",
@@ -2988,7 +2989,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sumi-builtin-agent"
+name = "sumi-agent-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3006,6 +3007,21 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "sumi-builtin-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sumi-agent-core",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

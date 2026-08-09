@@ -386,6 +386,7 @@ async fn handle_stream_chunk(
             total_tokens: usage["total_tokens"].as_i64().unwrap_or(0) as i32,
             cached_input_tokens: usage["prompt_tokens_details"]["cached_tokens"]
                 .as_i64()
+                .or_else(|| usage["prompt_cache_hit_tokens"].as_i64())
                 .unwrap_or(0) as i32,
             cache_write_tokens: usage["prompt_tokens_details"]["cache_write_tokens"]
                 .as_i64()
@@ -495,6 +496,23 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, 1920);
         assert_eq!(usage.cache_write_tokens, 64);
         assert_eq!(usage.source, "openai_chat_completions");
+    }
+
+    #[tokio::test]
+    async fn usage_falls_back_to_deepseek_cache_hit_field() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut state = OpenAiStreamState::default();
+        handle_stream_chunk(
+            serde_json::json!({"usage":{"prompt_tokens":2006,"completion_tokens":300,"total_tokens":2306,"prompt_cache_hit_tokens":1920,"prompt_cache_miss_tokens":86}}),
+            &mut state,
+            &tx,
+        )
+        .await
+        .unwrap();
+
+        let usage = state.usage.expect("usage");
+        assert_eq!(usage.input_tokens, 2006);
+        assert_eq!(usage.cached_input_tokens, 1920);
     }
 
     #[tokio::test]

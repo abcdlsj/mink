@@ -1,13 +1,15 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
-use sumi_builtin_agent::{
+use sumi_agent_core::{
     AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
     TurnRequest,
 };
+use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
 
 use crate::{
     computer::{
@@ -60,6 +62,10 @@ impl BuiltinRuntimeClient {
                 runtime_executable: None,
                 environment: BTreeMap::new(),
             },
+            context: Arc::new(BuiltinContext::new(CompactionConfig {
+                trigger_tokens: builtin.compaction_trigger_tokens(),
+                keep_recent_tokens: builtin.compaction_keep_recent_tokens(),
+            })),
         };
         Ok(Self {
             driver_secret,
@@ -89,19 +95,25 @@ impl BuiltinRuntimeClient {
         }
     }
 
-    fn turn_request(input: &RunInput, driver_secret: &[u8]) -> TurnRequest {
+    fn turn_request(
+        input: &RunInput,
+        driver_secret: &[u8],
+    ) -> Result<TurnRequest, ApplicationError> {
         let driver_token = CapabilityService::driver_token(driver_secret, input.agent.agent_id);
-        TurnRequest {
-            product_contract: prompt::product_contract(),
-            driver_contract: prompt::driver_contract(),
-            identity: input.agent.identity.clone(),
-            role: input.agent.role.clone(),
-            input: input.model_view(),
-            content_hash: input.content_hash(),
+        let encoded =
+            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
+        Ok(TurnRequest {
+            system_messages: prompt::system_messages(&input.agent.identity, &input.agent.role),
+            user_message: prompt::turn_instruction(&encoded),
             attachments: Vec::new(),
             blocked_tools: HashMap::new(),
+            prompt_cache_key: format!(
+                "{}-{}",
+                input.content_hash(),
+                prompt::driver_contract_hash()
+            ),
             sandbox_environment: BTreeMap::from([("SUMI_DRIVER_TOKEN".to_owned(), driver_token)]),
-        }
+        })
     }
 }
 
@@ -138,7 +150,7 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         locator: &str,
         input: &RunInput,
     ) -> Result<(), ApplicationError> {
-        let request = Self::turn_request(input, &self.driver_secret);
+        let request = Self::turn_request(input, &self.driver_secret)?;
         self.runtime_mut()?
             .start_turn(run_id.into_uuid(), locator, request)
             .await
@@ -172,10 +184,13 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
     }
 
     async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError> {
-        self.runtime_mut()?
-            .restart_agent(agent_id.into_uuid())
-            .await
-            .map_err(Self::map_error)
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime
+                .restart_agent(agent_id.into_uuid())
+                .await
+                .map_err(Self::map_error)?;
+        }
+        Ok(())
     }
 
     async fn delete_session(&mut self, locator: &str) -> Result<(), ApplicationError> {
@@ -189,19 +204,21 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
         &mut self,
         run_id: RunId,
     ) -> Result<ProcessEvidence, ApplicationError> {
-        Ok(if self.runtime()?.process_evidence(run_id.into_uuid()) {
-            ProcessEvidence::Controlled
-        } else {
-            ProcessEvidence::Lost
+        Ok(match self.runtime.as_ref() {
+            Some(runtime) if runtime.process_evidence(run_id.into_uuid()) => {
+                ProcessEvidence::Controlled
+            }
+            _ => ProcessEvidence::Lost,
         })
     }
 
     async fn poll_completions(&mut self) -> Result<Vec<DriverCompletion>, ApplicationError> {
-        let completions = self
-            .runtime_mut()?
-            .poll_completions()
-            .await
-            .map_err(Self::map_error)?;
+        let Some(runtime) = self.runtime.as_mut() else {
+            // The Computer polls every backend regardless of configuration; a missing
+            // builtin config is a no-op backend, not a failed driver.
+            return Ok(Vec::new());
+        };
+        let completions = runtime.poll_completions().await.map_err(Self::map_error)?;
         Ok(completions
             .into_iter()
             .map(|Completion { run_id, outcome }| DriverCompletion {
@@ -229,9 +246,35 @@ mod tests {
             input::{AgentInput, ContextMessageInput, RunContextInput, WorkInput},
             scheduler::WorkStrength,
         },
-        config::{BuiltinOpenAiConfig, ConfigSecret},
+        config::{BuiltinOpenAiConfig, ComputerConfig, ConfigSecret},
         ids::{ChannelId, InboxItemId, MemberId, MessageId, SpaceId, ThreadId},
     };
+
+    #[tokio::test]
+    async fn unconfigured_builtin_runtime_is_a_noop_for_global_driver_polls() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut client = BuiltinRuntimeClient::new(
+            directory.path().join("computer"),
+            &ComputerConfig::default(),
+            [7_u8; 32],
+        )
+        .unwrap();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+
+        assert!(client.runtime.is_none());
+        assert_eq!(
+            client.poll_completions().await.unwrap(),
+            Vec::<DriverCompletion>::new()
+        );
+        assert!(client.restart_agent(agent_id).await.is_ok());
+        assert_eq!(
+            client
+                .process_evidence(RunId::from_uuid(Uuid::now_v7()))
+                .await
+                .unwrap(),
+            ProcessEvidence::Lost
+        );
+    }
 
     #[tokio::test]
     async fn builtin_runtime_adapts_sessions_turns_and_evidence() {
@@ -362,6 +405,9 @@ mod tests {
                 api_base: url::Url::parse(api_base).unwrap(),
                 token: ConfigSecret::from("provider-secret"),
                 model: "test-model".to_owned(),
+                context_window_tokens: 128_000,
+                compaction_trigger_ratio: 0.75,
+                compaction_keep_recent_tokens: 20_000,
             }),
             ..ComputerConfig::default()
         }

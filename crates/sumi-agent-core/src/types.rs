@@ -3,26 +3,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 pub struct Message {
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) id: String,
-    pub(super) role: String,
+    pub id: String,
+    pub role: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) content: String,
+    pub content: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) attachments: Vec<Attachment>,
+    pub attachments: Vec<Attachment>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) reasoning: String,
+    pub reasoning: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) tool_calls: Vec<ToolCall>,
+    pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) tool_results: Vec<ToolResult>,
+    pub tool_results: Vec<ToolResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) usage: Option<TokenUsage>,
+    pub usage: Option<TokenUsage>,
     #[serde(skip)]
-    pub(super) cache_breakpoint: bool,
+    pub cache_breakpoint: bool,
 }
 
 impl Message {
-    pub(super) fn user(content: impl Into<String>) -> Self {
+    pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: "user".into(),
             content: content.into(),
@@ -30,10 +30,7 @@ impl Message {
         }
     }
 
-    pub(super) fn user_with_attachments(
-        content: impl Into<String>,
-        attachments: Vec<Attachment>,
-    ) -> Self {
+    pub fn user_with_attachments(content: impl Into<String>, attachments: Vec<Attachment>) -> Self {
         Self {
             role: "user".into(),
             content: content.into(),
@@ -42,7 +39,7 @@ impl Message {
         }
     }
 
-    pub(super) fn tool(results: Vec<ToolResult>) -> Self {
+    pub fn tool(results: Vec<ToolResult>) -> Self {
         Self {
             role: "tool".into(),
             tool_results: results,
@@ -50,7 +47,7 @@ impl Message {
         }
     }
 
-    pub(super) fn system(content: impl Into<String>) -> Self {
+    pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: "system".into(),
             content: content.into(),
@@ -58,7 +55,7 @@ impl Message {
         }
     }
 
-    pub(super) fn cacheable_system(content: impl Into<String>) -> Self {
+    pub fn cacheable_system(content: impl Into<String>) -> Self {
         Self {
             role: "system".into(),
             content: content.into(),
@@ -69,20 +66,20 @@ impl Message {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(super) struct ToolCall {
-    pub(super) id: String,
-    pub(super) name: String,
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
     #[serde(default)]
-    pub(super) args: serde_json::Value,
+    pub args: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub(super) struct ToolResult {
-    pub(super) tool_call_id: String,
+pub struct ToolResult {
+    pub tool_call_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) content: String,
+    pub content: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(super) error: String,
+    pub error: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -102,7 +99,7 @@ pub struct Attachment {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub(super) struct TokenUsage {
+pub struct TokenUsage {
     #[serde(default)]
     pub(super) input_tokens: i32,
     #[serde(default)]

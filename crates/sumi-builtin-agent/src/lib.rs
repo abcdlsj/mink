@@ -1,27 +1,14 @@
-//! Portable builtin LLM agent runtime.
+//! Sumi Computer harness for the portable builtin agent core.
 //!
-//! The runtime runs an OpenAI-compatible chat stream through an agent loop with
-//! sandboxed file and shell tools, persists provider sessions, and exposes a
-//! plugin API for external conversation channels.
+//! This crate owns what the Sumi product needs but the generic core must not:
+//! the collaboration and CLI contracts, turn instruction assembly, and the
+//! context compaction policy. `sumi-agent-core` only runs the provider loop.
 
-mod agent;
-mod config;
-mod engine;
-mod memory;
-mod plugin;
-mod prompt;
-mod provider;
-mod sandbox;
-mod session;
-mod tool_executor;
-mod types;
-mod workspace;
+pub mod compaction;
+pub mod prompt;
 
-pub use agent::{AgentError, AgentRuntime, Completion, TurnOutcome, TurnRequest};
-pub use config::{AgentConfig, SandboxConfig};
-pub use memory::{MemoryFile, PRIMARY_MEMORY_PATH};
-pub use plugin::{AgentPlugin, PluginContext};
-pub use provider::ProviderConfig;
-pub use sandbox::SandboxAdapter;
-pub use types::{Attachment, Message, ToolDef};
-pub use workspace::agent_rooted_path;
+pub use compaction::{BuiltinContext, CompactionConfig};
+pub use prompt::{
+    codex_turn_instruction, driver_contract, driver_contract_hash, product_contract,
+    system_messages, turn_instruction,
+};

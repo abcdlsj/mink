@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, TimeZone};
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sumi_builtin_agent::{AgentPlugin, PluginContext, ToolDef};
+use sumi_agent_core::{AgentPlugin, PluginContext, ToolDef};
 use uuid::Uuid;
 
 const SCHEDULER_CONTRACT: &str = concat!(

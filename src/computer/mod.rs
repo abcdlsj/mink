@@ -22,7 +22,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sumi_builtin_agent::SandboxAdapter;
+use sumi_agent_core::SandboxAdapter;
 use tokio_tungstenite::tungstenite::{Message as WebSocketMessage, client::IntoClientRequest};
 use uuid::Uuid;
 

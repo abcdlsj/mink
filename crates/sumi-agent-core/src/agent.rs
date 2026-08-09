@@ -17,7 +17,6 @@ use crate::{
     engine::{Engine, Turn, failure_code},
     memory::{self, MemoryFile, PRIMARY_MEMORY_PATH},
     plugin::{AgentPlugin, PluginContext},
-    prompt,
     provider::OpenAiProvider,
     sandbox::SandboxAdapter,
     session::Session,
@@ -58,18 +57,16 @@ pub enum TurnOutcome {
     Interrupted,
 }
 
-/// One agent turn request. `input` is the model-facing JSON view of the run;
-/// the runtime serializes it into the turn instruction.
+/// One agent turn request. Prompts are assembled by the embedding (harness);
+/// the runtime only transports them and runs the tool loop.
 #[derive(Clone)]
 pub struct TurnRequest {
-    pub product_contract: String,
-    pub driver_contract: String,
-    pub identity: String,
-    pub role: String,
-    pub input: Value,
-    pub content_hash: String,
+    pub system_messages: Vec<Message>,
+    pub user_message: String,
     pub attachments: Vec<Attachment>,
     pub blocked_tools: HashMap<String, String>,
+    /// Stable key used for provider prompt caching.
+    pub prompt_cache_key: String,
     /// Extra environment variables for sandboxed shell subprocesses.
     pub sandbox_environment: BTreeMap<String, String>,
 }
@@ -271,15 +268,16 @@ impl AgentRuntime {
         if self.turns.contains_key(&run_id) {
             return Err(AgentError::Conflict);
         }
-        let provider = self.config.provider.clone().with_prompt_cache_key(format!(
-            "{}-{}",
-            request.content_hash,
-            prompt::stable_hash(&request.product_contract, &request.driver_contract)
-        ));
+        let provider = self
+            .config
+            .provider
+            .clone()
+            .with_prompt_cache_key(request.prompt_cache_key.clone());
         let session = self.load_session(agent_id, locator).await?;
         let agent_home = self.agent_home(agent_id);
         let session_path = self.session_path(agent_id, locator);
         let sandbox_config = self.config.sandbox.clone();
+        let context = Arc::clone(&self.config.context);
         let plugins = self.plugins.clone();
         let request_owned = request.clone();
         let task = tokio::spawn(async move {
@@ -301,16 +299,14 @@ impl AgentRuntime {
                     ToolExecutor::new(tools),
                     system_messages(&request_owned, &plugins),
                     tool_definitions(&plugins),
+                    context,
                 ),
                 Err(_) => return TurnOutcome::Failed,
             };
-            let turn = match serde_json::to_string(&request_owned.input) {
-                Ok(input) => Turn {
-                    input: prompt::turn_instruction(&input),
-                    attachments: request_owned.attachments.clone(),
-                    blocked_tools: request_owned.blocked_tools.clone(),
-                },
-                Err(_) => return TurnOutcome::Failed,
+            let turn = Turn {
+                input: request_owned.user_message.clone(),
+                attachments: request_owned.attachments.clone(),
+                blocked_tools: request_owned.blocked_tools.clone(),
             };
             let mut session = session;
             let (events, mut event_rx) = tokio::sync::mpsc::channel(64);
@@ -340,7 +336,6 @@ impl AgentRuntime {
                     }
                 }
             });
-            let compacted_before = session.compacted_through();
             let outcome = match engine
                 .run_with_retries(&turn, &mut session, &events, None)
                 .await
@@ -355,15 +350,6 @@ impl AgentRuntime {
                     TurnOutcome::Failed
                 }
             };
-            let compacted_after = session.compacted_through();
-            if compacted_after > compacted_before {
-                tracing::info!(
-                    %run_id,
-                    compacted_messages = compacted_after - compacted_before,
-                    retained_messages = session.messages.len() - compacted_after,
-                    "Builtin provider context compacted"
-                );
-            }
             let usage = session.token_usage();
             tracing::info!(
                 %run_id,
@@ -493,18 +479,11 @@ fn system_messages(request: &TurnRequest, plugins: &[Arc<dyn AgentPlugin>]) -> V
         .filter(|contract| !contract.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n\n");
-    let (stable, dynamic) = prompt::system_messages(
-        &request.product_contract,
-        &request.driver_contract,
-        &request.identity,
-        &request.role,
-        &plugin_contract,
-    );
-    vec![
-        Message::cacheable_system(stable),
-        Message::system(dynamic),
-        Message::system(builtin_tool_contract()),
-    ]
+    let mut messages = request.system_messages.clone();
+    if !plugin_contract.is_empty() {
+        messages.push(Message::system(plugin_contract));
+    }
+    messages
 }
 
 fn tool_definitions(plugins: &[Arc<dyn AgentPlugin>]) -> Vec<ToolDef> {
@@ -534,15 +513,6 @@ fn tool_definitions(plugins: &[Arc<dyn AgentPlugin>]) -> Vec<ToolDef> {
         definitions.extend(plugin.tools());
     }
     definitions
-}
-
-fn builtin_tool_contract() -> String {
-    concat!(
-        "Builtin `read`, `write`, and `edit` paths start with `workspace/` or `memory/`: for example `memory/MEMORY.md`, `memory/notes/<topic>.md`, or `workspace/role.md`.\n",
-        "The bash shell starts at the Agent Home root, so the same `workspace/...` and `memory/...` paths work in shell commands and CLI file arguments.\n",
-        "Shell writes are allowed only under `workspace/` and `$TMPDIR` (the `runs/` directory); `/tmp` and other absolute paths are denied.\n",
-    )
-    .into()
 }
 
 fn tool_definition(name: &str, description: &str, required: &[&str]) -> ToolDef {
@@ -694,7 +664,12 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
-    use crate::{config::SandboxConfig, provider::ProviderConfig, types::ToolDef};
+    use crate::{
+        config::SandboxConfig,
+        context::IdentityContext,
+        provider::ProviderConfig,
+        types::{Message, ToolDef},
+    };
 
     fn agent_config(api_base: &str) -> AgentConfig {
         AgentConfig {
@@ -702,23 +677,17 @@ mod tests {
             provider: ProviderConfig::openai("provider-secret", "test-model".into())
                 .with_base_url(api_base.to_owned()),
             sandbox: SandboxConfig::default(),
+            context: std::sync::Arc::new(IdentityContext),
         }
     }
 
     fn run_request(agent_id: Uuid) -> TurnRequest {
         TurnRequest {
-            product_contract: "Portable agent contract".to_owned(),
-            driver_contract: "Use tools".to_owned(),
-            identity: "Builtin".to_owned(),
-            role: "Complete the current Run".to_owned(),
-            input: serde_json::json!({
-                "agent": { "identity": "Builtin", "role": "Complete the current Run" },
-                "reference": { "agent_id": agent_id },
-                "run_context": { "focus_messages": [] }
-            }),
-            content_hash: "hash".to_owned(),
+            system_messages: vec![Message::system("test system")],
+            user_message: format!("Process run for {agent_id}."),
             attachments: Vec::new(),
             blocked_tools: HashMap::new(),
+            prompt_cache_key: "test-cache-key".to_owned(),
             sandbox_environment: BTreeMap::new(),
         }
     }
@@ -801,6 +770,7 @@ mod tests {
                 computer_home,
                 provider: agent_config(&api_base).provider,
                 sandbox: SandboxConfig::default(),
+                context: std::sync::Arc::new(IdentityContext),
             },
             Vec::new(),
         );

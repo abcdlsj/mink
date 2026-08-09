@@ -1,0 +1,26 @@
+[package]
+name = "sumi-agent-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "Portable core agent runtime for Sumi"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+async-openai = { version = "0.41", default-features = false, features = ["byot", "chat-completion", "rustls"] }
+futures-util = "0.3"
+hex = "0.4"
+libc = "0.2"
+secrecy = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tokio = { version = "1.0", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+uuid = { version = "1.0", features = ["serde", "v7"] }
+
+[dev-dependencies]
+tempfile = "3.0"
+url = "2.5"
