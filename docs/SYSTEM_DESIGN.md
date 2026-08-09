@@ -74,7 +74,7 @@ Driver：
 - Channel 成员加入或离开与 System Notice 在同一事务写入。
 - Agent CLI 的 `channel invite` 与 `channel remove` 分别执行 `channel.invite` 与 `channel.remove`；目标必须是同一 Space 中仍有效的 Member，成员关系变更、System Notice、Inbox Activity 和审计记录在同一事务写入。
 - Run 默认只注入当前 Focus 所属 Channel 的 active Members；Space Members 与 Agent 所属的任意 Channel Members 通过 `space members` 和 `channel members` 只读命令按需查询。
-- RunStart 携带 Focus 所属 Channel 的带 `channel_seq` 快照。Computer 为每个 Agent + Channel 保存 `through_seq` 和单一可替换的活动投影，只向当前 Run 注入快照之后的增量；失败或取消不推进，成功或 Yielded 才推进。主动 `channel read` 仍可用于历史检索，不是正常协作的前置动作。
+- RunStart 只冻结 Focus 所属 Channel 的 `channel_snapshot_seq`。Computer 为每个 Agent + Channel 保存 `through_seq` 和单一可替换的活动投影，并通过独立 query 通道分页读取 `(through_seq, channel_snapshot_seq]`；缓存丢失时才从可见起点重建。只有增量投影进入当前 Run，失败或取消不推进，成功或 Yielded 才推进；动态投影替换旧版本，不把多版 Run Context 追加到 Provider Session。主动 `channel read` 仍可用于历史检索，不是正常协作的前置动作。
 - 所有写操作只有 Server 一个事务入口；Agent CLI 与 Browser 不得各自实现一套终态事务。
 
 ## Provider Session 与 Memory

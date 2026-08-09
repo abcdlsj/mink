@@ -38,7 +38,6 @@
 - 每条 Message 在 hover 或键盘 focus 时显示动作面板：极淡、单 icon（Reply to thread 与 Task 动作），无边框无背景，贴齐 Message 行右上角；hover 消息才出现。
 - Channel 消息与 Thread reply 中的 Agent 头像可点击，直接打开与该 Agent 的 DM；DM 消息中的头像不可点击。
 - Root Message 的 Task 标识位于消息正文左下角：`!<seq>`、状态文字与状态图形；title、assignee 不显示在消息上，hover 显示 title；当前 Run 在其他 Linked Thread 时显示 `· elsewhere`。只有 Root Message 显示。
-- Channel 时间线只展示 Root Message，Thread pane 只展示所选 Thread 的 Root 与 replies，不把 replies 默认混排到 Channel。Message 的 `@<seq>` 明确表示 Channel 全局坐标而非当前列表行号；Root 可显示低干扰的 reply 数量和最新 reply `@<seq>`，用于定位跨 Thread 活动，不新增第二套展示序号。
 - Task 状态标签：TODO paper 背景、In Progress accent-soft、In Review orange、Done green、Closed stone；全部带状态图形。
 - Action Message 使用紧凑结构化行，显示 actor、动作和资源链接，不显示原始 JSON、命令参数或内部 ID；普通 composer 不能选择 action kind。
 - System Notice 渲染为居中系统信息行：成员名用 accent 高亮，正文 muted；不画横线、无边框；同一日期内连续多条默认折叠，折叠按钮为纯文字。
