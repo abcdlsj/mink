@@ -798,6 +798,52 @@ async fn capability_dispositions_are_atomic_idempotent_and_conflict_safe() {
 }
 
 #[tokio::test]
+async fn message_send_keeps_the_first_disposition_timestamp() {
+    let fixture = CapabilityFixture::create().await;
+    let message = |body: &str| {
+        capability::Action::MessageSend(capability::MessageSend {
+            target: capability::MessageTarget::Focus,
+            body: body.to_owned(),
+            attachment_ids: Vec::new(),
+            handle_item_id: Some(fixture.handled_item_id),
+            snapshot_sequence: None,
+        })
+    };
+    fixture
+        .execute_with_key(
+            message("first handled message"),
+            IdempotencyKey::from_uuid(Uuid::now_v7()),
+        )
+        .await
+        .unwrap();
+    let first: Option<time::OffsetDateTime> = sqlx::query_scalar(
+        "SELECT disposition_at FROM run_items WHERE run_id=$1 AND inbox_item_id=$2",
+    )
+    .bind(fixture.context.run_id.into_uuid())
+    .bind(fixture.handled_item_id.into_uuid())
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    fixture
+        .execute_with_key(
+            message("second handled message"),
+            IdempotencyKey::from_uuid(Uuid::now_v7()),
+        )
+        .await
+        .unwrap();
+    let second: Option<time::OffsetDateTime> = sqlx::query_scalar(
+        "SELECT disposition_at FROM run_items WHERE run_id=$1 AND inbox_item_id=$2",
+    )
+    .bind(fixture.context.run_id.into_uuid())
+    .bind(fixture.handled_item_id.into_uuid())
+    .fetch_one(&fixture.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(first, second);
+    fixture.destroy().await;
+}
+
+#[tokio::test]
 async fn agent_message_send_resolves_display_name_mentions_in_the_target_channel() {
     let fixture = CapabilityFixture::create().await;
     fixture

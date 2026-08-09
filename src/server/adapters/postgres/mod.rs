@@ -327,13 +327,15 @@ impl PostgresAdapter {
                  ); \
                  ALTER TABLE run_items DROP CONSTRAINT IF EXISTS run_items_delivery_receipt_check; \
                  ALTER TABLE run_items ADD CONSTRAINT run_items_delivery_receipt_check CHECK ( \
-                    (delivery_outcome IS NULL) = (delivery_event_id IS NULL AND delivery_receipt_at IS NULL) \
+                    (delivery_outcome IS NULL AND delivery_event_id IS NULL AND delivery_receipt_at IS NULL) \
+                    OR (delivery_outcome IS NOT NULL AND delivery_event_id IS NOT NULL AND delivery_receipt_at IS NOT NULL) \
                  ); \
                  UPDATE run_items SET disposition_at=attached_at \
                     WHERE disposition IS NOT NULL AND disposition_at IS NULL; \
                  ALTER TABLE run_items DROP CONSTRAINT IF EXISTS run_items_disposition_at_check; \
                  ALTER TABLE run_items ADD CONSTRAINT run_items_disposition_at_check CHECK ( \
-                    disposition IS NULL OR disposition_at IS NOT NULL \
+                    (disposition IS NULL AND disposition_at IS NULL) \
+                    OR (disposition IS NOT NULL AND disposition_at IS NOT NULL) \
                  ); \
                  CREATE UNIQUE INDEX IF NOT EXISTS run_items_delivery_event_id_key \
                     ON run_items(delivery_event_id); \

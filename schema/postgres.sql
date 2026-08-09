@@ -436,9 +436,15 @@ CREATE TABLE run_items (
     FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE RESTRICT,
     FOREIGN KEY (inbox_item_id) REFERENCES inbox_items(id) ON DELETE RESTRICT,
     CONSTRAINT run_items_delivery_receipt_check
-        CHECK ((delivery_outcome IS NULL) = (delivery_event_id IS NULL AND delivery_receipt_at IS NULL)),
+        CHECK (
+            (delivery_outcome IS NULL AND delivery_event_id IS NULL AND delivery_receipt_at IS NULL)
+            OR (delivery_outcome IS NOT NULL AND delivery_event_id IS NOT NULL AND delivery_receipt_at IS NOT NULL)
+        ),
     CONSTRAINT run_items_disposition_at_check
-        CHECK (disposition IS NULL OR disposition_at IS NOT NULL)
+        CHECK (
+            (disposition IS NULL AND disposition_at IS NULL)
+            OR (disposition IS NOT NULL AND disposition_at IS NOT NULL)
+        )
 );
 
 CREATE TABLE run_result_events (
