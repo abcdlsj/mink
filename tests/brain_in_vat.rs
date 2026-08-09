@@ -674,7 +674,7 @@ fn outer_evaluator_prompt(evidence_path: &Path, repo_root: &Path) -> String {
             "Repository: {repo}\n",
             "Evidence file: {evidence}\n\n",
             "Steps:\n",
-            "1. First read the project code: AGENTS.md, docs/DESIGN.md, docs/SYSTEM_DESIGN.md, src/computer/drivers/prompt.rs, src/computer/drivers/builtin_runtime/mod.rs, src/computer/adapters/sandbox.rs, tests/brain_in_vat.rs, and tests/werewolf_communication.rs.\n",
+            "1. First read the project code: AGENTS.md, docs/DESIGN.md, docs/SYSTEM_DESIGN.md, src/computer/drivers/prompt.rs, src/computer/drivers/builtin_agent.rs, crates/sumi-builtin-agent/src/agent.rs, crates/sumi-builtin-agent/src/sandbox.rs, tests/brain_in_vat.rs, and tests/werewolf_communication.rs.\n",
             "2. Then read the evidence file and inspect any referenced workspace files if they still exist.\n",
             "3. Evaluate acceptance against these criteria:\n",
             "   - The inner Agent used the Agent CLI correctly: Memory read, discovery before agent.create, workspace path handling, message send, inbox ack, and run yield.\n",

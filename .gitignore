@@ -1,4 +1,5 @@
 /target/
+/contrib/sumi-telegram-agent/target/
 /web/node_modules/
 /web/dist/
 /web/test-results/

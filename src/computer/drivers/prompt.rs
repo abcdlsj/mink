@@ -70,15 +70,6 @@ pub(in crate::computer) fn driver_contract() -> String {
     .into()
 }
 
-/// Stable digest of the driver contract so prompt-cache keys cover the full stable system text.
-pub(in crate::computer) fn driver_contract_hash() -> String {
-    use sha2::{Digest, Sha256};
-
-    let mut digest = Sha256::new();
-    digest.update(driver_contract().as_bytes());
-    hex::encode(digest.finalize())
-}
-
 /// Wrap the run input model view JSON into the Driver turn instruction.
 pub(in crate::computer) fn turn_instruction(encoded_view: &str) -> String {
     format!(
@@ -104,19 +95,5 @@ pub(in crate::computer) fn codex_turn_instruction(encoded_view: &str) -> String 
         product_contract(),
         driver_contract(),
         turn_instruction(encoded_view)
-    )
-}
-
-/// Assemble the stable cacheable system text (product contract plus driver contract)
-/// and the dynamic Agent identity.
-pub(in crate::computer) fn system_prompt(
-    product: &str,
-    driver: &str,
-    identity: &str,
-    role: &str,
-) -> (String, String) {
-    (
-        format!("{product}\n\n{driver}"),
-        format!("Agent identity: {identity}\nRole: {role}"),
     )
 }

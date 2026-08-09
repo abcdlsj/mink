@@ -245,7 +245,7 @@ fn estimate_message(message: &Message) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::ToolResult;
+    use super::super::types::{ToolCall, ToolResult};
     use super::*;
 
     fn boundary(first_kept: usize) -> CompactionBoundary {
@@ -373,7 +373,7 @@ mod tests {
         session.add(Message {
             role: "assistant".into(),
             content: String::new(),
-            tool_calls: vec![crate::computer::drivers::builtin_runtime::types::ToolCall {
+            tool_calls: vec![ToolCall {
                 id: "call_1".into(),
                 name: "read".into(),
                 args: serde_json::json!({"path": "workspace/a.txt"}),

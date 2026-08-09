@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 
 use super::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
 
-#[derive(Clone)]
-pub(super) struct ProviderConfig {
+#[derive(Clone, Debug)]
+pub struct ProviderConfig {
     pub(super) api_key: SecretString,
     pub(super) base_url: Option<String>,
     pub(super) model: String,
@@ -18,7 +18,7 @@ pub(super) struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub(super) fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
+    pub fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: None,
@@ -27,12 +27,12 @@ impl ProviderConfig {
         }
     }
 
-    pub(super) fn with_base_url(mut self, url: String) -> Self {
+    pub fn with_base_url(mut self, url: String) -> Self {
         self.base_url = Some(url);
         self
     }
 
-    pub(super) fn with_prompt_cache_key(mut self, key: String) -> Self {
+    pub fn with_prompt_cache_key(mut self, key: String) -> Self {
         if !key.is_empty() {
             self.prompt_cache_key = Some(key);
         }
@@ -178,16 +178,12 @@ fn build_openai_request(
             }
 
             let mut obj = serde_json::json!({ "role": m.role });
-            if !m.content.is_empty() {
-                obj["content"] = if explicit_prompt_cache && m.cache_breakpoint {
-                    serde_json::json!([{
-                        "type": "text",
-                        "text": m.content,
-                        "prompt_cache_breakpoint": { "mode": "explicit" }
-                    }])
-                } else {
-                    serde_json::Value::String(m.content.clone())
-                };
+            let image_attachments = m.attachments.iter().any(|attachment| {
+                attachment.kind == "image"
+                    && (!attachment.data.is_empty() || !attachment.url.is_empty())
+            });
+            if !m.content.is_empty() || image_attachments {
+                obj["content"] = message_content(m, explicit_prompt_cache, image_attachments);
             }
             if !m.tool_calls.is_empty() {
                 obj["tool_calls"] = m
@@ -249,6 +245,48 @@ fn build_openai_request(
     }
 
     request
+}
+
+fn message_content(
+    message: &Message,
+    explicit_prompt_cache: bool,
+    image_attachments: bool,
+) -> serde_json::Value {
+    if !image_attachments {
+        return if explicit_prompt_cache && message.cache_breakpoint {
+            serde_json::json!([{
+                "type": "text",
+                "text": message.content,
+                "prompt_cache_breakpoint": { "mode": "explicit" }
+            }])
+        } else {
+            serde_json::Value::String(message.content.clone())
+        };
+    }
+    let mut parts = vec![serde_json::json!({
+        "type": "text",
+        "text": message.content,
+    })];
+    for attachment in &message.attachments {
+        if attachment.kind != "image" || (attachment.data.is_empty() && attachment.url.is_empty()) {
+            continue;
+        }
+        let url = if !attachment.data.is_empty() {
+            let mime = if attachment.mime.is_empty() {
+                "image/jpeg"
+            } else {
+                attachment.mime.as_str()
+            };
+            format!("data:{mime};base64,{}", attachment.data)
+        } else {
+            attachment.url.clone()
+        };
+        parts.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": { "url": url }
+        }));
+    }
+    serde_json::Value::Array(parts)
 }
 
 #[derive(Default)]

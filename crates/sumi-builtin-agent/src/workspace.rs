@@ -56,7 +56,7 @@ pub(super) async fn edit_utf8(
     Ok(())
 }
 
-pub(super) fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathBuf, PathBuf)> {
+pub fn agent_rooted_path(agent_home: &Path, value: &str) -> Result<(PathBuf, PathBuf)> {
     let relative = validated_relative(value)?;
     let mut components = relative.components();
     let Some(Component::Normal(scope)) = components.next() else {
@@ -263,7 +263,7 @@ async fn resolve_write_file(root: &Path, relative: &Path) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn validate_relative_path(path: &Path) -> Result<()> {
+pub(crate) fn validate_relative_path(path: &Path) -> Result<()> {
     ensure!(
         !path.as_os_str().is_empty()
             && !path.is_absolute()
