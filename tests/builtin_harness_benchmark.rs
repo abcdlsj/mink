@@ -28,10 +28,10 @@
 //!   config.toml/auth.json select the same provider and model)
 //! - `SUMI_HARNESS_DRIVER` (`builtin`, `codex`, or `both`; default `both`)
 //! - `SUMI_HARNESS_REPORT_DIR` (default `target/harness-report`)
-//! - `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW` (default `64000`; the builtin compaction trigger
+//! - `SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW` (default `16000`; the builtin compaction trigger
 //!   is derived from this window so the benchmark deterministically exercises compression)
-//! - `SUMI_HARNESS_COMPACTION_RATIO` (default `0.5`)
-//! - `SUMI_HARNESS_KEEP_RECENT_TOKENS` (default `20000`; recent context tokens kept
+//! - `SUMI_HARNESS_COMPACTION_RATIO` (default `0.75`)
+//! - `SUMI_HARNESS_KEEP_RECENT_TOKENS` (default `8000`; recent context tokens kept
 //!   unsummarized by compaction, mirroring codex and pi)
 //! - `SUMI_HARNESS_ENFORCE_THRESHOLDS` (`1` gates on quality thresholds; default off)
 //! - `SUMI_HARNESS_MIN_CACHE_RATE` (default `0.3`)
@@ -416,9 +416,9 @@ fn builtin_config() -> Result<HarnessBuiltinConfig> {
         .unwrap_or_else(|_| "deepseek-v4-flash".to_owned());
     let token = std::env::var("SUMI_HARNESS_BUILTIN_TOKEN")
         .context("SUMI_HARNESS_BUILTIN_TOKEN is required for the builtin leg")?;
-    let context_window_tokens = env_parse("SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW", 64_000usize)?;
-    let compaction_trigger_ratio = env_parse("SUMI_HARNESS_COMPACTION_RATIO", 0.5f64)?;
-    let compaction_keep_recent_tokens = env_parse("SUMI_HARNESS_KEEP_RECENT_TOKENS", 20_000usize)?;
+    let context_window_tokens = env_parse("SUMI_HARNESS_BUILTIN_CONTEXT_WINDOW", 16_000usize)?;
+    let compaction_trigger_ratio = env_parse("SUMI_HARNESS_COMPACTION_RATIO", 0.75f64)?;
+    let compaction_keep_recent_tokens = env_parse("SUMI_HARNESS_KEEP_RECENT_TOKENS", 8_000usize)?;
     ensure!(
         (0.0..=1.0).contains(&compaction_trigger_ratio) && compaction_trigger_ratio > 0.0,
         "SUMI_HARNESS_COMPACTION_RATIO must be in (0, 1]"
