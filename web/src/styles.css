@@ -4379,42 +4379,11 @@ pre {
   z-index: 2;
   width: 32px;
   height: 32px;
-  background-image: url("/office/arlantr-plant.png");
+  background-image: url("/office/plant.png");
   background-repeat: no-repeat;
-  background-size: 224px 32px;
+  background-size: 32px 32px;
   background-position: 0 0;
   image-rendering: pixelated;
-  animation: arlantr-plant 1.05s steps(1, end) infinite;
-}
-@keyframes arlantr-plant {
-  0%,
-  14.2% {
-    background-position: 0 0;
-  }
-  14.3%,
-  28.5% {
-    background-position: -32px 0;
-  }
-  28.6%,
-  42.8% {
-    background-position: -64px 0;
-  }
-  42.9%,
-  57.1% {
-    background-position: -96px 0;
-  }
-  57.2%,
-  71.4% {
-    background-position: -128px 0;
-  }
-  71.5%,
-  85.7% {
-    background-position: -160px 0;
-  }
-  85.8%,
-  100% {
-    background-position: -192px 0;
-  }
 }
 .office-agent {
   position: absolute;
@@ -4503,11 +4472,27 @@ pre {
   display: block;
   width: 32px;
   height: 32px;
-  background-image: url("/office/arlantr-character.png");
   background-repeat: no-repeat;
-  background-size: 416px 32px;
-  background-position: var(--office-x, 0px) 0;
   image-rendering: pixelated;
+}
+.pixel-agent--sit,
+.pixel-agent--stand {
+  background-image: url("/office/julia-idle.png");
+  background-size: 128px 32px;
+  background-position: 0 0;
+  animation: julia-idle 1.2s steps(1, end) infinite;
+}
+.pixel-agent--walk {
+  background-image: url("/office/julia-walk-forward.png");
+  background-size: 256px 64px;
+  background-position: 0 0;
+  animation: julia-walk 520ms steps(1, end) infinite;
+}
+.pixel-agent--typing {
+  background-image: url("/office/julia-pc.png");
+  background-size: 384px 64px;
+  background-position: 0 0;
+  animation: julia-type 420ms steps(1, end) infinite;
 }
 .pixel-agent--flip {
   transform: scaleX(-1);
@@ -4529,7 +4514,43 @@ pre {
   height: 3px;
   background: var(--ink);
 }
-@keyframes arlantr-walk {
+@keyframes julia-idle {
+  0%,
+  24.99% {
+    background-position: 0 0;
+  }
+  25%,
+  49.99% {
+    background-position: -32px 0;
+  }
+  50%,
+  74.99% {
+    background-position: -64px 0;
+  }
+  75%,
+  100% {
+    background-position: -96px 0;
+  }
+}
+@keyframes julia-walk {
+  0%,
+  24.99% {
+    background-position: 0 0;
+  }
+  25%,
+  49.99% {
+    background-position: -32px 0;
+  }
+  50%,
+  74.99% {
+    background-position: -64px 0;
+  }
+  75%,
+  100% {
+    background-position: -96px 0;
+  }
+}
+@keyframes julia-type {
   0%,
   49.99% {
     background-position: 0 0;
@@ -4539,26 +4560,11 @@ pre {
     background-position: -32px 0;
   }
 }
-.pixel-agent--walk {
-  animation: arlantr-walk 480ms steps(1, end) infinite;
-}
-@keyframes arlantr-type {
-  0%,
-  49.99% {
-    background-position: -256px 0;
-  }
-  50%,
-  100% {
-    background-position: -352px 0;
-  }
-}
-.pixel-agent--typing {
-  animation: arlantr-type 360ms steps(1, end) infinite;
-}
 @media (prefers-reduced-motion: reduce) {
+  .pixel-agent--sit,
+  .pixel-agent--stand,
   .pixel-agent--walk,
-  .pixel-agent--typing,
-  .office-plant-sprite {
+  .pixel-agent--typing {
     animation: none;
   }
 }

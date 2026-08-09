@@ -1,13 +1,9 @@
-import type { CSSProperties } from "react";
-
 export type AgentPose = "sit" | "stand" | "walk" | "typing";
 
-const FRAME_PX = 32;
-
 /**
- * Renders the animated office worker from Arlan_TR's Free office pixel art
- * (https://arlantr.itch.io/free-office-pixel-art). The 416x32 sheet holds 13
- * frames; frame 8 and 11 form the typing animation, frame 0/1 the walk.
+ * Renders Julia from Arlan_TR's Free office pixel art
+ * (https://arlantr.itch.io/free-office-pixel-art). Pose classes switch between
+ * the idle, walk and PC typing sprite sheets; direction is handled by flip.
  */
 export function PixelAgent({
   pose,
@@ -23,8 +19,6 @@ export function PixelAgent({
   const effectivePose: AgentPose = pose === "sit" && working ? "typing" : pose;
   const walking = effectivePose === "walk";
   const typing = effectivePose === "typing";
-  const frame = typing ? 8 : 0;
-  const style = { "--office-x": `${-frame * FRAME_PX}px` } as CSSProperties;
 
   return (
     <span
@@ -35,7 +29,6 @@ export function PixelAgent({
         typing ? "pixel-agent--typing" : "",
         flip ? "pixel-agent--flip" : "",
       ].filter(Boolean).join(" ")}
-      style={style}
       role="img"
       aria-label="Office worker sprite"
     >
