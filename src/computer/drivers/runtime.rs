@@ -490,6 +490,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
     async fn steer(
         &mut self,
         locator: &str,
+        sequence: u64,
         item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         let agent_id = self.owner_for_locator(locator)?;
@@ -511,7 +512,7 @@ impl StructuredProviderClient for CodexRuntimeClient {
                 json!({
                     "threadId": locator,
                     "expectedTurnId": turn_id,
-                    "input": [{"type": "text", "text": format!("New Sumi Inbox Item:\n{encoded}")}]
+                    "input": [{"type": "text", "text": format!("New Sumi Inbox Item @sequence {sequence}:\n{encoded}")}]
                 }),
             )
             .await
@@ -522,7 +523,11 @@ impl StructuredProviderClient for CodexRuntimeClient {
         }
     }
 
-    async fn notice(&mut self, _: &str) -> Result<(), ApplicationError> {
+    async fn notice(
+        &mut self,
+        _: &str,
+        _: &crate::computer::core::input::AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
         Ok(())
     }
 
@@ -852,6 +857,9 @@ done
                     author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
+                channel_id: crate::ids::ChannelId::from_uuid(Uuid::nil()),
+                channel_snapshot_sequence: 1,
+                channel_activity: Vec::new(),
                 dispatched_items: Vec::new(),
             },
             channel_members: Vec::new(),
@@ -862,6 +870,7 @@ done
             client
                 .steer(
                     &locator,
+                    1,
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         source_kind: "mention".to_owned(),

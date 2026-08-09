@@ -6,8 +6,8 @@ use std::{
 
 use async_trait::async_trait;
 use sumi_agent_core::{
-    AgentConfig, AgentError, AgentRuntime, Completion, ProviderConfig, SandboxConfig, TurnOutcome,
-    TurnRequest,
+    AgentConfig, AgentError, AgentRuntime, Completion, MailboxInput, MailboxOutcome, Message,
+    ProviderConfig, SandboxConfig, TurnOutcome, TurnRequest,
 };
 use sumi_builtin_agent::{BuiltinContext, CompactionConfig};
 use time::OffsetDateTime;
@@ -24,7 +24,7 @@ use crate::{
         },
         core::{
             home::LocalAgent,
-            input::{DispatchedItemInput, RunInput},
+            input::{AttentionNoticeInput, DispatchedItemInput, RunInput},
         },
     },
     config::{ComputerConfig, daemon_socket_path},
@@ -114,10 +114,20 @@ impl BuiltinRuntimeClient {
         driver_secret: &[u8],
     ) -> Result<TurnRequest, ApplicationError> {
         let driver_token = CapabilityService::driver_token(driver_secret, input.agent.agent_id);
-        let encoded =
-            serde_json::to_string(&input.model_view()).map_err(|_| ApplicationError::Internal)?;
+        let mut model_view = input.model_view();
+        let dynamic_context = model_view
+            .as_object_mut()
+            .and_then(|view| view.remove("run_context"))
+            .ok_or(ApplicationError::Internal)?;
+        let encoded = serde_json::to_string(&model_view).map_err(|_| ApplicationError::Internal)?;
+        let dynamic_context =
+            serde_json::to_string(&dynamic_context).map_err(|_| ApplicationError::Internal)?;
+        let mut system_messages = prompt::system_messages(&input.agent.identity, &input.agent.role);
+        system_messages.push(Message::system(format!(
+            "[Sumi run context projection]\n{dynamic_context}"
+        )));
         Ok(TurnRequest {
-            system_messages: prompt::system_messages(&input.agent.identity, &input.agent.role),
+            system_messages,
             user_message: prompt::turn_instruction(&encoded),
             attachments: Vec::new(),
             blocked_tools: HashMap::new(),
@@ -174,20 +184,35 @@ impl StructuredProviderClient for BuiltinRuntimeClient {
     async fn steer(
         &mut self,
         locator: &str,
-        _: &DispatchedItemInput,
+        sequence: u64,
+        item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
-        self.runtime_mut()?
-            .steer(locator)
+        let payload = serde_json::to_string(item).map_err(|_| ApplicationError::Internal)?;
+        let outcome = self
+            .runtime_mut()?
+            .steer(locator, MailboxInput::Item { sequence, payload })
             .await
             .map_err(Self::map_error)?;
-        Ok(SteerOutcome::Unsupported)
+        Ok(match outcome {
+            MailboxOutcome::Accepted => SteerOutcome::Accepted,
+            MailboxOutcome::TooLate => SteerOutcome::TooLate,
+        })
     }
 
-    async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError> {
-        self.runtime_mut()?
-            .notice(locator)
+    async fn notice(
+        &mut self,
+        locator: &str,
+        notice: &AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
+        let payload = serde_json::to_string(notice).map_err(|_| ApplicationError::Internal)?;
+        let outcome = self
+            .runtime_mut()?
+            .notice(locator, MailboxInput::Notice { payload })
             .await
-            .map_err(Self::map_error)
+            .map_err(Self::map_error)?;
+        match outcome {
+            MailboxOutcome::Accepted | MailboxOutcome::TooLate => Ok(()),
+        }
     }
 
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError> {
@@ -373,6 +398,7 @@ mod tests {
             client
                 .steer(
                     &locator,
+                    1,
                     &DispatchedItemInput {
                         item_id: InboxItemId::from_uuid(Uuid::now_v7()),
                         source_kind: "mention".to_owned(),
@@ -387,7 +413,7 @@ mod tests {
                 )
                 .await
                 .unwrap(),
-            SteerOutcome::Unsupported
+            SteerOutcome::TooLate
         );
         assert_eq!(
             client.process_evidence(run_id).await.unwrap(),
@@ -403,6 +429,7 @@ mod tests {
             .join(format!("{locator}.json"));
         let stored = fs::read_to_string(&session_path).unwrap();
         assert!(stored.contains("completed"));
+        assert!(!stored.contains("focus_messages"));
         assert!(!stored.contains("provider-secret"));
         let mut resumed = BuiltinRuntimeClient::new(computer_home, &config, [7_u8; 32]).unwrap();
         assert!(resumed.resume_session(agent_id, &locator).await.unwrap());
@@ -478,6 +505,9 @@ mod tests {
                     author_member_id: MemberId::from_uuid(Uuid::now_v7()),
                     body: "message".to_owned(),
                 }],
+                channel_id: ChannelId::from_uuid(Uuid::nil()),
+                channel_snapshot_sequence: 1,
+                channel_activity: Vec::new(),
                 dispatched_items: Vec::new(),
             },
             channel_members: Vec::new(),

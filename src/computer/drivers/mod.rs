@@ -167,17 +167,23 @@ impl<C: ProviderBackend, B: ProviderBackend> DriverPort for DriverAdapter<C, B> 
             .get(&sequence)
             .ok_or(ApplicationError::NotFound)?
             .item;
-        self.backend_mut(driver).steer(&locator, item).await
+        self.backend_mut(driver)
+            .steer(&locator, sequence, item)
+            .await
     }
 
-    async fn notice(&mut self, run: &LocalRun) -> Result<(), ApplicationError> {
+    async fn notice(
+        &mut self,
+        run: &LocalRun,
+        notice: &crate::computer::core::input::AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
         let turn = self
             .turns
             .get(&run.view().id)
             .ok_or(ApplicationError::NotFound)?;
         let driver = turn.driver;
         let locator = turn.locator.clone();
-        self.backend_mut(driver).notice(&locator).await
+        self.backend_mut(driver).notice(&locator, notice).await
     }
 
     async fn interrupt(&mut self, run: &LocalRun) -> Result<(), ApplicationError> {

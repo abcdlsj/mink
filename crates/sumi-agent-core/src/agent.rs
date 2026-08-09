@@ -57,6 +57,33 @@ pub enum TurnOutcome {
     Interrupted,
 }
 
+/// A structured input that can arrive while a Builtin turn is running. The
+/// embedding supplies the payload projection; the runtime only adds it to the
+/// same Provider Session and never logs its contents.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MailboxInput {
+    Item { sequence: u64, payload: String },
+    Notice { payload: String },
+}
+
+impl MailboxInput {
+    fn prompt(&self) -> String {
+        match self {
+            Self::Item { sequence, payload } => {
+                format!("[Sumi delivery item sequence={sequence}]\n{payload}")
+            }
+            Self::Notice { payload } => format!("[Sumi structured notice]\n{payload}"),
+        }
+    }
+}
+
+/// Result of attempting to enqueue an input in a running Builtin turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MailboxOutcome {
+    Accepted,
+    TooLate,
+}
+
 /// One agent turn request. Prompts are assembled by the embedding (harness);
 /// the runtime only transports them and runs the tool loop.
 #[derive(Clone)]
@@ -93,7 +120,62 @@ pub struct AgentRuntime {
 struct BuiltinTurn {
     locator: String,
     agent_id: Uuid,
+    mailbox: Arc<TurnMailbox>,
     task: JoinHandle<(TurnOutcome, Vec<TokenUsage>)>,
+}
+
+struct TurnMailbox {
+    state: std::sync::Mutex<TurnMailboxState>,
+}
+
+struct TurnMailboxState {
+    accepting: bool,
+    inputs: VecDeque<MailboxInput>,
+}
+
+impl Default for TurnMailbox {
+    fn default() -> Self {
+        Self {
+            state: std::sync::Mutex::new(TurnMailboxState {
+                accepting: true,
+                inputs: VecDeque::new(),
+            }),
+        }
+    }
+}
+
+impl TurnMailbox {
+    fn enqueue(&self, input: MailboxInput) -> MailboxOutcome {
+        let Ok(mut state) = self.state.lock() else {
+            return MailboxOutcome::TooLate;
+        };
+        if !state.accepting {
+            return MailboxOutcome::TooLate;
+        }
+        state.inputs.push_back(input);
+        MailboxOutcome::Accepted
+    }
+
+    /// Atomically drain the current batch or close the mailbox when it is empty.
+    /// Enqueuers that obtain the lock before this method are included in the
+    /// batch; enqueuers after an empty close receive `TooLate`.
+    fn drain_or_close(&self) -> Option<Vec<MailboxInput>> {
+        let Ok(mut state) = self.state.lock() else {
+            return None;
+        };
+        if state.inputs.is_empty() {
+            state.accepting = false;
+            None
+        } else {
+            Some(state.inputs.drain(..).collect())
+        }
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.accepting = false;
+        }
+    }
 }
 
 impl AgentRuntime {
@@ -286,6 +368,8 @@ impl AgentRuntime {
         let context = Arc::clone(&self.config.context);
         let plugins = self.plugins.clone();
         let request_owned = request.clone();
+        let mailbox = Arc::new(TurnMailbox::default());
+        let task_mailbox = Arc::clone(&mailbox);
         let task = tokio::spawn(async move {
             let tools = Arc::new(CompositeTools {
                 builtin: BuiltinTools {
@@ -342,7 +426,7 @@ impl AgentRuntime {
                     }
                 }
             });
-            let outcome = match engine
+            let mut outcome = match engine
                 .run_with_retries(&turn, &mut session, &events, None)
                 .await
             {
@@ -356,6 +440,36 @@ impl AgentRuntime {
                     TurnOutcome::Failed
                 }
             };
+            if outcome == TurnOutcome::Completed {
+                while let Some(inputs) = task_mailbox.drain_or_close() {
+                    for input in inputs {
+                        let continuation = Turn {
+                            input: input.prompt(),
+                            attachments: Vec::new(),
+                            blocked_tools: request_owned.blocked_tools.clone(),
+                        };
+                        if engine
+                            .run_with_retries_preserving_usage(
+                                &continuation,
+                                &mut session,
+                                &events,
+                                None,
+                            )
+                            .await
+                            .is_err()
+                        {
+                            outcome = TurnOutcome::Failed;
+                            task_mailbox.close();
+                            break;
+                        }
+                    }
+                    if outcome != TurnOutcome::Completed {
+                        break;
+                    }
+                }
+            } else {
+                task_mailbox.close();
+            }
             let usages = engine.take_usage_records();
             let usage = usages
                 .iter()
@@ -389,18 +503,35 @@ impl AgentRuntime {
             BuiltinTurn {
                 locator: locator.to_owned(),
                 agent_id,
+                mailbox,
                 task,
             },
         );
         Ok(())
     }
 
-    pub async fn steer(&mut self, locator: &str) -> Result<(), AgentError> {
-        self.owner_for_locator(locator).map(|_| ())
+    pub async fn steer(
+        &mut self,
+        locator: &str,
+        input: MailboxInput,
+    ) -> Result<MailboxOutcome, AgentError> {
+        self.owner_for_locator(locator)?;
+        let Some(turn) = self.turns.values().find(|turn| turn.locator == locator) else {
+            return Ok(MailboxOutcome::TooLate);
+        };
+        Ok(turn.mailbox.enqueue(input))
     }
 
-    pub async fn notice(&mut self, locator: &str) -> Result<(), AgentError> {
-        self.owner_for_locator(locator).map(|_| ())
+    pub async fn notice(
+        &mut self,
+        locator: &str,
+        input: MailboxInput,
+    ) -> Result<MailboxOutcome, AgentError> {
+        self.owner_for_locator(locator)?;
+        let Some(turn) = self.turns.values().find(|turn| turn.locator == locator) else {
+            return Ok(MailboxOutcome::TooLate);
+        };
+        Ok(turn.mailbox.enqueue(input))
     }
 
     pub async fn interrupt(&mut self, locator: &str) -> Result<(), AgentError> {
@@ -784,8 +915,31 @@ mod tests {
             runtime.latest_reply(&locator).await.unwrap().as_deref(),
             Some("completed")
         );
-        runtime.steer(&locator).await.unwrap();
-        runtime.notice(&locator).await.unwrap();
+        assert_eq!(
+            runtime
+                .steer(
+                    &locator,
+                    MailboxInput::Item {
+                        sequence: 1,
+                        payload: "test item".to_owned(),
+                    },
+                )
+                .await
+                .unwrap(),
+            MailboxOutcome::TooLate
+        );
+        assert_eq!(
+            runtime
+                .notice(
+                    &locator,
+                    MailboxInput::Notice {
+                        payload: "structured notice".to_owned(),
+                    },
+                )
+                .await
+                .unwrap(),
+            MailboxOutcome::TooLate
+        );
 
         let session_path = runtime.session_path(agent_id, &locator);
         let stored = fs::read_to_string(&session_path).unwrap();
@@ -803,6 +957,141 @@ mod tests {
         assert!(resumed.resume_session(agent_id, &locator).await.unwrap());
         resumed.delete_session(&locator).await.unwrap();
         assert!(!session_path.exists());
+    }
+
+    #[tokio::test]
+    async fn mailbox_input_is_processed_before_finalization_and_rejected_after_close() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let provider_task = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 16 * 1024];
+            let _ = first.read(&mut request).await.unwrap();
+            let _ = ready_tx.send(());
+            release_rx.await.unwrap();
+            let first_body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"first\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,\"total_tokens\":11}}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let first_response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                first_body.len(),
+                first_body
+            );
+            first.write_all(first_response.as_bytes()).await.unwrap();
+
+            for expected in ["Sumi delivery item sequence=7", "Sumi structured notice"] {
+                let (mut continuation, _) = listener.accept().await.unwrap();
+                let mut continuation_request = vec![0_u8; 32 * 1024];
+                let read = continuation.read(&mut continuation_request).await.unwrap();
+                let continuation_request = String::from_utf8_lossy(&continuation_request[..read]);
+                assert!(continuation_request.contains(expected));
+                let usage = if expected.contains("sequence=7") {
+                    20
+                } else {
+                    30
+                };
+                let continuation_body = concat!(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"continuation\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":",
+                    "__USAGE__",
+                    ",\"completion_tokens\":1,\"total_tokens\":__TOTAL__}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                let continuation_body = continuation_body
+                    .replace("__USAGE__", &usage.to_string())
+                    .replace("__TOTAL__", &(usage + 1).to_string());
+                let continuation_response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    continuation_body.len(),
+                    continuation_body
+                );
+                continuation
+                    .write_all(continuation_response.as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        let computer_home = directory.path().join("computer");
+        let agent_id = Uuid::now_v7();
+        let agent_home = computer_home.join("agents").join(agent_id.to_string());
+        for relative in ["workspace", "memory", "runs", "drivers/builtin"] {
+            fs::create_dir_all(agent_home.join(relative)).unwrap();
+        }
+        let mut config = agent_config(&format!("http://{address}/v1"));
+        config.computer_home = computer_home;
+        let mut runtime = AgentRuntime::new(config, Vec::new());
+        let locator = runtime.create_session(agent_id).await.unwrap();
+        let run_id = Uuid::now_v7();
+        runtime
+            .start_turn(run_id, &locator, run_request(agent_id))
+            .await
+            .unwrap();
+        ready_rx.await.unwrap();
+        assert_eq!(
+            runtime
+                .steer(
+                    &locator,
+                    MailboxInput::Item {
+                        sequence: 7,
+                        payload: "queued item".to_owned(),
+                    },
+                )
+                .await
+                .unwrap(),
+            MailboxOutcome::Accepted
+        );
+        assert_eq!(
+            runtime
+                .notice(
+                    &locator,
+                    MailboxInput::Notice {
+                        payload: "structured notice".to_owned(),
+                    },
+                )
+                .await
+                .unwrap(),
+            MailboxOutcome::Accepted
+        );
+        release_tx.send(()).unwrap();
+        loop {
+            if let Some(completion) = runtime.poll_completions().await.unwrap().into_iter().next() {
+                assert_eq!(completion.outcome, TurnOutcome::Completed);
+                assert_eq!(
+                    completion
+                        .usages
+                        .iter()
+                        .map(|usage| usage.input_tokens)
+                        .collect::<Vec<_>>(),
+                    vec![10, 20, 30]
+                );
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            runtime.latest_reply(&locator).await.unwrap().as_deref(),
+            Some("continuation")
+        );
+        assert_eq!(
+            runtime
+                .steer(
+                    &locator,
+                    MailboxInput::Item {
+                        sequence: 8,
+                        payload: "too late".to_owned(),
+                    },
+                )
+                .await
+                .unwrap(),
+            MailboxOutcome::TooLate
+        );
+        provider_task.await.unwrap();
     }
 
     #[tokio::test]

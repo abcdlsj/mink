@@ -7,7 +7,7 @@ use crate::computer::{
     },
     core::{
         home::LocalAgent,
-        input::{DispatchedItemInput, RunInput},
+        input::{AttentionNoticeInput, DispatchedItemInput, RunInput},
     },
 };
 use crate::ids::{AgentId, RunId};
@@ -61,13 +61,18 @@ impl<C: StructuredProviderClient> ProviderBackend for BuiltinAdapter<C> {
     async fn steer(
         &mut self,
         locator: &str,
+        sequence: u64,
         item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
-        self.client.steer(locator, item).await
+        self.client.steer(locator, sequence, item).await
     }
 
-    async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError> {
-        self.client.notice(locator).await
+    async fn notice(
+        &mut self,
+        locator: &str,
+        notice: &AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
+        self.client.notice(locator, notice).await
     }
 
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError> {

@@ -17,7 +17,9 @@ mod tool_executor;
 mod types;
 mod workspace;
 
-pub use agent::{AgentError, AgentRuntime, Completion, TurnOutcome, TurnRequest};
+pub use agent::{
+    AgentError, AgentRuntime, Completion, MailboxInput, MailboxOutcome, TurnOutcome, TurnRequest,
+};
 pub use config::{AgentConfig, SandboxConfig};
 pub use context::{
     ContextStrategy, CutPoint, IdentityContext, Summarizer, estimate_messages,

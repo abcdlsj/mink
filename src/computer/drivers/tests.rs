@@ -23,7 +23,7 @@ use crate::{
             supervisor::{LocalRun, NewRun},
         },
     },
-    ids::{AgentId, InboxItemId, RunId, SpaceId, ThreadId},
+    ids::{AgentId, ChannelId, InboxItemId, RunId, SpaceId, ThreadId},
 };
 
 struct FakeClient {
@@ -83,12 +83,17 @@ impl StructuredProviderClient for FakeClient {
     async fn steer(
         &mut self,
         _: &str,
+        _: u64,
         _: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError> {
         Ok(self.steer)
     }
 
-    async fn notice(&mut self, _: &str) -> Result<(), ApplicationError> {
+    async fn notice(
+        &mut self,
+        _: &str,
+        _: &crate::computer::core::input::AttentionNoticeInput,
+    ) -> Result<(), ApplicationError> {
         Ok(())
     }
 
@@ -283,6 +288,9 @@ fn test_run(driver: DriverKind) -> LocalRun {
                 focus_thread_id: thread_id,
                 message_snapshot_sequence: 1,
                 focus_messages: Vec::new(),
+                channel_id: ChannelId::from_uuid(Uuid::nil()),
+                channel_snapshot_sequence: 1,
+                channel_activity: Vec::new(),
                 dispatched_items: Vec::new(),
             },
             channel_members: Vec::new(),

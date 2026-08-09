@@ -7,7 +7,7 @@ use crate::computer::{
     },
     core::{
         home::LocalAgent,
-        input::{DispatchedItemInput, RunInput},
+        input::{AttentionNoticeInput, DispatchedItemInput, RunInput},
     },
 };
 use crate::ids::{AgentId, RunId};
@@ -37,9 +37,14 @@ pub(in crate::computer) trait ProviderBackend {
     async fn steer(
         &mut self,
         locator: &str,
+        sequence: u64,
         item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError>;
-    async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
+    async fn notice(
+        &mut self,
+        locator: &str,
+        notice: &AttentionNoticeInput,
+    ) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn close(&mut self, locator: &str) -> Result<(), ApplicationError>;
@@ -68,9 +73,14 @@ pub(in crate::computer) trait StructuredProviderClient {
     async fn steer(
         &mut self,
         locator: &str,
+        sequence: u64,
         item: &DispatchedItemInput,
     ) -> Result<SteerOutcome, ApplicationError>;
-    async fn notice(&mut self, locator: &str) -> Result<(), ApplicationError>;
+    async fn notice(
+        &mut self,
+        locator: &str,
+        notice: &AttentionNoticeInput,
+    ) -> Result<(), ApplicationError>;
     async fn interrupt(&mut self, locator: &str) -> Result<(), ApplicationError>;
     async fn restart_agent(&mut self, agent_id: AgentId) -> Result<(), ApplicationError>;
     async fn delete_session(&mut self, locator: &str) -> Result<(), ApplicationError>;

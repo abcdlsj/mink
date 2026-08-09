@@ -98,7 +98,34 @@ impl Engine {
         events: &mpsc::Sender<ToolEvent>,
         sink: Option<&StreamSink>,
     ) -> Result<()> {
-        self.clear_usage_records();
+        self.run_with_retries_inner(turn, session, events, sink, true)
+            .await
+    }
+
+    /// Continue a Run after an input arrived through its mailbox without
+    /// discarding usage records from the earlier provider calls in that Run.
+    pub(super) async fn run_with_retries_preserving_usage(
+        &self,
+        turn: &Turn,
+        session: &mut Session,
+        events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
+    ) -> Result<()> {
+        self.run_with_retries_inner(turn, session, events, sink, false)
+            .await
+    }
+
+    async fn run_with_retries_inner(
+        &self,
+        turn: &Turn,
+        session: &mut Session,
+        events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
+        reset_usage: bool,
+    ) -> Result<()> {
+        if reset_usage {
+            self.clear_usage_records();
+        }
         let mut append_input = true;
         for attempt in 1..=MAX_TURN_ATTEMPTS {
             match self
