@@ -22,7 +22,9 @@ const HOT_THRESHOLD = 5;
 const VISIT_HOLD_MS = 45_000;
 
 const WANDER_DELAY_MS = 25_000;
-const WANDER_HOLD_MS = 8_000;
+const WANDER_HOLD_MS = 5_000;
+const WANDER_ARRIVE_MS = 5_000;
+const LEISURE_HOLD_MS = 12_000;
 
 interface OfficeProp {
   src: string;
@@ -40,6 +42,7 @@ interface OfficeLayout {
   wallTiles: readonly { x: number }[];
   props: readonly OfficeProp[];
   wanderSpots: readonly { x: number; y: number }[];
+  leisureSpots: readonly { x: number; y: number }[];
   meetingSpots: readonly { x: number; y: number }[];
   visitorSpot: { x: number; y: number };
 }
@@ -107,6 +110,11 @@ function buildOfficeLayout(count: number): OfficeLayout {
     props.push({ src: "plant.png", x: width - 48, y: height - 48, width: 32, height: 32 });
     props.push({ src: "water-cooler.png", x: 16, y: height - 96, width: 16, height: 32 });
     props.push({ src: "trash.png", x: width - 32, y: height - 96, width: 16, height: 16 });
+    const gameX = (width - 64) / 2;
+    const gameY = height - 88;
+    props.push({ src: "stamping-table.png", x: gameX, y: gameY, width: 64, height: 32 });
+    props.push({ src: "chair.png", x: gameX + 24, y: gameY - 20, width: 16, height: 16 });
+    props.push({ src: "chair.png", x: gameX + 24, y: gameY + 40, width: 16, height: 16 });
   }
   if (tier >= 2) {
     props.push({ src: "printer.png", x: 16, y: height - 160, width: 64, height: 32 });
@@ -124,8 +132,17 @@ function buildOfficeLayout(count: number): OfficeLayout {
     props.push({ src: "chair.png", x: tableX + 24, y: tableY + 68, width: 16, height: 16 });
     props.push({ src: "chair.png", x: tableX - 20, y: tableY + 24, width: 16, height: 16 });
     props.push({ src: "chair.png", x: tableX + 68, y: tableY + 24, width: 16, height: 16 });
-    props.push({ src: "stamping-table.png", x: (width - 64) / 2, y: height - 60, width: 64, height: 32 });
   }
+
+  const leisureSpots =
+    tier >= 1
+      ? [
+          { x: 40, y: height - 72 },
+          { x: width - 48, y: height - 96 },
+          { x: (width - 64) / 2 + 32, y: height - 88 + 16 },
+          { x: (width - 64) / 2 + 32, y: height - 88 + 48 },
+        ]
+      : [];
 
   const blocked = [
     ...workstations.map((station) => ({
@@ -142,7 +159,7 @@ function buildOfficeLayout(count: number): OfficeLayout {
     })),
   ];
   const wanderSpots: { x: number; y: number }[] = [];
-  for (let y = 72; y < height - 16; y += 48) {
+  for (let y = 104; y < height - 16; y += 48) {
     for (let x = 40; x < width - 16; x += 64) {
       if (!blocked.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)) {
         wanderSpots.push({ x, y });
@@ -173,6 +190,7 @@ function buildOfficeLayout(count: number): OfficeLayout {
     wallTiles,
     props,
     wanderSpots,
+    leisureSpots,
     meetingSpots,
     visitorSpot: { x: width - 80, y: height - 48 },
   };
@@ -221,7 +239,7 @@ export function CompanyOfficeView({
   const [hotGroups, setHotGroups] = useState<ReadonlyMap<string, HotGroup>>(new Map());
   const [settled, setSettled] = useState<ReadonlySet<string> | null>(null);
   const [wanderByMember, setWanderByMember] = useState<
-    ReadonlyMap<string, { x: number; y: number; at: number }>
+    ReadonlyMap<string, { x: number; y: number; at: number; kind: "wander" | "leisure" | "desk" }>
   >(new Map());
   const [governorDms, setGovernorDms] = useState<ReadonlyMap<string, { a: string; b: string }>>(
     () => new Map(),
@@ -411,18 +429,35 @@ export function CompanyOfficeView({
           lastIdleAt.current.set(memberId, now);
         } else {
           const wander = nextWander.get(memberId);
+          const agentIndex = activeAgents.findIndex((candidate) => candidate.member_id === memberId);
+          const desk = layout.desks[agentIndex] ?? layout.desks[0];
           if (!wander) {
             const idleFor = now - (lastIdleAt.current.get(memberId) ?? now);
             if (idleFor >= WANDER_DELAY_MS) {
-              nextWander.set(memberId, { ...pickWanderSpot(layout.wanderSpots), at: now });
+              nextWander.set(memberId, {
+                ...pickIdleTarget(layout.wanderSpots, layout.leisureSpots, desk),
+                at: now,
+              });
               nextSettled.delete(memberId);
               settledChanged = true;
             }
-          } else if (currentSettled.has(memberId) && now - wander.at >= WANDER_HOLD_MS) {
-            nextWander.set(memberId, { ...pickWanderSpot(layout.wanderSpots), at: now });
+          } else if (
+            currentSettled.has(memberId) &&
+            now - wander.at >= (wander.kind === "leisure" ? LEISURE_HOLD_MS : WANDER_HOLD_MS)
+          ) {
+            nextWander.set(memberId, {
+              ...pickIdleTarget(layout.wanderSpots, layout.leisureSpots, desk, wander),
+              at: now,
+            });
             nextSettled.delete(memberId);
             settledChanged = true;
           }
+        }
+      }
+      for (const [memberId, wander] of nextWander) {
+        if (!currentSettled.has(memberId) && now - wander.at >= WANDER_ARRIVE_MS) {
+          nextSettled.add(memberId);
+          settledChanged = true;
         }
       }
       setWanderByMember((current) => {
@@ -568,11 +603,13 @@ export function CompanyOfficeView({
                     : working
                       ? "typing"
                       : wander
-                        ? "stand"
+                        ? wander.kind === "leisure"
+                          ? "leisure"
+                          : "stand"
                         : "sit";
               const duration = reduced
                 ? 0
-                : Math.min(2600, Math.max(350, 140 + distance(desk, target) * 2.1));
+                : Math.min(6000, Math.max(1200, 500 + distance(desk, target) * 5));
               const member = memberById.get(agent.member_id);
               const name = member?.display_name ?? agent.name;
               const offline = agent.computer_reachable === false;
@@ -716,8 +753,21 @@ function distance(from: { x: number; y: number }, to: { x: number; y: number }):
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-function pickWanderSpot(spots: readonly { x: number; y: number }[]): { x: number; y: number } {
-  return spots[Math.floor(Math.random() * spots.length)];
+function pickIdleTarget(
+  spots: readonly { x: number; y: number }[],
+  leisureSpots: readonly { x: number; y: number }[],
+  desk: { x: number; y: number },
+  exclude?: { x: number; y: number },
+): { x: number; y: number; kind: "wander" | "leisure" | "desk" } {
+  const choices: { x: number; y: number; kind: "wander" | "leisure" | "desk" }[] = [
+    ...spots.map((spot) => ({ ...spot, kind: "wander" as const })),
+    ...leisureSpots.map((spot) => ({ ...spot, kind: "leisure" as const })),
+    { ...desk, kind: "desk" as const },
+  ];
+  const candidates = exclude
+    ? choices.filter((choice) => choice.x !== exclude.x || choice.y !== exclude.y)
+    : choices;
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? choices[0];
 }
 
 function agentVariant(seed: string): number {

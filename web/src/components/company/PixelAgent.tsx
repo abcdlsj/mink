@@ -1,4 +1,4 @@
-export type AgentPose = "sit" | "stand" | "walk" | "typing";
+export type AgentPose = "sit" | "stand" | "walk" | "typing" | "leisure";
 
 /**
  * Renders Julia from Arlan_TR's Free office pixel art
@@ -19,16 +19,12 @@ export function PixelAgent({
   variant?: number;
 }) {
   const effectivePose: AgentPose = pose === "sit" && working ? "typing" : pose;
-  const walking = effectivePose === "walk";
-  const typing = effectivePose === "typing";
 
   return (
     <span
       className={[
         "pixel-agent",
         `pixel-agent--${effectivePose}`,
-        walking ? "pixel-agent--walk" : "",
-        typing ? "pixel-agent--typing" : "",
         `pixel-agent--variant-${variant % 4}`,
         flip ? "pixel-agent--flip" : "",
       ].filter(Boolean).join(" ")}

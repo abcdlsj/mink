@@ -4497,6 +4497,12 @@ pre {
   background-position: 0 0;
   animation: julia-type 420ms steps(1, end) infinite;
 }
+.pixel-agent--leisure {
+  background-image: url("/office/julia-coffee.png");
+  background-size: 96px 32px;
+  background-position: 0 0;
+  animation: julia-coffee 1.2s steps(1, end) infinite;
+}
 .pixel-agent--flip {
   transform: scaleX(-1);
 }
@@ -4572,11 +4578,26 @@ pre {
     background-position: -32px 0;
   }
 }
+@keyframes julia-coffee {
+  0%,
+  33.3% {
+    background-position: 0 0;
+  }
+  33.4%,
+  66.6% {
+    background-position: -32px 0;
+  }
+  66.7%,
+  100% {
+    background-position: -64px 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .pixel-agent--sit,
   .pixel-agent--stand,
   .pixel-agent--walk,
-  .pixel-agent--typing {
+  .pixel-agent--typing,
+  .pixel-agent--leisure {
     animation: none;
   }
 }

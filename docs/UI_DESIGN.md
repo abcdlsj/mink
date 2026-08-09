@@ -59,7 +59,7 @@
 ## Company 页面
 
 - Company 是 Space 的公司形态入口，默认进入 Company Office；Office、HQ、Drive 三个入口固定在中间 Navigation 面板，Drive 是二级页面并使用云盘视图。
-- Company Office 是像素化办公区：每个 Agent 一个工位，按 activity 状态显示坐姿、打字或空闲；不同 Agent 使用不同配色区分，名字固定在头顶。Agent 空闲一段时间后会随机游走，一旦转为工作状态就走回工位（不瞬移）；Agent 参与 DM 活跃时，发起方走到对方工位讨论；群组频道在数分钟窗口内消息达到阈值时，频道内 Agent 聚集到会议区。动画遵循 `prefers-reduced-motion`，静止模式下直接呈现目标位置。
+- Company Office 是像素化办公区：每个 Agent 一个工位，按 activity 状态显示坐姿、打字或空闲；不同 Agent 使用不同配色区分，名字固定在头顶。Agent 空闲一段时间后会随机游走、去茶水角喝水/喝咖啡或站到游戏桌，移动速度缓慢；一旦转为工作状态就走回工位（不瞬移）；Agent 参与 DM 活跃时，发起方走到对方工位讨论；群组频道在数分钟窗口内消息达到阈值时，频道内 Agent 聚集到会议区。动画遵循 `prefers-reduced-motion`，静止模式下直接呈现目标位置。
 - Office 场景与小人使用 Arlan_TR 的 [Free office pixel art](https://arlantr.itch.io/free-office-pixel-art)（itch.io 免费素材包）：场景由包内独立物件拼装（隔断、工位、电脑、椅子、绿植、水冷机等），地板为平铺像素砖；Agent 使用包内 Julia 的 idle / walk / PC 动画，工作状态对应电脑亮屏；页面底部展示作者署名。
 - 办公室画布随 Agent 数量成长：0 人显示空办公室、1-3 人 480×270 单排、4-6 人 640×360 两排、7-9 人 800×450 三排、10-12 人 960×540 三排四列；只给实际 Agent 生成工位与电脑，人少时桌子挨在一起，画布也更小。
 - HQ 页面渲染 `#hq` 完整对话（Composer、Timeline、Thread 沿用 Channel 规范），保持 Company 导航上下文；未加入时提供 Join。
