@@ -11,11 +11,15 @@ mod types;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
-use crate::{config::Settings, conversation::Conversation, telegram::TelegramClient};
+use crate::{
+    config::Settings,
+    conversation::{Conversation, ConversationWorker, Job},
+    telegram::TelegramClient,
+};
 
-type ConversationRegistry = Arc<Mutex<HashMap<i64, Arc<Mutex<Conversation>>>>>;
+type ConversationRegistry = Arc<Mutex<HashMap<i64, mpsc::UnboundedSender<Job>>>>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -95,30 +99,22 @@ async fn handle_update(
     message: types::Message,
 ) -> anyhow::Result<()> {
     let mut registry = conversations.lock().await;
-    let conversation = match registry.entry(chat_id) {
+    let sender = match registry.entry(chat_id) {
         std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
         std::collections::hash_map::Entry::Vacant(entry) => {
             let conversation =
                 Conversation::open(settings, chat_id, client.clone(), state_path.to_owned())
                     .await?;
-            let conversation = entry.insert(Arc::new(Mutex::new(conversation))).clone();
-            spawn_scheduler_loop(conversation.clone());
-            conversation
+            let sender = ConversationWorker::spawn(conversation);
+            entry.insert(sender.clone());
+            sender
         }
     };
     drop(registry);
-    conversation.lock().await.handle_message(&message).await
-}
-
-fn spawn_scheduler_loop(conversation: Arc<Mutex<Conversation>>) {
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            if let Err(error) = conversation.lock().await.handle_due_tasks().await {
-                tracing::warn!(%error, "scheduled task delivery failed");
-            }
-        }
-    });
+    sender
+        .send(Job::Message(message))
+        .map_err(|_| anyhow::anyhow!("conversation worker stopped"))?;
+    Ok(())
 }
 
 fn init_tracing() {

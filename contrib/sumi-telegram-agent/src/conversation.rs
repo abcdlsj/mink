@@ -14,6 +14,10 @@ use sumi_builtin_agent::{
     AgentConfig, AgentRuntime, Attachment, MemoryFile, ProviderConfig, SandboxConfig, TurnOutcome,
     TurnRequest, agent_rooted_path,
 };
+use tokio::{
+    sync::mpsc,
+    time::{MissedTickBehavior, interval},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -33,6 +37,67 @@ const REACTION_WORKING: &str = "👀";
 const REACTION_DONE: &str = "✅";
 const REACTION_FAILED: &str = "❌";
 const REACTION_TIMED_OUT: &str = "⏰";
+const SCHEDULER_TICK_SECONDS: u64 = 5;
+
+/// A queued unit of work for one conversation worker.
+#[derive(Debug)]
+pub enum Job {
+    Message(Message),
+}
+
+/// Serializes all work for one conversation so the single provider session is
+/// never used concurrently. New user messages are enqueued immediately, so
+/// sending is never blocked by a running turn; queued messages are processed in
+/// order after the current turn finishes, ahead of scheduled ticks.
+pub struct ConversationWorker {
+    conversation: Conversation,
+    rx: mpsc::UnboundedReceiver<Job>,
+}
+
+impl ConversationWorker {
+    pub fn spawn(conversation: Conversation) -> mpsc::UnboundedSender<Job> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let worker = Self { conversation, rx };
+        tokio::spawn(worker.run());
+        tx
+    }
+
+    async fn run(mut self) {
+        let mut tick = interval(std::time::Duration::from_secs(SCHEDULER_TICK_SECONDS));
+        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            // Drains already queued messages before a scheduler tick can fire.
+            if let Ok(job) = self.rx.try_recv() {
+                if let Err(error) = self.handle(job).await {
+                    tracing::warn!(%error, "conversation job failed");
+                }
+                continue;
+            }
+            tokio::select! {
+                biased;
+                job = self.rx.recv() => match job {
+                    Some(job) => {
+                        if let Err(error) = self.handle(job).await {
+                            tracing::warn!(%error, "conversation job failed");
+                        }
+                    }
+                    None => break,
+                },
+                _ = tick.tick() => {
+                    if let Err(error) = self.conversation.handle_due_tasks().await {
+                        tracing::warn!(%error, "scheduled task delivery failed");
+                    }
+                }
+            }
+        }
+    }
+
+    async fn handle(&mut self, job: Job) -> Result<()> {
+        match job {
+            Job::Message(message) => self.conversation.handle_message(&message).await,
+        }
+    }
+}
 
 struct TelegramFile {
     file_id: String,

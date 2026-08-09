@@ -39,6 +39,10 @@ Send `/reset` in any chat to start a fresh conversation.
 
 ## Replies, reactions and markdown
 
+- Each conversation runs a worker queue: new messages are accepted and
+  enqueued immediately while a turn is running, then processed in order.
+  Sending is never blocked by a long agent turn, and scheduled tasks yield to
+  queued messages.
 - Every bot message replies to the user's original message, including follow-up
   chunks and delivered images.
 - While a request is being processed the original message gets a 👀 reaction;
