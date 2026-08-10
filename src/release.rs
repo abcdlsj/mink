@@ -34,7 +34,7 @@ pub(crate) async fn computer(args: ComputerReleaseArgs) -> anyhow::Result<()> {
     ensure!(
         target
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'),
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')),
         "Computer release target is invalid"
     );
     let artifact_name = format!("sumi-{}-{target}", args.version);
@@ -123,7 +123,7 @@ mod tests {
         computer(ComputerReleaseArgs {
             artifact,
             version: "1.2.3".into(),
-            target: Some("aarch64-apple-darwin".into()),
+            target: Some("x86_64-unknown-linux-gnu".into()),
             output_dir: output.clone(),
         })
         .await
