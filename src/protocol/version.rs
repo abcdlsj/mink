@@ -11,6 +11,10 @@ impl ProtocolVersion {
     pub(crate) const fn new(value: u16) -> Self {
         Self(value)
     }
+
+    pub(crate) const fn value(self) -> u16 {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

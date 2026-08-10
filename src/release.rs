@@ -6,17 +6,16 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     cli::ComputerReleaseArgs,
-    protocol::update::{ComputerRelease, current_target},
+    protocol::{
+        update::{ComputerRelease, current_target},
+        version::CURRENT,
+    },
 };
 
 const MAX_ARTIFACT_BYTES: usize = 200 * 1024 * 1024;
 
 pub(crate) async fn computer(args: ComputerReleaseArgs) -> anyhow::Result<()> {
     semver::Version::parse(&args.version).context("Computer release version must be SemVer")?;
-    ensure!(
-        args.protocol_version > 0,
-        "protocol version must be positive"
-    );
     ensure!(
         args.artifact.is_file(),
         "Computer release artifact must be a regular file"
@@ -41,7 +40,7 @@ pub(crate) async fn computer(args: ComputerReleaseArgs) -> anyhow::Result<()> {
     let artifact_name = format!("sumi-{}-{target}", args.version);
     let release = ComputerRelease {
         version: args.version,
-        protocol_version: args.protocol_version,
+        protocol_version: CURRENT.value(),
         target,
         artifact: artifact_name.clone(),
         sha256: hex::encode(Sha256::digest(&artifact_content)),
@@ -124,7 +123,6 @@ mod tests {
         computer(ComputerReleaseArgs {
             artifact,
             version: "1.2.3".into(),
-            protocol_version: 4,
             target: Some("aarch64-apple-darwin".into()),
             output_dir: output.clone(),
         })
@@ -144,5 +142,6 @@ mod tests {
             manifest.sha256,
             hex::encode(Sha256::digest(b"computer binary"))
         );
+        assert_eq!(manifest.protocol_version, CURRENT.value());
     }
 }

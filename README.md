@@ -194,7 +194,6 @@ Build and package one target:
 sumi release computer \
   --artifact ./target/release/sumi \
   --version 0.2.0 \
-  --protocol-version 4 \
   --target aarch64-apple-darwin \
   --output-dir /var/lib/sumi/releases/stable
 ```
@@ -209,6 +208,11 @@ A release build started from a downloaded path installs itself at
 `~/.sumi/bin/sumi` and continues from that stable path. Later releases replace
 only the stable executable. Users run the downloaded Computer once and do not
 run the release command.
+
+Pushing a tag that matches the Cargo package version, such as `v0.2.0`, builds
+Linux x86_64, macOS Intel, and macOS Apple Silicon Computer executables and
+Server deployment bundles. The GitHub Actions run stores them as workflow
+artifacts and attaches them with `SHA256SUMS` to the GitHub Release.
 
 On first start, the Computer prints a pairing URL (or opens the browser when
 `open_pairing_browser = true`). Confirm the pairing in the Sumi web UI to bind

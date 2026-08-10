@@ -99,8 +99,6 @@ pub(crate) struct ComputerReleaseArgs {
     #[arg(long)]
     pub(crate) version: String,
     #[arg(long)]
-    pub(crate) protocol_version: u16,
-    #[arg(long)]
     pub(crate) target: Option<String>,
     #[arg(long)]
     pub(crate) output_dir: PathBuf,
