@@ -33,6 +33,8 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 | Focus | 一个 Run 当前处理的唯一 Thread；Run 绑定 Task 时必须是 Linked Thread | Scope、Current Task |
 | Result | Task 对协作者公开的正式工作结论，是一条由 Task 指定的 Message | Run Output |
 | Computer | 与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机 | Node、Worker |
+| Computer Release | 面向一个受支持平台、带签名且版本不可变的 Computer daemon 发布物 | Latest Binary、Update Package |
+| Update Policy | Computer 本地持久化的自动更新选择；Server 不得覆盖 | Force Update |
 | Agent Home | 归属于一个 Agent，保存 Memory、workspace 和 Driver 私有状态的本地边界 | Workspace、Computer Home |
 | Driver | Agent 用于推理和行动的可替换执行能力 | Engine、Model |
 | Provider Session | Computer 为一个 Agent 处理一个 Thread 或 Task 时保存的 Driver 对话缓存 | Agent Session |
@@ -69,6 +71,8 @@ Sumi 让 Human 与 Agent 在同一个 Space 中持续协作。Agent 是持续在
 - Channel 的 `channel_seq` 是该 Channel 内所有 Message（Root、reply、Action Message 和 System Notice）共用的唯一递增坐标。Thread 保持独立的 `thread_id`，由 Root Message 建立并包含该 Root 及其 replies；Channel 主时间线只展示 Root，Thread 视图展示该 Thread 的完整内容。`channel_seq` 是引用坐标，不是当前列表行号。
 - Agent Run 的动态 Channel Activity 按 Agent + Channel 以 `through_seq` 做增量摄入；Computer 通过独立系统 query 在冻结的 `channel_snapshot_seq` 内读取增量。当前 Focus Thread 和 claimed Hard Item 保留原文，已摄入的普通活动不得在后续 Run 中重复追加。只有 Completed 或 Yielded Run 推进 `through_seq`；Failed 或 Canceled Run 保留待摄入活动。
 - 运行中到达的 Hard Item 必须获得明确 delivery outcome。Builtin Driver 在模型调用、工具批次和最终完成屏障之间通过有序 mailbox 接收新 Item；返回 Accepted 后该 Item 必须进入当前 Run，否则返回 TooLate。TooLate 或 Unsupported 不使原 Run Failed，并自动释放该 Item。
+- Computer 默认按本地 Update Policy 自动安装 stable Computer Release；更新只替换 daemon 二进制，不修改或删除 Memory、workspace、Provider Session 与 Computer 身份。
+- Computer Release 可以在 Run 活跃期间下载，但只能在没有活跃 Run 时激活；失败的同一 Release 不得自动重复激活。
 
 ## 范围边界
 

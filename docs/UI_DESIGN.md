@@ -70,6 +70,7 @@
 - Agent Inbox 不向普通 Member 公开；Owner/Admin 只能读取来源摘要和错误代码。
 - Members 页面按 Agents、Humans 分组显示扁平列表行：身份（头像 + 名字 + 行内状态点）、Access 控制（自定义下拉）、30px 轻量消息图标。Permission 在 Agent 详情逐项管理，当前动作包括 channel.create、channel.invite、channel.remove 和 agent.create，不提供 Role 套餐。
 - Computers 页面左侧为已配对列表和配对入口；未选择 Computer 时显示配对 onboarding。
+- Computer 更新状态在 Server 持久化协议完成前不进入 UI；第一期只通过 Computer 本地结构化日志和 update journal 诊断，禁止从在线或离线状态推断更新结果。
 - Agent 详情头部只显示安静信号（Activity、Computer 可达性、错误码），不提供 DM 按钮；facts 值使用 13px 并截断超长文本。
 - Agent 详情 Activity feed 按时间倒序；参数压缩为单行 `name = value`（名称 muted 等宽、等号 muted、值 ink-soft 的 code 块，最多 3 个），message preview 为核心 codeblock（accent-soft 底 + accent 左边条 + truncated），时间右对齐；字号统一。
 - 详情分区使用扁平布局：不绘制卡片边框、底色或阴影，用 2px ink 分隔线组织。

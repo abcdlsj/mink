@@ -47,14 +47,23 @@ pub(in crate::server) async fn run(config: ServerConfig) -> anyhow::Result<()> {
     };
     let api = http::api_router(state.clone(), 100 * 1024 * 1024);
     let dispatcher = tokio::spawn(dispatch_available_work_forever(state.clone()));
-    let app = axum::Router::new()
-        .nest("/api/v1", api)
-        .fallback_service(
-            ServeDir::new(&config.web_dist)
-                .append_index_html_on_directories(true)
-                .not_found_service(ServeFile::new(config.web_dist.join("index.html"))),
-        )
-        .layer(TraceLayer::new_for_http());
+    let mut app = axum::Router::new().nest("/api/v1", api).fallback_service(
+        ServeDir::new(&config.web_dist)
+            .append_index_html_on_directories(true)
+            .not_found_service(ServeFile::new(config.web_dist.join("index.html"))),
+    );
+    if let Some(update_dir) = &config.computer_update_dir {
+        app = app
+            .route_service(
+                "/api/v1/computer-updates/stable/manifest",
+                ServeFile::new(update_dir.join("manifest.json")),
+            )
+            .nest_service(
+                "/api/v1/computer-updates/stable/files",
+                ServeDir::new(update_dir),
+            );
+    }
+    let app = app.layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .with_context(|| format!("failed to bind Server at {}", config.bind))?;

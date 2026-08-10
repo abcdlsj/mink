@@ -25,6 +25,7 @@ pub(crate) struct ServerConfig {
     pub(crate) attachment_dir: PathBuf,
     pub(crate) attachment_s3: Option<AttachmentS3Config>,
     pub(crate) attachment_max_bytes: u64,
+    pub(crate) computer_update_dir: Option<PathBuf>,
     pub(crate) secure_cookies: bool,
     pub(crate) session_ttl_hours: i64,
     pub(crate) auth_ip_attempts_per_minute: u32,
@@ -147,6 +148,7 @@ impl Default for ServerConfig {
             attachment_dir: default_sumi_dir().join("server/attachments"),
             attachment_s3: None,
             attachment_max_bytes: 100 * 1024 * 1024,
+            computer_update_dir: None,
             secure_cookies: false,
             session_ttl_hours: 24 * 14,
             auth_ip_attempts_per_minute: 20,
@@ -167,6 +169,10 @@ pub(crate) struct ComputerConfig {
     pub(crate) max_concurrent_runs: usize,
     pub(crate) per_agent_timeout_seconds: u64,
     pub(crate) shutdown_grace_period_seconds: u64,
+    pub(crate) auto_update: bool,
+    pub(crate) update_public_key: Option<String>,
+    pub(crate) update_check_interval_seconds: u64,
+    pub(crate) update_ready_timeout_seconds: u64,
 }
 
 impl Default for ComputerConfig {
@@ -181,6 +187,10 @@ impl Default for ComputerConfig {
             max_concurrent_runs: 1000,
             per_agent_timeout_seconds: 30 * 60,
             shutdown_grace_period_seconds: 20,
+            auto_update: true,
+            update_public_key: None,
+            update_check_interval_seconds: 6 * 60 * 60,
+            update_ready_timeout_seconds: 30,
         }
     }
 }
@@ -242,6 +252,14 @@ fn validate(config: &SumiConfig) -> Result<()> {
     ensure!(
         config.computer.shutdown_grace_period_seconds > 0,
         "computer.shutdown_grace_period_seconds must be positive"
+    );
+    ensure!(
+        config.computer.update_check_interval_seconds > 0,
+        "computer.update_check_interval_seconds must be positive"
+    );
+    ensure!(
+        config.computer.update_ready_timeout_seconds > 0,
+        "computer.update_ready_timeout_seconds must be positive"
     );
     if let Some(builtin) = &config.computer.builtin {
         ensure!(

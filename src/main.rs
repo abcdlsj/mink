@@ -4,12 +4,13 @@ mod computer;
 mod config;
 mod ids;
 mod protocol;
+mod release;
 mod server;
 
 use std::process::ExitCode;
 
 use clap::{Parser, error::ErrorKind};
-use cli::{Cli, Command, SchemaCommand};
+use cli::{Cli, Command, ReleaseCommand, SchemaCommand};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -22,6 +23,14 @@ async fn main() -> ExitCode {
     let (result, exit_code) = match cli.command {
         Command::Server(args) => (server::run(args).await, None),
         Command::Computer(args) => (computer::run(args).await, None),
+        Command::Updater(args) => (computer::update::run_updater(args).await, None),
+        Command::Release(args) => {
+            let result = match args.command {
+                ReleaseCommand::Keygen(args) => release::keygen(args).await,
+                ReleaseCommand::Computer(args) => release::computer(args).await,
+            };
+            (result, None)
+        }
         Command::Agent(args) => {
             let stdin = if args.requires_stdin() {
                 use tokio::io::AsyncReadExt;

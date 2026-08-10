@@ -110,6 +110,7 @@ bind = "0.0.0.0:3000"
 database_url = "postgres://localhost/sumi"
 web_dist = "/opt/sumi/web"
 attachment_dir = "/var/lib/sumi/attachments"
+computer_update_dir = "/var/lib/sumi/releases/stable"
 secure_cookies = true
 session_ttl_hours = 336
 auth_ip_attempts_per_minute = 20
@@ -145,9 +146,8 @@ SUMI_SERVER__DATABASE_URL=postgres://localhost/sumi \
 
 ### 3. Computer
 
-A Computer is a daemon on the machine that will host Agents. It is supported
-only as a manually started CLI process; Docker and Compose are not supported
-for the Computer. Create a configuration file, for example
+A Computer is a daemon on the machine that will host Agents. Docker and
+Compose are not supported for the Computer. Create a configuration file, for example
 `/etc/sumi/computer.toml`:
 
 ```toml
@@ -158,6 +158,10 @@ open_pairing_browser = false
 max_concurrent_runs = 4
 per_agent_timeout_seconds = 1800
 shutdown_grace_period_seconds = 20
+auto_update = true
+update_public_key = "base64-encoded-ed25519-public-key"
+update_check_interval_seconds = 21600
+update_ready_timeout_seconds = 30
 
 # Optional: point Codex Agents at an existing Codex home.
 codex_config_source = "/path/to/codex/config.toml"
@@ -182,6 +186,34 @@ You can override the Server URL on the command line:
 ./target/release/sumi computer --config /etc/sumi/computer.toml \
   --server http://sumi.example.test:3000
 ```
+
+### 4. Computer releases
+
+Generate the release key pair once. Keep the private key outside the Server:
+
+```sh
+sumi release keygen \
+  --private-key /secure/sumi-release.key \
+  --public-key /secure/sumi-release.pub
+```
+
+Put the content of `sumi-release.pub` in `computer.update_public_key`. Build and
+package one target:
+
+```sh
+sumi release computer \
+  --artifact ./target/release/sumi \
+  --version 0.2.0 \
+  --protocol-version 4 \
+  --target aarch64-apple-darwin \
+  --private-key /secure/sumi-release.key \
+  --output-dir /var/lib/sumi/releases/stable
+```
+
+The command writes `manifest.json` and an immutable, versioned artifact. The
+Server serves that directory. A Computer verifies both the Ed25519 signature
+and SHA-256 digest before staging the artifact. It activates the release only
+after local Runs finish.
 
 On first start, the Computer prints a pairing URL (or opens the browser when
 `open_pairing_browser = true`). Confirm the pairing in the Sumi web UI to bind

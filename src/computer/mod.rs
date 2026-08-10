@@ -2,6 +2,7 @@ mod adapters;
 mod application;
 mod core;
 mod drivers;
+pub(crate) mod update;
 
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
@@ -79,8 +80,9 @@ struct AgentActionRequest {
 }
 
 pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
+    let restart_args = args.clone();
     let mut config = load(args.config.as_ref())?.computer;
-    if let Some(server) = args.server {
+    if let Some(server) = args.server.clone() {
         config.server_url = server;
     }
     let (computer_home, secrets) = match find_paired_computer(&config.state_dir).await? {
@@ -218,6 +220,9 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
     )
     .await
     .map_err(|error| anyhow::anyhow!(error))?;
+    update::signal_ready_from_environment().await?;
+    let mut updates =
+        update::start_checker(&config, config.server_url.clone(), computer_home.clone());
     let mut reconnect = ExponentialBuilder::default()
         .with_jitter()
         .with_min_delay(std::time::Duration::from_secs(1))
@@ -225,24 +230,63 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
         .without_max_times()
         .build();
     loop {
-        match connect(
-            &config.server_url,
-            &secrets,
-            &mut storage,
-            &mut driver,
-            &mut homes,
-            config.max_concurrent_runs,
-            &mut yield_interrupt_rx,
-        )
-        .await
-        {
-            Ok(()) => return Ok(()),
-            Err(error) => {
+        enum LoopEvent {
+            Connection(anyhow::Result<()>),
+            Update(update::StagedUpdate),
+        }
+        let event = if let Some(receiver) = updates.as_mut() {
+            tokio::select! {
+                result = connect(
+                    &config.server_url,
+                    &secrets,
+                    &mut storage,
+                    &mut driver,
+                    &mut homes,
+                    config.max_concurrent_runs,
+                    &mut yield_interrupt_rx,
+                ) => LoopEvent::Connection(result),
+                Some(update) = receiver.recv() => LoopEvent::Update(update),
+            }
+        } else {
+            LoopEvent::Connection(
+                connect(
+                    &config.server_url,
+                    &secrets,
+                    &mut storage,
+                    &mut driver,
+                    &mut homes,
+                    config.max_concurrent_runs,
+                    &mut yield_interrupt_rx,
+                )
+                .await,
+            )
+        };
+        match event {
+            LoopEvent::Connection(Ok(())) => return Ok(()),
+            LoopEvent::Connection(Err(error)) => {
                 let delay = reconnect
                     .next()
                     .expect("an unlimited reconnect backoff always yields a delay");
                 tracing::warn!(%error, ?delay, "Computer connection lost; retrying");
                 tokio::time::sleep(delay).await;
+            }
+            LoopEvent::Update(staged) => {
+                if !RecoveryService::live_run_ids(&mut storage)
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error))?
+                    .is_empty()
+                {
+                    tracing::info!(target_version = %staged.version, "Computer update is waiting for active Runs");
+                    continue;
+                }
+                update::launch_updater(
+                    &staged,
+                    &computer_home,
+                    &restart_args,
+                    config.update_ready_timeout_seconds,
+                )
+                .await?;
+                return Ok(());
             }
         }
     }
