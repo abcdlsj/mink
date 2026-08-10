@@ -159,7 +159,6 @@ max_concurrent_runs = 4
 per_agent_timeout_seconds = 1800
 shutdown_grace_period_seconds = 20
 auto_update = true
-update_public_key = "base64-encoded-ed25519-public-key"
 update_check_interval_seconds = 21600
 update_ready_timeout_seconds = 30
 
@@ -184,21 +183,12 @@ You can override the Server URL on the command line:
 
 ```sh
 ./target/release/sumi computer --config /etc/sumi/computer.toml \
-  --server http://sumi.example.test:3000
+  --server https://sumi.example.test
 ```
 
 ### 4. Computer releases
 
-Generate the release key pair once. Keep the private key outside the Server:
-
-```sh
-sumi release keygen \
-  --private-key /secure/sumi-release.key \
-  --public-key /secure/sumi-release.pub
-```
-
-Put the content of `sumi-release.pub` in `computer.update_public_key`. Build and
-package one target:
+Build and package one target:
 
 ```sh
 sumi release computer \
@@ -206,14 +196,19 @@ sumi release computer \
   --version 0.2.0 \
   --protocol-version 4 \
   --target aarch64-apple-darwin \
-  --private-key /secure/sumi-release.key \
   --output-dir /var/lib/sumi/releases/stable
 ```
 
 The command writes `manifest.json` and an immutable, versioned artifact. The
-Server serves that directory. A Computer verifies both the Ed25519 signature
-and SHA-256 digest before staging the artifact. It activates the release only
-after local Runs finish.
+Server serves that directory. A Computer downloads releases only from its
+configured Server and verifies the SHA-256 digest before staging an artifact.
+Production deployments must expose the Server over HTTPS. The Computer
+activates a release only after local Runs finish.
+
+A release build started from a downloaded path installs itself at
+`~/.sumi/bin/sumi` and continues from that stable path. Later releases replace
+only the stable executable. Users run the downloaded Computer once and do not
+run the release command.
 
 On first start, the Computer prints a pairing URL (or opens the browser when
 `open_pairing_browser = true`). Confirm the pairing in the Sumi web UI to bind

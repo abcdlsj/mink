@@ -26,7 +26,6 @@ async fn main() -> ExitCode {
         Command::Updater(args) => (computer::update::run_updater(args).await, None),
         Command::Release(args) => {
             let result = match args.command {
-                ReleaseCommand::Keygen(args) => release::keygen(args).await,
                 ReleaseCommand::Computer(args) => release::computer(args).await,
             };
             (result, None)

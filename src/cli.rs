@@ -21,7 +21,7 @@ pub(crate) enum Command {
     /// Apply a staged Computer update.
     #[command(hide = true)]
     Updater(UpdaterArgs),
-    /// Build signed release metadata for deployment.
+    /// Build release metadata for deployment.
     Release(ReleaseArgs),
     /// Access Sumi as the Agent bound to the current Run.
     Agent(AgentCli),
@@ -88,18 +88,8 @@ pub(crate) struct ReleaseArgs {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ReleaseCommand {
-    /// Generate an Ed25519 key pair for Computer releases.
-    Keygen(ReleaseKeygenArgs),
-    /// Sign and package one Computer daemon release.
+    /// Package one Computer daemon release.
     Computer(ComputerReleaseArgs),
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct ReleaseKeygenArgs {
-    #[arg(long)]
-    pub(crate) private_key: PathBuf,
-    #[arg(long)]
-    pub(crate) public_key: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -112,9 +102,6 @@ pub(crate) struct ComputerReleaseArgs {
     pub(crate) protocol_version: u16,
     #[arg(long)]
     pub(crate) target: Option<String>,
-    /// File containing a base64-encoded 32-byte Ed25519 private key.
-    #[arg(long)]
-    pub(crate) private_key: PathBuf,
     #[arg(long)]
     pub(crate) output_dir: PathBuf,
 }

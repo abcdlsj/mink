@@ -5,8 +5,6 @@ use std::{
 };
 
 use anyhow::{Context, ensure};
-use base64::{Engine, engine::general_purpose::STANDARD};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,8 +12,8 @@ use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
 
 use crate::{
     cli::{ComputerArgs, UpdaterArgs},
-    config::ComputerConfig,
-    protocol::update::{SignedComputerRelease, current_target},
+    config::{ComputerConfig, default_sumi_dir},
+    protocol::update::{ComputerRelease, current_target},
 };
 
 const MAX_ARTIFACT_BYTES: usize = 200 * 1024 * 1024;
@@ -34,6 +32,78 @@ struct UpdateJournal {
     last_version: Option<String>,
 }
 
+pub(crate) async fn install_release_binary_if_needed(
+    args: &ComputerArgs,
+    auto_update: bool,
+) -> anyhow::Result<()> {
+    if cfg!(debug_assertions) || !auto_update {
+        return Ok(());
+    }
+    let current = std::env::current_exe()?;
+    let installed = default_sumi_dir().join("bin/sumi");
+    if same_file(&current, &installed) {
+        return Ok(());
+    }
+    if !installed.is_file()
+        && let Err(error) = install_binary(&current, &installed).await
+    {
+        tracing::warn!(%error, path = %installed.display(), "Computer could not install its stable executable; continuing from the current path");
+        return Ok(());
+    }
+    tracing::info!(path = %installed.display(), "Computer installed its stable executable");
+    exec_computer(&installed, args);
+    Ok(())
+}
+
+fn same_file(left: &Path, right: &Path) -> bool {
+    let Ok(left) = std::fs::canonicalize(left) else {
+        return false;
+    };
+    std::fs::canonicalize(right).is_ok_and(|right| right == left)
+}
+
+async fn install_binary(source: &Path, installed: &Path) -> anyhow::Result<()> {
+    let parent = installed
+        .parent()
+        .context("stable Computer path has no parent")?;
+    ensure_private_directory(parent).await?;
+    let pending = parent.join(format!("sumi.installing-{}", std::process::id()));
+    tokio::fs::copy(source, &pending).await?;
+    make_executable(&pending).await?;
+    let file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(&pending)
+        .await?;
+    file.sync_all().await?;
+    drop(file);
+    match tokio::fs::hard_link(&pending, installed).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    tokio::fs::remove_file(pending).await?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn exec_computer(executable: &Path, args: &ComputerArgs) {
+    use std::os::unix::process::CommandExt;
+
+    let mut command = std::process::Command::new(executable);
+    command.arg("computer");
+    if let Some(config) = &args.config {
+        command.arg("--config").arg(config);
+    }
+    if let Some(server) = &args.server {
+        command.arg("--server").arg(server.as_str());
+    }
+    let error = command.exec();
+    tracing::warn!(%error, path = %executable.display(), "Computer could not restart from its stable executable; continuing from the current path");
+}
+
+#[cfg(not(unix))]
+fn exec_computer(_executable: &Path, _args: &ComputerArgs) {}
+
 pub(crate) fn start_checker(
     config: &ComputerConfig,
     server: url::Url,
@@ -43,17 +113,11 @@ pub(crate) fn start_checker(
         tracing::info!("Computer automatic updates are disabled by local policy");
         return None;
     }
-    let Some(public_key) = config.update_public_key.clone() else {
-        tracing::info!(
-            "Computer automatic updates are inactive because no trusted public key is configured"
-        );
-        return None;
-    };
     let interval = Duration::from_secs(config.update_check_interval_seconds);
     let (sender, receiver) = mpsc::channel(1);
     tokio::spawn(async move {
         loop {
-            match check_and_stage(&server, &computer_home, &public_key).await {
+            match check_and_stage(&server, &computer_home).await {
                 Ok(Some(update)) => {
                     tracing::info!(target_version = %update.version, "Computer update staged");
                     loop {
@@ -77,55 +141,53 @@ pub(crate) fn start_checker(
 async fn check_and_stage(
     server: &url::Url,
     computer_home: &Path,
-    encoded_public_key: &str,
 ) -> anyhow::Result<Option<StagedUpdate>> {
+    ensure_secure_update_origin(server)?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
     let endpoint = server.join("api/v1/computer-updates/stable/manifest")?;
-    let response = reqwest::Client::new().get(endpoint).send().await?;
+    let response = client.get(endpoint).send().await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    let manifest = response
+    let release = response
         .error_for_status()?
-        .json::<SignedComputerRelease>()
+        .json::<ComputerRelease>()
         .await
         .context("invalid Computer release manifest")?;
-    verify_manifest(&manifest, encoded_public_key)?;
     ensure!(
-        manifest.release.target == current_target(),
+        release.target == current_target(),
         "release target does not match this Computer"
     );
     ensure!(
-        valid_artifact_name(&manifest.release.artifact),
+        valid_artifact_name(&release.artifact),
         "release artifact name is invalid"
     );
 
     let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
-    let candidate = Version::parse(&manifest.release.version)?;
+    let candidate = Version::parse(&release.version)?;
     if candidate <= current {
         return Ok(None);
     }
     let update_root = computer_home.join("update");
     let journal = read_journal(&update_root.join("journal.json")).await?;
-    if journal.failed_version.as_deref() == Some(manifest.release.version.as_str())
+    if journal.failed_version.as_deref() == Some(release.version.as_str())
         || (journal.last_result.as_deref() == Some("succeeded")
-            && journal.last_version.as_deref() == Some(manifest.release.version.as_str()))
+            && journal.last_version.as_deref() == Some(release.version.as_str()))
     {
         return Ok(None);
     }
 
-    let staged_dir = update_root.join("staged").join(&manifest.release.version);
+    let staged_dir = update_root.join("staged").join(&release.version);
     ensure_private_directory(&staged_dir).await?;
     let staged = staged_dir.join("sumi");
-    if file_sha256(&staged).await.as_deref() != Some(manifest.release.sha256.as_str()) {
+    if file_sha256(&staged).await.as_deref() != Some(release.sha256.as_str()) {
         let artifact_url = server.join(&format!(
             "api/v1/computer-updates/stable/files/{}",
-            manifest.release.artifact
+            release.artifact
         ))?;
-        let response = reqwest::Client::new()
-            .get(artifact_url)
-            .send()
-            .await?
-            .error_for_status()?;
+        let response = client.get(artifact_url).send().await?.error_for_status()?;
         if let Some(length) = response.content_length() {
             ensure!(
                 length <= MAX_ARTIFACT_BYTES as u64,
@@ -139,34 +201,32 @@ async fn check_and_stage(
         );
         let actual = hex::encode(Sha256::digest(&content));
         ensure!(
-            actual == manifest.release.sha256,
+            actual == release.sha256,
             "Computer release artifact hash mismatch"
         );
         write_executable_atomically(&staged, &content).await?;
     }
     Ok(Some(StagedUpdate {
-        version: manifest.release.version,
+        version: release.version,
         candidate: staged,
     }))
 }
 
-fn verify_manifest(manifest: &SignedComputerRelease, encoded_key: &str) -> anyhow::Result<()> {
-    let key: [u8; 32] = STANDARD
-        .decode(encoded_key.trim())
-        .context("Computer update public key is not base64")?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("Computer update public key must be 32 bytes"))?;
-    let signature: [u8; 64] = STANDARD
-        .decode(manifest.signature.trim())
-        .context("Computer release signature is not base64")?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("Computer release signature must be 64 bytes"))?;
-    VerifyingKey::from_bytes(&key)?
-        .verify(
-            &manifest.release.signing_bytes()?,
-            &Signature::from_bytes(&signature),
-        )
-        .context("Computer release signature verification failed")
+fn ensure_secure_update_origin(server: &url::Url) -> anyhow::Result<()> {
+    let local_http = server.scheme() == "http"
+        && match server.host() {
+            Some(url::Host::Ipv4(address)) => address.is_loopback(),
+            Some(url::Host::Ipv6(address)) => address.is_loopback(),
+            Some(url::Host::Domain(domain)) => {
+                domain == "localhost" || domain.ends_with(".localhost")
+            }
+            None => false,
+        };
+    ensure!(
+        server.scheme() == "https" || local_http,
+        "Computer automatic updates require HTTPS except on localhost"
+    );
+    Ok(())
 }
 
 fn valid_artifact_name(value: &str) -> bool {
@@ -501,29 +561,7 @@ async fn make_executable(path: &Path) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use axum::{Json, Router, routing::get};
-    use ed25519_dalek::{Signer, SigningKey};
     use tempfile::tempdir;
-
-    #[test]
-    fn verifies_a_signed_manifest_and_rejects_changes() {
-        let signing = SigningKey::from_bytes(&[7_u8; 32]);
-        let release = crate::protocol::update::ComputerRelease {
-            version: "1.2.3".into(),
-            protocol_version: 4,
-            target: current_target().into(),
-            artifact: "sumi".into(),
-            sha256: "abc".into(),
-        };
-        let signature = signing.sign(&release.signing_bytes().unwrap());
-        let mut manifest = SignedComputerRelease {
-            release,
-            signature: STANDARD.encode(signature.to_bytes()),
-        };
-        let key = STANDARD.encode(signing.verifying_key().to_bytes());
-        verify_manifest(&manifest, &key).unwrap();
-        manifest.release.version = "9.9.9".into();
-        assert!(verify_manifest(&manifest, &key).is_err());
-    }
 
     #[test]
     fn artifact_name_cannot_escape_the_release_directory() {
@@ -533,10 +571,57 @@ mod tests {
         assert!(!valid_artifact_name("/tmp/sumi"));
     }
 
+    #[test]
+    fn update_origin_requires_https_except_on_loopback() {
+        for value in [
+            "https://sumi.example.test/",
+            "http://localhost:3000/",
+            "http://computer.localhost:3000/",
+            "http://127.0.0.1:3000/",
+            "http://[::1]:3000/",
+        ] {
+            ensure_secure_update_origin(&url::Url::parse(value).unwrap()).unwrap();
+        }
+        assert!(
+            ensure_secure_update_origin(
+                &url::Url::parse("http://sumi.example.test:3000/").unwrap()
+            )
+            .is_err()
+        );
+    }
+
     #[tokio::test]
-    async fn signed_release_is_downloaded_and_staged() {
-        let signing = SigningKey::from_bytes(&[9_u8; 32]);
-        let artifact = b"signed computer binary".to_vec();
+    async fn first_install_creates_a_stable_executable_without_overwriting_it() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("downloaded-sumi");
+        let installed = directory.path().join("bin/sumi");
+        tokio::fs::write(&source, b"first release").await.unwrap();
+
+        install_binary(&source, &installed).await.unwrap();
+        tokio::fs::write(&source, b"old downloaded copy")
+            .await
+            .unwrap();
+        install_binary(&source, &installed).await.unwrap();
+
+        assert_eq!(tokio::fs::read(&installed).await.unwrap(), b"first release");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                tokio::fs::metadata(installed)
+                    .await
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn same_origin_release_is_downloaded_verified_and_staged() {
+        let artifact = b"computer binary".to_vec();
         let release = crate::protocol::update::ComputerRelease {
             version: "9.9.9".into(),
             protocol_version: 4,
@@ -544,17 +629,12 @@ mod tests {
             artifact: "sumi-test".into(),
             sha256: hex::encode(Sha256::digest(&artifact)),
         };
-        let signature = signing.sign(&release.signing_bytes().unwrap());
-        let manifest = SignedComputerRelease {
-            release,
-            signature: STANDARD.encode(signature.to_bytes()),
-        };
         let app = Router::new()
             .route(
                 "/api/v1/computer-updates/stable/manifest",
                 get({
-                    let manifest = manifest.clone();
-                    move || async move { Json(manifest) }
+                    let release = release.clone();
+                    move || async move { Json(release) }
                 }),
             )
             .route(
@@ -572,7 +652,6 @@ mod tests {
         let staged = check_and_stage(
             &url::Url::parse(&format!("http://{address}/")).unwrap(),
             directory.path(),
-            &STANDARD.encode(signing.verifying_key().to_bytes()),
         )
         .await
         .unwrap()

@@ -170,7 +170,6 @@ pub(crate) struct ComputerConfig {
     pub(crate) per_agent_timeout_seconds: u64,
     pub(crate) shutdown_grace_period_seconds: u64,
     pub(crate) auto_update: bool,
-    pub(crate) update_public_key: Option<String>,
     pub(crate) update_check_interval_seconds: u64,
     pub(crate) update_ready_timeout_seconds: u64,
 }
@@ -188,7 +187,6 @@ impl Default for ComputerConfig {
             per_agent_timeout_seconds: 30 * 60,
             shutdown_grace_period_seconds: 20,
             auto_update: true,
-            update_public_key: None,
             update_check_interval_seconds: 6 * 60 * 60,
             update_ready_timeout_seconds: 30,
         }

@@ -36,10 +36,11 @@ Driver：
 
 ## Computer 更新
 
-- Server 从配置的 stable release 目录公开不可变 manifest 与二进制；Server 不持有发布私钥，也不在运行时生成签名。
-- manifest 包含 daemon version、protocol version、target、artifact、sha256 和 Ed25519 signature；signature 覆盖除 signature 外的完整结构。Computer 只从 manifest 所在 Server origin 下载 artifact。
-- Computer 在启动后检查更新，此后按配置周期检查。自动更新默认启用；未配置可信公钥时不下载或激活发布物。
-- Computer 在本地校验 target、版本、签名和 sha256，再把 artifact 写入私有 staging 目录。下载和校验不得读取 Message、Attachment、Memory、workspace、Provider transcript 或 Secret 正文。
+- Server 从配置的 stable release 目录公开不可变 manifest 与二进制。manifest 包含 daemon version、protocol version、target、artifact 和 sha256。
+- Computer 只从已连接 Server 的同一 origin 下载 manifest 与 artifact；生产传输使用 HTTPS，sha256 检测损坏或不一致的 artifact。Server 是其所承载 Computer 的更新信任边界，不增加全局发行密钥。
+- release Computer 首次从稳定路径之外运行时，把自身原子复制到 `~/.sumi/bin/sumi` 并从该路径重新执行；已存在的稳定副本优先，防止旧下载文件覆盖已更新版本。debug 构建不自动安装。
+- Computer 在启动后检查更新，此后按配置周期检查。Update Policy 关闭自动更新时，Computer 不自动安装或检查发布物。
+- Computer 在本地校验 target、版本和 sha256，再把 artifact 写入私有 staging 目录。下载和校验不得读取 Message、Attachment、Memory、workspace、Provider transcript 或 Secret 正文。
 - 有活跃 Run 时只保留 staged artifact。没有活跃 Run 时，Computer 启动一次性 updater 并退出；updater 备份当前二进制与关闭后的 SQLite 文件，再替换二进制并启动新 daemon。
 - 新 daemon 完成本地数据库、sandbox、Driver recovery 和 capability socket 初始化后写 readiness 标记。readiness 超时或进程提前退出时，updater 恢复旧二进制与 SQLite 备份并重启旧 daemon。
 - updater 在本地 journal 记录成功或回退。已经回退的 release 不得再次自动激活；新的 release 仍可尝试。

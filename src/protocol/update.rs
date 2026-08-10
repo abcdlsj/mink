@@ -10,19 +10,6 @@ pub(crate) struct ComputerRelease {
     pub(crate) sha256: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SignedComputerRelease {
-    pub(crate) release: ComputerRelease,
-    pub(crate) signature: String,
-}
-
-impl ComputerRelease {
-    pub(crate) fn signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
-        serde_json::to_vec(self)
-    }
-}
-
 pub(crate) fn current_target() -> &'static str {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         "aarch64-apple-darwin"
@@ -54,7 +41,7 @@ mod tests {
     use super::ComputerRelease;
 
     #[test]
-    fn signing_payload_is_stable() {
+    fn manifest_shape_is_stable() {
         let release = ComputerRelease {
             version: "1.2.3".into(),
             protocol_version: 4,
@@ -64,7 +51,7 @@ mod tests {
         };
 
         assert_eq!(
-            String::from_utf8(release.signing_bytes().unwrap()).unwrap(),
+            serde_json::to_string(&release).unwrap(),
             r#"{"version":"1.2.3","protocol_version":4,"target":"aarch64-apple-darwin","artifact":"sumi","sha256":"abc"}"#
         );
     }

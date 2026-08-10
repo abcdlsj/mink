@@ -85,6 +85,7 @@ pub(crate) async fn run(args: ComputerArgs) -> anyhow::Result<()> {
     if let Some(server) = args.server.clone() {
         config.server_url = server;
     }
+    update::install_release_binary_if_needed(&args, config.auto_update).await?;
     let (computer_home, secrets) = match find_paired_computer(&config.state_dir).await? {
         Some(paired) => paired,
         None => pair(&config.state_dir, &config.server_url).await?,
